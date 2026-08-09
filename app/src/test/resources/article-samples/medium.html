@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<head>
+    <title>Designing resilient offline readers - Publishing Sample</title>
+    <meta property="og:title" content="Designing resilient offline readers">
+    <meta name="author" content="Sample Writer">
+    <meta property="article:published_time" content="2026-08-01T20:45:00Z">
+</head>
+<body>
+<div role="navigation">Home　Topics　Bookmarks　Membership</div>
+<main>
+    <article>
+        <h1>Designing resilient offline readers</h1>
+        <p>An offline reader is useful only when its content pipeline is observable and recoverable. Fetching, extraction, sanitization, scoring, and caching should be separate stages with clear failure boundaries.</p>
+        <p>Static HTML remains the cheapest path. Structured metadata and explicit selectors can provide high-confidence candidates, while a readability algorithm handles pages without dedicated rules.</p>
+        <blockquote>Fallback behavior is part of the product, not merely an error state.</blockquote>
+        <p>When extraction fails, the interface should explain whether the page is dynamic, restricted, unavailable, or simply lacks a recognizable article body. Users must still be able to open the original page.</p>
+        <img src="/media/offline-reader.png" alt="Offline reader flow">
+        <p>The complete example is linked from the <a href="/notes/offline-reader">implementation notes</a>. All samples remain local so regression tests are fast and repeatable.</p>
+    </article>
+</main>
+</body>
+</html>

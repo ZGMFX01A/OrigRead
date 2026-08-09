@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+<head>
+    <title>规则正文测试</title>
+    <meta property="og:description" content="这是一个很短的页面描述，不应该覆盖明确正文规则。">
+</head>
+<body>
+<nav><a href="/home">首页</a></nav>
+<main>
+    <article>
+        <h1>规则正文测试</h1>
+        <section class="story-body">
+            <p>规则指定正文第一段包含足够多的文字，用于确认明确配置的正文选择器能够优先于 Readability 和结构化元数据候选。</p>
+            <p>规则指定正文第二段继续提供有效内容，并包含一张相对路径图片和一个相对链接，以验证统一清洗与地址补全逻辑。</p>
+            <img src="/images/photo.jpg" onerror="window.bad()">
+            <a href="/more" onclick="window.bad()">相关阅读</a>
+            <script>window.bad = true;</script>
+        </section>
+    </article>
+</main>
+</body>
+</html>

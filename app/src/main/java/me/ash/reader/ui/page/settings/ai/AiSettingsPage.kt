@@ -1,0 +1,470 @@
+package me.ash.reader.ui.page.settings.ai
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Error
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import me.ash.reader.R
+import me.ash.reader.infrastructure.ai.AiSummaryLength
+import me.ash.reader.ui.component.base.Banner
+import me.ash.reader.ui.component.base.DisplayText
+import me.ash.reader.ui.component.base.FeedbackIconButton
+import me.ash.reader.ui.component.base.RYScaffold
+import me.ash.reader.ui.component.base.RYSwitch
+import me.ash.reader.ui.ext.collectAsStateValue
+
+@Composable
+fun AiSettingsPage(
+    onBack: () -> Unit,
+    viewModel: AiSettingsViewModel = hiltViewModel(),
+) {
+    val state = viewModel.uiState.collectAsStateValue()
+    val profile = state.selectedProvider ?: return
+    val testSuccess = stringResource(R.string.ai_test_success)
+    val testFailure = stringResource(R.string.ai_test_failed)
+    var providerMenuExpanded by remember { mutableStateOf(false) }
+    var modelMenuExpanded by remember { mutableStateOf(false) }
+
+    RYScaffold(
+        navigationIcon = {
+            FeedbackIconButton(
+                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                contentDescription = stringResource(R.string.back),
+                onClick = onBack,
+            )
+        },
+        content = {
+            LazyColumn {
+                item {
+                    DisplayText(
+                        text = stringResource(R.string.ai_settings),
+                        desc = stringResource(R.string.ai_settings_desc),
+                    )
+                }
+                item {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = stringResource(R.string.ai_enable),
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
+                                Text(
+                                    text = stringResource(R.string.ai_enable_desc),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            RYSwitch(activated = state.settings.enabled) {
+                                viewModel.setEnabled(!state.settings.enabled)
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = state.settings.outputLanguage,
+                            onValueChange = viewModel::setOutputLanguage,
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            label = { Text(stringResource(R.string.ai_output_language)) },
+                            supportingText = {
+                                Text(stringResource(R.string.ai_output_language_desc))
+                            },
+                        )
+
+                        Text(
+                            text = stringResource(R.string.ai_summary_length),
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            AiSummaryLength.entries.forEach { length ->
+                                FilterChip(
+                                    selected = state.settings.summaryLength == length,
+                                    onClick = { viewModel.setSummaryLength(length) },
+                                    label = { Text(summaryLengthName(length)) },
+                                )
+                            }
+                        }
+                        Text(
+                            text = summaryLengthDescription(state.settings.summaryLength),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = stringResource(R.string.ai_providers),
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
+                                Text(
+                                    text = stringResource(R.string.ai_providers_desc),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            FilledTonalButton(onClick = viewModel::addProvider) {
+                                Icon(Icons.Outlined.Add, contentDescription = null)
+                                Text(stringResource(R.string.ai_add_provider))
+                            }
+                        }
+
+                        Box {
+                            OutlinedButton(
+                                onClick = { providerMenuExpanded = true },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(
+                                    if (profile.id == state.settings.defaultProviderId) {
+                                        stringResource(
+                                            R.string.ai_provider_default_item,
+                                            profile.name,
+                                        )
+                                    } else {
+                                        profile.name
+                                    }
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = providerMenuExpanded,
+                                onDismissRequest = { providerMenuExpanded = false },
+                            ) {
+                                state.settings.providers.forEach { item ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                if (item.id == state.settings.defaultProviderId) {
+                                                    stringResource(
+                                                        R.string.ai_provider_default_item,
+                                                        item.name,
+                                                    )
+                                                } else {
+                                                    item.name
+                                                }
+                                            )
+                                        },
+                                        onClick = {
+                                            providerMenuExpanded = false
+                                            modelMenuExpanded = false
+                                            viewModel.selectProvider(item.id)
+                                        },
+                                    )
+                                }
+                            }
+                        }
+
+                        OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = stringResource(R.string.ai_provider_enabled),
+                                            style = MaterialTheme.typography.titleSmall,
+                                        )
+                                        Text(
+                                            text = stringResource(R.string.ai_provider_enabled_desc),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    if (profile.id == state.settings.defaultProviderId) {
+                                        AssistChip(
+                                            onClick = {},
+                                            label = {
+                                                Text(stringResource(R.string.ai_default_provider))
+                                            },
+                                        )
+                                    }
+                                    RYSwitch(activated = profile.enabled) {
+                                        viewModel.setProviderEnabled(!profile.enabled)
+                                    }
+                                }
+                                if (profile.models.isNotEmpty()) {
+                                    Text(
+                                        text =
+                                            stringResource(
+                                                R.string.ai_provider_models_summary,
+                                                profile.models.size,
+                                            ),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                OutlinedTextField(
+                                    value = profile.name,
+                                    onValueChange = viewModel::setProviderName,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    label = { Text(stringResource(R.string.ai_provider_name)) },
+                                )
+                                OutlinedTextField(
+                                    value = profile.endpoint,
+                                    onValueChange = viewModel::setEndpoint,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    label = { Text(stringResource(R.string.ai_endpoint)) },
+                                    supportingText = {
+                                        Text(stringResource(R.string.ai_endpoint_desc))
+                                    },
+                                )
+                                OutlinedTextField(
+                                    value = state.modelDraft,
+                                    onValueChange = viewModel::setModel,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    label = { Text(stringResource(R.string.ai_default_model)) },
+                                    supportingText = {
+                                        Text(stringResource(R.string.ai_default_model_desc))
+                                    },
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Button(
+                                        onClick = viewModel::loadModels,
+                                        enabled =
+                                            profile.endpoint.isNotBlank() &&
+                                                state.loadingModelsProviderId == null,
+                                    ) {
+                                        if (state.loadingModelsProviderId == profile.id) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.height(18.dp),
+                                                strokeWidth = 2.dp,
+                                            )
+                                        } else {
+                                            Text(stringResource(R.string.ai_fetch_models))
+                                        }
+                                    }
+                                    if (profile.models.isNotEmpty()) {
+                                        Box {
+                                            TextButton(onClick = { modelMenuExpanded = true }) {
+                                                Text(
+                                                    stringResource(
+                                                        R.string.ai_choose_model,
+                                                        profile.models.size,
+                                                    )
+                                                )
+                                            }
+                                            DropdownMenu(
+                                                expanded = modelMenuExpanded,
+                                                onDismissRequest = { modelMenuExpanded = false },
+                                            ) {
+                                                profile.models.forEach { model ->
+                                                    DropdownMenuItem(
+                                                        text = {
+                                                            Text(
+                                                                if (model == profile.defaultModel) {
+                                                                    stringResource(
+                                                                        R.string.ai_model_default_item,
+                                                                        model,
+                                                                    )
+                                                                } else {
+                                                                    model
+                                                                }
+                                                            )
+                                                        },
+                                                        onClick = {
+                                                            modelMenuExpanded = false
+                                                            viewModel.selectModel(model)
+                                                        },
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                state.modelLoadError?.takeIf(String::isNotBlank)?.let { error ->
+                                    Text(
+                                        text = stringResource(R.string.ai_fetch_models_failed, error),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                }
+
+                                OutlinedTextField(
+                                    value = state.apiKeyDraft,
+                                    onValueChange = viewModel::updateApiKeyDraft,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    visualTransformation = PasswordVisualTransformation(),
+                                    label = { Text(stringResource(R.string.ai_optional_api_key)) },
+                                    supportingText = {
+                                        Text(stringResource(R.string.ai_optional_api_key_desc))
+                                    },
+                                )
+                                Button(
+                                    onClick = viewModel::saveApiKey,
+                                    enabled = state.apiKeyDraft.isNotBlank() || state.hasApiKey,
+                                ) {
+                                    Text(
+                                        stringResource(
+                                            if (state.hasApiKey && state.apiKeyDraft.isBlank()) {
+                                                R.string.ai_remove_key
+                                            } else {
+                                                R.string.ai_save_key
+                                            }
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                item {
+                    Banner(
+                        title = stringResource(R.string.ai_privacy_title),
+                        desc = stringResource(R.string.ai_privacy_desc),
+                    )
+                }
+                item {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Button(
+                                onClick = { viewModel.testProvider(testSuccess, testFailure) },
+                                enabled =
+                                    profile.enabled &&
+                                        profile.endpoint.isNotBlank() &&
+                                        state.modelDraft.isNotBlank() &&
+                                        state.testingProviderId == null,
+                            ) {
+                                if (state.testingProviderId == profile.id) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.height(18.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                } else {
+                                    Text(stringResource(R.string.ai_test_provider))
+                                }
+                            }
+                            if (profile.id != state.settings.defaultProviderId) {
+                                TextButton(
+                                    onClick = viewModel::setSelectedAsDefault,
+                                    enabled = profile.enabled,
+                                ) {
+                                    Text(stringResource(R.string.ai_set_default_provider))
+                                }
+                            }
+                            if (state.settings.providers.size > 1) {
+                                TextButton(onClick = viewModel::removeSelectedProvider) {
+                                    Icon(Icons.Outlined.Delete, contentDescription = null)
+                                    Text(stringResource(R.string.ai_delete_provider))
+                                }
+                            }
+                        }
+                        state.testResult?.let { ProviderTestResult(it) }
+                        TextButton(onClick = viewModel::restoreDefaults) {
+                            Text(stringResource(R.string.restore_defaults))
+                        }
+                        Spacer(modifier = Modifier.height(24.dp))
+                    }
+                }
+            }
+        },
+    )
+}
+
+@Composable
+private fun summaryLengthDescription(length: AiSummaryLength): String =
+    stringResource(
+        when (length) {
+            AiSummaryLength.BRIEF -> R.string.ai_summary_length_brief_desc
+            AiSummaryLength.STANDARD -> R.string.ai_summary_length_standard_desc
+            AiSummaryLength.DETAILED -> R.string.ai_summary_length_detailed_desc
+        }
+    )
+
+@Composable
+private fun summaryLengthName(length: AiSummaryLength): String =
+    stringResource(
+        when (length) {
+            AiSummaryLength.BRIEF -> R.string.ai_summary_length_brief
+            AiSummaryLength.STANDARD -> R.string.ai_summary_length_standard
+            AiSummaryLength.DETAILED -> R.string.ai_summary_length_detailed
+        }
+    )
+
+@Composable
+private fun ProviderTestResult(result: AiProviderTestResult) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Icon(
+            imageVector = if (result.success) Icons.Rounded.CheckCircle else Icons.Rounded.Error,
+            contentDescription = null,
+            tint =
+                if (result.success) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.error,
+        )
+        Text(
+            text = result.message,
+            style = MaterialTheme.typography.bodySmall,
+            color =
+                if (result.success) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.error,
+        )
+    }
+}
+

@@ -1,0 +1,232 @@
+package me.ash.reader.ui.page.home.reading
+
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.text.selection.DisableSelection
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.Button
+import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import java.util.Date
+import me.ash.reader.R
+import me.ash.reader.infrastructure.content.FullContentFailureReason
+import me.ash.reader.infrastructure.preference.LocalReadingRenderer
+import me.ash.reader.infrastructure.preference.LocalReadingSubheadUpperCase
+import me.ash.reader.infrastructure.preference.ReadingRendererPreference
+import me.ash.reader.ui.component.reader.LocalTextContentWidth
+import me.ash.reader.ui.component.reader.Reader
+import me.ash.reader.ui.component.scrollbar.drawVerticalScrollIndicator
+import me.ash.reader.ui.component.webview.RYWebView
+import me.ash.reader.ui.ext.extractDomain
+import me.ash.reader.ui.ext.roundClick
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun Content(
+    modifier: Modifier = Modifier,
+    content: String,
+    feedName: String,
+    title: String,
+    author: String? = null,
+    link: String? = null,
+    publishedDate: Date,
+    scrollState: ScrollState,
+    listState: LazyListState,
+    isLoading: Boolean,
+    failureReason: FullContentFailureReason? = null,
+    contentPadding: PaddingValues = PaddingValues(),
+    topBarSpacerHeight: Dp = 64.dp,
+    topContentPadding: Dp = contentPadding.calculateTopPadding(),
+    onReadOriginal: () -> Unit = {},
+    onVerifyAndParse: (() -> Unit)? = null,
+    onImageClick: ((imgUrl: String, altText: String) -> Unit)? = null,
+) {
+    val context = LocalContext.current
+    val subheadUpperCase = LocalReadingSubheadUpperCase.current
+    val renderer = LocalReadingRenderer.current
+
+    val textContentWidth = LocalTextContentWidth.current
+    val maxWidthModifier = Modifier.widthIn(max = textContentWidth)
+    val uriHandler = LocalUriHandler.current
+
+    val headline =
+        @Composable {
+            Column(modifier = Modifier.then(maxWidthModifier).padding(horizontal = 12.dp)) {
+                DisableSelection {
+                    Metadata(
+                        feedName = feedName,
+                        title = title,
+                        author = author,
+                        publishedDate = publishedDate,
+                        modifier = Modifier.roundClick { link?.let { uriHandler.openUri(it) } },
+                    )
+                }
+            }
+        }
+
+    if (isLoading) {
+        Column { LoadingIndicator(modifier = Modifier.size(56.dp)) }
+    } else if (failureReason != null) {
+        Column(
+            modifier =
+                modifier
+                    .fillMaxSize()
+                    .verticalScroll(scrollState)
+                    .padding(top = topContentPadding),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Spacer(modifier = Modifier.height(topBarSpacerHeight))
+            headline()
+            FullContentFailure(
+                modifier = Modifier.then(maxWidthModifier),
+                reason = failureReason,
+                onReadOriginal = onReadOriginal,
+                onVerifyAndParse = onVerifyAndParse,
+            )
+            Spacer(modifier = Modifier.height(128.dp))
+        }
+    } else {
+
+        when (renderer) {
+            ReadingRendererPreference.WebView -> {
+                Column(
+                    modifier =
+                        modifier
+                            .padding(top = topContentPadding)
+                            .fillMaxSize()
+                            .drawVerticalScrollIndicator(scrollState)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxSize().verticalScroll(scrollState),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Column(modifier = Modifier.then(maxWidthModifier)) {
+                            // Top bar height
+                            Spacer(modifier = Modifier.height(topBarSpacerHeight))
+                            // padding
+                            headline()
+
+                            RYWebView(
+                                modifier = Modifier.fillMaxSize(),
+                                content = content,
+                                refererDomain = link.extractDomain(),
+                                onImageClick = onImageClick,
+                            )
+                            Spacer(modifier = Modifier.height(128.dp))
+                            Spacer(
+                                modifier = Modifier.height(contentPadding.calculateBottomPadding())
+                            )
+                        }
+                    }
+                }
+            }
+
+            ReadingRendererPreference.NativeComponent -> {
+                SelectionContainer {
+                    LazyColumn(
+                        modifier = modifier.fillMaxSize().drawVerticalScrollIndicator(listState),
+                        state = listState,
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        item {
+                            // Top bar height
+                            Spacer(modifier = Modifier.height(topBarSpacerHeight))
+                            // padding
+                            Spacer(modifier = Modifier.height(topContentPadding))
+                            headline()
+                        }
+
+                        Reader(
+                            context = context,
+                            subheadUpperCase = subheadUpperCase.value,
+                            link = link ?: "",
+                            content = content,
+                            onImageClick = onImageClick,
+                            onLinkClick = { uriHandler.openUri(it) },
+                        )
+
+                        item {
+                            Spacer(modifier = Modifier.height(128.dp))
+                            Spacer(
+                                modifier = Modifier.height(contentPadding.calculateBottomPadding())
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 全文解析失败时展示稳定、可操作的回退页面。 */
+@Composable
+private fun FullContentFailure(
+    reason: FullContentFailureReason,
+    onReadOriginal: () -> Unit,
+    onVerifyAndParse: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.full_content_failed),
+            style = MaterialTheme.typography.titleLarge,
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            text = stringResource(reason.messageResource()),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+        if (reason == FullContentFailureReason.ACCESS_RESTRICTED && onVerifyAndParse != null) {
+            Button(onClick = onVerifyAndParse) {
+                Text(stringResource(R.string.verify_and_parse))
+            }
+            OutlinedButton(onClick = onReadOriginal) {
+                Text(stringResource(R.string.read_original))
+            }
+        } else {
+            Button(onClick = onReadOriginal) {
+                Text(stringResource(R.string.read_original))
+            }
+        }
+    }
+}
+
+private fun FullContentFailureReason.messageResource(): Int = when (this) {
+    FullContentFailureReason.NO_CONTENT -> R.string.full_content_failure_no_content
+    FullContentFailureReason.DYNAMIC_CONTENT -> R.string.full_content_failure_dynamic
+    FullContentFailureReason.ACCESS_RESTRICTED -> R.string.full_content_failure_access_restricted
+    FullContentFailureReason.PAGE_UNAVAILABLE -> R.string.full_content_failure_page_unavailable
+    FullContentFailureReason.INVALID_URL -> R.string.full_content_failure_invalid_url
+    FullContentFailureReason.NETWORK -> R.string.full_content_failure_network
+    FullContentFailureReason.UNKNOWN -> R.string.full_content_failure_unknown
+}

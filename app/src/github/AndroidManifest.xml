@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+        GitHub 渠道允许用户在应用内下载新版 APK 后交给系统安装器。
+        Android 8+ 仍需用户在系统设置中明确授权“安装未知应用”。
+        F-Droid / Google Play 渠道不声明此权限，也不启用应用内自更新。
+    -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+</manifest>

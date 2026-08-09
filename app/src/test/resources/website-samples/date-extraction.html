@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <title>Date Extraction</title>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "NewsArticle",
+          "url": "https://news.example.com/article/1002",
+          "headline": "JSON-LD 时间样本",
+          "datePublished": "2026-08-04T08:15:00+08:00"
+        }
+      ]
+    }
+    </script>
+</head>
+<body>
+<main>
+    <article id="meta-date">
+        <meta property="article:published_time" content="2026-08-05T07:30:00+08:00">
+        <a href="/article/1001">节点元数据时间样本</a>
+    </article>
+    <article id="jsonld-date">
+        <a href="/article/1002">JSON-LD 时间样本</a>
+    </article>
+    <article id="time-date">
+        <time datetime="2026-08-03T11:45:00+08:00">8 月 3 日</time>
+        <a href="/article/1003">Time 标签时间样本</a>
+    </article>
+    <article id="text-date">
+        <span class="publish-time">2026年8月2日 09:20</span>
+        <a href="/article/1004">邻近文本时间样本</a>
+    </article>
+    <article id="relative-date">
+        <span class="date">2 小时前</span>
+        <a href="/article/1005">相对时间样本</a>
+    </article>
+    <article id="url-date">
+        <a href="/news/2026/08/01/url-date-1006.html">URL 日期时间样本</a>
+    </article>
+</main>
+</body>
+</html>

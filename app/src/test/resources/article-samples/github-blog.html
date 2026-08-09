@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+<head>
+    <title>Improving repository search reliability - Engineering Blog Sample</title>
+    <meta property="og:title" content="Improving repository search reliability">
+    <meta name="author" content="Engineering Team">
+    <meta property="article:published_time" content="2026-08-03T12:00:00Z">
+</head>
+<body>
+<header><a href="/features">Features</a><a href="/pricing">Pricing</a></header>
+<article>
+    <h1>Improving repository search reliability</h1>
+    <p>Repository search must remain predictable when projects contain generated files, vendored dependencies, and several programming languages. This offline fixture describes a deterministic indexing pipeline used only for parser regression tests.</p>
+    <p>The pipeline first classifies files, removes ignored content, and records stable document identifiers. Query execution then combines lexical matches with structural hints so that exact symbols are not hidden by semantically similar results.</p>
+    <figure><img src="/assets/search-pipeline.png" alt="Search pipeline"></figure>
+    <p>We also added bounded retries and clearer diagnostics. The implementation details are available in the <a href="/engineering/search-details">engineering notes</a>, including examples for large monorepositories.</p>
+    <p>These changes reduce index churn and make failures easier to reproduce without requiring remote services during local development.</p>
+</article>
+</body>
+</html>
