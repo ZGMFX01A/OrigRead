@@ -20,8 +20,9 @@
 <div align="center">
   <img alt="Android 8.0+" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white" />
   <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?logo=kotlin&logoColor=white" />
-  <img alt="License" src="https://img.shields.io/github/license/ZGMFX01A/OrigRead" />
+  <a href="LICENSE"><img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-blue.svg" /></a>
   <img alt="Latest release" src="https://img.shields.io/github/v/release/ZGMFX01A/OrigRead?display_name=tag&sort=semver" />
+  <img alt="GitHub stars" src="https://img.shields.io/github/stars/ZGMFX01A/OrigRead?style=flat" />
 </div>
 
 ## What is OrigRead?
@@ -338,3 +339,7 @@ OrigRead is distributed under the **GNU General Public License v3.0 (GPL-3.0)**.
 ## Search keywords
 
 Android RSS reader, RSS reader, Atom reader, feed reader, Android feed reader, news reader, personal information reader, RSSHub client, RSSHub Android, RSS discovery, RSS source discovery, OPML reader, full-text RSS, full content extraction, Readability, website parser, website feed parser, HTML parser, CSS selector parser, JSON API reader, JSONPath, WordPress REST reader, Next.js feed, Nuxt feed, WebView parser, article filter, regex filter, AI summary, article summarizer, AI translation, OpenAI compatible, DeepL, DeepLX, Google ML Kit translation, Material You, Jetpack Compose, Kotlin.
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/chart?repos=ZGMFX01A/OrigRead&type=timeline&logscale&legend=top-left&sealed_token=ScxwPWH-SRHVVUsck4WBlf2755xw2Yo6eLgH-FdF-jefhSw21HN0XR_b8WcTzFuACXrz59JYojVWGP8HWh492j6U7WDackC7RQPrFyoCxRCcEpQx3V8aUJRLabvGZ4fZh4eNk3_9oW4_r9uwOwEfHRnF34r6hiqClIZrk7cxASjluOISfoeehjyv4Ymx)](https://www.star-history.com/?repos=ZGMFX01A%2FOrigRead&type=timeline&logscale=&legend=top-left)

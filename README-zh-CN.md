@@ -20,8 +20,9 @@
 <div align="center">
   <img alt="Android 8.0+" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white" />
   <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?logo=kotlin&logoColor=white" />
-  <img alt="License" src="https://img.shields.io/github/license/ZGMFX01A/OrigRead" />
+  <a href="LICENSE"><img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-blue.svg" /></a>
   <img alt="Latest release" src="https://img.shields.io/github/v/release/ZGMFX01A/OrigRead?display_name=tag&sort=semver" />
+  <img alt="GitHub stars" src="https://img.shields.io/github/stars/ZGMFX01A/OrigRead?style=flat" />
 </div>
 
 ## 原读是什么？
@@ -338,3 +339,7 @@ Read You 提供了项目最初的重要基础，包括大量 Compose UI、RSS �
 ## 搜索关键词
 
 Android RSS 阅读器、RSS 阅读器、Atom 阅读器、Feed 阅读器、Android 新闻阅读器、个人信息阅读器、RSSHub 客户端、RSSHub Android、RSS 来源发现、RSS 订阅、OPML、全文 RSS、全文提取、Readability、网页解析、网站解析规则、HTML Parser、CSS Selector、JSON API 阅读器、JSONPath、WordPress REST、Next.js、Nuxt、WebView 动态解析、文章过滤、关键词过滤、正则过滤、AI 摘要、文章摘要、AI 翻译、OpenAI Compatible、DeepL、DeepLX、Google ML Kit 翻译、Material You、Jetpack Compose、Kotlin。
+
+## Star 历史
+
+[![Star History Chart](https://api.star-history.com/chart?repos=ZGMFX01A/OrigRead&type=timeline&logscale&legend=top-left&sealed_token=ScxwPWH-SRHVVUsck4WBlf2755xw2Yo6eLgH-FdF-jefhSw21HN0XR_b8WcTzFuACXrz59JYojVWGP8HWh492j6U7WDackC7RQPrFyoCxRCcEpQx3V8aUJRLabvGZ4fZh4eNk3_9oW4_r9uwOwEfHRnF34r6hiqClIZrk7cxASjluOISfoeehjyv4Ymx)](https://www.star-history.com/?repos=ZGMFX01A%2FOrigRead&type=timeline&logscale=&legend=top-left)

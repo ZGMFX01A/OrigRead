@@ -21,7 +21,25 @@ class Version(numbers: List<String>) {
     }
 
     constructor() : this(listOf())
-    constructor(string: String?) : this(string?.split(".") ?: listOf())
+
+    /**
+     * 兼容 GitHub Release 常见的 `v1.2.3` 标签格式。
+     *
+     * 同时忽略前后空白和预发布后缀，例如：
+     * - `1.2.3` -> `1.2.3`
+     * - `v1.2.3` -> `1.2.3`
+     * - `V1.2.3` -> `1.2.3`
+     * - `v1.2.3-beta.1` -> `1.2.3`
+     */
+    constructor(string: String?) : this(
+        string
+            ?.trim()
+            ?.removePrefix("v")
+            ?.removePrefix("V")
+            ?.substringBefore('-')
+            ?.split(".")
+            ?: listOf()
+    )
 
     override fun toString() = "$major.$minor.$point"
 
