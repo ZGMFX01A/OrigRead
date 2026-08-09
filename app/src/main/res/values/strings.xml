@@ -208,6 +208,8 @@
     <string name="download_failure">Could not download updates</string>
     <string name="install_update">Install</string>
     <string name="retry_update">Retry</string>
+    <string name="download_release_apk">Download APK</string>
+    <string name="open_release_page">Open GitHub Release</string>
     <string name="ai_generate_website_rule">Generate website rule with AI</string>
     <string name="ai_generate_json_rule">Generate JSON rule with AI</string>
     <string name="ai_generate_rule_desc">Fetch the target, let the default AI generate a candidate, then validate it locally before saving</string>

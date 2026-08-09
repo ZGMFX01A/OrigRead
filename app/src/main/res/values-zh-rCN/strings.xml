@@ -182,6 +182,8 @@
     <string name="download_failure">无法下载更新</string>
     <string name="install_update">安装更新</string>
     <string name="retry_update">重试</string>
+    <string name="download_release_apk">下载 APK</string>
+    <string name="open_release_page">打开 GitHub Release</string>
     <string name="ai_generate_website_rule">AI 生成网站规则</string>
     <string name="ai_generate_json_rule">AI 生成 JSON 规则</string>
     <string name="ai_generate_rule_desc">抓取目标地址，由默认 AI 生成候选，并在保存前使用本地解析器真实试跑验证</string>

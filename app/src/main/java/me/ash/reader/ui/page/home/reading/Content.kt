@@ -72,6 +72,7 @@ fun Content(
     val textContentWidth = LocalTextContentWidth.current
     val maxWidthModifier = Modifier.widthIn(max = textContentWidth)
     val uriHandler = LocalUriHandler.current
+    val releaseLinks = link.toOrigReadReleaseLinks()
 
     val headline =
         @Composable {
@@ -136,6 +137,12 @@ fun Content(
                                 refererDomain = link.extractDomain(),
                                 onImageClick = onImageClick,
                             )
+                            releaseLinks?.let {
+                                OrigReadReleaseActions(
+                                    links = it,
+                                    onOpenUrl = uriHandler::openUri,
+                                )
+                            }
                             Spacer(modifier = Modifier.height(128.dp))
                             Spacer(
                                 modifier = Modifier.height(contentPadding.calculateBottomPadding())
@@ -169,6 +176,15 @@ fun Content(
                             onLinkClick = { uriHandler.openUri(it) },
                         )
 
+                        releaseLinks?.let { links ->
+                            item {
+                                OrigReadReleaseActions(
+                                    links = links,
+                                    onOpenUrl = uriHandler::openUri,
+                                )
+                            }
+                        }
+
                         item {
                             Spacer(modifier = Modifier.height(128.dp))
                             Spacer(
@@ -178,6 +194,31 @@ fun Content(
                     }
                 }
             }
+        }
+    }
+}
+
+/** OrigRead 内置 Release 订阅的操作区：直接下载 APK，或打开完整 GitHub Release 页面。 */
+@Composable
+private fun OrigReadReleaseActions(
+    links: OrigReadReleaseLinks,
+    onOpenUrl: (String) -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Button(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = { onOpenUrl(links.apkDownloadUrl) },
+        ) {
+            Text(stringResource(R.string.download_release_apk))
+        }
+        OutlinedButton(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = { onOpenUrl(links.releasePageUrl) },
+        ) {
+            Text(stringResource(R.string.open_release_page))
         }
     }
 }
