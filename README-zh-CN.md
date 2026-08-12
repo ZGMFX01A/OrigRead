@@ -23,7 +23,6 @@
   <a href="LICENSE"><img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-blue.svg" /></a>
   <img alt="Latest release" src="https://img.shields.io/github/v/release/ZGMFX01A/OrigRead?display_name=tag&sort=semver" />
   <img alt="GitHub stars" src="https://img.shields.io/github/stars/ZGMFX01A/OrigRead?style=flat" />
-  <a href="https://linux.do" alt="LINUX DO"><img alt="LINUX DO" src="https://img.shields.io/badge/LINUX-DO-FFB003.svg?logo=data:image/svg%2bxml;base64,DQo8c3ZnIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiPjxwYXRoIGQ9Ik00Ni44Mi0uMDU1aDYuMjVxMjMuOTY5IDIuMDYyIDM4IDIxLjQyNmM1LjI1OCA3LjY3NiA4LjIxNSAxNi4xNTYgOC44NzUgMjUuNDV2Ni4yNXEtMi4wNjQgMjMuOTY4LTIxLjQzIDM4LTExLjUxMiA3Ljg4NS0yNS40NDUgOC44NzRoLTYuMjVxLTIzLjk3LTIuMDY0LTM4LjAwNC0yMS40M1EuOTcxIDY3LjA1Ni0uMDU0IDUzLjE4di02LjQ3M0MxLjM2MiAzMC43ODEgOC41MDMgMTguMTQ4IDIxLjM3IDguODE3IDI5LjA0NyAzLjU2MiAzNy41MjcuNjA0IDQ2LjgyMS0uMDU2IiBzdHlsZT0ic3Ryb2tlOm5vbmU7ZmlsbC1ydWxlOmV2ZW5vZGQ7ZmlsbDojZWNlY2VjO2ZpbGwtb3BhY2l0eToxIi8+PHBhdGggZD0iTTQ3LjI2NiAyLjk1N3EyMi41My0uNjUgMzcuNzc3IDE1LjczOGE0OS43IDQ5LjcgMCAwIDEgNi44NjcgMTAuMTU3cS00MS45NjQuMjIyLTgzLjkzIDAgOS43NS0xOC42MTYgMzAuMDI0LTI0LjM4N2E2MSA2MSAwIDAgMSA5LjI2Mi0xLjUwOCIgc3R5bGU9InN0cm9rZTpub25lO2ZpbGwtcnVsZTpldmVub2RkO2ZpbGw6IzE5MTkxOTtmaWxsLW9wYWNpdHk6MSIvPjxwYXRoIGQ9Ik03Ljk4IDcwLjkyNmMyNy45NzctLjAzNSA1NS45NTQgMCA4My45My4xMTNRODMuNDI2IDg3LjQ3MyA2Ni4xMyA5NC4wODZxLTE4LjgxIDYuNTQ0LTM2LjgzMi0xLjg5OC0xNC4yMDMtNy4wOS0yMS4zMTctMjEuMjYyIiBzdHlsZT0ic3Ryb2tlOm5vbmU7ZmlsbC1ydWxlOmV2ZW5vZGQ7ZmlsbDojZjlhZjAwO2ZpbGwtb3BhY2l0eToxIi8+PC9zdmc+" /></a>
 </div>
 
 ## 原读是什么？
@@ -154,8 +153,6 @@ JSON / API / WordPress / Next.js / Nuxt
 - JavaScript 动态正文可以进入受限 WebView 兜底。
 - 失败时返回稳定的失败原因，并始终保留 **阅读原文**。
 
-对于 Wechat2RSS / BestBlogs 等微信公众号 RSS，如果 Feed 的 `content:encoded` 已经提供完整公众号正文，原读会直接使用 RSS 内嵌全文。这样正常阅读、翻译、AI 摘要和 TTS 都无需再次访问 `mp.weixin.qq.com`；只有仅提供短摘要的来源才会继续尝试原网页，并在需要时交由用户完成可见验证。
-
 ## 基础阅读能力
 
 - 已读 / 未读。
@@ -277,8 +274,7 @@ GitHub 渠道支持通过 GitHub Releases 在应用内检查和安装新版本�
 - 支持手动“立即检查更新”。
 - 展示 Release 更新日志并自动选择合适的 APK Asset。
 - 下载进度、失败重试和系统安装流程。
-- Android 8+ 的“安装未知应用”通过系统设置页正常授权。
-- F-Droid / Google Play flavor 不包含 GitHub 自更新下载器，也不声明 `REQUEST_INSTALL_PACKAGES`。
+- Android 8+ 的“安装未知应用”通过系统设置页正常授权。。
 
 ## 安全与隐私设计
 
