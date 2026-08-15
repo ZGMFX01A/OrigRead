@@ -18,10 +18,8 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FiberManualRecord
-import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.FiberManualRecord
 import androidx.compose.material.icons.outlined.Translate
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Star
@@ -247,13 +245,16 @@ fun BottomBar(
                                 CanBeDisabledIconButton(
                                     modifier = Modifier.align(Alignment.Center).size(44.dp),
                                     disabled = !isAiSummaryEnabled,
-                                    imageVector =
-                                        if (hasAiSummary) Icons.Rounded.AutoAwesome
-                                        else Icons.Outlined.AutoAwesome,
                                     contentDescription = stringResource(R.string.ai_summary_generate),
-                                    tint =
-                                        if (hasAiSummary) MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.outline,
+                                    icon = {
+                                        AiSummaryAccentIcon(
+                                            contentDescription = stringResource(R.string.ai_summary_generate),
+                                            active = hasAiSummary,
+                                            enabled = isAiSummaryEnabled,
+                                            size = 30.dp,
+                                            iconSize = 17.dp,
+                                        )
+                                    },
                                 ) {
                                     view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                                     onAiSummary()

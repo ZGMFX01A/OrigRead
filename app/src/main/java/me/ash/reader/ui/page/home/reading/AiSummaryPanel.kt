@@ -18,7 +18,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -64,8 +63,8 @@ internal fun AiSummaryPanel(
     val model = activeModel ?: document?.model.orEmpty()
     // 暂不在阅读主流程展示模型思考。底层仍保留 reasoning 接收与缓存，后续需要时可恢复 UI。
     // var reasoningExpanded by remember(document?.reasoning) { mutableStateOf(false) }
-    // 不再用低透明度把主题色“洗灰”，让左侧识别条更清晰、更有饱和度。
-    val accentColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
+    // 与 Desktop 统一使用轻科技蓝作为 AI 识别色，不跟随普通主题主色漂移。
+    val accentColor = AiSummaryAccentBlue.copy(alpha = 0.92f)
     Surface(
         modifier = modifier.fillMaxWidth().heightIn(min = 180.dp, max = 320.dp),
         shape = MaterialTheme.shapes.large,
@@ -92,11 +91,11 @@ internal fun AiSummaryPanel(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.AutoAwesome,
+                    AiSummaryAccentIcon(
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp),
+                        active = true,
+                        size = 30.dp,
+                        iconSize = 18.dp,
                     )
                     // 标题与模型构成主标题 + 副标题关系；小字号模型贴近标题右下方，而不是垂直居中。
                     Row(
