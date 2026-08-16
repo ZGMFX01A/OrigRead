@@ -519,7 +519,7 @@
     <string name="translation_test_failed">测试失败：</string>
     <string name="translation_remove_key">删除凭据</string>
     <string name="translation_deepl_usage_title">DeepL 字符额度</string>
-    <string name="translation_deepl_usage_refresh">刷新</string>
+    <string name="translation_deepl_usage_refresh">查询额度</string>
     <string name="translation_deepl_usage_value">已用 %1$s / %2$s 字符，剩余 %3$s（%4$s）</string>
     <string name="translation_deepl_usage_failed">额度查询失败：%1$s</string>
     <string name="translate_article">翻译文章</string>
@@ -557,6 +557,7 @@
     <string name="ai_providers_desc">可配置多个渠道；默认服务用于普通生成，重新生成时可临时切换服务和模型</string>
     <string name="ai_add_provider">添加</string>
     <string name="ai_provider_default_item">%1$s（默认）</string>
+    <string name="ai_provider_switch_hint">已配置 %1$d 个服务 · 当前编辑 %2$s · 点击上方服务选择器切换</string>
     <string name="ai_provider_enabled">启用此服务</string>
     <string name="ai_provider_enabled_desc">关闭后不会出现在阅读页的服务选择中</string>
     <string name="ai_default_provider">默认</string>
@@ -578,6 +579,7 @@
     <string name="ai_reasoning_collapse">收起模型思考</string>
     <string name="ai_reasoning_disclaimer">这里只显示当前模型接口明确返回的思考内容，原读不会推断或伪造隐藏思维链。</string>
     <string name="ai_summary_generate">生成 AI 摘要</string>
+    <string name="ai_summary_stop">停止生成摘要</string>
     <string name="ai_summary_regenerate">重新生成</string>
     <string name="ai_summary_close">关闭</string>
     <string name="ai_summary_preparing">正在整理文章</string>

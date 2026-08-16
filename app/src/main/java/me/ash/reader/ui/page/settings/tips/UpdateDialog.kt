@@ -102,7 +102,7 @@ fun UpdateDialog(
                 Text(text = stringResource(R.string.change_log))
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "$newVersionPublishDate $newVersionSize",
+                    text = "${newVersionPublishDate.asReleaseDate()} $newVersionSize".trim(),
                     color = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f),
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -112,7 +112,7 @@ fun UpdateDialog(
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 SelectionContainer {
-                    Text(text = newVersionLog)
+                    Text(text = newVersionLog.withoutGeneratedFullChangelog())
                 }
                 if (downloadState is Download.Error) {
                     Spacer(modifier = Modifier.height(12.dp))
@@ -173,4 +173,18 @@ fun UpdateDialog(
             }
         },
     )
+}
+
+/** GitHub 自动生成 Release Notes 时附带的 compare 链接不属于用户需要阅读的更新内容。 */
+internal fun String.withoutGeneratedFullChangelog(): String {
+    val markers = listOf("**Full Changelog**:", "**Full Changelog**", "Full Changelog:")
+    val markerIndex = markers.map { indexOf(it, ignoreCase = true) }.filter { it >= 0 }.minOrNull()
+        ?: return trim()
+    return substring(0, markerIndex).trimEnd()
+}
+
+/** GitHub Release 时间统一只展示 yyyy-MM-dd，避免把 ISO 时间戳直接暴露给用户。 */
+internal fun String.asReleaseDate(): String {
+    val value = trim()
+    return Regex("^\\d{4}-\\d{2}-\\d{2}").find(value)?.value ?: value
 }

@@ -71,7 +71,7 @@ fun AiSettingsPage(
             )
         },
         content = {
-            LazyColumn {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 item {
                     DisplayText(
                         text = stringResource(R.string.ai_settings),
@@ -79,133 +79,160 @@ fun AiSettingsPage(
                     )
                 }
                 item {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    OutlinedCard(
+                        modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                        Column(
+                            modifier = Modifier.padding(18.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = stringResource(R.string.ai_enable),
+                                        style = MaterialTheme.typography.titleMedium,
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.ai_enable_desc),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                RYSwitch(activated = state.settings.enabled) {
+                                    viewModel.setEnabled(!state.settings.enabled)
+                                }
+                            }
+                            HorizontalDivider()
+                            OutlinedTextField(
+                                value = state.settings.outputLanguage,
+                                onValueChange = viewModel::setOutputLanguage,
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                label = { Text(stringResource(R.string.ai_output_language)) },
+                                supportingText = {
+                                    Text(stringResource(R.string.ai_output_language_desc))
+                                },
+                            )
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(
-                                    text = stringResource(R.string.ai_enable),
-                                    style = MaterialTheme.typography.titleMedium,
+                                    text = stringResource(R.string.ai_summary_length),
+                                    style = MaterialTheme.typography.titleSmall,
                                 )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    AiSummaryLength.entries.forEach { length ->
+                                        FilterChip(
+                                            selected = state.settings.summaryLength == length,
+                                            onClick = { viewModel.setSummaryLength(length) },
+                                            label = { Text(summaryLengthName(length)) },
+                                        )
+                                    }
+                                }
                                 Text(
-                                    text = stringResource(R.string.ai_enable_desc),
+                                    text = summaryLengthDescription(state.settings.summaryLength),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            RYSwitch(activated = state.settings.enabled) {
-                                viewModel.setEnabled(!state.settings.enabled)
-                            }
                         }
-
-                        OutlinedTextField(
-                            value = state.settings.outputLanguage,
-                            onValueChange = viewModel::setOutputLanguage,
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            label = { Text(stringResource(R.string.ai_output_language)) },
-                            supportingText = {
-                                Text(stringResource(R.string.ai_output_language_desc))
-                            },
-                        )
-
-                        Text(
-                            text = stringResource(R.string.ai_summary_length),
-                            style = MaterialTheme.typography.titleSmall,
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            AiSummaryLength.entries.forEach { length ->
-                                FilterChip(
-                                    selected = state.settings.summaryLength == length,
-                                    onClick = { viewModel.setSummaryLength(length) },
-                                    label = { Text(summaryLengthName(length)) },
-                                )
-                            }
-                        }
-                        Text(
-                            text = summaryLengthDescription(state.settings.summaryLength),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                    }
+                }
+                item {
+                    OutlinedCard(
+                        modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(18.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = stringResource(R.string.ai_providers),
-                                    style = MaterialTheme.typography.titleMedium,
-                                )
-                                Text(
-                                    text = stringResource(R.string.ai_providers_desc),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            FilledTonalButton(onClick = viewModel::addProvider) {
+                            Text(
+                                text = stringResource(R.string.ai_providers),
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            Text(
+                                text = stringResource(R.string.ai_providers_desc),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            FilledTonalButton(
+                                onClick = viewModel::addProvider,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
                                 Icon(Icons.Outlined.Add, contentDescription = null)
                                 Text(stringResource(R.string.ai_add_provider))
                             }
-                        }
-
-                        Box {
-                            OutlinedButton(
-                                onClick = { providerMenuExpanded = true },
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Text(
-                                    if (profile.id == state.settings.defaultProviderId) {
-                                        stringResource(
-                                            R.string.ai_provider_default_item,
-                                            profile.name,
-                                        )
-                                    } else {
-                                        profile.name
-                                    }
-                                )
-                            }
-                            DropdownMenu(
-                                expanded = providerMenuExpanded,
-                                onDismissRequest = { providerMenuExpanded = false },
-                            ) {
-                                state.settings.providers.forEach { item ->
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                if (item.id == state.settings.defaultProviderId) {
-                                                    stringResource(
-                                                        R.string.ai_provider_default_item,
-                                                        item.name,
-                                                    )
-                                                } else {
-                                                    item.name
-                                                }
+                            Box {
+                                OutlinedButton(
+                                    onClick = { providerMenuExpanded = true },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(
+                                        if (profile.id == state.settings.defaultProviderId) {
+                                            stringResource(
+                                                R.string.ai_provider_default_item,
+                                                profile.name,
                                             )
-                                        },
-                                        onClick = {
-                                            providerMenuExpanded = false
-                                            modelMenuExpanded = false
-                                            viewModel.selectProvider(item.id)
-                                        },
+                                        } else {
+                                            profile.name
+                                        }
                                     )
                                 }
+                                DropdownMenu(
+                                    expanded = providerMenuExpanded,
+                                    onDismissRequest = { providerMenuExpanded = false },
+                                ) {
+                                    state.settings.providers.forEach { item ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    if (item.id == state.settings.defaultProviderId) {
+                                                        stringResource(
+                                                            R.string.ai_provider_default_item,
+                                                            item.name,
+                                                        )
+                                                    } else {
+                                                        item.name
+                                                    }
+                                                )
+                                            },
+                                            onClick = {
+                                                providerMenuExpanded = false
+                                                modelMenuExpanded = false
+                                                viewModel.selectProvider(
+                                                    providerId = item.id,
+                                                    makeDefault = true,
+                                                )
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                            if (state.settings.providers.size > 1) {
+                                Text(
+                                    text =
+                                        stringResource(
+                                            R.string.ai_provider_switch_hint,
+                                            state.settings.providers.size,
+                                            profile.name,
+                                        ),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
                         }
-
-                        OutlinedCard(modifier = Modifier.fillMaxWidth()) {
-                            Column(
-                                modifier = Modifier.padding(14.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp),
-                            ) {
+                    }
+                }
+                item {
+                    OutlinedCard(
+                        modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(18.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                        ) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -232,6 +259,15 @@ fun AiSettingsPage(
                                     }
                                     RYSwitch(activated = profile.enabled) {
                                         viewModel.setProviderEnabled(!profile.enabled)
+                                    }
+                                }
+                                if (profile.id != state.settings.defaultProviderId) {
+                                    FilledTonalButton(
+                                        onClick = viewModel::setSelectedAsDefault,
+                                        enabled = profile.enabled,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Text(stringResource(R.string.ai_set_default_provider))
                                     }
                                 }
                                 if (profile.models.isNotEmpty()) {
@@ -273,11 +309,12 @@ fun AiSettingsPage(
                                     },
                                 )
                                 Row(
+                                    modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
                                     Button(
                                         onClick = viewModel::loadModels,
+                                        modifier = Modifier.fillMaxWidth(),
                                         enabled =
                                             profile.endpoint.isNotBlank() &&
                                                 state.loadingModelsProviderId == null,
@@ -291,40 +328,43 @@ fun AiSettingsPage(
                                             Text(stringResource(R.string.ai_fetch_models))
                                         }
                                     }
-                                    if (profile.models.isNotEmpty()) {
-                                        Box {
-                                            TextButton(onClick = { modelMenuExpanded = true }) {
+                                }
+                                if (profile.models.isNotEmpty()) {
+                                    Box {
+                                        OutlinedButton(
+                                            onClick = { modelMenuExpanded = true },
+                                            modifier = Modifier.fillMaxWidth(),
+                                        ) {
                                                 Text(
                                                     stringResource(
                                                         R.string.ai_choose_model,
                                                         profile.models.size,
                                                     )
                                                 )
-                                            }
-                                            DropdownMenu(
-                                                expanded = modelMenuExpanded,
-                                                onDismissRequest = { modelMenuExpanded = false },
-                                            ) {
-                                                profile.models.forEach { model ->
-                                                    DropdownMenuItem(
-                                                        text = {
-                                                            Text(
-                                                                if (model == profile.defaultModel) {
-                                                                    stringResource(
-                                                                        R.string.ai_model_default_item,
-                                                                        model,
-                                                                    )
-                                                                } else {
-                                                                    model
-                                                                }
-                                                            )
-                                                        },
-                                                        onClick = {
-                                                            modelMenuExpanded = false
-                                                            viewModel.selectModel(model)
-                                                        },
-                                                    )
-                                                }
+                                        }
+                                        DropdownMenu(
+                                            expanded = modelMenuExpanded,
+                                            onDismissRequest = { modelMenuExpanded = false },
+                                        ) {
+                                            profile.models.forEach { model ->
+                                                DropdownMenuItem(
+                                                    text = {
+                                                        Text(
+                                                            if (model == profile.defaultModel) {
+                                                                stringResource(
+                                                                    R.string.ai_model_default_item,
+                                                                    model,
+                                                                )
+                                                            } else {
+                                                                model
+                                                            }
+                                                        )
+                                                    },
+                                                    onClick = {
+                                                        modelMenuExpanded = false
+                                                        viewModel.selectModel(model)
+                                                    },
+                                                )
                                             }
                                         }
                                     }
@@ -350,6 +390,7 @@ fun AiSettingsPage(
                                 )
                                 Button(
                                     onClick = viewModel::saveApiKey,
+                                    modifier = Modifier.fillMaxWidth(),
                                     enabled = state.apiKeyDraft.isNotBlank() || state.hasApiKey,
                                 ) {
                                     Text(
@@ -362,27 +403,10 @@ fun AiSettingsPage(
                                         )
                                     )
                                 }
-                            }
-                        }
-                    }
-                }
-                item {
-                    Banner(
-                        title = stringResource(R.string.ai_privacy_title),
-                        desc = stringResource(R.string.ai_privacy_desc),
-                    )
-                }
-                item {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
+                                HorizontalDivider()
                             Button(
                                 onClick = { viewModel.testProvider(testSuccess, testFailure) },
+                                modifier = Modifier.fillMaxWidth(),
                                 enabled =
                                     profile.enabled &&
                                         profile.endpoint.isNotBlank() &&
@@ -398,27 +422,33 @@ fun AiSettingsPage(
                                     Text(stringResource(R.string.ai_test_provider))
                                 }
                             }
-                            if (profile.id != state.settings.defaultProviderId) {
-                                TextButton(
-                                    onClick = viewModel::setSelectedAsDefault,
-                                    enabled = profile.enabled,
-                                ) {
-                                    Text(stringResource(R.string.ai_set_default_provider))
-                                }
-                            }
                             if (state.settings.providers.size > 1) {
-                                TextButton(onClick = viewModel::removeSelectedProvider) {
+                                TextButton(
+                                    onClick = viewModel::removeSelectedProvider,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
                                     Icon(Icons.Outlined.Delete, contentDescription = null)
                                     Text(stringResource(R.string.ai_delete_provider))
                                 }
                             }
-                        }
                         state.testResult?.let { ProviderTestResult(it) }
-                        TextButton(onClick = viewModel::restoreDefaults) {
-                            Text(stringResource(R.string.restore_defaults))
                         }
-                        Spacer(modifier = Modifier.height(24.dp))
                     }
+                }
+                item {
+                    Banner(
+                        title = stringResource(R.string.ai_privacy_title),
+                        desc = stringResource(R.string.ai_privacy_desc),
+                    )
+                }
+                item {
+                    TextButton(
+                        onClick = viewModel::restoreDefaults,
+                        modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
+                    ) {
+                        Text(stringResource(R.string.restore_defaults))
+                    }
+                    Spacer(modifier = Modifier.height(24.dp))
                 }
             }
         },

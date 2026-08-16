@@ -79,7 +79,12 @@ class AiSettingsViewModel @Inject constructor(
 
     fun setSummaryLength(value: AiSummaryLength) = repository.setSummaryLength(value)
 
-    fun selectProvider(providerId: String) {
+    fun selectProvider(providerId: String, makeDefault: Boolean = false) {
+        val current = repository.current()
+        val target = current.providers.firstOrNull { it.id == providerId } ?: return
+        if (makeDefault && target.enabled) {
+            repository.setDefaultProvider(providerId)
+        }
         val settings = repository.current()
         val profile = settings.providers.firstOrNull { it.id == providerId } ?: return
         _uiState.update {

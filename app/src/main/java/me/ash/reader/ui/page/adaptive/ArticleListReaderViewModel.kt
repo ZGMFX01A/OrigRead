@@ -341,6 +341,7 @@ constructor(
     val aiSettings = aiSettingsRepository.settings
     private var aiSummaryJob: Job? = null
     private var aiSummaryProgressJob: Job? = null
+    private var aiSummaryRequestSerial: Long = 0L
 
     private val currentArticle: Article?
         get() = readingUiState.value.articleWithFeed?.article
@@ -670,6 +671,7 @@ constructor(
             ?: selectedProvider.resolvedDefaultModel().orEmpty()
         aiSummaryJob?.cancel()
         aiSummaryProgressJob?.cancel()
+        val requestSerial = ++aiSummaryRequestSerial
         aiSummaryJob =
             viewModelScope.launch {
                 _aiSummaryUiState.update {
@@ -685,7 +687,8 @@ constructor(
                     )
                 }
                 startAiSummaryProgressTicker(articleId)
-                runCatching {
+                try {
+                    val document =
                         aiSummaryService.summarizeArticle(
                             articleId = articleId,
                             title = title,
@@ -695,45 +698,74 @@ constructor(
                             modelOverride = selectedModel,
                             lengthOverride = lengthOverride,
                             onProgress = { stage ->
-                                if (_readerState.value.articleId == articleId) {
+                                if (
+                                    requestSerial == aiSummaryRequestSerial &&
+                                        _readerState.value.articleId == articleId
+                                ) {
                                     _aiSummaryUiState.update { it.copy(progressStage = stage) }
                                 }
                             },
                         )
+                    // 文章切换、停止任务或新请求启动后，旧结果不得覆盖当前页面。
+                    if (
+                        requestSerial == aiSummaryRequestSerial &&
+                            _readerState.value.articleId == articleId
+                    ) {
+                        _aiSummaryUiState.update {
+                            it.copy(
+                                document = document,
+                                activeProviderId = document.providerId,
+                                activeProviderName = document.providerName,
+                                activeModel = document.model,
+                                errorMessage = null,
+                            )
+                        }
                     }
-                    .onSuccess { document ->
+                } catch (error: CancellationException) {
+                    // 用户停止、文章切换或 ViewModel 清理都属于正常取消，不提示失败。
+                } catch (error: Throwable) {
+                    if (
+                        requestSerial == aiSummaryRequestSerial &&
+                            _readerState.value.articleId == articleId
+                    ) {
+                        _aiSummaryUiState.update {
+                            it.copy(errorMessage = error.message ?: "AI 摘要生成失败")
+                        }
+                    }
+                } finally {
+                    if (requestSerial == aiSummaryRequestSerial) {
                         aiSummaryProgressJob?.cancel()
                         aiSummaryProgressJob = null
-                        // 文章切换后，旧请求结果不得覆盖新页面。
                         if (_readerState.value.articleId == articleId) {
                             _aiSummaryUiState.update {
                                 it.copy(
                                     isLoading = false,
-                                    document = document,
                                     progressStage = null,
-                                    activeProviderId = document.providerId,
-                                    activeProviderName = document.providerName,
-                                    activeModel = document.model,
-                                    errorMessage = null,
                                 )
                             }
                         }
+                        aiSummaryJob = null
                     }
-                    .onFailure { error ->
-                        aiSummaryProgressJob?.cancel()
-                        aiSummaryProgressJob = null
-                        if (error is CancellationException) return@onFailure
-                        if (_readerState.value.articleId == articleId) {
-                            _aiSummaryUiState.update {
-                                it.copy(
-                                    isLoading = false,
-                                    progressStage = null,
-                                    errorMessage = error.message ?: "AI 摘要生成失败",
-                                )
-                            }
-                        }
-                    }
+                }
             }
+    }
+
+    /** 立即终止当前摘要任务，并让阅读页恢复到可再次生成的状态。 */
+    fun stopAiSummary() {
+        aiSummaryRequestSerial++
+        aiSummaryJob?.cancel()
+        aiSummaryJob = null
+        aiSummaryProgressJob?.cancel()
+        aiSummaryProgressJob = null
+        _aiSummaryUiState.update { state ->
+            state.copy(
+                isLoading = false,
+                showPanel = state.document != null && state.showPanel,
+                progressStage = null,
+                elapsedSeconds = 0,
+                errorMessage = null,
+            )
+        }
     }
 
     fun dismissAiSummary() {
@@ -745,6 +777,7 @@ constructor(
     }
 
     private fun resetAiSummary() {
+        aiSummaryRequestSerial++
         aiSummaryJob?.cancel()
         aiSummaryJob = null
         aiSummaryProgressJob?.cancel()

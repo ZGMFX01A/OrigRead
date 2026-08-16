@@ -372,6 +372,7 @@ fun ReadingPage(
                                                 activeModel = aiSummaryState.activeModel,
                                                 onClose = viewModel::dismissAiSummary,
                                                 onRegenerate = { showAiSummaryOptions = true },
+                                                onStop = viewModel::stopAiSummary,
                                                 modifier =
                                                     Modifier.fillMaxWidth()
                                                         .padding(
@@ -485,6 +486,8 @@ fun ReadingPage(
                             }
                         },
                         onAiSummary = { viewModel.summarizeArticle() },
+                        onAiSummaryLongClick = { showAiSummaryOptions = true },
+                        onStopAiSummary = viewModel::stopAiSummary,
                         onTranslate = viewModel::translateOrToggle,
                         onTranslateWithTarget = viewModel::translateWithTarget,
                         onSetDefaultTranslationTarget = viewModel::setDefaultTranslationTarget,

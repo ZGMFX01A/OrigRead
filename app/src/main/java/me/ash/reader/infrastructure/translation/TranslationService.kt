@@ -273,7 +273,7 @@ class TranslationService @Inject constructor(
             }
         }
 
-    /** DeepL 测试与余额展示统一查询官方用量接口，避免测试翻译造成误判。 */
+    /** 仅在用户明确查询额度时访问 DeepL 用量接口；服务测试始终走真实翻译请求。 */
     suspend fun getDeepLUsage(): Result<DeepLUsage> =
         runCatching {
             val type = TranslationProviderType.DEEPL

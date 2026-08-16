@@ -7,10 +7,14 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import javax.net.ssl.SSLHandshakeException
 import javax.net.ssl.SSLPeerUnverifiedException
+import kotlinx.coroutines.suspendCancellableCoroutine
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -100,6 +104,28 @@ class OpenAiCompatibleProvider @Inject constructor(
         userPrompt: String,
         config: AiRuntimeConfig,
     ): AiCompletionResult {
+        val responseText = execute(buildCompletionRequest(systemPrompt, userPrompt, config))
+        return parseCompletionResponse(responseText)
+    }
+
+    /**
+     * 阅读页摘要专用的可取消调用。
+     * Coroutine 被取消时会同步取消底层 OkHttp Call，避免“UI 已停止但网络仍跑到超时”的假取消。
+     */
+    suspend fun completeDetailedCancellable(
+        systemPrompt: String,
+        userPrompt: String,
+        config: AiRuntimeConfig,
+    ): AiCompletionResult {
+        val responseText = executeCancellable(buildCompletionRequest(systemPrompt, userPrompt, config))
+        return parseCompletionResponse(responseText)
+    }
+
+    private fun buildCompletionRequest(
+        systemPrompt: String,
+        userPrompt: String,
+        config: AiRuntimeConfig,
+    ): Request {
         val body =
             JSONObject()
                 .put("model", config.model)
@@ -122,8 +148,10 @@ class OpenAiCompatibleProvider @Inject constructor(
         if (config.apiKey.isNotBlank()) {
             requestBuilder.header("Authorization", "Bearer ${config.apiKey}")
         }
+        return requestBuilder.build()
+    }
 
-        val responseText = execute(requestBuilder.build())
+    private fun parseCompletionResponse(responseText: String): AiCompletionResult {
         val root = runCatching { JSONObject(responseText) }
             .getOrElse {
                 throw AiException(AiErrorCode.INVALID_RESPONSE, "AI 服务返回了无效 JSON", it)
@@ -218,6 +246,34 @@ class OpenAiCompatibleProvider @Inject constructor(
             } catch (error: Throwable) {
                 throw classifyNetworkError(error)
             }
+        return readResponse(response)
+    }
+
+    private suspend fun executeCancellable(request: Request): String =
+        suspendCancellableCoroutine { continuation ->
+            val call = httpClient.client.newCall(request)
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(
+                object : Callback {
+                    override fun onFailure(call: Call, e: java.io.IOException) {
+                        if (!continuation.isActive) return
+                        continuation.resumeWith(Result.failure(classifyNetworkError(e)))
+                    }
+
+                    override fun onResponse(call: Call, response: Response) {
+                        if (!continuation.isActive) {
+                            response.close()
+                            return
+                        }
+                        continuation.resumeWith(
+                            runCatching { readResponse(response) },
+                        )
+                    }
+                }
+            )
+        }
+
+    private fun readResponse(response: Response): String {
         response.use {
             val body = it.body?.string().orEmpty()
             if (!it.isSuccessful) {

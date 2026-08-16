@@ -24,6 +24,7 @@ import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarOutline
+import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -71,6 +72,8 @@ fun BottomBar(
     onStarred: (isStarred: Boolean) -> Unit = {},
     onNextArticle: () -> Unit = {},
     onAiSummary: () -> Unit = {},
+    onAiSummaryLongClick: () -> Unit = {},
+    onStopAiSummary: () -> Unit = {},
     onTranslate: () -> Unit = {},
     onTranslateWithTarget: (TranslationTarget) -> Unit = {},
     onSetDefaultTranslationTarget: (TranslationTarget) -> Unit = {},
@@ -233,31 +236,62 @@ fun BottomBar(
                         if (showAiSummaryButton) {
                             if (isAiSummaryLoading) {
                                 Box(
-                                    modifier = Modifier.align(Alignment.Center).size(48.dp),
+                                    modifier =
+                                        Modifier.align(Alignment.Center)
+                                            .size(48.dp)
+                                            .clip(CircleShape)
+                                            .combinedClickable(
+                                                onClick = {
+                                                    view.performHapticFeedback(
+                                                        HapticFeedbackConstants.KEYBOARD_TAP
+                                                    )
+                                                    onStopAiSummary()
+                                                },
+                                                onLongClick = {},
+                                            ),
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     CircularProgressIndicator(
-                                        modifier = Modifier.size(22.dp),
+                                        modifier = Modifier.size(28.dp),
                                         strokeWidth = 2.dp,
+                                    )
+                                    androidx.compose.material3.Icon(
+                                        imageVector = Icons.Rounded.Stop,
+                                        contentDescription = stringResource(R.string.ai_summary_stop),
+                                        modifier = Modifier.size(13.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
                             } else {
-                                CanBeDisabledIconButton(
-                                    modifier = Modifier.align(Alignment.Center).size(44.dp),
-                                    disabled = !isAiSummaryEnabled,
-                                    contentDescription = stringResource(R.string.ai_summary_generate),
-                                    icon = {
-                                        AiSummaryAccentIcon(
-                                            contentDescription = stringResource(R.string.ai_summary_generate),
-                                            active = hasAiSummary,
-                                            enabled = isAiSummaryEnabled,
-                                            size = 30.dp,
-                                            iconSize = 17.dp,
-                                        )
-                                    },
+                                Box(
+                                    modifier =
+                                        Modifier.align(Alignment.Center)
+                                            .size(44.dp)
+                                            .clip(CircleShape)
+                                            .combinedClickable(
+                                                enabled = isAiSummaryEnabled,
+                                                onClick = {
+                                                    view.performHapticFeedback(
+                                                        HapticFeedbackConstants.KEYBOARD_TAP
+                                                    )
+                                                    onAiSummary()
+                                                },
+                                                onLongClick = {
+                                                    view.performHapticFeedback(
+                                                        HapticFeedbackConstants.LONG_PRESS
+                                                    )
+                                                    onAiSummaryLongClick()
+                                                },
+                                            ),
+                                    contentAlignment = Alignment.Center,
                                 ) {
-                                    view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                                    onAiSummary()
+                                    AiSummaryAccentIcon(
+                                        contentDescription = stringResource(R.string.ai_summary_generate),
+                                        active = hasAiSummary,
+                                        enabled = isAiSummaryEnabled,
+                                        size = 30.dp,
+                                        iconSize = 17.dp,
+                                    )
                                 }
                             }
                         }

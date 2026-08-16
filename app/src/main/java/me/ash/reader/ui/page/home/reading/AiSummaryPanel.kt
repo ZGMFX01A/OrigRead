@@ -19,6 +19,7 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -58,6 +59,7 @@ internal fun AiSummaryPanel(
     activeModel: String?,
     onClose: () -> Unit,
     onRegenerate: () -> Unit,
+    onStop: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val model = activeModel ?: document?.model.orEmpty()
@@ -239,14 +241,14 @@ internal fun AiSummaryPanel(
                     }
                     Spacer(modifier = Modifier.weight(1f))
                     IconButton(
-                        onClick = onRegenerate,
-                        enabled = !isLoading,
+                        onClick = if (isLoading) onStop else onRegenerate,
                         modifier = Modifier.size(36.dp),
                     ) {
                         if (isLoading) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
+                            Icon(
+                                imageVector = Icons.Rounded.Stop,
+                                contentDescription = stringResource(R.string.ai_summary_stop),
+                                modifier = Modifier.size(20.dp),
                             )
                         } else {
                             Icon(

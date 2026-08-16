@@ -84,7 +84,7 @@ class AiSummaryService @Inject constructor(
             }
             onProgress(AiSummaryProgressStage.GENERATING)
             val result =
-                provider.completeDetailed(
+                provider.completeDetailedCancellable(
                     systemPrompt = buildAiSummarySystemPrompt(settings.outputLanguage),
                     userPrompt =
                         buildAiSummaryUserPrompt(

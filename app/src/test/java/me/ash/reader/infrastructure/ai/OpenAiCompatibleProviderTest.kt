@@ -1,7 +1,13 @@
 package me.ash.reader.infrastructure.ai
 
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.SocketPolicy
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -209,6 +215,23 @@ class OpenAiCompatibleProviderTest {
             assertEquals(AiErrorCode.AUTHENTICATION, error.code)
             assertTrue(error.message.orEmpty().contains("invalid api key"))
         }
+    }
+
+    @Test
+    fun `cancellable completion returns immediately when coroutine is cancelled`() = runBlocking {
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
+        val job =
+            launch(Dispatchers.IO) {
+                provider.completeDetailedCancellable(
+                    systemPrompt = "system",
+                    userPrompt = "article",
+                    config = AiRuntimeConfig(server.url("/v1").toString(), "slow-model", ""),
+                )
+            }
+
+        assertTrue(server.takeRequest(2, TimeUnit.SECONDS) != null)
+        job.cancelAndJoin()
+        assertTrue(job.isCancelled)
     }
 }
 

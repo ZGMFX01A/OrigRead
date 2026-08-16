@@ -61,11 +61,6 @@ class TranslationSettingsViewModel @Inject constructor(
                 }
             }
         }
-        if (repository.current().provider(TranslationProviderType.DEEPL).enabled &&
-            repository.isConfigured(TranslationProviderType.DEEPL)
-        ) {
-            refreshDeepLUsage()
-        }
     }
 
     /** 手动刷新 DeepL 当前周期字符额度。 */
@@ -111,12 +106,6 @@ class TranslationSettingsViewModel @Inject constructor(
                 hasApiKeys = it.hasApiKeys + (type to repository.hasApiKey(type)),
             )
         }
-        if (type == TranslationProviderType.DEEPL &&
-            repository.hasApiKey(type) &&
-            repository.current().provider(type).enabled
-        ) {
-            refreshDeepLUsage()
-        }
     }
 
     fun testProvider(type: TranslationProviderType, successPrefix: String, failurePrefix: String) {
@@ -124,34 +113,6 @@ class TranslationSettingsViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update {
                 it.copy(testingProvider = type, testResults = it.testResults - type)
-            }
-            if (type == TranslationProviderType.DEEPL) {
-                val result = translationService.getDeepLUsage()
-                _uiState.update {
-                    it.copy(
-                        testingProvider = null,
-                        deepLUsage = result.getOrNull() ?: it.deepLUsage,
-                        deepLUsageError = result.exceptionOrNull()?.message,
-                        testResults =
-                            it.testResults +
-                                (type to
-                                    result.fold(
-                                        onSuccess = {
-                                            TranslationProviderTestResult(
-                                                true,
-                                                successPrefix,
-                                            )
-                                        },
-                                        onFailure = { error ->
-                                            TranslationProviderTestResult(
-                                                false,
-                                                "$failurePrefix ${error.message.orEmpty()}",
-                                            )
-                                        },
-                                    )),
-                    )
-                }
-                return@launch
             }
             val result = translationService.testProvider(type)
             _uiState.update {
