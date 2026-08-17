@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import java.util.Date
 import me.ash.reader.R
 import me.ash.reader.infrastructure.content.FullContentFailureReason
+import me.ash.reader.infrastructure.net.githubReleaseDownloadCandidates
 import me.ash.reader.infrastructure.preference.LocalReadingRenderer
 import me.ash.reader.infrastructure.preference.LocalReadingSubheadUpperCase
 import me.ash.reader.infrastructure.preference.ReadingRendererPreference
@@ -51,6 +52,7 @@ fun Content(
     content: String,
     feedName: String,
     title: String,
+    originalTitle: String? = null,
     author: String? = null,
     link: String? = null,
     publishedDate: Date,
@@ -81,6 +83,7 @@ fun Content(
                     Metadata(
                         feedName = feedName,
                         title = title,
+                        originalTitle = originalTitle,
                         author = author,
                         publishedDate = publishedDate,
                         modifier = Modifier.roundClick { link?.let { uriHandler.openUri(it) } },
@@ -204,13 +207,15 @@ private fun OrigReadReleaseActions(
     links: OrigReadReleaseLinks,
     onOpenUrl: (String) -> Unit,
 ) {
+    val preferredApkDownloadUrl =
+        githubReleaseDownloadCandidates(links.apkDownloadUrl).firstOrNull() ?: links.apkDownloadUrl
     Column(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Button(
             modifier = Modifier.fillMaxWidth(),
-            onClick = { onOpenUrl(links.apkDownloadUrl) },
+            onClick = { onOpenUrl(preferredApkDownloadUrl) },
         ) {
             Text(stringResource(R.string.download_release_apk))
         }

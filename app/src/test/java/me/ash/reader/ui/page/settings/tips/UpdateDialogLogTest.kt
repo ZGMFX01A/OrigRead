@@ -31,4 +31,48 @@ class UpdateDialogLogTest {
         assertEquals("2026-08-09", "2026-08-09T23:59:59+08:00".asReleaseDate())
         assertEquals("", "".asReleaseDate())
     }
+
+    @Test
+    fun `selects release notes by current app language`() {
+        val notes =
+            """
+            ## 中文
+            - 修复 AI 摘要过长
+            - 优化更新下载
+
+            ## English
+            - Fix overly long AI summaries
+            - Improve update downloads
+            """.trimIndent()
+
+        assertEquals(
+            "- 修复 AI 摘要过长\n- 优化更新下载",
+            notes.localizedReleaseNotes("zh-CN"),
+        )
+        assertEquals(
+            "- Fix overly long AI summaries\n- Improve update downloads",
+            notes.localizedReleaseNotes("en-US"),
+        )
+    }
+
+    @Test
+    fun `selects hidden release note language markers`() {
+        val notes =
+            """
+            <!-- lang:zh -->
+            - 修复更新功能
+
+            <!-- lang:en -->
+            - Fix update handling
+            """.trimIndent()
+
+        assertEquals("- 修复更新功能", notes.localizedReleaseNotes("zh-CN"))
+        assertEquals("- Fix update handling", notes.localizedReleaseNotes("en-US"))
+    }
+
+    @Test
+    fun `keeps legacy single language release notes`() {
+        val notes = "- 修复若干问题\n- 优化阅读体验"
+        assertEquals(notes, notes.localizedReleaseNotes("en-US"))
+    }
 }

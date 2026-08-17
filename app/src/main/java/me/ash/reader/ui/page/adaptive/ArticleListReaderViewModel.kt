@@ -46,6 +46,7 @@ import me.ash.reader.domain.service.SyncWorker
 import me.ash.reader.infrastructure.android.AndroidImageDownloader
 import me.ash.reader.infrastructure.android.TextToSpeechManager
 import me.ash.reader.infrastructure.ai.AiSettingsRepository
+import me.ash.reader.infrastructure.ai.AiException
 import me.ash.reader.infrastructure.ai.AiSummaryDocument
 import me.ash.reader.infrastructure.ai.AiSummaryLength
 import me.ash.reader.infrastructure.ai.AiSummaryProgressStage
@@ -724,12 +725,21 @@ constructor(
                 } catch (error: CancellationException) {
                     // 用户停止、文章切换或 ViewModel 清理都属于正常取消，不提示失败。
                 } catch (error: Throwable) {
+                    Timber.e(error, "AI summary generation failed")
                     if (
                         requestSerial == aiSummaryRequestSerial &&
                             _readerState.value.articleId == articleId
                     ) {
                         _aiSummaryUiState.update {
-                            it.copy(errorMessage = error.message ?: "AI 摘要生成失败")
+                            it.copy(
+                                errorMessage =
+                                    if (error is AiException) {
+                                        error.message?.takeIf(String::isNotBlank) ?: "AI 摘要生成失败，请重试"
+                                    } else {
+                                        // 内部类名、初始化错误等实现细节只写日志，不直接暴露到阅读页。
+                                        "AI 摘要生成失败，请重试"
+                                    },
+                            )
                         }
                     }
                 } finally {

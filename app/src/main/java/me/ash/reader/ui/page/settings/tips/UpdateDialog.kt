@@ -25,6 +25,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -51,6 +52,7 @@ fun UpdateDialog(
     val newVersionLog = LocalNewVersionLog.current
     val newVersionSize = LocalNewVersionSize.current
     val newVersionDownloadUrl = LocalNewVersionDownloadUrl.current
+    val currentAppLanguage = LocalConfiguration.current.locales[0].language
 
     val installSourceSettings =
         rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
@@ -112,7 +114,12 @@ fun UpdateDialog(
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 SelectionContainer {
-                    Text(text = newVersionLog.withoutGeneratedFullChangelog())
+                    Text(
+                        text =
+                            newVersionLog
+                                .localizedReleaseNotes(currentAppLanguage)
+                                .withoutGeneratedFullChangelog()
+                    )
                 }
                 if (downloadState is Download.Error) {
                     Spacer(modifier = Modifier.height(12.dp))
@@ -181,6 +188,45 @@ internal fun String.withoutGeneratedFullChangelog(): String {
     val markerIndex = markers.map { indexOf(it, ignoreCase = true) }.filter { it >= 0 }.minOrNull()
         ?: return trim()
     return substring(0, markerIndex).trimEnd()
+}
+
+/**
+ * 一个 GitHub Release body 可以同时维护中文和英文段落。
+ * 推荐使用 GitHub 页面不可见的 `<!-- lang:zh -->` / `<!-- lang:en -->` 分隔；
+ * 旧的可见语言标题和旧版单语日志继续兼容。
+ */
+internal fun String.localizedReleaseNotes(language: String): String {
+    val body = trim()
+    if (body.isBlank()) return body
+    val hiddenMarker =
+        Regex(
+            pattern = "(?im)^\\s*<!--\\s*(?:origread:)?lang\\s*[:=]\\s*([a-zA-Z-]+)\\s*-->\\s*$"
+        )
+    val hiddenMatches = hiddenMarker.findAll(body).toList()
+    if (hiddenMatches.isNotEmpty()) {
+        val wantChinese = language.trim().startsWith("zh", ignoreCase = true)
+        val selected =
+            hiddenMatches.firstOrNull { match ->
+                match.groupValues[1].startsWith("zh", ignoreCase = true) == wantChinese
+            } ?: return body
+        val next = hiddenMatches.firstOrNull { it.range.first > selected.range.last }
+        return body.substring(selected.range.last + 1, next?.range?.first ?: body.length).trim()
+    }
+    val heading =
+        Regex(
+            pattern = "(?im)^#{1,6}\\s*(中文|简体中文|繁體中文|繁体中文|Chinese|English|英文)\\s*$"
+        )
+    val matches = heading.findAll(body).toList()
+    if (matches.isEmpty()) return body
+    val wantChinese = language.trim().startsWith("zh", ignoreCase = true)
+    val selected =
+        matches.firstOrNull { match ->
+            val label = match.groupValues[1].lowercase()
+            val chineseSection = label != "english" && label != "英文"
+            chineseSection == wantChinese
+        } ?: return body
+    val next = matches.firstOrNull { it.range.first > selected.range.last }
+    return body.substring(selected.range.last + 1, next?.range?.first ?: body.length).trim()
 }
 
 /** GitHub Release 时间统一只展示 yyyy-MM-dd，避免把 ISO 时间戳直接暴露给用户。 */

@@ -419,6 +419,12 @@ fun ReadingPage(
                                                     } else {
                                                         title.toString()
                                                     },
+                                                originalTitle =
+                                                    if (translationState.showTranslation && visibleTranslation != null) {
+                                                        title.toString()
+                                                    } else {
+                                                        null
+                                                    },
                                                 author = author,
                                                 link = link,
                                                 publishedDate = publishedDate,

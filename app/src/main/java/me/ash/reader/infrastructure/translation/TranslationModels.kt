@@ -1,6 +1,6 @@
 package me.ash.reader.infrastructure.translation
 
-import java.util.Locale
+import me.ash.reader.infrastructure.language.systemLanguageTag
 
 /** 原读当前支持的传统翻译实现。 */
 enum class TranslationProviderType {
@@ -71,8 +71,7 @@ data class TranslationSettings(
         providers[type] ?: defaultProviderSettings().getValue(type)
 
     companion object {
-        fun defaultTargetLanguage(): String =
-            Locale.getDefault().toLanguageTag().takeIf { it.isNotBlank() } ?: "zh-CN"
+        fun defaultTargetLanguage(): String = systemLanguageTag()
 
         fun defaultProviderSettings(): Map<TranslationProviderType, TranslationProviderSettings> =
             mapOf(

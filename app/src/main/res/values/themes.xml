@@ -10,7 +10,7 @@
         <item name="android:windowContentOverlay">@color/windowBackground</item>
         <item name="android:windowBackground">@color/windowBackground</item>
         <item name="android:windowSplashScreenAnimatedIcon" tools:targetApi="31">
-            @drawable/origread_logo
+            @drawable/origread_splash_logo
         </item>
     </style>
 </resources>

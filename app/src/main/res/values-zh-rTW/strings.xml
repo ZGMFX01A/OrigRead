@@ -110,6 +110,7 @@
     <string name="global_filter_rule">全域規則</string>
     <string name="source_filter_rule">來源規則</string>
     <string name="read_original">閱讀原文</string>
+    <string name="original_title">原標題</string>
     <string name="full_content_failed">正文解析失敗</string>
     <string name="full_content_failure_no_content">未在目前頁面中找到可閱讀的正文內容。</string>
     <string name="full_content_failure_dynamic">目前頁面依賴動態載入，靜態 HTML 中沒有完整正文。</string>
@@ -554,6 +555,9 @@
     <string name="ai_summary_generating">正在等待模型生成</string>
     <string name="ai_summary_finalizing">正在整理摘要</string>
     <string name="ai_summary_elapsed">已等待 %1$d 秒</string>
+    <string name="ai_summary_not_needed_title">這篇文章無需再摘要</string>
+    <string name="ai_summary_not_needed_local">正文已經非常簡短，繼續壓縮只會重複原文。本次沒有傳送 AI 請求。</string>
+    <string name="ai_summary_not_needed_model">原文已經高度濃縮，繼續產生摘要無法明顯降低閱讀成本。</string>
     <string name="ai_summary_regenerate_options">重新生成摘要</string>
     <string name="ai_summary_choose_provider">AI 服務</string>
     <string name="ai_summary_choose_model">模型</string>

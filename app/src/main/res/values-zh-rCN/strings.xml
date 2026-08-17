@@ -111,6 +111,7 @@
     <string name="global_filter_rule">全局规则</string>
     <string name="source_filter_rule">来源规则</string>
     <string name="read_original">阅读原文</string>
+    <string name="original_title">原标题</string>
     <string name="full_content_failed">正文解析失败</string>
     <string name="full_content_failure_no_content">未在当前页面中找到可阅读的正文内容。</string>
     <string name="full_content_failure_dynamic">当前页面依赖动态加载，静态 HTML 中没有完整正文。</string>
@@ -586,6 +587,9 @@
     <string name="ai_summary_generating">正在等待模型生成</string>
     <string name="ai_summary_finalizing">正在整理摘要</string>
     <string name="ai_summary_elapsed">已等待 %1$d 秒</string>
+    <string name="ai_summary_not_needed_title">这篇文章无需再摘要</string>
+    <string name="ai_summary_not_needed_local">正文已经非常简短，继续压缩只会重复原文。本次没有发送 AI 请求。</string>
+    <string name="ai_summary_not_needed_model">原文已经高度浓缩，继续生成摘要无法明显降低阅读成本。</string>
     <string name="ai_summary_regenerate_options">重新生成摘要</string>
     <string name="ai_summary_choose_provider">AI 服务</string>
     <string name="ai_summary_choose_model">模型</string>

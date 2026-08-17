@@ -14,8 +14,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import me.ash.reader.R
 import me.ash.reader.infrastructure.preference.LocalReadingFonts
 import me.ash.reader.infrastructure.preference.LocalReadingTitleAlign
 import me.ash.reader.infrastructure.preference.LocalReadingTitleBold
@@ -33,6 +35,7 @@ fun Metadata(
     publishedDate: Date,
     modifier: Modifier = Modifier,
     author: String? = null,
+    originalTitle: String? = null,
 ) {
     val context = LocalContext.current
     val titleBold = LocalReadingTitleBold.current
@@ -73,6 +76,18 @@ fun Metadata(
                     .applyTextDirection(requiresBidi = title.requiresBidi()),
             textAlign = titleAlign,
         )
+        originalTitle
+            ?.takeIf { it.isNotBlank() && it != title }
+            ?.let { sourceTitle ->
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    modifier = Modifier.fillMaxWidth(),
+                    text = "${stringResource(R.string.original_title)}：$sourceTitle",
+                    color = labelColor,
+                    style = MaterialTheme.typography.bodyMedium.merge(fontFamily = fontFamily),
+                    textAlign = titleAlign,
+                )
+            }
         Spacer(modifier = Modifier.height(4.dp))
         author?.let {
             if (it.isNotEmpty()) {

@@ -106,6 +106,10 @@ class AiSummaryCache @Inject constructor(
             .put("length", document.length.name)
             .put("summary", document.summary)
             .put("reasoning", document.reasoning ?: JSONObject.NULL)
+            .put("status", document.status.name)
+            .put("articleForm", document.articleForm?.name ?: JSONObject.NULL)
+            .put("domain", document.domain ?: JSONObject.NULL)
+            .put("skipReason", document.skipReason?.name ?: JSONObject.NULL)
             .toString()
 
     private fun decode(value: String): AiSummaryDocument {
@@ -119,6 +123,20 @@ class AiSummaryCache @Inject constructor(
             length = AiSummaryLength.valueOf(json.getString("length")),
             summary = json.getString("summary"),
             reasoning = json.optString("reasoning").takeIf { it.isNotBlank() && it != "null" },
+            status =
+                json.optString("status")
+                    .takeIf(String::isNotBlank)
+                    ?.let { runCatching { AiSummaryStatus.valueOf(it) }.getOrNull() }
+                    ?: AiSummaryStatus.GENERATED,
+            articleForm =
+                json.optString("articleForm")
+                    .takeIf { it.isNotBlank() && it != "null" }
+                    ?.let { runCatching { AiArticleForm.valueOf(it) }.getOrNull() },
+            domain = json.optString("domain").takeIf { it.isNotBlank() && it != "null" },
+            skipReason =
+                json.optString("skipReason")
+                    .takeIf { it.isNotBlank() && it != "null" }
+                    ?.let { runCatching { AiSummarySkipReason.valueOf(it) }.getOrNull() },
         )
     }
 
@@ -128,8 +146,8 @@ class AiSummaryCache @Inject constructor(
             .joinToString("") { "%02x".format(it) }
 
     companion object {
-        // v4 开始缓存供应商显式返回的 reasoning，旧摘要安全失效后重新生成。
-        private const val CACHE_VERSION = "4"
+        // v7 引入跨语言等效长度、表格输入预算和 v1 元数据协议，旧摘要需安全失效。
+        private const val CACHE_VERSION = "7"
     }
 }
 

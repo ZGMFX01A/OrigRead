@@ -119,5 +119,7 @@ __pycache__/
 scripts/
 .ace-tool/
 
+/OrigRead-Desktop/
+
 # Independent Electron desktop repository
 /OrigRead-Desktop/

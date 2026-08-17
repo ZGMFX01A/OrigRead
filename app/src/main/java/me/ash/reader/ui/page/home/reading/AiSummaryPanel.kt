@@ -44,6 +44,8 @@ import androidx.compose.ui.unit.dp
 import me.ash.reader.R
 import me.ash.reader.infrastructure.ai.AiSummaryDocument
 import me.ash.reader.infrastructure.ai.AiSummaryProgressStage
+import me.ash.reader.infrastructure.ai.AiSummarySkipReason
+import me.ash.reader.infrastructure.ai.AiSummaryStatus
 
 /**
  * 阅读页内的非模态 AI 摘要面板。
@@ -198,7 +200,33 @@ internal fun AiSummaryPanel(
                                 }
                             }
                             */
-                            AiMarkdown(document.summary, hideLeadingSummaryHeading = true)
+                            if (document.status == AiSummaryStatus.NOT_NEEDED) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.ai_summary_not_needed_title),
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    Text(
+                                        text =
+                                            stringResource(
+                                                if (document.skipReason == AiSummarySkipReason.LOCAL_SOURCE_ALREADY_CONCISE) {
+                                                    R.string.ai_summary_not_needed_local
+                                                } else {
+                                                    R.string.ai_summary_not_needed_model
+                                                }
+                                            ),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            } else {
+                                AiMarkdown(document.summary, hideLeadingSummaryHeading = true)
+                            }
                         }
                     }
                 } else {

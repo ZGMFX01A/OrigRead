@@ -1,6 +1,6 @@
 package me.ash.reader.infrastructure.ai
 
-import java.util.Locale
+import me.ash.reader.infrastructure.language.systemLanguageTag
 
 const val DEFAULT_AI_PROVIDER_ID = "default"
 
@@ -9,6 +9,32 @@ enum class AiSummaryLength {
     BRIEF,
     STANDARD,
     DETAILED,
+}
+
+enum class AiSummaryStatus {
+    GENERATED,
+    NOT_NEEDED,
+}
+
+enum class AiArticleForm {
+    FLASH,
+    RELEASE,
+    NEWS,
+    REVIEW,
+    GUIDE,
+    RESEARCH,
+    REPORT,
+    ANALYSIS,
+    OPINION,
+    INTERVIEW,
+    OTHER,
+}
+
+enum class AiSummarySkipReason {
+    LOCAL_SOURCE_ALREADY_CONCISE,
+    SOURCE_ALREADY_CONCISE,
+    LOW_COMPRESSION_VALUE,
+    INSUFFICIENT_CONTENT,
 }
 
 /**
@@ -52,8 +78,7 @@ data class AiSettings(
             ?: providers.firstOrNull()
 
     companion object {
-        fun defaultOutputLanguage(): String =
-            Locale.getDefault().toLanguageTag().ifBlank { "zh-CN" }
+        fun defaultOutputLanguage(): String = systemLanguageTag()
     }
 }
 
@@ -81,6 +106,10 @@ data class AiSummaryDocument(
     val summary: String,
     /** 供应商明确返回给客户端的推理/思考文本；为空时 UI 不展示相关入口。 */
     val reasoning: String? = null,
+    val status: AiSummaryStatus = AiSummaryStatus.GENERATED,
+    val articleForm: AiArticleForm? = null,
+    val domain: String? = null,
+    val skipReason: AiSummarySkipReason? = null,
 )
 
 enum class AiErrorCode {

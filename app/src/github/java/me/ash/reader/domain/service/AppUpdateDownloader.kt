@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import me.ash.reader.R
 import me.ash.reader.infrastructure.net.Download
+import me.ash.reader.infrastructure.net.githubReleaseDownloadCandidates
 import me.ash.reader.ui.ext.getLatestApk
 
 /** GitHub 渠道使用成熟 AppUpdater 下载 Release APK；安装动作仍由 OrigRead UI 与系统安装器负责。 */
@@ -26,10 +27,19 @@ class AppUpdateDownloader @Inject constructor(
                 return@callbackFlow
             }
 
-            Log.i("RLog", "downloadUpdate start: $url")
-            val updater =
-                AppUpdater.Builder(context)
-                    .setUrl(url)
+            val candidates = githubReleaseDownloadCandidates(url)
+
+            fun startCandidate(index: Int) {
+                val candidate = candidates.getOrNull(index)
+                if (candidate == null) {
+                    trySend(Download.Error(context.getString(R.string.download_failure)))
+                    close()
+                    return
+                }
+                Log.i("RLog", "downloadUpdate start candidate ${index + 1}/${candidates.size}: $candidate")
+                val updater =
+                    AppUpdater.Builder(context)
+                    .setUrl(candidate)
                     .setFilename(filename)
                     // Compose 弹窗已经显示进度，不额外申请 Android 13+ 通知权限。
                     .setShowNotification(false)
@@ -66,9 +76,17 @@ class AppUpdateDownloader @Inject constructor(
                             }
 
                             override fun onError(cause: Throwable) {
-                                Log.e("RLog", "downloadUpdate failed", cause)
-                                trySend(Download.Error(cause.message ?: context.getString(R.string.download_failure)))
-                                close()
+                                Log.w("RLog", "downloadUpdate candidate failed: $candidate", cause)
+                                if (index + 1 < candidates.size) {
+                                    startCandidate(index + 1)
+                                } else {
+                                    trySend(
+                                        Download.Error(
+                                            cause.message ?: context.getString(R.string.download_failure)
+                                        )
+                                    )
+                                    close()
+                                }
                             }
 
                             override fun onCancel() {
@@ -78,8 +96,10 @@ class AppUpdateDownloader @Inject constructor(
                         },
                     )
                     .build()
+                updater.start()
+            }
 
-            updater.start()
+            startCandidate(0)
             // 下载任务由库内 Service 管理；Flow 关闭仅结束 UI 状态桥接。
             awaitClose { }
         }
