@@ -193,6 +193,14 @@
     <string name="sponsor">Sponsor</string>
     <string name="open_source_licenses">Open source licenses</string>
     <string name="github_link" translatable="false">https://github.com/ZGMFX01A/OrigRead</string>
+    <string name="desktop_github_link" translatable="false">https://github.com/ZGMFX01A/OrigRead-Desktop</string>
+    <string name="origread_multiplatform_title">OrigRead on multiple platforms</string>
+    <string name="origread_multiplatform_desc">OrigRead provides independent Android and Desktop clients with the same source-first reading direction.</string>
+    <string name="origread_android_project">Android</string>
+    <string name="origread_desktop_project">Desktop</string>
+    <string name="origread_tagline">A source-first reader</string>
+    <string name="origread_github_repository">GitHub repository</string>
+    <string name="origread_open_source_footer">Designed for focus · Open source</string>
     <string name="update_link" translatable="false">https://api.github.com/repos/ZGMFX01A/OrigRead/releases/latest</string>
     <string name="change_log">Changelog</string>
     <string name="update">Update</string>

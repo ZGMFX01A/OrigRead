@@ -166,6 +166,13 @@
     <string name="reading_page">閱讀頁面</string>
     <string name="sponsor">贊助</string>
     <string name="open_source_licenses">開放原始碼授權</string>
+    <string name="origread_multiplatform_title">OrigRead 多平台</string>
+    <string name="origread_multiplatform_desc">原讀同時提供獨立的 Android 與 Desktop 用戶端，並維持「來源優先」的核心閱讀方向一致。</string>
+    <string name="origread_android_project">Android</string>
+    <string name="origread_desktop_project">Desktop</string>
+    <string name="origread_tagline">來源優先的閱讀器</string>
+    <string name="origread_github_repository">GitHub 專案倉庫</string>
+    <string name="origread_open_source_footer">專注閱讀 · 開源構建</string>
     <string name="update_link">https://api.github.com/repos/ZGMFX01A/OrigRead/releases/latest</string>
     <string name="change_log">更新日誌</string>
     <string name="update">更新</string>
