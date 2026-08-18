@@ -48,7 +48,8 @@
 
 推荐总览图：
 
-<p align="center"><img src="assets/readme/screenshots/zh-CN/overview.png" width="900" alt="原读功能总览" /></p>
+<p align="center"><img src="assets/readme/screenshots/zh-CN/overview.png" width="300" alt="原读功能总览" /></p>
+
 | 来源发现 | 阅读与全文 | AI 摘要 |
 | --- | --- | --- |
 | <img src="assets/readme/screenshots/zh-CN/source-discovery.png" width="280" alt="原读来源发现" /> | <img src="assets/readme/screenshots/zh-CN/reading.png" width="280" alt="原读阅读页" /> | <img src="assets/readme/screenshots/zh-CN/ai-summary.png" width="280" alt="原读 AI 摘要" /> |
