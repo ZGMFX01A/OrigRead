@@ -45,9 +45,6 @@
 
 ## 软件截图
 
-
-推荐总览图：
-
 <p align="center"><img src="assets/readme/screenshots/zh-CN/overview.png" width="300" alt="原读功能总览" /></p>
 
 | 来源发现 | 阅读与全文 | AI 摘要 |
