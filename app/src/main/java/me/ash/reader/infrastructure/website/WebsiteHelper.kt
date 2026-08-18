@@ -223,13 +223,22 @@ class WebsiteHelper @Inject constructor(
         ensureAutomaticParsingAllowed(probeFeed, html)
         val document = Jsoup.parse(html, documentBaseUrl)
         val selection =
-            selectBestCandidate(
-                feed = probeFeed,
-                document = document,
-                fetchedAt = fetchedAt,
-                forceAutomaticFullScan = true,
-                allowLowConfidenceFallback = allowLowConfidenceFallback,
-            )
+            try {
+                selectBestCandidate(
+                    feed = probeFeed,
+                    document = document,
+                    fetchedAt = fetchedAt,
+                    forceAutomaticFullScan = true,
+                    allowLowConfidenceFallback = allowLowConfidenceFallback,
+                )
+            } catch (error: IllegalStateException) {
+                if (!allowLowConfidenceFallback || !error.message.orEmpty().startsWith("当前网站的解析规则均未通过健康检查：")) {
+                    throw error
+                }
+                // WebView 本身已经成功渲染，只是当前 DOM 没有可靠文章列表。保留一个空的动态
+                // 兜底 Feed 交给订阅页展示风险提示，让用户自行决定是否继续添加。
+                null
+            }
         val iconUrl =
             document
                 .selectFirst("link[rel~=(?i)^(shortcut )?icon$]")
@@ -241,7 +250,7 @@ class WebsiteHelper @Inject constructor(
             title = document.title().ifBlank { URI(sourceUrl).host ?: document.location() }
             link = sourceUrl
             description = document.selectFirst("meta[name=description]")?.attr("content") ?: ""
-            entries = selection.candidate.articles.map { article ->
+            entries = selection?.candidate?.articles.orEmpty().map { article ->
                 SyndEntryImpl().apply {
                     this.title = article.title
                     this.link = article.link

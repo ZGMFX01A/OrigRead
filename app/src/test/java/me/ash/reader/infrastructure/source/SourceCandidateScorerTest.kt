@@ -32,7 +32,7 @@ class SourceCandidateScorerTest {
     }
 
     @Test
-    fun `candidate with invalid links is rejected`() {
+    fun `structured json is not rejected by website link quality rules`() {
         val feed = SyndFeedImpl().apply {
             entries = List(10) { index ->
                 SyndEntryImpl().apply {
@@ -44,7 +44,38 @@ class SourceCandidateScorerTest {
 
         val result = SourceCandidateScorer.score(feed, SourceCandidateKind.JSON)
 
-        assertFalse(result.accepted)
+        assertTrue(result.accepted)
+        assertTrue(result.validLinkRate == 0.0)
+    }
+
+    @Test
+    fun `parsed rss stays selectable when entries have no http link`() {
+        val feed = SyndFeedImpl().apply {
+            entries = List(3) { index ->
+                SyndEntryImpl().apply {
+                    title = "Episode $index"
+                    link = ""
+                }
+            }
+        }
+
+        assertTrue(SourceCandidateScorer.score(feed, SourceCandidateKind.RSS_DIRECT).accepted)
+        assertTrue(SourceCandidateScorer.score(feed, SourceCandidateKind.RSS_DISCOVERED).accepted)
+        assertTrue(SourceCandidateScorer.score(feed, SourceCandidateKind.RSSHUB).accepted)
+        assertTrue(SourceCandidateScorer.score(feed, SourceCandidateKind.JSON).accepted)
+        assertFalse(SourceCandidateScorer.score(feed, SourceCandidateKind.WEBSITE).accepted)
+    }
+
+    @Test
+    fun `empty structured source stays selectable while empty website is rejected`() {
+        val empty = SyndFeedImpl().apply { entries = emptyList() }
+
+        assertTrue(SourceCandidateScorer.score(empty, SourceCandidateKind.RSS_DIRECT).accepted)
+        assertTrue(SourceCandidateScorer.score(empty, SourceCandidateKind.RSS_DISCOVERED).accepted)
+        assertTrue(SourceCandidateScorer.score(empty, SourceCandidateKind.RSSHUB).accepted)
+        assertTrue(SourceCandidateScorer.score(empty, SourceCandidateKind.JSON).accepted)
+        assertFalse(SourceCandidateScorer.score(empty, SourceCandidateKind.WEBSITE).accepted)
+        assertFalse(SourceCandidateScorer.score(empty, SourceCandidateKind.WEBSITE_DYNAMIC).accepted)
     }
 
     @Test

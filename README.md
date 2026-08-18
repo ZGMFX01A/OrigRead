@@ -38,20 +38,18 @@ The goal is simple: **subscribe to the source, preserve the original link, extra
 - **Source-first instead of recommendation-first** — subscriptions stay under your control and articles remain tied to their original source URL.
 - **More than RSS** — RSS/Atom, RSSHub, HTML website rules, automatic DOM detection, JSON/API rules, WordPress REST, Next.js/Nuxt embedded data and dynamic-page fallback can all participate in source discovery.
 - **Deterministic parsing before AI** — normal source parsing, scoring and full-text extraction do not depend on an LLM.
-- **AI is an optional reading tool, not the product itself** — use AI for article summaries, full-article translation and assisted rule generation without turning the app into a chat client.
+- **AI is an optional reading tool, not the product itself** — use AI for article summaries and full-article translation without turning the app into a chat client. AI rule generation remains an unfinished experimental feature and is disabled in the current UI.
 - **Local filtering before storage** — global or per-source keyword/regex rules can reject unwanted article titles before they enter the local article database.
 - **Readable full text with an escape hatch** — explicit content rules, Readability, structured metadata and WebView fallback are combined with a one-tap “Read original” action.
 - **Portable configuration** — subscriptions, groups, parsing rules, filters, RSSHub settings, translation settings and AI settings can be exported and restored across devices.
 
 ## Screenshots
 
-The English README uses screenshots captured from the English UI. A separate Simplified Chinese screenshot set is used by `README-zh-CN.md`. See [`assets/readme/screenshots/README.md`](assets/readme/screenshots/README.md) for the capture checklist and naming convention.
 
-<!--
 Recommended overview image:
 
 <p align="center"><img src="assets/readme/screenshots/en-US/overview.png" width="900" alt="OrigRead overview" /></p>
--->
+
 
 | Source discovery | Reading & full text | AI summary |
 | --- | --- | --- |
@@ -60,6 +58,12 @@ Recommended overview image:
 | Translation | Parsing rules | Settings & backup |
 | --- | --- | --- |
 | <img src="assets/readme/screenshots/en-US/translation.png" width="280" alt="OrigRead translation" /> | <img src="assets/readme/screenshots/en-US/rules.png" width="280" alt="OrigRead parsing rules" /> | <img src="assets/readme/screenshots/en-US/settings-backup.png" width="280" alt="OrigRead settings and backup" /> |
+
+## Documentation and other platforms
+
+| 📖 User guide | 🖥️ Desktop edition |
+| --- | --- |
+| [Open the Android user guide](USER_GUIDE.md) for task-based instructions on sources, reading, AI/translation and migration. | [Open OrigRead Desktop](https://github.com/ZGMFX01A/OrigRead-Desktop) for Windows, macOS and Linux. |
 
 ## Source discovery: one URL, multiple strategies
 
@@ -230,19 +234,7 @@ This works with many OpenAI-compatible cloud services, self-hosted gateways and 
 
 ### AI-assisted parsing-rule generation
 
-OrigRead can ask an AI model to propose a WebsiteRule or JsonRule, but **AI output is never trusted as executable configuration by itself**.
-
-The workflow is:
-
-1. OrigRead fetches the real target HTML/JSON.
-2. The model receives a bounded sample and the exact supported rule schema.
-3. The returned candidate must pass repository/schema validation.
-4. OrigRead runs the existing deterministic parser against the real source.
-5. Local health checks and candidate scoring must pass.
-6. One repair attempt can be made using the actual local validation error.
-7. The user previews the matched articles and JSON before explicitly saving the rule.
-
-This keeps AI in the role of a rule authoring assistant while the actual parser and validator remain local and deterministic.
+Experimental implementation work exists for AI-assisted WebsiteRule/JsonRule generation, but the end-to-end product workflow is **not finished and is disabled in the current UI**. OrigRead does not count this as a released feature until real-source coverage, failure recovery, save behavior and cross-client consistency meet the same validation standard as the deterministic parsers.
 
 ## Configuration backup and restore
 
@@ -331,6 +323,8 @@ OrigRead is distributed under the **GNU General Public License v3.0 (GPL-3.0)**.
 - Repository: https://github.com/ZGMFX01A/OrigRead
 - Releases: https://github.com/ZGMFX01A/OrigRead/releases
 - Issues: https://github.com/ZGMFX01A/OrigRead/issues
+- Desktop edition: https://github.com/ZGMFX01A/OrigRead-Desktop
+- User guide: [English](USER_GUIDE.md) · [简体中文](USER_GUIDE-zh-CN.md)
 - Upstream Read You: https://github.com/ReadYouApp/ReadYou
 
 ## Search keywords

@@ -31,7 +31,7 @@ class SubscribeCandidateSelectorTest {
     }
 
     @Test
-    fun `invalid candidate is omitted`() {
+    fun `invalid website candidate is omitted`() {
         val invalid = SyndFeedImpl().apply { entries = emptyList() }
 
         val ranked =
@@ -40,8 +40,8 @@ class SubscribeCandidateSelectorTest {
                     SubscribeCandidateProbe(
                         feed = invalid,
                         feedLink = "https://example.com/empty",
-                        sourceType = SourceType.JSON,
-                        kind = SourceCandidateKind.JSON,
+                        sourceType = SourceType.WEBSITE,
+                        kind = SourceCandidateKind.WEBSITE,
                     ),
                     probe(SourceCandidateKind.RSS_DIRECT, SourceType.RSS, "https://example.com/feed.xml", 10),
                 )
@@ -84,7 +84,7 @@ class SubscribeCandidateSelectorTest {
     }
 
     @Test
-    fun `dynamic website fallback with no articles is rejected`() {
+    fun `dynamic website fallback with no articles remains available as explicit low confidence choice`() {
         val ranked =
             SubscribeCandidateSelector.rank(
                 listOf(
@@ -97,7 +97,9 @@ class SubscribeCandidateSelectorTest {
                 )
             )
 
-        assertEquals(0, ranked.size)
+        assertEquals(1, ranked.size)
+        assertEquals(SourceCandidateKind.WEBSITE_DYNAMIC, ranked.single().kind)
+        assertEquals(false, ranked.single().diagnostics.accepted)
     }
 
     @Test

@@ -58,7 +58,8 @@ class JsonSourceHelperTest {
                       "date_gmt": "2026-08-03T08:00:00",
                       "link": "${server.url("/article/7")}",
                       "title": {"rendered": "WordPress article"},
-                      "excerpt": {"rendered": "Article summary"}
+                      "excerpt": {"rendered": "Article summary"},
+                      "content": {"rendered": "<p>Full WordPress article body</p>"}
                     }]
                     """.trimIndent()
                 )
@@ -68,6 +69,7 @@ class JsonSourceHelperTest {
 
         assertNotNull(result)
         assertEquals("WordPress article", result!!.feed.entries.single().title)
+        assertEquals("<p>Full WordPress article body</p>", result.feed.entries.single().description.value)
         assertEquals(
             "/news/wp-json/wp/v2/posts?_embed=1&per_page=30",
             server.takeRequest().path,
@@ -88,7 +90,8 @@ class JsonSourceHelperTest {
                       "date_gmt": "2026-08-03T09:00:00",
                       "link": "${server.url("/article/8")}",
                       "title": {"rendered": "Root WordPress article"},
-                      "excerpt": {"rendered": "Article summary"}
+                      "excerpt": {"rendered": "Article summary"},
+                      "content": {"rendered": "<p>Root WordPress article body</p>"}
                     }]
                     """.trimIndent()
                 )

@@ -15,18 +15,29 @@ import me.ash.reader.domain.repository.AccountDao
 import me.ash.reader.domain.repository.ArticleDao
 import me.ash.reader.domain.repository.FeedDao
 import me.ash.reader.domain.repository.GroupDao
+import me.ash.reader.domain.repository.LocalSubscriptionDao
 import me.ash.reader.infrastructure.preference.*
+import me.ash.reader.infrastructure.rss.RssHttpCache
+import me.ash.reader.infrastructure.rss.RssHttpCacheDao
 import me.ash.reader.ui.ext.toInt
 import java.util.*
 
 @Database(
-    entities = [Account::class, Feed::class, Article::class, Group::class, ArchivedArticle::class],
-    version = 8,
+    entities = [
+        Account::class,
+        Feed::class,
+        Article::class,
+        Group::class,
+        ArchivedArticle::class,
+        RssHttpCache::class,
+    ],
+    version = 9,
     autoMigrations = [
         AutoMigration(from = 5, to = 6),
         AutoMigration(from = 5, to = 7),
         AutoMigration(from = 6, to = 7),
         AutoMigration(from = 7, to = 8),
+        AutoMigration(from = 8, to = 9),
     ]
 )
 @TypeConverters(
@@ -46,6 +57,8 @@ abstract class AndroidDatabase : RoomDatabase() {
     abstract fun feedDao(): FeedDao
     abstract fun articleDao(): ArticleDao
     abstract fun groupDao(): GroupDao
+    abstract fun localSubscriptionDao(): LocalSubscriptionDao
+    abstract fun rssHttpCacheDao(): RssHttpCacheDao
 
     companion object {
 

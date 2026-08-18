@@ -132,6 +132,7 @@ fun ArticleItem(
     val articleListDesc = LocalFlowArticleListDesc.current
     val articleListDate = LocalFlowArticleListTime.current
     val articleListReadIndicator = LocalFlowArticleListReadIndicator.current
+    var imageLoadFailed by remember(imgData) { mutableStateOf(false) }
 
     Column(
         modifier =
@@ -275,7 +276,7 @@ fun ArticleItem(
             }
 
             // Image
-            if (imgData != null && articleListImage.value) {
+            if (hasUsableArticleImage(imgData) && articleListImage.value && !imageLoadFailed) {
                 RYAsyncImage(
                     modifier = Modifier.padding(start = 10.dp).size(80.dp).clip(Shape20),
                     data = imgData,
@@ -283,11 +284,18 @@ fun ArticleItem(
                     precision = Precision.INEXACT,
                     size = SIZE_1000,
                     contentScale = ContentScale.Crop,
+                    onError = { imageLoadFailed = true },
                 )
             }
         }
     }
 }
+
+internal fun hasUsableArticleImage(imgData: Any?): Boolean =
+    when (imgData) {
+        is String -> imgData.isNotBlank()
+        else -> imgData != null
+    }
 
 @Composable
 fun StarredIcon(modifier: Modifier = Modifier) {

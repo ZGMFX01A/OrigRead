@@ -44,7 +44,9 @@ object WordPressJsonRuleFactory {
             titlePath = "$.title.rendered",
             linkPath = "$.link",
             datePath = "$.date_gmt",
-            descriptionPath = "$.excerpt.rendered",
+            // WordPress REST 已经返回完整 content.rendered；这里直接作为 Feed 正文使用。
+            // excerpt.rendered 只适合列表摘要，会造成 JSON 来源打开文章后只有标题/短摘要。
+            descriptionPath = "$.content.rendered",
             idPath = "$.id",
             dateFormat = "yyyy-MM-dd'T'HH:mm:ss",
             maxItems = 30,

@@ -88,7 +88,7 @@ class WebsiteHelperAutomaticRuleCacheTest {
     }
 
     @Test
-    fun `dynamic inspection rejects rendered website when no article candidate exists`() = runBlocking {
+    fun `dynamic inspection exposes rendered metadata as explicit low confidence fallback when no article candidate exists`() = runBlocking {
         val renderedHtml = """
             <!doctype html>
             <html>
@@ -103,10 +103,11 @@ class WebsiteHelperAutomaticRuleCacheTest {
             )
         )
 
-        val failure = runCatching { helper.inspectDynamic(feed.url, FETCHED_AT) }.exceptionOrNull()
+        val inspected = helper.inspectDynamic(feed.url, FETCHED_AT)
 
-        assertNotNull(failure)
-        assertTrue(failure?.message.orEmpty().contains("健康检查"))
+        assertEquals("Rendered fallback", inspected.title)
+        assertEquals(feed.url, inspected.link)
+        assertTrue(inspected.entries.isEmpty())
     }
 
     @After

@@ -12,6 +12,8 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import me.ash.reader.domain.model.account.Account
 import me.ash.reader.domain.model.article.ArchivedArticle
 import me.ash.reader.domain.model.article.Article
@@ -27,6 +29,7 @@ import me.ash.reader.infrastructure.android.NotificationHelper
 import me.ash.reader.infrastructure.preference.KeepArchivedPreference
 import me.ash.reader.infrastructure.preference.SyncIntervalPreference
 import me.ash.reader.infrastructure.rss.RssHelper
+import me.ash.reader.infrastructure.source.SourceUrlNormalizer
 import me.ash.reader.ui.ext.decodeHTML
 import me.ash.reader.ui.ext.spacerDollar
 
@@ -41,6 +44,28 @@ abstract class AbstractRssRepository(
     private val dispatcherDefault: CoroutineDispatcher,
     private val accountService: AccountService,
 ) {
+
+    /**
+     * 本地来源创建必须串行化。
+     *
+     * 订阅页的“已订阅”检查只能优化交互，不能承担数据一致性：用户连续点击确认、
+     * 或两个入口同时提交时，都可能在检查后分别生成不同 UUID。这里作为最终进程内兜底，
+     * 保证“检查同 URL -> 插入 Feed”是一个不可并发穿透的临界区。
+     */
+    private val subscriptionMutex = Mutex()
+
+    protected suspend fun <T> withSubscriptionLock(block: suspend (accountId: Int) -> T): T =
+        subscriptionMutex.withLock {
+            block(accountService.getCurrentAccountId())
+        }
+
+    protected suspend fun findExistingFeed(accountId: Int, url: String): Feed? {
+        feedDao.queryByLink(accountId, url).firstOrNull()?.let { return it }
+        val key = SourceUrlNormalizer.comparisonKey(url)
+        return feedDao.queryAll(accountId).firstOrNull { feed ->
+            SourceUrlNormalizer.comparisonKey(feed.url) == key
+        }
+    }
 
     open val importSubscription: Boolean = true
     open val addSubscription: Boolean = true
@@ -60,24 +85,27 @@ abstract class AbstractRssRepository(
         isFullContent: Boolean,
         isBrowser: Boolean,
     ) {
-        val accountId = accountService.getCurrentAccountId()
-        val feed =
-            Feed(
-                id = accountId.spacerDollar(UUID.randomUUID().toString()),
-                name = searchedFeed.title.decodeHTML()!!,
-                url = feedLink,
-                groupId = groupId,
-                accountId = accountId,
-                icon = searchedFeed.icon?.link,
-                isBrowser = isBrowser,
-                isNotification = isNotification,
-                isFullContent = isFullContent,
-                sourceType = SourceType.RSS,
-            )
-        val articles =
-            searchedFeed.entries.map { rssHelper.buildArticleFromSyndEntry(feed, accountId, it) }
-        feedDao.insert(feed)
-        articleDao.insertList(articles.map { it.copy(feedId = feed.id) })
+        withSubscriptionLock { accountId ->
+            if (findExistingFeed(accountId, feedLink) != null) return@withSubscriptionLock
+
+            val feed =
+                Feed(
+                    id = accountId.spacerDollar(UUID.randomUUID().toString()),
+                    name = searchedFeed.title.decodeHTML()!!,
+                    url = feedLink,
+                    groupId = groupId,
+                    accountId = accountId,
+                    icon = searchedFeed.icon?.link,
+                    isBrowser = isBrowser,
+                    isNotification = isNotification,
+                    isFullContent = isFullContent,
+                    sourceType = SourceType.RSS,
+                )
+            val articles =
+                searchedFeed.entries.map { rssHelper.buildArticleFromSyndEntry(feed, accountId, it) }
+            feedDao.insert(feed)
+            articleDao.insertList(articles.map { it.copy(feedId = feed.id) })
+        }
     }
 
     open suspend fun addGroup(destFeed: Feed?, newGroupName: String): String {
@@ -305,7 +333,7 @@ abstract class AbstractRssRepository(
     suspend fun findArticleById(id: String): ArticleWithFeed? = articleDao.queryById(id)
 
     suspend fun isFeedExist(url: String): Boolean =
-        feedDao.queryByLink(accountService.getCurrentAccountId(), url).isNotEmpty()
+        findExistingFeed(accountService.getCurrentAccountId(), url) != null
 
     suspend fun queryAllGroupWithFeeds(): List<GroupWithFeed> =
         groupDao.queryAllGroupWithFeed(accountService.getCurrentAccountId())

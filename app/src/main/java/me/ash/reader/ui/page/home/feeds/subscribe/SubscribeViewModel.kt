@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import com.rometools.rome.feed.synd.SyndFeed
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.InputStream
-import java.net.URI
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -219,6 +218,8 @@ constructor(
                                             } else {
                                                 SourceCandidateKind.RSS_DIRECT
                                             },
+                                        etag = discovered.etag,
+                                        lastModified = discovered.lastModified,
                                     )
                             }.onFailure { lastError = it }
 
@@ -340,16 +341,6 @@ constructor(
                 )
         }
     }
-
-    /** 明确 API 地址优先按 JSON 探测，普通首页仍保持 RSS 优先。 */
-    private fun isExplicitJsonEndpoint(url: String): Boolean =
-        runCatching {
-            val path = URI(url).path.orEmpty().lowercase()
-            path.contains("/wp-json/") ||
-                path.endsWith(".json") ||
-                path.startsWith("/api/") ||
-                path.contains("/api/")
-        }.getOrDefault(false)
 
     /** 更新统一来源探测的当前阶段。 */
     private fun updateSearchStage(stage: SearchStage) {
@@ -507,91 +498,110 @@ constructor(
     fun subscribe() {
         val state = _subscribeState.value
         if (state !is SubscribeState.Configure) return
+        if (_subscribeUiState.value.isSubscribing) return
+        _subscribeUiState.update { it.copy(isSubscribing = true) }
 
         applicationScope.launch {
-            val selectedCandidates =
-                state.candidates.filter { it.id in state.selectedCandidateIds }
-                    .ifEmpty {
-                        state.selectedCandidateId
-                            ?.let { id -> state.candidates.firstOrNull { it.id == id } }
-                            ?.let(::listOf)
-                            .orEmpty()
-                    }
-            if (selectedCandidates.isEmpty()) return@launch
-            if (selectedCandidates.size > 1 && selectedCandidates.any { it.kind != SourceCandidateKind.RSSHUB }) {
-                return@launch
-            }
+            try {
+                val selectedCandidates =
+                    state.candidates.filter { it.id in state.selectedCandidateIds }
+                        .ifEmpty {
+                            state.selectedCandidateId
+                                ?.let { id -> state.candidates.firstOrNull { it.id == id } }
+                                ?.let(::listOf)
+                                .orEmpty()
+                        }
+                if (selectedCandidates.isEmpty()) return@launch
+                if (selectedCandidates.size > 1 && selectedCandidates.any { it.kind != SourceCandidateKind.RSSHUB }) {
+                    return@launch
+                }
 
-            if (selectedCandidates.all { it.kind == SourceCandidateKind.RSSHUB }) {
-                selectedCandidates.forEach { candidate ->
-                    if (!rssService.get().isFeedExist(candidate.feedLink)) {
-                        rssService.subscribeRssHub(
-                            searchedFeed = candidate.feed,
-                            feedLink = candidate.feedLink,
-                            sourcePageUrl = state.sourcePageUrl,
+                if (selectedCandidates.all { it.kind == SourceCandidateKind.RSSHUB }) {
+                    selectedCandidates.forEach { candidate ->
+                        if (!rssService.get().isFeedExist(candidate.feedLink)) {
+                            rssService.subscribeRssHub(
+                                searchedFeed = candidate.feed,
+                                feedLink = candidate.feedLink,
+                                sourcePageUrl = state.sourcePageUrl,
+                                groupId = state.selectedGroupId,
+                                isNotification = state.notification,
+                                isFullContent = false,
+                                isBrowser = false,
+                            )
+                        }
+                    }
+                    hideDrawer()
+                    return@launch
+                }
+
+                val searchedFeed = state.searchedFeed
+                when (state.sourceType) {
+                    SourceType.RSS -> {
+                        val selectedKind =
+                            state.candidates.firstOrNull { it.id == state.selectedCandidateId }?.kind
+                        if (selectedKind == SourceCandidateKind.RSSHUB) {
+                            rssService.subscribeRssHub(
+                                searchedFeed = searchedFeed,
+                                feedLink = state.feedLink,
+                                sourcePageUrl = state.sourcePageUrl,
+                                groupId = state.selectedGroupId,
+                                isNotification = state.notification,
+                                isFullContent = false,
+                                isBrowser = false,
+                            )
+                        } else {
+                            val selectedCandidate =
+                                state.candidates.firstOrNull { it.id == state.selectedCandidateId }
+                            if (accountService.getCurrentAccount().type.id == AccountType.Local.id) {
+                                rssService.subscribeLocalRss(
+                                    searchedFeed = searchedFeed,
+                                    feedLink = state.feedLink,
+                                    groupId = state.selectedGroupId,
+                                    isNotification = state.notification,
+                                    isFullContent = false,
+                                    isBrowser = false,
+                                    etag = selectedCandidate?.etag,
+                                    lastModified = selectedCandidate?.lastModified,
+                                )
+                            } else {
+                                rssService.get().subscribe(
+                                    searchedFeed = searchedFeed,
+                                    feedLink = state.feedLink,
+                                    groupId = state.selectedGroupId,
+                                    isNotification = state.notification,
+                                    isFullContent = false,
+                                    isBrowser = false,
+                                )
+                            }
+                        }
+                    }
+
+                    SourceType.WEBSITE ->
+                        rssService.subscribeWebsite(
+                            searchedFeed = searchedFeed,
+                            feedLink = state.feedLink,
                             groupId = state.selectedGroupId,
                             isNotification = state.notification,
-                            isFullContent = false,
-                            isBrowser = false,
+                            isFullContent = state.fullContent,
+                            isBrowser = state.browser,
+                        ).also { feedId ->
+                            websiteHelper.setDynamicRenderingEnabled(feedId, state.dynamicRendering)
+                        }
+
+                    SourceType.JSON ->
+                        rssService.subscribeJson(
+                            searchedFeed = searchedFeed,
+                            feedLink = state.feedLink,
+                            groupId = state.selectedGroupId,
+                            isNotification = state.notification,
+                            isFullContent = state.fullContent,
+                            isBrowser = state.browser,
                         )
-                    }
                 }
                 hideDrawer()
-                return@launch
+            } finally {
+                _subscribeUiState.update { it.copy(isSubscribing = false) }
             }
-
-            val searchedFeed = state.searchedFeed
-            when (state.sourceType) {
-                SourceType.RSS -> {
-                    val selectedKind =
-                        state.candidates.firstOrNull { it.id == state.selectedCandidateId }?.kind
-                    if (selectedKind == SourceCandidateKind.RSSHUB) {
-                        rssService.subscribeRssHub(
-                            searchedFeed = searchedFeed,
-                            feedLink = state.feedLink,
-                            sourcePageUrl = state.sourcePageUrl,
-                            groupId = state.selectedGroupId,
-                            isNotification = state.notification,
-                            isFullContent = false,
-                            isBrowser = false,
-                        )
-                    } else {
-                        rssService.get().subscribe(
-                            searchedFeed = searchedFeed,
-                            feedLink = state.feedLink,
-                            groupId = state.selectedGroupId,
-                            isNotification = state.notification,
-                            isFullContent = false,
-                            isBrowser = false,
-                        )
-                    }
-                }
-
-                SourceType.WEBSITE ->
-                    rssService.subscribeWebsite(
-                        searchedFeed = searchedFeed,
-                        feedLink = state.feedLink,
-                        groupId = state.selectedGroupId,
-                        isNotification = state.notification,
-                        isFullContent = state.fullContent,
-                        isBrowser = state.browser,
-                    ).also { feedId ->
-                        websiteHelper.setDynamicRenderingEnabled(feedId, state.dynamicRendering)
-                        // 网站来源保存后没有预置文章，需要立即执行一次同步填充列表。
-                        rssService.get().doSyncOneTime()
-                    }
-
-                SourceType.JSON ->
-                    rssService.subscribeJson(
-                        searchedFeed = searchedFeed,
-                        feedLink = state.feedLink,
-                        groupId = state.selectedGroupId,
-                        isNotification = state.notification,
-                        isFullContent = state.fullContent,
-                        isBrowser = state.browser,
-                    ).also { rssService.get().doSyncOneTime() }
-            }
-            hideDrawer()
         }
     }
 
@@ -701,6 +711,7 @@ data class SubscribeUiState(
     val newGroupContent: String = "",
     val newName: String = "",
     val renameDialogVisible: Boolean = false,
+    val isSubscribing: Boolean = false,
 )
 
 sealed interface SubscribeState {

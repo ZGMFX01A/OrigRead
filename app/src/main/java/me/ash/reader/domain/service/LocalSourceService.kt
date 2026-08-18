@@ -8,6 +8,8 @@ import me.ash.reader.domain.model.feed.SourceType
 import me.ash.reader.domain.repository.FeedDao
 import me.ash.reader.infrastructure.json.JsonSourceHelper
 import me.ash.reader.infrastructure.rss.RssHelper
+import me.ash.reader.infrastructure.rss.RssHttpCache
+import me.ash.reader.infrastructure.rss.RssHttpCacheDao
 import me.ash.reader.infrastructure.rsshub.RssHubResolver
 import me.ash.reader.infrastructure.rsshub.RssHubSubscriptionRepository
 import me.ash.reader.infrastructure.website.WebsiteHelper
@@ -18,11 +20,17 @@ import me.ash.reader.infrastructure.website.WebsiteHelper
 class LocalSourceService @Inject constructor(
     private val feedDao: FeedDao,
     private val rssHelper: RssHelper,
+    private val rssHttpCacheDao: RssHttpCacheDao,
     private val websiteHelper: WebsiteHelper,
     private val jsonSourceHelper: JsonSourceHelper,
     private val rssHubResolver: RssHubResolver,
     private val rssHubSubscriptionRepository: RssHubSubscriptionRepository,
 ) {
+
+    data class SyncFetchResult(
+        val feedWithArticle: FeedWithArticle,
+        val notModified: Boolean = false,
+    )
 
     /**
      * 抓取单个来源。当前完整支持 RSS，网站来源将在后续接入独立解析器。
@@ -32,6 +40,13 @@ class LocalSourceService @Inject constructor(
             SourceType.RSS -> fetchRss(feed, preDate)
             SourceType.WEBSITE -> fetchWebsite(feed, preDate)
             SourceType.JSON -> jsonSourceHelper.fetch(feed, preDate)
+        }
+
+    suspend fun fetchForSync(feed: Feed, preDate: Date = Date()): SyncFetchResult =
+        when (feed.sourceType) {
+            SourceType.RSS -> fetchRssForSync(feed, preDate)
+            SourceType.WEBSITE -> SyncFetchResult(fetchWebsite(feed, preDate))
+            SourceType.JSON -> SyncFetchResult(jsonSourceHelper.fetch(feed, preDate))
         }
 
     /**
@@ -57,6 +72,62 @@ class LocalSourceService @Inject constructor(
         )
     }
 
+    private suspend fun fetchRssForSync(feed: Feed, preDate: Date): SyncFetchResult {
+        val cache = rssHttpCacheDao.query(feed.id)?.takeIf { it.feedUrl == feed.url }
+        val queried =
+            rssHelper.queryRssXmlConditional(
+                feed = feed,
+                latestLink = "",
+                preDate = preDate,
+                etag = cache?.etag,
+                lastModified = cache?.lastModified,
+            )
+        if (queried.notModified) {
+            return SyncFetchResult(
+                feedWithArticle = FeedWithArticle(feed = feed, articles = emptyList()),
+                notModified = true,
+            )
+        }
+
+        var effectiveFeed = feed
+        var articles = queried.articles
+        if (articles.isEmpty()) {
+            recoverRssHubFeed(feed, preDate)?.let { recovered ->
+                effectiveFeed = recovered.feed
+                articles = recovered.articles
+            }
+        }
+
+        // 只有成功完成 HTTP/XML/文章转换后才更新 validator；临时请求/解析失败保留旧缓存。
+        // 若 RSSHub 恢复到了新 URL，则用空 validator 重建缓存归属，下一次 200 再建立条件请求。
+        if (queried.successful || effectiveFeed.url != feed.url) {
+            rssHttpCacheDao.upsert(
+                RssHttpCache(
+                    feedId = feed.id,
+                    feedUrl = effectiveFeed.url,
+                    etag = queried.etag.takeIf { effectiveFeed.url == feed.url },
+                    lastModified = queried.lastModified.takeIf { effectiveFeed.url == feed.url },
+                    updatedAt = System.currentTimeMillis(),
+                )
+            )
+        }
+
+        if (feed.icon == null) {
+            rssHelper.queryRssIconLink(effectiveFeed.url)?.let { iconLink ->
+                rssHelper.saveRssIcon(feedDao, effectiveFeed, iconLink)
+            }
+        }
+        return SyncFetchResult(
+            feedWithArticle =
+                FeedWithArticle(
+                    feed = effectiveFeed.copy(
+                        isNotification = feed.isNotification && articles.isNotEmpty()
+                    ),
+                    articles = articles,
+                )
+        )
+    }
+
     /**
      * 已固定的 RSSHub 地址失效时，使用原始页面 URL 重新匹配路由和可用实例。
      * 只更新 Feed.url，不删除历史文章；无可用候选时保持原订阅地址等待下次同步。
@@ -71,9 +142,12 @@ class LocalSourceService @Inject constructor(
         val recoveredFeed = feed.copy(url = recoveredUrl)
         if (recoveredFeed.url != feed.url) feedDao.update(recoveredFeed)
         val articles =
-            requireNotNull(recovered.feed).entries.map { entry ->
-                rssHelper.buildArticleFromSyndEntry(recoveredFeed, feed.accountId, entry, preDate)
-            }
+            rssHelper.buildArticlesFromSyndEntries(
+                feed = recoveredFeed,
+                accountId = feed.accountId,
+                entries = requireNotNull(recovered.feed).entries,
+                preDate = preDate,
+            )
         return FeedWithArticle(feed = recoveredFeed, articles = articles)
     }
 

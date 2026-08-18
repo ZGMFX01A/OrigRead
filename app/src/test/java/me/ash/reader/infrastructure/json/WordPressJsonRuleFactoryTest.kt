@@ -30,6 +30,7 @@ class WordPressJsonRuleFactoryTest {
             rule.endpoint,
         )
         assertEquals("$[*]", rule.itemsPath)
+        assertEquals("$.content.rendered", rule.descriptionPath)
         assertEquals(JsonSourceKind.API, rule.sourceKind)
     }
 

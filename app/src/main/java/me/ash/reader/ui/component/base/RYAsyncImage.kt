@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.DefaultAlpha
@@ -13,6 +14,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import coil.compose.AsyncImagePainter
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
 import coil.size.Precision
@@ -34,6 +36,7 @@ fun RYAsyncImage(
     contentDescription: String? = null,
     @DrawableRes placeholder: Int? = null,
     @DrawableRes error: Int? = null,
+    onError: (() -> Unit)? = null,
 ) {
     // 兼容旧数据库中由 RSS HTML 正则直接保存的实体编码 URL，例如 BestBlogs/Wechat2RSS 的
     // `...?k=xxx&amp;u=...`。新同步数据已在 RssHelper 入库前修正，这里负责旧数据无迁移恢复。
@@ -60,6 +63,11 @@ fun RYAsyncImage(
                     }
                     .build()
         )
+    LaunchedEffect(painter.state) {
+        if (painter.state is AsyncImagePainter.State.Error) {
+            onError?.invoke()
+        }
+    }
     Image(
         painter = painter,
         contentDescription = contentDescription,

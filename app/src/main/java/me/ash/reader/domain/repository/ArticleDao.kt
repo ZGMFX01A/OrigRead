@@ -18,6 +18,8 @@ import me.ash.reader.domain.model.feed.Feed
 import me.ash.reader.domain.model.feed.ImportantNum
 import java.util.Date
 
+private const val ARTICLE_LINK_QUERY_CHUNK_SIZE = 800
+
 @Dao
 interface ArticleDao {
 
@@ -673,6 +675,29 @@ interface ArticleDao {
         accountId: Int,
     ): List<Article>
 
+    /**
+     * SQLite/Room 的 IN 参数存在绑定数量上限。大 Feed 统一分块查询，避免数千篇历史文章
+     * 在一次刷新时因为参数过多直接失败；800 还为 feedId/accountId 等参数留足余量。
+     */
+    @Transaction
+    suspend fun queryArticlesByLinksChunked(
+        linkList: List<String>,
+        feedId: String,
+        accountId: Int,
+    ): List<Article> {
+        if (linkList.isEmpty()) return emptyList()
+        return linkList
+            .distinct()
+            .chunked(ARTICLE_LINK_QUERY_CHUNK_SIZE)
+            .flatMap { chunk ->
+                queryArticlesByLinks(
+                    linkList = chunk,
+                    feedId = feedId,
+                    accountId = accountId,
+                )
+            }
+    }
+
     @Query(
         """
         SELECT a.*
@@ -921,7 +946,7 @@ interface ArticleDao {
     suspend fun insertListIfNotExist(articles: List<Article>, feed: Feed): List<Article> {
         if (articles.isEmpty()) return articles
 
-        val existingArticles = queryArticlesByLinks(
+        val existingArticles = queryArticlesByLinksChunked(
             linkList = articles.map { it.link },
             feedId = feed.id,
             accountId = feed.accountId

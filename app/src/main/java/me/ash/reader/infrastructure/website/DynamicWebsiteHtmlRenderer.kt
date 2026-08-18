@@ -49,9 +49,13 @@ class DynamicWebsiteHtmlRenderer @Inject constructor(
     private val articleWebSessionManager: ArticleWebSessionManager,
 ) {
     @SuppressLint("SetJavaScriptEnabled")
+    suspend fun render(url: String): DynamicWebsiteRenderResult =
+        render(url, articleWebSessionManager.httpUserAgent)
+
+    @SuppressLint("SetJavaScriptEnabled")
     suspend fun render(
         url: String,
-        userAgent: String = articleWebSessionManager.httpUserAgent,
+        userAgent: String,
     ): DynamicWebsiteRenderResult = withContext(mainDispatcher) {
         suspendCancellableCoroutine { continuation ->
             val handler = Handler(Looper.getMainLooper())

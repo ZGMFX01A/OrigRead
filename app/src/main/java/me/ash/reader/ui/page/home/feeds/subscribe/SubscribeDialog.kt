@@ -129,6 +129,7 @@ fun SubscribeDialog(
                 HorizontalDivider()
                 SubscribeSheetActions(
                     state = subscribeState,
+                    isSubscribing = subscribeUiState.isSubscribing,
                     onImportOpml = {
                         focusManager.clearFocus()
                         launcher.launch(arrayOf(MimeType.ANY))
@@ -509,6 +510,7 @@ private fun SourceCandidateCard(
 @Composable
 private fun SubscribeSheetActions(
     state: SubscribeState,
+    isSubscribing: Boolean,
     onImportOpml: () -> Unit,
     onSearch: () -> Unit,
     onSubscribe: () -> Unit,
@@ -522,7 +524,11 @@ private fun SubscribeSheetActions(
         }
         when (state) {
             is SubscribeState.Configure ->
-                Button(modifier = Modifier.fillMaxWidth().height(50.dp), onClick = onSubscribe) {
+                Button(
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    enabled = !isSubscribing,
+                    onClick = onSubscribe,
+                ) {
                     Text(stringResource(R.string.confirm_subscribe))
                 }
 

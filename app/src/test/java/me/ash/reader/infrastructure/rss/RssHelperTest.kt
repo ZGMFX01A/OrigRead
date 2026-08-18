@@ -1,7 +1,12 @@
 package me.ash.reader.infrastructure.rss
 
 import android.content.Context
+import com.rometools.rome.feed.synd.SyndEnclosureImpl
+import com.rometools.rome.feed.synd.SyndEntryImpl
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.runBlocking
+import me.ash.reader.domain.model.feed.Feed
+import me.ash.reader.domain.model.feed.SourceType
 import me.ash.reader.infrastructure.content.ContentExtractionService
 import me.ash.reader.infrastructure.content.DynamicArticleContentService
 import me.ash.reader.infrastructure.content.ArticleWebSessionManager
@@ -104,6 +109,44 @@ class RssHelperTest {
     }
 
     @Test
+    fun `audio podcast enclosure is not used as article thumbnail`() {
+        val entry = SyndEntryImpl().apply {
+            enclosures = listOf(
+                SyndEnclosureImpl().apply {
+                    url = "https://files.example.com/episode.mp3"
+                    type = "audio/mp3"
+                }
+            )
+        }
+
+        Assert.assertNull(rssHelper.findThumbnail(entry))
+    }
+
+    @Test
+    fun `image enclosure is still used as article thumbnail`() {
+        val entry = SyndEntryImpl().apply {
+            enclosures = listOf(
+                SyndEnclosureImpl().apply {
+                    url = imageUrlString
+                    type = "image/jpeg"
+                }
+            )
+        }
+
+        Assert.assertEquals(imageUrlString, rssHelper.findThumbnail(entry))
+    }
+
+    @Test
+    fun `audio enclosure in raw content falls through to real img tag`() {
+        val case = """
+            <enclosure url="https://files.example.com/episode.mp3" type="audio/mp3" length="123"/>
+            <img src="$imageUrlString"/>
+        """
+
+        Assert.assertEquals(imageUrlString, rssHelper.findThumbnail(case))
+    }
+
+    @Test
     fun testMediaNamespaceThumbnailInRSS20() {
         val case = """
             <enclosure url="$imageUrlString" type="image/jpeg" length="0"/>
@@ -123,5 +166,32 @@ class RssHelperTest {
             "https://wechat2rss.bestblogs.dev/img-proxy/?k=1bf25fda&u=https%3A%2F%2Fmmbiz.qpic.cn%2Fcover.jpg%3Fwx_fmt%3Djpeg",
             rssHelper.findThumbnail(case),
         )
+    }
+
+    @Test
+    fun `large feed conversion keeps all 705 entries in original order`() = runBlocking {
+        val feed =
+            Feed(
+                id = "1\$large-feed",
+                name = "ATP",
+                url = "https://example.com/feed.xml",
+                groupId = "1\$group",
+                accountId = 1,
+                sourceType = SourceType.RSS,
+            )
+        val entries =
+            (0 until 705).map { index ->
+                SyndEntryImpl().apply {
+                    link = "https://example.com/article/$index"
+                    description = com.rometools.rome.feed.synd.SyndContentImpl().apply {
+                        value = "<p>Body $index</p>"
+                    }
+                }
+            }
+
+        val articles = rssHelper.buildArticlesFromSyndEntries(feed, 1, entries)
+
+        Assert.assertEquals(705, articles.size)
+        Assert.assertEquals(entries.map { it.link }, articles.map { it.link })
     }
 }

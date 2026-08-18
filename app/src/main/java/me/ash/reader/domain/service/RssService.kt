@@ -33,6 +33,32 @@ constructor(
 
     fun flow() = currentServiceFlow
 
+    /** Local RSS 首次订阅可把探测阶段的 HTTP validator 一并保存，下一次刷新直接走条件请求。 */
+    suspend fun subscribeLocalRss(
+        feedLink: String,
+        searchedFeed: SyndFeed,
+        groupId: String,
+        isNotification: Boolean,
+        isFullContent: Boolean,
+        isBrowser: Boolean,
+        etag: String?,
+        lastModified: String?,
+    ) {
+        require(accountService.getCurrentAccount().type.id == AccountType.Local.id) {
+            "Local RSS validator cache is only supported for local accounts"
+        }
+        localRssService.subscribeWithHttpValidators(
+            feedLink = feedLink,
+            searchedFeed = searchedFeed,
+            groupId = groupId,
+            isNotification = isNotification,
+            isFullContent = isFullContent,
+            isBrowser = isBrowser,
+            etag = etag,
+            lastModified = lastModified,
+        )
+    }
+
     /**
      * 普通网站来源仅保存到本地账户，避免同步到第三方 RSS 服务。
      */

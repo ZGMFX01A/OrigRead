@@ -38,20 +38,17 @@
 - **来源优先，而不是推荐优先**：信息流由用户自己的订阅组成，文章始终保留原始来源链接。
 - **不只有 RSS**：RSS/Atom、RSSHub、HTML 网页规则、自动 DOM 识别、JSON/API、WordPress REST、Next.js/Nuxt 以及动态页面都可以进入来源发现链路。
 - **日常解析不依赖 AI**：来源发现、候选评分、正文提取和过滤都优先使用本地确定性逻辑。
-- **AI 只是阅读工具**：AI 用于文章摘要、AI 全文翻译和辅助生成解析规则，不把 App 做成聊天客户端。
+- **AI 只是阅读工具**：AI 用于文章摘要和 AI 全文翻译，不把 App 做成聊天客户端；AI 生成解析规则仍是未完成实验功能，当前入口保持禁用。
 - **新文章入库前过滤**：全局或来源级关键词/正则规则可以在文章写入本地数据库前直接拦截噪音。
 - **全文阅读始终保留退路**：网站规则、Readability、结构化数据和 WebView 共同尝试提取正文，失败时仍可一键阅读原文。
 - **配置可以迁移**：订阅、分组、解析规则、过滤规则、RSSHub、翻译和 AI 配置都可以统一备份并跨设备恢复。
 
 ## 软件截图
 
-中文 README 只使用简体中文界面截图；英文 README 使用独立的英文界面截图，两套图片互不混用。后面补图时不需要重新调整文档结构，具体截图清单见 [`assets/readme/screenshots/README.md`](assets/readme/screenshots/README.md)。
 
-<!--
 推荐总览图：
-<p align="center"><img src="assets/readme/screenshots/zh-CN/overview.png" width="900" alt="原读功能总览" /></p>
--->
 
+<p align="center"><img src="assets/readme/screenshots/zh-CN/overview.png" width="900" alt="原读功能总览" /></p>
 | 来源发现 | 阅读与全文 | AI 摘要 |
 | --- | --- | --- |
 | <img src="assets/readme/screenshots/zh-CN/source-discovery.png" width="280" alt="原读来源发现" /> | <img src="assets/readme/screenshots/zh-CN/reading.png" width="280" alt="原读阅读页" /> | <img src="assets/readme/screenshots/zh-CN/ai-summary.png" width="280" alt="原读 AI 摘要" /> |
@@ -59,6 +56,12 @@
 | 翻译 | 解析规则 | 设置与备份 |
 | --- | --- | --- |
 | <img src="assets/readme/screenshots/zh-CN/translation.png" width="280" alt="原读翻译" /> | <img src="assets/readme/screenshots/zh-CN/rules.png" width="280" alt="原读解析规则" /> | <img src="assets/readme/screenshots/zh-CN/settings-backup.png" width="280" alt="原读设置与备份" /> |
+
+## 文档与其他平台
+
+| 📖 操作手册 | 🖥️ Desktop 版本 |
+| --- | --- |
+| [查看 Android 操作手册](USER_GUIDE-zh-CN.md)，从添加来源、阅读、AI/翻译到备份迁移按实际操作查找。 | [前往 OrigRead Desktop](https://github.com/ZGMFX01A/OrigRead-Desktop)，支持 Windows、macOS 与 Linux。 |
 
 ## 来源发现：一个 URL，多种解析路径
 
@@ -230,19 +233,7 @@ AI 是完全可选能力，只有用户配置并主动使用时才会调用。
 
 ### AI 辅助生成解析规则
 
-原读可以让 AI 帮忙生成 WebsiteRule 或 JsonRule，但**模型输出不会被直接当作可执行规则保存**。
-
-完整流程：
-
-1. 原读先获取真实目标 HTML / JSON。
-2. 只把受限样本和当前真实规则 schema 发给模型。
-3. 模型返回候选规则。
-4. 候选必须先通过 Repository / schema 校验。
-5. 使用现有本地解析器对真实目标地址实际试跑。
-6. 本地健康检查和候选评分必须通过；失败时最多依据真实错误自动修复一次。
-7. 用户预览文章数量、评分、样例标题和完整 JSON 后明确确认，才会保存规则。
-
-这样 AI 负责“辅助写规则”，真正决定规则能不能执行的仍然是原读自己的确定性解析器和校验器。
+项目中保留了 AI 辅助 WebsiteRule / JsonRule 生成的实验实现，但完整产品链路**尚未达到完成标准，当前用户入口已经置灰禁用**。在真实来源覆盖、失败恢复、保存行为与跨端一致性达到与确定性解析器相同的验收标准之前，README 不再把它统计成已发布功能。
 
 ## 完整配置备份与恢复
 
@@ -331,6 +322,8 @@ Read You 提供了项目最初的重要基础，包括大量 Compose UI、RSS �
 - 项目仓库：https://github.com/ZGMFX01A/OrigRead
 - 版本发布：https://github.com/ZGMFX01A/OrigRead/releases
 - 问题反馈：https://github.com/ZGMFX01A/OrigRead/issues
+- 桌面版本：https://github.com/ZGMFX01A/OrigRead-Desktop
+- 操作手册：[简体中文](USER_GUIDE-zh-CN.md) · [English](USER_GUIDE.md)
 - Read You 原项目：https://github.com/ReadYouApp/ReadYou
 
 ## 搜索关键词

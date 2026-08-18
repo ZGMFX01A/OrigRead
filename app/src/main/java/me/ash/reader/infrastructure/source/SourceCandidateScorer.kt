@@ -26,8 +26,9 @@ data class SourceCandidateDiagnostics(
 )
 
 /**
- * 对 RSS、RSSHub、JSON/API 和网站候选使用同一组内容指标评分。
- * 来源类别只提供有限可信度加分，不能让内容无效的候选通过检查。
+ * 对不同来源使用同一组内容指标做排序，但只对网页抓取候选执行硬质量门槛。
+ * RSS / Atom / RSSHub / JSON 已经经过各自的结构化解析器，文章数量和字段完整度
+ * 只能影响排序，不能再套用网页 DOM 的链接比例门槛二次否决。
  */
 object SourceCandidateScorer {
     private const val MIN_VALID_RATE = 0.6
@@ -37,8 +38,9 @@ object SourceCandidateScorer {
 
     fun score(feed: SyndFeed, kind: SourceCandidateKind): SourceCandidateDiagnostics {
         val entries = feed.entries.orEmpty()
+        val structuredSource = isStructuredSource(kind)
         val dynamicFallback = kind == SourceCandidateKind.WEBSITE_DYNAMIC
-        if (entries.isEmpty()) return rejected("未获取到文章")
+        if (entries.isEmpty() && !structuredSource) return rejected("未获取到文章")
 
         val count = entries.size
         val validTitleRate = entries.count(::hasValidTitle).toRate(count)
@@ -48,7 +50,10 @@ object SourceCandidateScorer {
         val parsedDateRate = entries.count { it.publishedDate != null || it.updatedDate != null }.toRate(count)
         val reasons = mutableListOf<String>()
 
-        if (dynamicFallback) {
+        if (structuredSource) {
+            // 结构化候选已经由对应协议解析器确认有效。即使当前 0 篇或没有标准 HTTP link，
+            // 也仍可订阅；这些指标仅用于排序和诊断。
+        } else if (dynamicFallback) {
             // WebView 已经是最终兜底，标题/日期质量可以放宽，但至少必须存在真实且不全重复的文章链接。
             if (validLinkRate <= 0.0) reasons += "未解析出有效文章链接"
             if (uniqueLinkRate <= 0.0) reasons += "未解析出唯一文章链接"
@@ -73,6 +78,7 @@ object SourceCandidateScorer {
         }
 
         val countScore = when {
+            count == 0 -> 0
             count in 10..100 -> 20
             count in 3..200 -> 14
             else -> 8
@@ -106,6 +112,12 @@ object SourceCandidateScorer {
             SourceCandidateKind.WEBSITE -> 6
             SourceCandidateKind.WEBSITE_DYNAMIC -> 4
         }
+
+    private fun isStructuredSource(kind: SourceCandidateKind): Boolean =
+        kind == SourceCandidateKind.RSS_DIRECT ||
+            kind == SourceCandidateKind.RSS_DISCOVERED ||
+            kind == SourceCandidateKind.RSSHUB ||
+            kind == SourceCandidateKind.JSON
 
     private fun hasValidTitle(entry: SyndEntry): Boolean =
         entry.title?.trim()?.let { it.length >= 2 && it.lowercase() !in navigationTitles } == true

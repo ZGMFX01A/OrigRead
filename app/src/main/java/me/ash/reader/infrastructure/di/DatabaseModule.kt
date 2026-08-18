@@ -10,7 +10,9 @@ import me.ash.reader.domain.repository.AccountDao
 import me.ash.reader.domain.repository.ArticleDao
 import me.ash.reader.domain.repository.FeedDao
 import me.ash.reader.domain.repository.GroupDao
+import me.ash.reader.domain.repository.LocalSubscriptionDao
 import me.ash.reader.infrastructure.db.AndroidDatabase
+import me.ash.reader.infrastructure.rss.RssHttpCacheDao
 import javax.inject.Singleton
 
 /**
@@ -44,6 +46,16 @@ object DatabaseModule {
     @Singleton
     fun provideAccountDao(androidDatabase: AndroidDatabase): AccountDao =
         androidDatabase.accountDao()
+
+    @Provides
+    @Singleton
+    fun provideLocalSubscriptionDao(androidDatabase: AndroidDatabase): LocalSubscriptionDao =
+        androidDatabase.localSubscriptionDao()
+
+    @Provides
+    @Singleton
+    fun provideRssHttpCacheDao(androidDatabase: AndroidDatabase): RssHttpCacheDao =
+        androidDatabase.rssHttpCacheDao()
 
     @Provides
     @Singleton

@@ -10,6 +10,9 @@ import me.ash.reader.domain.model.feed.SourceType
 import me.ash.reader.domain.repository.FeedDao
 import me.ash.reader.infrastructure.json.JsonSourceHelper
 import me.ash.reader.infrastructure.rss.RssHelper
+import me.ash.reader.infrastructure.rss.RssHttpCache
+import me.ash.reader.infrastructure.rss.RssHttpCacheDao
+import me.ash.reader.infrastructure.rss.RssQueryResult
 import me.ash.reader.infrastructure.rsshub.RssHubProbeResult
 import me.ash.reader.infrastructure.rsshub.RssHubResolver
 import me.ash.reader.infrastructure.rsshub.RssHubRouteDefinition
@@ -31,6 +34,7 @@ import org.mockito.kotlin.whenever
 class LocalSourceServiceRssHubFallbackTest {
     private val feedDao = mock<FeedDao>()
     private val rssHelper = mock<RssHelper>()
+    private val rssHttpCacheDao = mock<RssHttpCacheDao>()
     private val websiteHelper = mock<WebsiteHelper>()
     private val jsonSourceHelper = mock<JsonSourceHelper>()
     private val rssHubResolver = mock<RssHubResolver>()
@@ -39,11 +43,54 @@ class LocalSourceServiceRssHubFallbackTest {
         LocalSourceService(
             feedDao = feedDao,
             rssHelper = rssHelper,
+            rssHttpCacheDao = rssHttpCacheDao,
             websiteHelper = websiteHelper,
             jsonSourceHelper = jsonSourceHelper,
             rssHubResolver = rssHubResolver,
             rssHubSubscriptionRepository = subscriptionRepository,
         )
+
+    @Test
+    fun `RSS 304 在同步入口直接短路且不触发恢复和缓存写入`() {
+        runBlocking {
+            val feed = feed(url = "https://example.com/feed.xml")
+            val preDate = Date(1_786_000_000_000L)
+            val cache =
+                RssHttpCache(
+                    feedId = feed.id,
+                    feedUrl = feed.url,
+                    etag = "\"etag-v1\"",
+                    lastModified = "Tue, 18 Aug 2026 12:00:00 GMT",
+                    updatedAt = 1L,
+                )
+            whenever(rssHttpCacheDao.query(feed.id)).thenReturn(cache)
+            whenever(
+                rssHelper.queryRssXmlConditional(
+                    feed = eq(feed),
+                    latestLink = eq(""),
+                    preDate = eq(preDate),
+                    etag = eq(cache.etag),
+                    lastModified = eq(cache.lastModified),
+                )
+            ).thenReturn(
+                RssQueryResult(
+                    articles = emptyList(),
+                    notModified = true,
+                    etag = cache.etag,
+                    lastModified = cache.lastModified,
+                )
+            )
+
+            val result = service.fetchForSync(feed, preDate)
+
+            assertEquals(true, result.notModified)
+            assertEquals(emptyList<Article>(), result.feedWithArticle.articles)
+            verify(subscriptionRepository, never()).sourceUrl(feed.id)
+            verify(rssHttpCacheDao, never()).upsert(any())
+            verify(rssHelper, never()).queryRssIconLink(any())
+            verifyNoInteractions(rssHubResolver)
+        }
+    }
 
     @Test
     fun `RSSHub 固定地址失效后重新匹配并更新订阅地址`() {
@@ -75,13 +122,13 @@ class LocalSourceServiceRssHubFallbackTest {
                 )
             )
             whenever(
-                rssHelper.buildArticleFromSyndEntry(
+                rssHelper.buildArticlesFromSyndEntries(
                     eq(feed.copy(url = recoveredUrl)),
                     eq(feed.accountId),
-                    eq(entry),
+                    eq(listOf(entry)),
                     eq(preDate),
                 )
-            ).thenReturn(article)
+            ).thenReturn(listOf(article))
 
             val result = service.fetch(feed, preDate)
 
