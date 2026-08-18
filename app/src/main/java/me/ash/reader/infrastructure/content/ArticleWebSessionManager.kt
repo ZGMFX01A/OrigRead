@@ -29,6 +29,14 @@ class ArticleWebSessionManager @Inject constructor(
         BrowserUserAgentPolicy.normalize(raw)
     }
 
+    /** 来源发现和网站列表解析专用桌面浏览器 UA，避免移动站把首页重定向到“打开 App”落地页。 */
+    val desktopHttpUserAgent: String by lazy {
+        val raw =
+            runCatching { WebSettings.getDefaultUserAgent(context) }
+                .getOrElse { System.getProperty("http.agent").orEmpty() }
+        BrowserUserAgentPolicy.normalizeDesktop(raw)
+    }
+
     /** 读取 WebView 当前对该地址可见的 Cookie；不落日志、不复制到额外持久化存储。 */
     fun cookieHeader(url: String): String? =
         runCatching { CookieManager.getInstance().getCookie(url) }
@@ -61,6 +69,17 @@ internal object BrowserUserAgentPolicy {
                 .replace(Regex("\\s{2,}"), " ")
                 .trim()
         return normalized.ifBlank { rawUserAgent.trim() }
+    }
+
+    fun normalizeDesktop(rawUserAgent: String): String {
+        chromeVersionRegex.find(rawUserAgent)?.groupValues?.getOrNull(1)?.let { chromeVersion ->
+            return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+                "AppleWebKit/537.36 (KHTML, like Gecko) " +
+                "Chrome/$chromeVersion Safari/537.36"
+        }
+
+        return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 
 }

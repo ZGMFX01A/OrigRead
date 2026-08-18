@@ -63,6 +63,12 @@ object WebsiteCandidateScorer {
     private val navigationTitles =
         setOf("首页", "登录", "注册", "更多", "下载", "关于我们", "联系我们", "home", "login", "more")
 
+    /** 最终动态 WebView 兜底只确认“确实提取到了可继续同步的链接列表”，质量分不再充当否决门槛。 */
+    fun isSafeDynamicFallback(diagnostics: WebsiteParseDiagnostics): Boolean =
+        diagnostics.articleCount > 0 &&
+            diagnostics.validLinkRate > 0.0 &&
+            diagnostics.uniqueLinkRate > 0.0
+
     /** 计算候选质量分，并给出可展示和调试的原因。 */
     fun score(articles: List<Article>, fetchedAtMillis: Long): WebsiteParseDiagnostics {
         if (articles.isEmpty()) return rejected("未解析出文章")

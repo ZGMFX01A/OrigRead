@@ -39,4 +39,25 @@ class RssHubCatalogAssetTest {
             }
         )
     }
+
+    @Test
+    fun `财联社首页从真实目录返回全部可解析首页路由`() {
+        val file =
+            listOf(
+                File("src/main/assets/rsshub_routes.json"),
+                File("app/src/main/assets/rsshub_routes.json"),
+            ).first(File::exists)
+        val catalog = Json.decodeFromString<RssHubRouteCatalogData>(file.readText())
+
+        val matches =
+            RssHubRouteMatcher.matchRoutes(
+                inputUrl = "https://www.cls.cn/",
+                routes = catalog.routes,
+                instanceBaseUrl = "https://rsshub.example.com",
+                maxResults = 8,
+            ).filter(RssHubRouteMatch::resolved)
+
+        assertTrue(matches.any { it.route.target == "/cls/hot" })
+        assertTrue(matches.any { it.route.target == "/cls/telegraph" })
+    }
 }

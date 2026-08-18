@@ -38,6 +38,7 @@ object AutomaticWebsiteListDetector {
         feed: Feed,
         fetchedAt: Date,
         historyScoreProvider: (String) -> Int = { 0 },
+        includeRejected: Boolean = false,
     ): List<WebsiteParseCandidate> {
         val host = runCatching { URI(feed.url).host.orEmpty() }.getOrDefault("")
         val seenLinks = hashSetOf<String>()
@@ -90,7 +91,7 @@ object AutomaticWebsiteListDetector {
                         )
                     }
             }
-            .filter { it.diagnostics.accepted }
+            .filter { includeRejected || it.diagnostics.accepted }
             .sortedByDescending { it.diagnostics.rankingScore }
             .distinctBy { it.rule.id }
             .take(MAX_CANDIDATES)

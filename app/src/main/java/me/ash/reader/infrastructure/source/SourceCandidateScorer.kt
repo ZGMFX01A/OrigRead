@@ -37,6 +37,7 @@ object SourceCandidateScorer {
 
     fun score(feed: SyndFeed, kind: SourceCandidateKind): SourceCandidateDiagnostics {
         val entries = feed.entries.orEmpty()
+        val dynamicFallback = kind == SourceCandidateKind.WEBSITE_DYNAMIC
         if (entries.isEmpty()) return rejected("未获取到文章")
 
         val count = entries.size
@@ -47,9 +48,16 @@ object SourceCandidateScorer {
         val parsedDateRate = entries.count { it.publishedDate != null || it.updatedDate != null }.toRate(count)
         val reasons = mutableListOf<String>()
 
-        if (validTitleRate < MIN_VALID_RATE) reasons += "有效标题比例过低"
-        if (validLinkRate < MIN_VALID_RATE) reasons += "有效链接比例过低"
-        if (uniqueLinkRate < MIN_UNIQUE_RATE) reasons += "重复链接比例过高"
+        if (dynamicFallback) {
+            // WebView 已经是最终兜底，标题/日期质量可以放宽，但至少必须存在真实且不全重复的文章链接。
+            if (validLinkRate <= 0.0) reasons += "未解析出有效文章链接"
+            if (uniqueLinkRate <= 0.0) reasons += "未解析出唯一文章链接"
+        } else {
+            if (count < 1) reasons += "文章数量过少"
+            if (validTitleRate < MIN_VALID_RATE) reasons += "有效标题比例过低"
+            if (validLinkRate < MIN_VALID_RATE) reasons += "有效链接比例过低"
+            if (uniqueLinkRate < MIN_UNIQUE_RATE) reasons += "重复链接比例过高"
+        }
 
         if (reasons.isNotEmpty()) {
             return SourceCandidateDiagnostics(

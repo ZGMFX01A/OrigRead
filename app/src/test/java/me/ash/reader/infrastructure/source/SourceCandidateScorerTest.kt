@@ -55,6 +55,26 @@ class SourceCandidateScorerTest {
         assertTrue(json.score > rssHub.score)
     }
 
+    @Test
+    fun `dynamic website fallback accepts safe links that static website rejects for title quality`() {
+        val feed =
+            SyndFeedImpl().apply {
+                entries =
+                    listOf("A", "B", "Long article title 1", "Long article title 2").mapIndexed { index, title ->
+                        SyndEntryImpl().apply {
+                            this.title = title
+                            link = "https://example.com/articles/$index"
+                        }
+                    }
+            }
+
+        val staticWebsite = SourceCandidateScorer.score(feed, SourceCandidateKind.WEBSITE)
+        val dynamicWebsite = SourceCandidateScorer.score(feed, SourceCandidateKind.WEBSITE_DYNAMIC)
+
+        assertFalse(staticWebsite.accepted)
+        assertTrue(dynamicWebsite.accepted)
+    }
+
     private fun createFeed(count: Int) =
         SyndFeedImpl().apply {
             entries = List(count) { index ->

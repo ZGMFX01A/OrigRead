@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import me.ash.reader.domain.model.feed.Feed
 import me.ash.reader.domain.model.feed.SourceType
+import me.ash.reader.infrastructure.content.ArticleWebSessionManager
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -14,6 +15,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.mockito.kotlin.mock
@@ -34,11 +36,15 @@ class WebsiteHelperAutomaticRuleCacheTest {
         whenever(context.filesDir).thenReturn(tempDir)
         preferenceRepository = WebsiteParsePreferenceRepository(context)
         dynamicHtmlRenderer = mock()
+        val articleWebSessionManager = mock<ArticleWebSessionManager>()
+        whenever(articleWebSessionManager.httpUserAgent).thenReturn(TEST_BROWSER_USER_AGENT)
+        whenever(articleWebSessionManager.desktopHttpUserAgent).thenReturn(TEST_BROWSER_USER_AGENT)
         helper = WebsiteHelper(
             okHttpClient = OkHttpClient(),
             ruleRepository = WebsiteRuleRepository(context),
             preferenceRepository = preferenceRepository,
             dynamicHtmlRenderer = dynamicHtmlRenderer,
+            articleWebSessionManager = articleWebSessionManager,
             ioDispatcher = Dispatchers.IO,
         )
         feed = Feed(
@@ -56,16 +62,18 @@ class WebsiteHelperAutomaticRuleCacheTest {
         server.enqueue(htmlResponse(sample("website-samples/url-clusters.html")))
 
         val inspected = helper.inspect(feed.url, FETCHED_AT)
+        val request = server.takeRequest()
 
         assertEquals(5, inspected.entries.size)
         assertEquals(5, inspected.entries.mapNotNull { it.link }.distinct().size)
         assertNotNull(inspected.entries.first().publishedDate)
+        assertEquals(TEST_BROWSER_USER_AGENT, request.getHeader("User-Agent"))
     }
 
     @Test
     fun `dynamic website preference uses rendered dom without static network request`() = runBlocking {
         val renderedHtml = sample("website-samples/url-clusters.html")
-        whenever(dynamicHtmlRenderer.render(feed.url)).thenReturn(
+        whenever(dynamicHtmlRenderer.render(feed.url, TEST_BROWSER_USER_AGENT)).thenReturn(
             DynamicWebsiteRenderResult(
                 finalUrl = feed.url,
                 html = renderedHtml,
@@ -77,6 +85,28 @@ class WebsiteHelperAutomaticRuleCacheTest {
 
         assertEquals(5, articles.size)
         assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun `dynamic inspection rejects rendered website when no article candidate exists`() = runBlocking {
+        val renderedHtml = """
+            <!doctype html>
+            <html>
+              <head><title>Rendered fallback</title></head>
+              <body><main><p>页面已经由 WebView 成功渲染，但当前没有可识别的重复文章列表。</p></main></body>
+            </html>
+        """.trimIndent()
+        whenever(dynamicHtmlRenderer.render(feed.url, TEST_BROWSER_USER_AGENT)).thenReturn(
+            DynamicWebsiteRenderResult(
+                finalUrl = feed.url,
+                html = renderedHtml,
+            )
+        )
+
+        val failure = runCatching { helper.inspectDynamic(feed.url, FETCHED_AT) }.exceptionOrNull()
+
+        assertNotNull(failure)
+        assertTrue(failure?.message.orEmpty().contains("健康检查"))
     }
 
     @After
@@ -157,6 +187,7 @@ class WebsiteHelperAutomaticRuleCacheTest {
     """.trimIndent()
 
     private companion object {
+        const val TEST_BROWSER_USER_AGENT = "Mozilla/5.0 Chrome/151.0 Mobile Safari/537.36"
         val FETCHED_AT = Date(1_786_000_000_000L)
     }
 }

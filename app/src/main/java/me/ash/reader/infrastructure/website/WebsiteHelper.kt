@@ -14,6 +14,7 @@ import kotlinx.coroutines.withContext
 import me.ash.reader.domain.model.article.Article
 import me.ash.reader.domain.model.feed.Feed
 import me.ash.reader.domain.model.feed.SourceType
+import me.ash.reader.infrastructure.content.ArticleWebSessionManager
 import me.ash.reader.infrastructure.di.IODispatcher
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -33,6 +34,7 @@ class WebsiteHelper @Inject constructor(
     private val ruleRepository: WebsiteRuleRepository,
     private val preferenceRepository: WebsiteParsePreferenceRepository,
     private val dynamicHtmlRenderer: DynamicWebsiteHtmlRenderer,
+    private val articleWebSessionManager: ArticleWebSessionManager,
     @IODispatcher private val ioDispatcher: CoroutineDispatcher,
 ) {
     /** 保存当前同步进程中每个来源实际选中的规则，保证后续清理使用同一解析器。 */
@@ -40,7 +42,7 @@ class WebsiteHelper @Inject constructor(
 
     /** 请求静态 HTML 并执行完整网站候选解析，只有真实文章列表才能进入添加来源竞争。 */
     suspend fun inspect(url: String, fetchedAt: Date = Date()): SyndFeed = withContext(ioDispatcher) {
-        val request = Request.Builder().url(url).build()
+        val request = websiteRequest(url)
         okHttpClient.newCall(request).execute().use { response ->
             check(response.isSuccessful) { "网站请求失败：HTTP ${response.code}" }
             val html = response.body.string()
@@ -53,15 +55,16 @@ class WebsiteHelper @Inject constructor(
         }
     }
 
-    /** 使用受限 WebView 渲染页面后，继续复用静态网站规则、自动 DOM 和健康评分。 */
+    /** 使用受限 WebView 渲染页面后，严格候选失败时允许安全低置信候选作为最终兜底。 */
     suspend fun inspectDynamic(url: String, fetchedAt: Date = Date()): SyndFeed {
-        val rendered = dynamicHtmlRenderer.render(url)
+        val rendered = dynamicHtmlRenderer.render(url, articleWebSessionManager.desktopHttpUserAgent)
         return withContext(ioDispatcher) {
             buildInspectableFeed(
                 sourceUrl = url,
                 documentBaseUrl = rendered.finalUrl,
                 html = rendered.html,
                 fetchedAt = fetchedAt,
+                allowLowConfidenceFallback = true,
             )
         }
     }
@@ -98,7 +101,7 @@ class WebsiteHelper @Inject constructor(
     /** 抓取一次页面并返回全部规则的评分结果，供用户手动比较解析方式。 */
     suspend fun evaluateCandidates(feed: Feed, fetchedAt: Date = Date()): List<WebsiteParseCandidate> =
         withContext(ioDispatcher) {
-            val request = Request.Builder().url(feed.url).build()
+            val request = websiteRequest(feed.url)
             okHttpClient.newCall(request).execute().use { response ->
                 check(response.isSuccessful) { "网站请求失败：HTTP ${response.code}" }
                 val html = response.body.string()
@@ -141,17 +144,19 @@ class WebsiteHelper @Inject constructor(
      */
     suspend fun fetchArticles(feed: Feed, fetchedAt: Date = Date()): List<Article> =
         if (preferenceRepository.get(feed.id)?.dynamicRenderingEnabled == true) {
-            val rendered = dynamicHtmlRenderer.render(feed.url)
+            val rendered =
+                dynamicHtmlRenderer.render(feed.url, articleWebSessionManager.desktopHttpUserAgent)
             withContext(ioDispatcher) {
                 parseAndRecordSelection(
                     feed = feed,
                     document = Jsoup.parse(rendered.html, rendered.finalUrl),
                     fetchedAt = fetchedAt,
+                    allowLowConfidenceFallback = true,
                 )
             }
         } else {
             withContext(ioDispatcher) {
-                val request = Request.Builder().url(feed.url).build()
+                val request = websiteRequest(feed.url)
                 okHttpClient.newCall(request).execute().use { response ->
                     check(response.isSuccessful) { "网站请求失败：HTTP ${response.code}" }
                     val html = response.body.string()
@@ -170,8 +175,15 @@ class WebsiteHelper @Inject constructor(
         feed: Feed,
         document: org.jsoup.nodes.Document,
         fetchedAt: Date,
+        allowLowConfidenceFallback: Boolean = false,
     ): List<Article> {
-        val selection = selectBestCandidate(feed, document, fetchedAt)
+        val selection =
+            selectBestCandidate(
+                feed = feed,
+                document = document,
+                fetchedAt = fetchedAt,
+                allowLowConfidenceFallback = allowLowConfidenceFallback,
+            )
         val candidate = selection.candidate
         selectedRuleIds[feed.id] = candidate.rule.id
         if (AutomaticWebsiteListDetector.isReusableRule(candidate.rule)) {
@@ -197,6 +209,7 @@ class WebsiteHelper @Inject constructor(
         documentBaseUrl: String,
         html: String,
         fetchedAt: Date,
+        allowLowConfidenceFallback: Boolean = false,
     ): SyndFeed {
         val probeFeed =
             Feed(
@@ -209,12 +222,14 @@ class WebsiteHelper @Inject constructor(
             )
         ensureAutomaticParsingAllowed(probeFeed, html)
         val document = Jsoup.parse(html, documentBaseUrl)
-        val selection = selectBestCandidate(
-            feed = probeFeed,
-            document = document,
-            fetchedAt = fetchedAt,
-            forceAutomaticFullScan = true,
-        )
+        val selection =
+            selectBestCandidate(
+                feed = probeFeed,
+                document = document,
+                fetchedAt = fetchedAt,
+                forceAutomaticFullScan = true,
+                allowLowConfidenceFallback = allowLowConfidenceFallback,
+            )
         val iconUrl =
             document
                 .selectFirst("link[rel~=(?i)^(shortcut )?icon$]")
@@ -251,7 +266,7 @@ class WebsiteHelper @Inject constructor(
 
     /** 使用当前规则抓取指定网址，并返回解析出的文章数量。 */
     suspend fun testRule(url: String): Int = withContext(ioDispatcher) {
-        val request = Request.Builder().url(url).build()
+        val request = websiteRequest(url)
         okHttpClient.newCall(request).execute().use { response ->
             check(response.isSuccessful) { "网站请求失败：HTTP ${response.code}" }
             val document = Jsoup.parse(response.body.string(), url)
@@ -271,19 +286,45 @@ class WebsiteHelper @Inject constructor(
         }
     }
 
+    /**
+     * 网站 HTML 本质上是浏览器页面。使用 OrigRead/版本号 作为 UA 会被部分站点直接识别为机器人并返回 418/403。
+     * 这里只复用设备 WebView 的浏览器风格 UA，不携带用户 Cookie，避免把登录态扩散到后台来源同步。
+     */
+    private fun websiteRequest(url: String): Request =
+        Request.Builder()
+            .url(url)
+            .header("User-Agent", articleWebSessionManager.desktopHttpUserAgent)
+            .header(
+                "Accept",
+                "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            )
+            .header("Upgrade-Insecure-Requests", "1")
+            .build()
+
     /** 对同一页面执行全部匹配规则，并选择通过健康检查且得分最高的结果。 */
     private fun selectBestCandidate(
         feed: Feed,
         document: org.jsoup.nodes.Document,
         fetchedAt: Date,
         forceAutomaticFullScan: Boolean = false,
+        allowLowConfidenceFallback: Boolean = false,
     ): CandidateSelection {
-        val batch = buildCandidateBatch(feed, document, fetchedAt, forceAutomaticFullScan)
+        val batch =
+            buildCandidateBatch(
+                feed = feed,
+                document = document,
+                fetchedAt = fetchedAt,
+                forceAutomaticFullScan = forceAutomaticFullScan,
+                includeRejectedAutomatic = allowLowConfidenceFallback,
+            )
         val candidates = batch.candidates
         val acceptedCandidates = candidates.filter { it.diagnostics.accepted }
         val preferredRuleId = preferenceRepository.get(feed.id)?.preferredRuleId
         val selected = acceptedCandidates.firstOrNull { it.rule.id == preferredRuleId }
             ?: acceptedCandidates.maxByOrNull { it.diagnostics.rankingScore }
+            ?: candidates
+                .filter { allowLowConfidenceFallback && WebsiteCandidateScorer.isSafeDynamicFallback(it.diagnostics) }
+                .maxByOrNull { it.diagnostics.rankingScore }
             ?: error("当前网站的解析规则均未通过健康检查：${feed.url}")
         return CandidateSelection(candidate = selected, batch = batch)
     }
@@ -294,6 +335,7 @@ class WebsiteHelper @Inject constructor(
         document: org.jsoup.nodes.Document,
         fetchedAt: Date,
         forceAutomaticFullScan: Boolean = false,
+        includeRejectedAutomatic: Boolean = false,
     ): CandidateBatch {
         val rules = ruleRepository.findRules(feed.url)
         if (rules.isNotEmpty()) {
@@ -319,7 +361,14 @@ class WebsiteHelper @Inject constructor(
                     )
                 }
                 if (cachedCandidate.diagnostics.accepted) {
-                    val detected = detectAutomaticCandidates(document, feed, fetchedAt, preference)
+                    val detected =
+                        detectAutomaticCandidates(
+                            document = document,
+                            feed = feed,
+                            fetchedAt = fetchedAt,
+                            preference = preference,
+                            includeRejected = includeRejectedAutomatic,
+                        )
                     return CandidateBatch(
                         candidates = (detected + cachedCandidate).distinctBy { it.rule.id },
                         automaticFullScan = true,
@@ -331,7 +380,14 @@ class WebsiteHelper @Inject constructor(
         }
 
         return CandidateBatch(
-            candidates = detectAutomaticCandidates(document, feed, fetchedAt, preference),
+            candidates =
+                detectAutomaticCandidates(
+                    document = document,
+                    feed = feed,
+                    fetchedAt = fetchedAt,
+                    preference = preference,
+                    includeRejected = includeRejectedAutomatic,
+                ),
             automaticFullScan = true,
         )
     }
@@ -342,12 +398,14 @@ class WebsiteHelper @Inject constructor(
         feed: Feed,
         fetchedAt: Date,
         preference: WebsiteParsePreference?,
+        includeRejected: Boolean = false,
     ): List<WebsiteParseCandidate> =
         AutomaticWebsiteListDetector.detect(
             document = document,
             feed = feed,
             fetchedAt = fetchedAt,
             historyScoreProvider = { ruleId -> AutomaticRuleStabilityScorer.score(preference, ruleId) },
+            includeRejected = includeRejected,
         )
 
     /** 统一执行固定规则与缓存自动规则，并将异常转换为失败候选。 */

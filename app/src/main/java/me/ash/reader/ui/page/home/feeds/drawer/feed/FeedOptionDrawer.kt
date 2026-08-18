@@ -248,6 +248,7 @@ fun FeedOptionDrawer(
                         onWebsiteParserClick = feedOptionViewModel::showWebsiteParserDialog,
                         articleFilterCount = feedOptionUiState.sourceFilterRules.size,
                         onArticleFilterClick = feedOptionViewModel::showSourceFilterDialog,
+                        sourceType = feed?.sourceType ?: SourceType.RSS,
                     )
                 }
             }

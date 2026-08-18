@@ -2,6 +2,8 @@ package me.ash.reader.domain.service
 
 import android.content.Context
 import android.os.Looper
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.UUID
@@ -18,6 +20,8 @@ import me.ash.reader.R
 import me.ash.reader.domain.model.account.Account
 import me.ash.reader.domain.model.account.AccountType
 import me.ash.reader.domain.model.feed.Feed
+import me.ash.reader.domain.model.feed.SourceType
+import me.ash.reader.domain.model.feed.normalizeRssReadingMode
 import me.ash.reader.domain.model.group.Group
 import me.ash.reader.domain.repository.AccountDao
 import me.ash.reader.domain.repository.ArticleDao
@@ -41,10 +45,11 @@ constructor(
     private val feedDao: FeedDao,
     private val articleDao: ArticleDao,
     @ApplicationScope private val coroutineScope: CoroutineScope,
-    settingsProvider: SettingsProvider,
+    private val settingsProvider: SettingsProvider,
 ) {
 
     private val accountIdKey = intPreferencesKey(DataStoreKey.currentAccountId)
+    private val rssReadingModeMigrationKey = booleanPreferencesKey("migration_rss_reading_mode_v1")
 
     val currentAccountIdFlow =
         settingsProvider.preferencesFlow
@@ -136,6 +141,32 @@ constructor(
                     )
                 )
             }
+        }
+    }
+
+    /**
+     * 旧版添加来源界面曾可能让 RSS 来源保存成“全文解析 / 浏览器打开”。
+     * 当前产品语义下 RSS / Atom 始终直接使用 Feed 内容，因此升级后仅执行一次归一化。
+     */
+    suspend fun migrateLegacyRssReadingMode() {
+        if (settingsProvider.dataStore.first()[rssReadingModeMigrationKey] == true) return
+
+        val existingFeeds = mutableListOf<Feed>()
+        accountDao.queryAll().forEach { account ->
+            account.id?.let { accountId -> existingFeeds += feedDao.queryAll(accountId) }
+        }
+        val feedsToNormalize =
+            existingFeeds
+                .filter { feed ->
+                    feed.sourceType == SourceType.RSS && (feed.isFullContent || feed.isBrowser)
+                }
+                .map(Feed::normalizeRssReadingMode)
+
+        if (feedsToNormalize.isNotEmpty()) {
+            feedDao.updateAll(feedsToNormalize)
+        }
+        context.dataStore.edit { preferences ->
+            preferences[rssReadingModeMigrationKey] = true
         }
     }
 

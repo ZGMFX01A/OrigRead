@@ -10,6 +10,7 @@ import kotlinx.serialization.json.Json
 import me.ash.reader.BuildConfig
 import me.ash.reader.domain.model.feed.Feed
 import me.ash.reader.domain.model.feed.SourceType
+import me.ash.reader.domain.model.feed.normalizeRssReadingMode
 import me.ash.reader.domain.model.group.Group
 import me.ash.reader.domain.repository.FeedDao
 import me.ash.reader.domain.repository.GroupDao
@@ -314,7 +315,7 @@ class ConfigurationBackupService @Inject constructor(
                         isFullContent = backupFeed.isFullContent,
                         isBrowser = backupFeed.isBrowser,
                         sourceType = sourceType,
-                    ).also { updated ->
+                    ).normalizeRssReadingMode().also { updated ->
                         feedDao.update(updated)
                         existingFeeds[existingFeeds.indexOf(existing)] = updated
                     }
@@ -330,7 +331,7 @@ class ConfigurationBackupService @Inject constructor(
                         isFullContent = backupFeed.isFullContent,
                         isBrowser = backupFeed.isBrowser,
                         sourceType = sourceType,
-                    ).also { created ->
+                    ).normalizeRssReadingMode().also { created ->
                         feedDao.insert(created)
                         existingFeeds += created
                     }

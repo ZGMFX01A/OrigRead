@@ -48,47 +48,150 @@ class RssHubResolver @Inject constructor(
             .callTimeout(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .build()
 
-    /** 匹配并依次验证有限数量的 RSSHub 路由，任一路由失败都不会中断后续候选。 */
+    /**
+     * 匹配并验证有限数量的 RSSHub 路由。
+     *
+     * 实例严格按设置中的优先级逐个探测；单个实例内部只并发有限数量路由。
+     * 这样既能保留备用实例回退，也避免移动端出现“多实例 × 多路由”的请求风暴。
+     */
     suspend fun probe(
         inputUrl: String,
         instanceBaseUrl: String? = null,
     ): List<RssHubProbeResult> = withContext(ioDispatcher) {
         val settings = settingsRepository.current()
-        if (!settings.enabled) return@withContext emptyList()
         val instances =
             instanceBaseUrl?.let {
                 RssHubSettingsRepository.orderInstances(it)
             } ?: settingsRepository.candidateInstances()
-        if (instances.isEmpty()) return@withContext emptyList()
+        val discoveryBaseUrl = instances.firstOrNull() ?: DEFAULT_INSTANCE
+        val expectedMatches = routeMatcher.match(inputUrl, discoveryBaseUrl, MAX_ROUTE_CANDIDATES)
+        if (expectedMatches.isEmpty()) return@withContext emptyList()
 
+        if (!settings.enabled) {
+            return@withContext localDiagnostics(
+                matches = expectedMatches,
+                resolvedState = CandidateState.UNSUPPORTED,
+                message = "RSSHub is disabled in settings",
+            )
+        }
+        if (instances.isEmpty()) {
+            return@withContext localDiagnostics(
+                matches = expectedMatches,
+                resolvedState = CandidateState.UNSUPPORTED,
+                message = "No RSSHub instance is enabled",
+            )
+        }
+        val expectedResolvedKeys =
+            expectedMatches.filter(RssHubRouteMatch::resolved).mapTo(linkedSetOf(), ::routeKey)
+        val diagnostics = linkedMapOf<String, RssHubProbeResult>()
+        expectedMatches.filterNot(RssHubRouteMatch::resolved).forEach { match ->
+            diagnostics.putIfAbsent(
+                routeKey(match),
+                RssHubProbeResult(
+                    match = match,
+                    state = CandidateState.NEEDS_INPUT,
+                    message =
+                        "RSSHub route requires parameters: " +
+                            match.missingParameters.joinToString(),
+                ),
+            )
+        }
+        if (expectedResolvedKeys.isEmpty()) return@withContext diagnostics.values.toList()
+
+        val availableByRoute = linkedMapOf<String, RssHubProbeResult>()
+        var successRecorded = false
         withTimeoutOrNull(TOTAL_PROBE_TIMEOUT_MILLIS) {
-            val failures = mutableListOf<RssHubProbeResult>()
             for (instance in instances) {
-                val results = probeInstance(inputUrl, instance)
-                val available = results.filter { it.available }
-                if (available.isNotEmpty()) {
-                    settingsRepository.recordSuccess(instance)
-                    return@withTimeoutOrNull available
+                val results =
+                    try {
+                        probeInstance(inputUrl, instance)
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Exception) {
+                        emptyList()
+                    }
+
+                if (
+                    results.isNotEmpty() &&
+                    results.none(RssHubProbeResult::available) &&
+                    results.all {
+                        it.state == CandidateState.TIMEOUT ||
+                            it.state == CandidateState.NETWORK_UNAVAILABLE
+                    }
+                ) {
+                    runCatching { settingsRepository.recordFailure(instance) }
                 }
-                if (results.isNotEmpty()) {
-                    failures += results
-                    if (
-                        results.all {
-                            it.state == CandidateState.TIMEOUT ||
-                                it.state == CandidateState.NETWORK_UNAVAILABLE
-                        }
-                    ) {
-                        settingsRepository.recordFailure(instance)
+                if (!successRecorded && results.any(RssHubProbeResult::available)) {
+                    runCatching { settingsRepository.recordSuccess(instance) }
+                    successRecorded = true
+                }
+                results.forEach { result ->
+                    val key = routeKey(result.match)
+                    if (result.available) {
+                        availableByRoute.putIfAbsent(key, result)
+                        diagnostics.remove(key)
+                    } else if (key !in availableByRoute) {
+                        diagnostics.putIfAbsent(key, result)
                     }
                 }
+
+                if (availableByRoute.keys.containsAll(expectedResolvedKeys)) {
+                    return@withTimeoutOrNull
+                }
             }
-            failures.distinctBy { result ->
-                "${result.match.route.id}:${result.state}:${result.match.missingParameters}"
+        }
+
+        // 总预算可能在某一批实例尚未返回时触发。此时本地路由匹配已经成功，
+        // 不能因为网络验证没完成就让这些路由从添加来源界面完全消失。
+        expectedMatches.filter(RssHubRouteMatch::resolved).forEach { match ->
+            val key = routeKey(match)
+            if (key !in availableByRoute && key !in diagnostics) {
+                diagnostics[key] =
+                    RssHubProbeResult(
+                        match = match,
+                        state = CandidateState.TIMEOUT,
+                        message = "RSSHub route matched, but no instance completed within the probe budget",
+                    )
             }
-        } ?: emptyList()
+        }
+
+        buildList {
+            addAll(availableByRoute.values)
+            diagnostics.forEach { (key, result) ->
+                if (key !in availableByRoute) add(result)
+            }
+        }
     }
 
-    /** 单个实例内部并发验证有限数量路由，实例之间则按优先级串行。 */
+    private fun localDiagnostics(
+        matches: List<RssHubRouteMatch>,
+        resolvedState: CandidateState,
+        message: String,
+    ): List<RssHubProbeResult> =
+        matches.map { match ->
+            if (match.resolved) {
+                RssHubProbeResult(
+                    match = match,
+                    state = resolvedState,
+                    message = message,
+                )
+            } else {
+                RssHubProbeResult(
+                    match = match,
+                    state = CandidateState.NEEDS_INPUT,
+                    message =
+                        "RSSHub route requires parameters: " +
+                            match.missingParameters.joinToString(),
+                )
+            }
+        }
+
+    fun localRouteDiagnostics(inputUrl: String): List<RssHubProbeResult> =
+        routeMatcher.match(inputUrl, DEFAULT_INSTANCE, MAX_ROUTE_CANDIDATES).let { matches ->
+            localDiagnostics(matches, CandidateState.NETWORK_UNAVAILABLE, "RSSHub instance probing failed")
+        }
+
+    /** 单个实例内部并发验证有限数量路由；实例层由 probe() 串行回退。 */
     private suspend fun probeInstance(inputUrl: String, instanceBaseUrl: String): List<RssHubProbeResult> {
         val matches = routeMatcher.match(inputUrl, instanceBaseUrl, MAX_ROUTE_CANDIDATES)
         if (matches.isEmpty()) return emptyList()
@@ -156,13 +259,22 @@ class RssHubResolver @Inject constructor(
             )
         }
 
+    private fun routeKey(match: RssHubRouteMatch): String =
+        buildString {
+            append(match.route.id)
+            append('|')
+            match.parameters.toSortedMap().forEach { (key, value) ->
+                append(key).append('=').append(value).append('&')
+            }
+        }
+
     companion object {
         const val DEFAULT_INSTANCE = "https://rsshub.app"
 
-        private const val MAX_ROUTE_CANDIDATES = 3
+        private const val MAX_ROUTE_CANDIDATES = 5
         private const val CONNECT_TIMEOUT_SECONDS = 2L
         private const val READ_TIMEOUT_SECONDS = 4L
         private const val CALL_TIMEOUT_SECONDS = 5L
-        private const val TOTAL_PROBE_TIMEOUT_MILLIS = 9_000L
+        private const val TOTAL_PROBE_TIMEOUT_MILLIS = 12_000L
     }
 }

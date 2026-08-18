@@ -24,26 +24,26 @@ fun DynamicSVGImage(
     val useDarkTheme = LocalDarkTheme.current.isDarkTheme()
     val tonalPalettes = LocalTonalPalettes.current
     var size by remember { mutableStateOf(IntSize.Zero) }
-    val pic by
-        remember(useDarkTheme, tonalPalettes, size) {
-            mutableStateOf(
-                PictureDrawable(
-                    SVG.getFromString(svgImageString.parseDynamicColor(tonalPalettes, useDarkTheme))
-                        .renderToPicture(size.width, size.height)
-                )
-            )
-        }
 
     Row(
         modifier =
             modifier.aspectRatio(1.38f).onGloballyPositioned {
-                if (it.size != IntSize.Zero) {
+                if (it.size.width > 0 && it.size.height > 0) {
                     size = it.size
                 }
             }
     ) {
-        Crossfade(targetState = pic) {
-            Image(contentDescription = contentDescription, painter = rememberAsyncImagePainter(it))
+        if (size.width > 0 && size.height > 0) {
+            val pic =
+                remember(useDarkTheme, tonalPalettes, size, svgImageString) {
+                    PictureDrawable(
+                        SVG.getFromString(svgImageString.parseDynamicColor(tonalPalettes, useDarkTheme))
+                            .renderToPicture(size.width, size.height)
+                    )
+                }
+            Crossfade(targetState = pic) {
+                Image(contentDescription = contentDescription, painter = rememberAsyncImagePainter(it))
+            }
         }
     }
 }

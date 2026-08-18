@@ -39,6 +39,18 @@ class RssHubRouteMatcherTest {
     }
 
     @Test
+    fun `财联社首页可直接匹配热门文章路由`() {
+        val result =
+            RssHubRouteMatcher.matchRoutes(
+                inputUrl = "https://www.cls.cn/",
+                routes = routes,
+                instanceBaseUrl = "https://rsshub.example.com/",
+            )
+
+        assertTrue(result.any { it.route.name == "热门文章排行榜" && it.feedUrl == "https://rsshub.example.com/cls/hot" })
+    }
+
+    @Test
     fun `不匹配其他域名`() {
         val result =
             RssHubRouteMatcher.matchRoutes(

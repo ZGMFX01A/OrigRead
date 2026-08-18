@@ -79,7 +79,9 @@ constructor(
             runCatching { parseFeedUrl(inputUrl, inputUrl) }
                 .map { DiscoveredFeed(inputUrl, it, discoveredFromPage = false) }
                 .getOrElse { directError ->
-                    val pageResponse = response(okHttpClient, inputUrl)
+                    // 输入普通网页时按浏览器页面请求，避免站点因 OrigRead UA 直接返回 418/403；
+                    // 真正的 RSS/XML 候选仍继续使用普通 Feed 请求身份。
+                    val pageResponse = websitePageResponse(okHttpClient, inputUrl)
                     val html = pageResponse.body.string()
                     val document = Jsoup.parse(html, inputUrl)
                     val candidates =
@@ -443,6 +445,21 @@ constructor(
 
     private suspend fun response(client: OkHttpClient, url: String): okhttp3.Response =
         client.newCall(Request.Builder().url(url).build()).executeAsync()
+
+    /** 普通网页上的 RSS alternate 发现使用浏览器风格 UA，但不携带 WebView Cookie。 */
+    private suspend fun websitePageResponse(client: OkHttpClient, url: String): okhttp3.Response {
+        val request =
+            Request.Builder()
+                .url(url)
+                .header("User-Agent", articleWebSessionManager.desktopHttpUserAgent)
+                .header(
+                    "Accept",
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                )
+                .header("Upgrade-Insecure-Requests", "1")
+                .build()
+        return client.newCall(request).executeAsync()
+    }
 
     /**
      * 正文网页使用浏览器风格请求头，并复用用户在内置 WebView 中已经取得的站点 Cookie。

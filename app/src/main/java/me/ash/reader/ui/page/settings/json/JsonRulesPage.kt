@@ -22,7 +22,6 @@ import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -33,6 +32,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -125,24 +125,22 @@ fun JsonRulesPage(
                         onClick = { showTutorial = true },
                     )
                     SettingItem(
+                        modifier = Modifier.alpha(0.5f),
                         title = stringResource(R.string.ai_generate_json_rule),
-                        desc = stringResource(R.string.ai_generate_rule_desc),
+                        desc = stringResource(R.string.ai_rule_generation_unavailable_desc),
                         icon = Icons.Rounded.AutoAwesome,
                         onClick = {
-                            if (!uiState.aiGenerating) aiGenerateDialogVisible = true
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.ai_rule_generation_unavailable_message),
+                                Toast.LENGTH_LONG,
+                            ).show()
                         },
                         action = {
-                            if (uiState.aiGenerating) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.width(22.dp).height(22.dp),
-                                    strokeWidth = 2.dp,
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-                                    contentDescription = stringResource(R.string.go_to),
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                                contentDescription = stringResource(R.string.go_to),
+                            )
                         },
                     )
                     Spacer(Modifier.height(16.dp))

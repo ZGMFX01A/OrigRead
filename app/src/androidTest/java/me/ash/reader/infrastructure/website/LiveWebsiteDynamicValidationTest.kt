@@ -56,6 +56,7 @@ class LiveWebsiteDynamicValidationTest {
                 "未提供有效 HTTP(S) 测试地址"
             }
             val context = ApplicationProvider.getApplicationContext<Context>()
+            val articleWebSessionManager = ArticleWebSessionManager(context)
             val helper = WebsiteHelper(
                 okHttpClient = OkHttpClient(),
                 ruleRepository = WebsiteRuleRepository(context),
@@ -64,8 +65,9 @@ class LiveWebsiteDynamicValidationTest {
                     DynamicWebsiteHtmlRenderer(
                         context,
                         Dispatchers.Main.immediate,
-                        ArticleWebSessionManager(context),
+                        articleWebSessionManager,
                     ),
+                articleWebSessionManager = articleWebSessionManager,
                 ioDispatcher = Dispatchers.IO,
             )
             val inspected = helper.inspectDynamic(url, Date())

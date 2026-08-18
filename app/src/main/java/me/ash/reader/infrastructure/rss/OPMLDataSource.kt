@@ -56,8 +56,10 @@ class OPMLDataSource @Inject constructor(
                             groupId = defaultGroup.id,
                             accountId = targetAccountId,
                             isNotification = outline.extractPresetNotification(),
-                            isFullContent = outline.extractPresetFullContent(),
-                            isBrowser = outline.extractPresetBrowser(),
+                            // OPML 中可能携带旧版 OrigRead 的 RSS 阅读方式扩展属性。
+                            // RSS / Atom 统一使用 Feed 内容，历史全文/浏览器标记不再恢复。
+                            isFullContent = false,
+                            isBrowser = false,
                         )
                     )
                 }
@@ -83,8 +85,8 @@ class OPMLDataSource @Inject constructor(
                                 groupId = groupId,
                                 accountId = targetAccountId,
                                 isNotification = subOutline.extractPresetNotification(),
-                                isFullContent = subOutline.extractPresetFullContent(),
-                                isBrowser = subOutline.extractPresetBrowser(),
+                                isFullContent = false,
+                                isBrowser = false,
                             )
                         )
                     }
@@ -125,12 +127,6 @@ class OPMLDataSource @Inject constructor(
 
     private fun Outline?.extractPresetNotification(): Boolean =
         this?.attributes?.getOrDefault("isNotification", null).toBoolean()
-
-    private fun Outline?.extractPresetFullContent(): Boolean =
-        this?.attributes?.getOrDefault("isFullContent", null).toBoolean()
-
-    private fun Outline?.extractPresetBrowser(): Boolean =
-        this?.attributes?.getOrDefault("isBrowser", null).toBoolean()
 
     private fun Outline?.isDefaultGroup(): Boolean =
         this?.attributes?.getOrDefault("isDefault", null).toBoolean()

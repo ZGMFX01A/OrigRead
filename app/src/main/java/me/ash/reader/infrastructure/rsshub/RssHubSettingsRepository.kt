@@ -95,12 +95,17 @@ class RssHubSettingsRepository @Inject constructor(
             .apply()
     }
 
-    /** 最近成功实例优先，其余启用实例保持设置页中的展示顺序。 */
+    /**
+     * 最近成功实例优先，其余启用实例保持设置页顺序。
+     * 冷却实例只降到列表末尾，不再彻底排除；手动来源探测仍有机会从瞬时失败中恢复。
+     */
     fun candidateInstances(nowMillis: Long = System.currentTimeMillis()): List<String> {
         val enabledInstances = current().instances.filter { it.enabled }.map { it.url }
         val lastSuccess = preferences.getString(KEY_LAST_SUCCESS_INSTANCE, null)
-        return orderInstances(lastSuccess, *enabledInstances.toTypedArray())
-            .filter { instance -> preferences.getLong(cooldownKey(instance), 0L) <= nowMillis }
+        val ordered = orderInstances(lastSuccess, *enabledInstances.toTypedArray())
+        val (ready, cooling) =
+            ordered.partition { instance -> preferences.getLong(cooldownKey(instance), 0L) <= nowMillis }
+        return ready + cooling
     }
 
     fun restoreDefault() {

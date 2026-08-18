@@ -6,7 +6,7 @@ import me.ash.reader.infrastructure.source.SourceCandidateDiagnostics
 import me.ash.reader.infrastructure.source.SourceCandidateKind
 import me.ash.reader.infrastructure.source.SourceCandidateScorer
 
-/** 添加来源页可供用户手动选择的有效来源候选。 */
+/** 添加来源页可供用户手动选择的来源候选；动态 WebView 最终兜底允许低可信结果继续展示。 */
 data class SubscribeSourceCandidate(
     val id: String,
     val feed: SyndFeed,
@@ -36,7 +36,11 @@ internal object SubscribeCandidateSelector {
         candidates
             .mapNotNull { candidate ->
                 val diagnostics = SourceCandidateScorer.score(candidate.feed, candidate.kind)
-                if (!diagnostics.accepted) return@mapNotNull null
+                // 最终 WebView 兜底可以使用更宽松的动态评分规则，但不能把“0 篇文章”的空结果
+                // 当成可订阅来源展示；否则会掩盖真正的解析失败。
+                if (!diagnostics.accepted) {
+                    return@mapNotNull null
+                }
 
                 SubscribeSourceCandidate(
                     id = candidateId(candidate.sourceType, candidate.feedLink),
@@ -51,7 +55,8 @@ internal object SubscribeCandidateSelector {
                 )
             }
             .sortedWith(
-                compareByDescending<SubscribeSourceCandidate> { it.diagnostics.score }
+                compareByDescending<SubscribeSourceCandidate> { it.diagnostics.accepted }
+                    .thenByDescending { it.diagnostics.score }
                     .thenByDescending { it.diagnostics.articleCount }
             )
             // 同一种保存方式指向同一地址时只展示得分最高的一项，避免直接 RSS 与页面发现 RSS 重复。

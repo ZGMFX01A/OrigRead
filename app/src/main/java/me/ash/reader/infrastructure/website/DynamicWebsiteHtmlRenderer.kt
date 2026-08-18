@@ -49,7 +49,10 @@ class DynamicWebsiteHtmlRenderer @Inject constructor(
     private val articleWebSessionManager: ArticleWebSessionManager,
 ) {
     @SuppressLint("SetJavaScriptEnabled")
-    suspend fun render(url: String): DynamicWebsiteRenderResult = withContext(mainDispatcher) {
+    suspend fun render(
+        url: String,
+        userAgent: String = articleWebSessionManager.httpUserAgent,
+    ): DynamicWebsiteRenderResult = withContext(mainDispatcher) {
         suspendCancellableCoroutine { continuation ->
             val handler = Handler(Looper.getMainLooper())
             var webView: WebView? = null
@@ -199,7 +202,7 @@ class DynamicWebsiteHtmlRenderer @Inject constructor(
                         mediaPlaybackRequiresUserGesture = true
                         // 微信等站点会通过 UA 中的 `wv` 特征识别嵌入式 WebView 并触发人机验证。
                         // 与静态正文请求共用浏览器风格 UA，让隐藏 WebView 被当作普通浏览器对待。
-                        userAgentString = articleWebSessionManager.httpUserAgent
+                        userAgentString = userAgent
                     }
                     CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
                     loadUrl(url)

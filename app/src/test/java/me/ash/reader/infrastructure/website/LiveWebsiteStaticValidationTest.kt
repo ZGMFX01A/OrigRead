@@ -14,6 +14,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import me.ash.reader.domain.model.feed.Feed
 import me.ash.reader.domain.model.feed.SourceType
+import me.ash.reader.infrastructure.content.ArticleWebSessionManager
 import okhttp3.OkHttpClient
 import org.junit.After
 import org.junit.Assert.fail
@@ -50,11 +51,20 @@ class LiveWebsiteStaticValidationTest {
 
         val context = mock<Context>()
         whenever(context.filesDir).thenReturn(tempDir)
+        val articleWebSessionManager = mock<ArticleWebSessionManager>()
+        whenever(articleWebSessionManager.httpUserAgent)
+            .thenReturn("Mozilla/5.0 Chrome/151.0 Mobile Safari/537.36")
+        whenever(articleWebSessionManager.desktopHttpUserAgent)
+            .thenReturn(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
+            )
         val helper = WebsiteHelper(
             okHttpClient = liveOkHttpClient(),
             ruleRepository = WebsiteRuleRepository(context),
             preferenceRepository = WebsiteParsePreferenceRepository(context),
             dynamicHtmlRenderer = mock(),
+            articleWebSessionManager = articleWebSessionManager,
             ioDispatcher = Dispatchers.IO,
         )
 
@@ -205,13 +215,6 @@ class LiveWebsiteStaticValidationTest {
             .readTimeout(20, TimeUnit.SECONDS)
             .callTimeout(25, TimeUnit.SECONDS)
             .followRedirects(true)
-            .addInterceptor { chain ->
-                chain.proceed(
-                    chain.request().newBuilder()
-                        .header("User-Agent", "Mozilla/5.0 OrigRead-LiveValidation/1.0")
-                        .build()
-                )
-            }
             .build()
 
     private fun writeReport(results: List<LiveWebsiteResult>) {

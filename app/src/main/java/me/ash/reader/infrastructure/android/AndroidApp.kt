@@ -129,6 +129,7 @@ class AndroidApp : Application(), Configuration.Provider {
             } else {
                 accountService.migrateLegacyBranding()
             }
+            accountService.migrateLegacyRssReadingMode()
         }
     }
 

@@ -72,4 +72,24 @@ class OPMLDataSourceTest {
         Assert.assertEquals("ash7.io", result[1].feeds[0].name)
         Assert.assertEquals("https://ash7.io/index.xml", result[1].feeds[0].url)
     }
+
+    @Test
+    fun `旧版OPML中的RSS全文和浏览器标记不会被恢复`() {
+        val opml = fill("""
+            <outline text="Blogs" title="Blogs">
+                <outline
+                    type="rss"
+                    xmlUrl="https://example.com/feed.xml"
+                    isFullContent="true"
+                    isBrowser="true"
+                    isNotification="true" />
+            </outline>
+        """)
+
+        val feed = parse(opml)[1].feeds.single()
+
+        Assert.assertFalse(feed.isFullContent)
+        Assert.assertFalse(feed.isBrowser)
+        Assert.assertTrue(feed.isNotification)
+    }
 }

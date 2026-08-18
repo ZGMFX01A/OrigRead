@@ -88,7 +88,9 @@ internal data class RssHubResolvedTarget(
  */
 internal object RssHubRouteTemplateMatcher {
     private const val MAX_PARAMETER_LENGTH = 256
-    private val PARAMETER = Regex(":([A-Za-z_][A-Za-z0-9_]*)(?:\\{([^}]*)})?(\\?)?")
+    // Android ICU 对未转义的 `}` 比桌面 JVM 更严格；花括号两端都显式转义，
+    // 保证同一套路由目录在 JVM 单测和 Android 运行时使用完全一致的语义。
+    private val PARAMETER = Regex(":([A-Za-z_][A-Za-z0-9_]*)(?:\\{([^}]*)\\})?(\\?)?")
     private val SAFE_LITERAL = Regex("[A-Za-z0-9._~-]")
 
     fun match(
@@ -292,7 +294,7 @@ internal object RssHubParameterConstraint {
         if (normalized in setOf("""\d+""", "[0-9]+")) return value.all(Char::isDigit)
 
         val numericLength =
-            Regex("""(?:\\d|\[0-9])\{(\d+)(?:,(\d+))?}""").matchEntire(normalized)
+            Regex("""(?:\\d|\[0-9])\{(\d+)(?:,(\d+))?\}""").matchEntire(normalized)
         if (numericLength != null) {
             val minimum = numericLength.groupValues[1].toInt()
             val maximum = numericLength.groupValues[2].toIntOrNull() ?: minimum

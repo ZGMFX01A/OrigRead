@@ -5,15 +5,15 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Article
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.OpenInBrowser
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -23,10 +23,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import me.ash.reader.R
+import me.ash.reader.domain.model.feed.SourceType
 import me.ash.reader.domain.model.group.Group
 import me.ash.reader.ui.component.base.RYSelectionChip
 import me.ash.reader.ui.component.base.Subtitle
-import me.ash.reader.ui.theme.palette.alwaysLight
 
 @Composable
 fun FeedOptionView(
@@ -55,51 +55,71 @@ fun FeedOptionView(
     onWebsiteParserClick: () -> Unit = {},
     articleFilterCount: Int = 0,
     onArticleFilterClick: () -> Unit = {},
+    sourceType: SourceType = SourceType.RSS,
+    showUrl: Boolean = true,
+    showArticleFilter: Boolean = true,
+    scrollable: Boolean = true,
 ) {
-
-    Column(modifier = modifier.verticalScroll(rememberScrollState())) {
-        EditableUrl(text = link, onClick = onFeedUrlClick, onLongClick = onFeedUrlLongClick)
+    val contentModifier =
+        if (scrollable) modifier.verticalScroll(rememberScrollState()) else modifier
+    Column(modifier = contentModifier) {
+        if (showUrl) {
+            EditableUrl(text = link, onClick = onFeedUrlClick, onLongClick = onFeedUrlLongClick)
+        }
         if (showWebsiteParser) {
-            Spacer(modifier = Modifier.height(18.dp))
-            Text(
+            if (showUrl) Spacer(modifier = Modifier.height(18.dp))
+            Column(
                 modifier =
                     Modifier.fillMaxWidth()
                         .clip(MaterialTheme.shapes.small)
                         .clickable(onClick = onWebsiteParserClick)
                         .padding(horizontal = 16.dp, vertical = 12.dp),
-                text = stringResource(R.string.website_parser_current, websiteParserName),
-                color = MaterialTheme.colorScheme.primary,
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
-        Spacer(modifier = Modifier.height(10.dp))
-        Row(
-            modifier =
-                Modifier.fillMaxWidth()
-                    .clip(MaterialTheme.shapes.small)
-                    .clickable(onClick = onArticleFilterClick)
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
+            ) {
                 Text(
-                    text = stringResource(R.string.source_filter_current, articleFilterCount),
+                    text = stringResource(R.string.website_parser_current, websiteParserName),
                     color = MaterialTheme.colorScheme.primary,
                     style = MaterialTheme.typography.bodyMedium,
                 )
+                Spacer(modifier = Modifier.height(3.dp))
                 Text(
-                    text = stringResource(R.string.source_filter_entry_desc),
+                    text = stringResource(R.string.website_parser_setting_desc),
                     color = MaterialTheme.colorScheme.outline,
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            Icon(
-                imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-                contentDescription = stringResource(R.string.go_to),
-                tint = MaterialTheme.colorScheme.primary,
-            )
         }
-        Spacer(modifier = Modifier.height(26.dp))
+        if (showArticleFilter) {
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier =
+                    Modifier.fillMaxWidth()
+                        .clip(MaterialTheme.shapes.small)
+                        .clickable(onClick = onArticleFilterClick)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.source_filter_current, articleFilterCount),
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        text = stringResource(R.string.source_filter_entry_desc),
+                        color = MaterialTheme.colorScheme.outline,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Icon(
+                    imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                    contentDescription = stringResource(R.string.go_to),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+        if (showUrl || showWebsiteParser || showArticleFilter) {
+            Spacer(modifier = Modifier.height(22.dp))
+        }
 
         Preset(
             selectedAllowNotificationPreset = selectedAllowNotificationPreset,
@@ -112,6 +132,7 @@ fun FeedOptionView(
             openInBrowserPresetOnClick = openInBrowserPresetOnClick,
             clearArticlesOnClick = clearArticlesOnClick,
             unsubscribeOnClick = unsubscribeOnClick,
+            sourceType = sourceType,
         )
 
         if (showGroup) {
@@ -160,69 +181,73 @@ private fun Preset(
     openInBrowserPresetOnClick: () -> Unit = {},
     clearArticlesOnClick: () -> Unit = {},
     unsubscribeOnClick: () -> Unit = {},
+    sourceType: SourceType = SourceType.RSS,
 ) {
-    Subtitle(text = stringResource(R.string.reading_page))
-    Spacer(modifier = Modifier.height(10.dp))
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.Start)) {
-        item {
-            RYSelectionChip(
-                modifier = Modifier,
-                content = stringResource(R.string.parse_full_content),
-                selected = selectedParseFullContentPreset,
-                selectedIcon = {
-                    Icon(
-                        modifier = Modifier.padding(start = 8.dp).size(20.dp),
-                        imageVector = Icons.AutoMirrored.Outlined.Article,
-                        contentDescription = stringResource(R.string.parse_full_content),
-                        tint = MaterialTheme.colorScheme.onSurface alwaysLight true,
-                    )
-                },
-            ) {
-                parseFullContentPresetOnClick()
-            }
-        }
-        item {
-            RYSelectionChip(
-                modifier = Modifier,
-                content = stringResource(R.string.open_in_browser),
-                selected = selectedOpenInBrowserPreset,
-                selectedIcon = {
-                    Icon(
-                        modifier = Modifier.padding(start = 8.dp).size(20.dp),
-                        imageVector = Icons.Outlined.OpenInBrowser,
-                        contentDescription = stringResource(R.string.open_in_browser),
-                        tint = MaterialTheme.colorScheme.onSurface alwaysLight true,
-                    )
-                },
-            ) {
-                openInBrowserPresetOnClick()
-            }
-        }
-    }
-    Spacer(modifier = Modifier.height(26.dp))
-
-    Subtitle(text = stringResource(R.string.preset))
-    Spacer(modifier = Modifier.height(10.dp))
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.Start),
-        verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically),
-    ) {
-        RYSelectionChip(
-            modifier = Modifier,
-            content = stringResource(R.string.allow_notification),
-            selected = selectedAllowNotificationPreset,
-            selectedIcon = {
-                Icon(
-                    modifier = Modifier.padding(start = 8.dp).size(20.dp),
-                    imageVector = Icons.Outlined.Notifications,
-                    contentDescription = stringResource(R.string.allow_notification),
-                    tint = MaterialTheme.colorScheme.onSurface alwaysLight true,
-                )
+    if (sourceType != SourceType.RSS) {
+        Subtitle(text = stringResource(R.string.source_reading_mode))
+        Spacer(modifier = Modifier.height(10.dp))
+        ReadingModeOption(
+            title = stringResource(R.string.read_inside_origread),
+            description = stringResource(R.string.read_inside_origread_desc),
+            selected = !selectedOpenInBrowserPreset,
+            icon = Icons.AutoMirrored.Outlined.Article,
+            onClick = {
+                if (selectedOpenInBrowserPreset) openInBrowserPresetOnClick()
             },
-        ) {
-            allowNotificationPresetOnClick()
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        ReadingModeOption(
+            title = stringResource(R.string.open_original_in_browser),
+            description = stringResource(R.string.open_original_in_browser_desc),
+            selected = selectedOpenInBrowserPreset,
+            icon = Icons.Outlined.OpenInBrowser,
+            onClick = {
+                if (!selectedOpenInBrowserPreset) openInBrowserPresetOnClick()
+            },
+        )
+
+        if (sourceType == SourceType.WEBSITE && !selectedOpenInBrowserPreset) {
+            Spacer(modifier = Modifier.height(10.dp))
+            ReadingToggle(
+                title = stringResource(R.string.fetch_original_full_content),
+                description = stringResource(R.string.website_full_content_desc),
+                selected = selectedParseFullContentPreset,
+                icon = Icons.AutoMirrored.Outlined.Article,
+                onClick = parseFullContentPresetOnClick,
+            )
         }
-        if (notSubscribeMode) {
+        Spacer(modifier = Modifier.height(26.dp))
+    }
+
+    Subtitle(text = stringResource(R.string.notifications))
+    Spacer(modifier = Modifier.height(8.dp))
+    Row(
+        modifier =
+            Modifier.fillMaxWidth()
+                .clip(MaterialTheme.shapes.medium)
+                .clickable(onClick = allowNotificationPresetOnClick)
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = stringResource(R.string.allow_notification), style = MaterialTheme.typography.bodyMedium)
+            Text(
+                text = stringResource(R.string.notifications_desc),
+                color = MaterialTheme.colorScheme.outline,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        Switch(
+            checked = selectedAllowNotificationPreset,
+            onCheckedChange = { allowNotificationPresetOnClick() },
+        )
+    }
+    if (notSubscribeMode) {
+        Spacer(modifier = Modifier.height(12.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.Start),
+            verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically),
+        ) {
             RYSelectionChip(
                 modifier = Modifier,
                 content = stringResource(R.string.clear_articles),
@@ -240,6 +265,86 @@ private fun Preset(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ReadingModeOption(
+    title: String,
+    description: String,
+    selected: Boolean,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier =
+            Modifier.fillMaxWidth()
+                .clip(MaterialTheme.shapes.medium)
+                .clickable(onClick = onClick)
+                .background(
+                    if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
+                )
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = title, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                text = description,
+                color = MaterialTheme.colorScheme.outline,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        RadioButton(selected = selected, onClick = null)
+    }
+}
+
+@Composable
+private fun ReadingToggle(
+    title: String,
+    description: String,
+    selected: Boolean,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier =
+            Modifier.fillMaxWidth()
+                .clip(MaterialTheme.shapes.medium)
+                .clickable(onClick = onClick)
+                .background(
+                    if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.24f)
+                )
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = title, style = MaterialTheme.typography.bodyMedium)
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = description,
+                color = MaterialTheme.colorScheme.outline,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        Switch(
+            checked = selected,
+            onCheckedChange = { onClick() },
+        )
     }
 }
 
@@ -292,20 +397,27 @@ private fun AddToGroup(
 
 @Composable
 private fun NewGroupButton(onAddNewGroup: () -> Unit, modifier: Modifier) {
-    Box(
+    Row(
         modifier =
             modifier
-                .size(36.dp)
-                .clip(CircleShape)
+                .height(36.dp)
+                .clip(MaterialTheme.shapes.large)
                 .background(MaterialTheme.colorScheme.surfaceVariant)
-                .clickable { onAddNewGroup() },
-        contentAlignment = Alignment.Center,
+                .clickable { onAddNewGroup() }
+                .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
             modifier = Modifier.size(20.dp),
             imageVector = Icons.Outlined.Add,
             contentDescription = stringResource(R.string.create_new_group),
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            text = stringResource(R.string.create_new_group),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
