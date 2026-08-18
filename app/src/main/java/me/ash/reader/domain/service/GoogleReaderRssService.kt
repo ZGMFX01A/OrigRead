@@ -62,6 +62,15 @@ import timber.log.Timber
 
 private const val TAG = "GoogleReaderRssService"
 
+internal fun resolveGoogleReaderRemoteCategoryId(
+    groupId: String,
+    defaultGroupId: String,
+): String? =
+    groupId
+        .takeUnless { it == defaultGroupId }
+        ?.dollarLast()
+        ?.ofCategoryStreamIdToId()
+
 class GoogleReaderRssService
 @Inject
 constructor(
@@ -145,7 +154,11 @@ constructor(
         getGoogleReaderAPI()
             .subscriptionEdit(
                 destFeedId = feedId,
-                destCategoryId = groupId.dollarLast(),
+                destCategoryId =
+                    resolveGoogleReaderRemoteCategoryId(
+                        groupId = groupId,
+                        defaultGroupId = accountService.getDefaultGroup().id,
+                    ),
                 destFeedName = feedTitle,
             )
         feedDao.insert(
@@ -186,11 +199,20 @@ constructor(
     }
 
     override suspend fun moveFeed(originGroupId: String, feed: Feed) {
+        val defaultGroupId = accountService.getDefaultGroup().id
         getGoogleReaderAPI()
             .subscriptionEdit(
                 destFeedId = feed.id.dollarLast(),
-                destCategoryId = feed.groupId.dollarLast().ofCategoryStreamIdToId(),
-                originCategoryId = originGroupId.dollarLast().ofCategoryStreamIdToId(),
+                destCategoryId =
+                    resolveGoogleReaderRemoteCategoryId(
+                        groupId = feed.groupId,
+                        defaultGroupId = defaultGroupId,
+                    ),
+                originCategoryId =
+                    resolveGoogleReaderRemoteCategoryId(
+                        groupId = originGroupId,
+                        defaultGroupId = defaultGroupId,
+                    ),
             )
         super.moveFeed(originGroupId, feed)
     }

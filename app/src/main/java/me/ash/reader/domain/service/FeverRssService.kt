@@ -65,6 +65,16 @@ constructor(
         accountService,
     ) {
 
+    companion object {
+        internal fun resolveFeedGroupId(
+            accountId: Int,
+            remoteFeedId: String,
+            feedsGroupsMap: Map<String, String>,
+            defaultGroupId: String,
+        ): String =
+            feedsGroupsMap[remoteFeedId]?.let { accountId.spacerDollar(it) } ?: defaultGroupId
+    }
+
     override val importSubscription: Boolean = false
     override val addSubscription: Boolean = false
     override val moveSubscription: Boolean = false
@@ -167,7 +177,6 @@ constructor(
                         accountId = accountId,
                     )
                 } ?: emptyList()
-            groupDao.insertOrUpdate(groups)
 
             // 2. Fetch the Fever feeds
             val feedsBody = feverAPI.getFeeds()
@@ -193,18 +202,37 @@ constructor(
 
             // Fetch the Fever favicons
             val faviconsById = feverAPI.getFavicons().favicons?.associateBy { it.id } ?: emptyMap()
-            feedDao.insertOrUpdate(
+            val defaultGroup = accountService.getDefaultGroup()
+            var hasOrphanFeed = false
+            val feeds =
                 feedsBody.feeds?.map {
+                    val remoteFeedId = it.id!!.toString()
+                    if (!feedsGroupsMap.containsKey(remoteFeedId)) {
+                        hasOrphanFeed = true
+                    }
                     Feed(
                         id = accountId.spacerDollar(it.id!!),
                         name = it.title.decodeHTML() ?: context.getString(R.string.empty),
                         url = it.url!!,
-                        groupId = accountId.spacerDollar(feedsGroupsMap[it.id.toString()]!!),
+                        groupId =
+                            resolveFeedGroupId(
+                                accountId = accountId,
+                                remoteFeedId = remoteFeedId,
+                                feedsGroupsMap = feedsGroupsMap,
+                                defaultGroupId = defaultGroup.id,
+                            ),
                         accountId = accountId,
                         icon = faviconsById[it.favicon_id]?.data,
                     )
                 } ?: emptyList()
-            )
+            val groupsToPersist =
+                if (hasOrphanFeed) {
+                    (groups + defaultGroup).distinctBy { it.id }
+                } else {
+                    groups
+                }
+            groupDao.insertOrUpdate(groupsToPersist)
+            feedDao.insertOrUpdate(feeds)
 
             // Handle empty icon for feeds
             val noIconFeeds = feedDao.queryNoIcon(accountId)
@@ -292,15 +320,16 @@ constructor(
             }
 
             // Remove orphaned groups and feeds, after synchronizing the starred/un-starred
-            val groupIds = groups.map { it.id }
+            val groupIds = groupsToPersist.map { it.id }.toSet()
             groupDao.queryAll(accountId).forEach {
                 if (!groupIds.contains(it.id)) {
                     super.deleteGroup(it, true)
                 }
             }
 
+            val feedIds = feeds.map { it.id }.toSet()
             feedDao.queryAll(accountId).forEach {
-                if (!feedsGroupsMap.contains(it.id.dollarLast())) {
+                if (!feedIds.contains(it.id)) {
                     super.deleteFeed(it, true)
                 }
             }
