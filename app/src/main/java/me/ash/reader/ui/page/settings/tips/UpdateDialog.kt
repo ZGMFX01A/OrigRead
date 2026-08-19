@@ -7,6 +7,7 @@ import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -38,6 +39,7 @@ import me.ash.reader.ui.component.base.RYDialog
 import me.ash.reader.ui.ext.collectAsStateValue
 import me.ash.reader.ui.ext.installLatestApk
 import me.ash.reader.ui.ext.openURL
+import me.ash.reader.ui.page.home.reading.AiMarkdown
 
 @Composable
 fun UpdateDialog(
@@ -85,7 +87,7 @@ fun UpdateDialog(
     }
 
     RYDialog(
-        modifier = Modifier.heightIn(max = 400.dp),
+        modifier = Modifier.heightIn(max = 560.dp),
         visible = updateUiState.updateDialogVisible,
         onDismissRequest = {
             // 下载中保持弹窗，避免用户误以为任务已经停止；AppUpdater 自身负责实际下载生命周期。
@@ -114,11 +116,12 @@ fun UpdateDialog(
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 SelectionContainer {
-                    Text(
-                        text =
+                    AiMarkdown(
+                        markdown =
                             newVersionLog
                                 .localizedReleaseNotes(currentAppLanguage)
-                                .withoutGeneratedFullChangelog()
+                                .withoutGeneratedFullChangelog(),
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
                 if (downloadState is Download.Error) {
