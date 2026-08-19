@@ -45,10 +45,7 @@ The goal is simple: **subscribe to the source, preserve the original link, extra
 
 ## Screenshots
 
-
-Recommended overview image:
-
-<p align="center"><img src="assets/readme/screenshots/en-US/overview.png" width="900" alt="OrigRead overview" /></p>
+<p align="center"><img src="assets/readme/screenshots/en-US/overview.png" width="300" alt="OrigRead overview" /></p>
 
 
 | Source discovery | Reading & full text | AI summary |
