@@ -28,11 +28,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import me.ash.reader.R
 import me.ash.reader.infrastructure.rsshub.RssHubInstance
+import me.ash.reader.infrastructure.rsshub.RssHubLocation
 import me.ash.reader.infrastructure.rsshub.RssHubSettingsRepository
 import me.ash.reader.ui.component.base.Banner
 import me.ash.reader.ui.component.base.DisplayText
@@ -209,6 +211,7 @@ private fun RssHubInstanceItem(
     onTest: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    val language = LocalConfiguration.current.locales[0].language
     Surface(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)) {
             Row(
@@ -219,7 +222,10 @@ private fun RssHubInstanceItem(
                 Column(modifier = Modifier.fillMaxWidth(0.82f)) {
                     Text(text = instance.url, style = MaterialTheme.typography.bodyLarge)
                     val metadata =
-                        listOf(instance.location, instance.maintainer)
+                        listOf(
+                            RssHubLocation.display(instance.location, language),
+                            instance.maintainer,
+                        )
                             .filter { it.isNotBlank() }
                             .joinToString(" · ")
                     if (metadata.isNotBlank()) {

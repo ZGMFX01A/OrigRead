@@ -122,7 +122,12 @@ class RssHubSettingsRepository @Inject constructor(
     fun restoreBackup(settings: RssHubSettings) {
         val normalizedInstances =
             settings.instances
-                .map { instance -> instance.copy(url = normalizeInstanceUrl(instance.url)) }
+                .map { instance ->
+                    instance.copy(
+                        url = normalizeInstanceUrl(instance.url),
+                        location = RssHubLocation.canonical(instance.id, instance.location),
+                    )
+                }
                 .distinctBy(RssHubInstance::url)
                 .ifEmpty { defaultInstances() }
         preferences.edit()
@@ -201,22 +206,22 @@ class RssHubSettingsRepository @Inject constructor(
         /** 内置实例只是初始配置，用户仍可逐个禁用或删除。 */
         fun defaultInstances(): List<RssHubInstance> =
             listOf(
-                instance("official", "https://rsshub.app", "🇺🇸 美国", "DIYgod"),
-                instance("rssforever", "https://rsshub.rssforever.com", "🇦🇪 阿联酋", "Stille"),
-                instance("slarker", "https://hub.slarker.me", "🇺🇸 美国", "Slarker"),
-                instance("pseudoyu", "https://rsshub.pseudoyu.com", "🇫🇷 法国", "pseudoyu"),
-                instance("rsstips", "https://rsshub.rss.tips", "🇺🇸 美国", "AboutRSS"),
-                instance("ktachibana", "https://rsshub.ktachibana.party", "🇺🇸 美国", "KTachibanaM"),
-                instance("owonz", "https://rss.owo.nz", "🇩🇪 德国", "Vincent Yang"),
-                instance("wudifeixue", "https://rss.wudifeixue.com", "🇨🇦 加拿大", "wudifeixue"),
-                instance("henry", "https://rsshub.henry.wang", "🇬🇧 英国", "HenryQW"),
-                instance("umzzz", "https://rsshub.umzzz.com", "🇭🇰 香港", "nesay"),
-                instance("isrss", "https://rsshub.isrss.com", "🇺🇸 美国", "isRSS"),
-                instance("emailonce", "https://rsshub.email-once.com", "🇭🇰 香港", "EmailOnce"),
-                instance("datuan", "https://rss.datuan.dev", "🇻🇳 越南", "Tuấn Dev"),
-                instance("cups", "https://rsshub.cups.moe", "🇺🇸 美国", "FunnyCups"),
-                instance("spriple", "https://rss.spriple.org", "🇨🇳 中国", "Spriple"),
-                instance("virworks", "https://rsshub-balancer.virworks.moe", "🇺🇳 多地负载均衡", "chesha1"),
+                instance("official", "https://rsshub.app", "US", "DIYgod"),
+                instance("rssforever", "https://rsshub.rssforever.com", "AE", "Stille"),
+                instance("slarker", "https://hub.slarker.me", "US", "Slarker"),
+                instance("pseudoyu", "https://rsshub.pseudoyu.com", "FR", "pseudoyu"),
+                instance("rsstips", "https://rsshub.rss.tips", "US", "AboutRSS"),
+                instance("ktachibana", "https://rsshub.ktachibana.party", "US", "KTachibanaM"),
+                instance("owonz", "https://rss.owo.nz", "DE", "Vincent Yang"),
+                instance("wudifeixue", "https://rss.wudifeixue.com", "CA", "wudifeixue"),
+                instance("henry", "https://rsshub.henry.wang", "GB", "HenryQW"),
+                instance("umzzz", "https://rsshub.umzzz.com", "HK", "nesay"),
+                instance("isrss", "https://rsshub.isrss.com", "US", "isRSS"),
+                instance("emailonce", "https://rsshub.email-once.com", "HK", "EmailOnce"),
+                instance("datuan", "https://rss.datuan.dev", "VN", "Tuấn Dev"),
+                instance("cups", "https://rsshub.cups.moe", "US", "FunnyCups"),
+                instance("spriple", "https://rss.spriple.org", "CN", "Spriple"),
+                instance("virworks", "https://rsshub-balancer.virworks.moe", "GLOBAL", "chesha1"),
             )
 
         private fun instance(id: String, url: String, location: String, maintainer: String) =
@@ -254,7 +259,11 @@ class RssHubSettingsRepository @Inject constructor(
                             RssHubInstance(
                                 id = item.optString("id").ifBlank { "custom-${url.hashCode()}" },
                                 url = url,
-                                location = item.optString("location"),
+                                location =
+                                    RssHubLocation.canonical(
+                                        item.optString("id"),
+                                        item.optString("location"),
+                                    ),
                                 maintainer = item.optString("maintainer"),
                                 enabled = item.optBoolean("enabled", true),
                                 builtIn = item.optBoolean("builtIn", false),
