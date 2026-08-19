@@ -40,6 +40,33 @@ interface NetworkDataSource {
     }
 }
 
+internal data class LatestReleaseCheckResult(
+    val release: LatestRelease?,
+    val lastResponseCode: Int?,
+)
+
+/** 按候选地址顺序检查 Release，并拒绝镜像返回的非法或非官方元数据。 */
+internal suspend fun NetworkDataSource.getTrustedLatestRelease(
+    urls: List<String>,
+    repositoryUrl: String,
+): LatestReleaseCheckResult {
+    var lastResponseCode: Int? = null
+    for (url in urls) {
+        try {
+            val response = getReleaseLatest(url)
+            lastResponseCode = response.code()
+            val body = response.body()
+            if (response.isSuccessful && body != null && body.isTrustedReleaseMetadata(repositoryUrl)) {
+                return LatestReleaseCheckResult(body, lastResponseCode)
+            }
+        } catch (_: Exception) {
+            // A mirror failure must not prevent trying the next candidate.
+            lastResponseCode = null
+        }
+    }
+    return LatestReleaseCheckResult(null, lastResponseCode)
+}
+
 fun ResponseBody.downloadToFileWithProgress(saveFile: File): Flow<Download> =
     flow {
         emit(Download.Progress(0))
@@ -142,3 +169,23 @@ internal fun LatestRelease.preferredApkAsset(): AssetsItem? =
                 .thenBy { it.name.orEmpty() },
         )
         .firstOrNull()
+
+/** 镜像只用于传输，Release 页面和安装包仍必须属于内置的官方仓库。 */
+internal fun LatestRelease.isTrustedReleaseMetadata(repositoryUrl: String): Boolean {
+    val repository = repositoryUrl.trim().trimEnd('/')
+    val releasePage = html_url?.trim().orEmpty()
+    val tag = tag_name?.trim().orEmpty()
+    return tag.isNotBlank() &&
+        releasePage.equals("$repository/releases/tag/$tag", ignoreCase = true)
+}
+
+internal fun LatestRelease.preferredTrustedApkAsset(repositoryUrl: String): AssetsItem? {
+    val downloadPrefix = "${repositoryUrl.trim().trimEnd('/')}/releases/download/"
+    return copy(
+        assets = assets.orEmpty().filter { asset ->
+            asset.browser_download_url
+                ?.trim()
+                ?.startsWith(downloadPrefix, ignoreCase = true) == true
+        },
+    ).preferredApkAsset()
+}

@@ -12,7 +12,9 @@ import me.ash.reader.infrastructure.di.IODispatcher
 import me.ash.reader.infrastructure.di.MainDispatcher
 import me.ash.reader.infrastructure.net.Download
 import me.ash.reader.infrastructure.net.NetworkDataSource
-import me.ash.reader.infrastructure.net.preferredApkAsset
+import me.ash.reader.infrastructure.net.githubReleaseCheckCandidates
+import me.ash.reader.infrastructure.net.getTrustedLatestRelease
+import me.ash.reader.infrastructure.net.preferredTrustedApkAsset
 import me.ash.reader.infrastructure.preference.*
 import me.ash.reader.infrastructure.preference.NewVersionSizePreference.formatSize
 import me.ash.reader.ui.ext.getCurrentVersion
@@ -34,31 +36,37 @@ class AppService @Inject constructor(
 
     suspend fun checkUpdate(showToast: Boolean = true): Boolean? = withContext(ioDispatcher) {
         try {
-            val response = networkDataSource.getReleaseLatest(context.getString(R.string.update_link))
-            when {
-                response.code() == 403 -> {
-                    withContext(mainDispatcher) {
-                        if (showToast) context.showToast(context.getString(R.string.rate_limit))
+            val repositoryUrl = context.getString(R.string.github_link)
+            val checkResult =
+                networkDataSource.getTrustedLatestRelease(
+                    urls = githubReleaseCheckCandidates(context.getString(R.string.update_link)),
+                    repositoryUrl = repositoryUrl,
+                )
+            val latest = checkResult.release ?: run {
+                withContext(mainDispatcher) {
+                    if (showToast) {
+                        context.showToast(
+                            context.getString(
+                                if (checkResult.lastResponseCode == 403 || checkResult.lastResponseCode == 429) {
+                                    R.string.rate_limit
+                                } else {
+                                    R.string.check_failure
+                                },
+                            ),
+                        )
                     }
-                    return@withContext null
                 }
-
-                response.body() == null -> {
-                    withContext(mainDispatcher) {
-                        if (showToast) context.showToast(context.getString(R.string.check_failure))
-                    }
-                    return@withContext null
-                }
+                return@withContext null
             }
+
             val skipVersion = context.skipVersionNumber.toVersion()
             val currentVersion = context.getCurrentVersion()
-            val latest = response.body()!!
             val latestVersion = latest.tag_name.toVersion()
 //            val latestVersion = "1.0.0".toVersion()
             val latestLog = latest.body ?: ""
             val latestPublishDate = latest.published_at ?: latest.created_at ?: ""
             // GitHub Release 不保证 APK 永远位于 assets 第一项，必须按文件类型明确选择。
-            val apkAsset = latest.preferredApkAsset()
+            val apkAsset = latest.preferredTrustedApkAsset(repositoryUrl)
             val latestSize = apkAsset?.size ?: 0
             val latestDownloadUrl = apkAsset?.browser_download_url.orEmpty()
 

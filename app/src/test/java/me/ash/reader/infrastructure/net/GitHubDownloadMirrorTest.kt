@@ -6,6 +6,8 @@ import org.junit.Test
 class GitHubDownloadMirrorTest {
     private val releaseUrl =
         "https://github.com/ZGMFX01A/OrigRead/releases/download/v1.2.0/OrigRead-1.2.0.apk"
+    private val latestApiUrl =
+        "https://api.github.com/repos/ZGMFX01A/OrigRead/releases/latest"
 
     @Test
     fun `mainland order prefers mirror and always falls back to github`() {
@@ -26,9 +28,28 @@ class GitHubDownloadMirrorTest {
     @Test
     fun `does not proxy non release urls`() {
         assertEquals(
-            listOf("https://api.github.com/repos/ZGMFX01A/OrigRead/releases/latest"),
+            listOf(latestApiUrl),
             githubReleaseDownloadCandidates(
-                "https://api.github.com/repos/ZGMFX01A/OrigRead/releases/latest",
+                latestApiUrl,
+                preferMirror = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `mainland update checks prefer mirror and fall back to github`() {
+        assertEquals(
+            listOf("https://gh-proxy.com/$latestApiUrl", latestApiUrl),
+            githubReleaseCheckCandidates(latestApiUrl, preferMirror = true),
+        )
+    }
+
+    @Test
+    fun `does not proxy unrelated api urls during update checks`() {
+        assertEquals(
+            listOf("https://api.github.com/repos/ZGMFX01A/OrigRead/issues"),
+            githubReleaseCheckCandidates(
+                "https://api.github.com/repos/ZGMFX01A/OrigRead/issues",
                 preferMirror = true,
             ),
         )
