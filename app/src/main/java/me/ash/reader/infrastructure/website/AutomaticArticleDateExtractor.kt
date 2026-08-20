@@ -77,7 +77,7 @@ class AutomaticArticleDateExtractor private constructor(
     /** 仅扫描名称明显带 time/date/publish 的节点，避免从标题正文里的数字误判日期。 */
     private fun extractNearbyTextDate(item: Element): Date? {
         val likelyDateNodes = item.select(
-            ".time, .date, .datetime, .publish-time, .published-time, .post-date, .article-date, " +
+            ".age, .time, .date, .datetime, .publish-time, .published-time, .post-date, .article-date, " +
                 "[class*=time], [class*=date], [class*=publish], [id*=time], [id*=date], [id*=publish]"
         )
         return likelyDateNodes.asSequence()

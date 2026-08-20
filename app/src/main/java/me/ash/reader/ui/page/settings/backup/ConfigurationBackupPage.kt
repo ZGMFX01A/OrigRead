@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
@@ -176,7 +177,7 @@ fun ConfigurationBackupPage(
                             }
                         },
                     ) {
-                        if (state.isWorking) CircularProgressIndicator()
+                        if (state.isWorking) CircularProgressIndicator(modifier = Modifier.size(20.dp))
                     }
                 }
                 item {
@@ -272,7 +273,7 @@ fun ConfigurationBackupPage(
                     },
                 ) {
                     if (state.isWorking) {
-                        CircularProgressIndicator()
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp))
                     } else {
                         Text(stringResource(R.string.confirm))
                     }

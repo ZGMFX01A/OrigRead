@@ -131,6 +131,14 @@ class WebsiteHelper @Inject constructor(
             else -> ruleRepository.findRuleById(ruleId)?.name
         }
 
+    /** 返回来源域名下的全部已配置规则，供来源设置展示启用/停用状态。 */
+    fun getConfiguredRules(url: String): List<WebsiteRule> = ruleRepository.findConfiguredRules(url)
+
+    /** 从来源设置中切换固定规则的启用状态。 */
+    fun setRuleEnabled(ruleId: String, enabled: Boolean) {
+        ruleRepository.setEnabled(ruleId, enabled)
+    }
+
     /** 固定指定规则；传入 null 恢复自动选择。 */
     fun setPreferredRule(feedId: String, ruleId: String?, ruleName: String? = null) {
         preferenceRepository.setPreferredRule(feedId, ruleId, ruleName)

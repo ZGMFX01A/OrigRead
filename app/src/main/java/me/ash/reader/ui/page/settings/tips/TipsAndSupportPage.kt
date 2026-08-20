@@ -20,10 +20,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Balance
 import androidx.compose.material.icons.rounded.Computer
 import androidx.compose.material.icons.rounded.PhoneAndroid
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -65,6 +67,8 @@ import me.ash.reader.ui.ext.openURL
 import me.ash.reader.ui.ext.put
 import me.ash.reader.ui.ext.showToast
 import me.ash.reader.ui.graphics.MorphPolygonShape
+import me.ash.reader.ui.page.settings.RuleMarkdownGuideDialog
+import me.ash.reader.ui.page.settings.SettingItem
 import me.ash.reader.ui.theme.palette.onLight
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -92,6 +96,7 @@ fun TipsAndSupportPage(
     val view = LocalView.current
     val scope = rememberCoroutineScope()
     var currentVersion by remember { mutableStateOf("") }
+    var userGuideVisible by remember { mutableStateOf(false) }
 
     val morphProgress = remember { Animatable(0f) }
 
@@ -247,6 +252,19 @@ fun TipsAndSupportPage(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
+                        SettingItem(
+                            title = stringResource(R.string.user_guide_title),
+                            desc = stringResource(R.string.user_guide_desc),
+                            icon = Icons.Outlined.Description,
+                            onClick = { userGuideVisible = true },
+                            action = {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                                    contentDescription = stringResource(R.string.go_to),
+                                )
+                            },
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
                         Text(
                             text = stringResource(R.string.origread_multiplatform_title),
                             style = MaterialTheme.typography.titleMedium,
@@ -305,6 +323,14 @@ fun TipsAndSupportPage(
             }
         }
     )
+
+    if (userGuideVisible) {
+        RuleMarkdownGuideDialog(
+            title = stringResource(R.string.user_guide_title),
+            assetName = "user-guide",
+            onDismiss = { userGuideVisible = false },
+        )
+    }
 
     UpdateDialog()
 }

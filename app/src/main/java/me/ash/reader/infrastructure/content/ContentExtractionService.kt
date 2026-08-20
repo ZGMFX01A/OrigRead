@@ -28,9 +28,7 @@ class ContentExtractionService @Inject constructor(
             .mapNotNull { candidate -> normalize(candidate, sourceUrl, expectedTitle, pageMetadata) }
             .filter { it.score >= MIN_ACCEPTED_SCORE }
             .sortedWith(
-                compareByDescending<ExtractedContent> {
-                    it.source == ContentExtractionSource.WEBSITE_RULE
-                }.thenByDescending { it.score }
+                compareByDescending<ExtractedContent> { it.score }
                     .thenByDescending { it.source.priority }
             )
             .firstOrNull()

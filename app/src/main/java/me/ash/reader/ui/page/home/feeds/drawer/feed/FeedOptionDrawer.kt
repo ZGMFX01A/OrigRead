@@ -14,6 +14,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.ExperimentalMaterialApi
 import androidx.compose.material.ModalBottomSheetState
 import androidx.compose.material.ModalBottomSheetValue
@@ -24,10 +27,12 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.rememberModalBottomSheetState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -41,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -50,6 +56,8 @@ import me.ash.reader.infrastructure.preference.LocalOpenLink
 import me.ash.reader.infrastructure.preference.LocalOpenLinkSpecificBrowser
 import me.ash.reader.domain.model.feed.SourceType
 import me.ash.reader.infrastructure.website.AutomaticWebsiteListDetector
+import me.ash.reader.infrastructure.website.WebsiteRule
+import me.ash.reader.infrastructure.json.JsonRule
 import me.ash.reader.infrastructure.filter.ArticleFilterRuleType
 import me.ash.reader.ui.component.base.RYSwitch
 import me.ash.reader.ui.component.ChangeUrlDialog
@@ -170,9 +178,16 @@ fun FeedOptionDrawer(
                         loading = feedOptionUiState.websiteParserLoading,
                         error = feedOptionUiState.websiteParserError,
                         candidates = feedOptionUiState.websiteCandidates,
+                        configuredRules = feedOptionUiState.websiteConfiguredRules,
                         preferredRuleId = feedOptionUiState.preferredWebsiteRuleId,
                         onSelect = feedOptionViewModel::selectWebsiteRule,
                         onBack = feedOptionViewModel::hideWebsiteParserDialog,
+                    )
+                } else if (feedOptionUiState.jsonParserDialogVisible) {
+                    JsonParserPanel(
+                        configuredRules = feedOptionUiState.jsonConfiguredRules,
+                        onToggle = feedOptionViewModel::setJsonRuleEnabled,
+                        onBack = feedOptionViewModel::hideJsonParserDialog,
                     )
                 } else {
                     Column(
@@ -243,9 +258,38 @@ fun FeedOptionDrawer(
                         showWebsiteParser = feed?.sourceType == SourceType.WEBSITE,
                         websiteParserName =
                             feedOptionUiState.preferredWebsiteRuleId?.let { ruleId ->
-                                websiteRuleDisplayName(ruleId, feedOptionUiState.preferredWebsiteRuleName)
-                            } ?: stringResource(R.string.website_parser_auto),
+                                websiteParserCurrentDisplayName(ruleId, feedOptionUiState.preferredWebsiteRuleName)
+                            } ?: stringResource(R.string.website_parser_auto_with_type),
                         onWebsiteParserClick = feedOptionViewModel::showWebsiteParserDialog,
+                        showJsonParser = feed?.sourceType == SourceType.JSON,
+                        jsonParserName = stringResource(
+                            R.string.json_parser_current_name,
+                            feedOptionUiState.jsonConfiguredRules.count { it.enabled },
+                        ),
+                        onJsonParserClick = feedOptionViewModel::showJsonParserDialog,
+                        websiteReparseLoading = feedOptionUiState.websiteReparseLoading,
+                        onWebsiteReparseClick = {
+                            feedOptionViewModel.reparseWebsiteArticles { result ->
+                                result.fold(
+                                    onSuccess = { reparse ->
+                                        context.showToast(
+                                            context.getString(
+                                                R.string.website_reparse_articles_success,
+                                                reparse.updatedCount,
+                                            )
+                                        )
+                                    },
+                                    onFailure = { error ->
+                                        context.showToast(
+                                            context.getString(
+                                                R.string.website_reparse_articles_failed,
+                                                error.message ?: context.getString(R.string.unknown_error),
+                                            )
+                                        )
+                                    },
+                                )
+                            }
+                        },
                         articleFilterCount = feedOptionUiState.sourceFilterRules.size,
                         onArticleFilterClick = feedOptionViewModel::showSourceFilterDialog,
                         sourceType = feed?.sourceType ?: SourceType.RSS,
@@ -316,10 +360,74 @@ fun FeedOptionDrawer(
 }
 
 @Composable
+private fun JsonParserPanel(
+    configuredRules: List<JsonRule>,
+    onToggle: (JsonRule, Boolean) -> Unit,
+    onBack: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(text = stringResource(R.string.json_parser_title), style = MaterialTheme.typography.titleLarge)
+            IconButton(onClick = onBack) {
+                Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.cancel))
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = stringResource(R.string.json_parser_desc),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.outline,
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        if (configuredRules.isEmpty()) {
+            WebsiteParserEmptyState(stringResource(R.string.json_parser_no_rules))
+        } else {
+            LazyColumn {
+                items(configuredRules, key = { it.id }) { rule ->
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        color = if (rule.enabled) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
+                        shape = RoundedCornerShape(18.dp),
+                        tonalElevation = if (rule.enabled) 2.dp else 0.dp,
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth()
+                                .clickable { onToggle(rule, !rule.enabled) }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(checked = rule.enabled, onCheckedChange = { onToggle(rule, it) })
+                            Column(modifier = Modifier.padding(start = 8.dp).weight(1f)) {
+                                Text(rule.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    text = if (rule.enabled) stringResource(R.string.json_parser_rule_enabled) else stringResource(R.string.json_parser_rule_disabled),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (rule.enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                                )
+                                Text(
+                                    text = rule.sourceKind.name,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun WebsiteParserPanel(
     loading: Boolean,
     error: String?,
     candidates: List<me.ash.reader.infrastructure.website.WebsiteParseCandidate>,
+    configuredRules: List<WebsiteRule>,
     preferredRuleId: String?,
     onSelect: (String?) -> Unit,
     onBack: () -> Unit,
@@ -355,10 +463,48 @@ private fun WebsiteParserPanel(
                 }
             }
 
-            error != null -> Text(text = error, color = MaterialTheme.colorScheme.error)
+            error != null -> {
+                LazyColumn(modifier = Modifier.selectableGroup()) {
+                    item {
+                        Text(text = error, color = MaterialTheme.colorScheme.error)
+                    }
+                    item {
+                        WebsiteParserSectionTitle(stringResource(R.string.website_parser_section_selection))
+                        WebsiteParserOption(
+                            title = stringResource(R.string.website_parser_auto),
+                            description = stringResource(R.string.website_parser_auto_desc),
+                            selected = preferredRuleId == null,
+                            onClick = { onSelect(null) },
+                        )
+                    }
+                    item {
+                        WebsiteParserSectionTitle(
+                            stringResource(R.string.website_parser_section_rules_with_count, configuredRules.size),
+                        )
+                    }
+                    if (configuredRules.isEmpty()) {
+                        item {
+                            WebsiteParserEmptyState(stringResource(R.string.website_parser_no_configured_rules))
+                        }
+                    }
+                    items(configuredRules, key = { "error-configured:${it.id}" }) { rule ->
+                        WebsiteParserOption(
+                            title = websiteRuleDisplayName(rule.id, rule.name),
+                            description = if (rule.enabled) {
+                                stringResource(R.string.website_parser_rule_enabled)
+                            } else {
+                                stringResource(R.string.website_parser_rule_disabled)
+                            },
+                            selected = preferredRuleId == rule.id,
+                            onClick = { onSelect(rule.id) },
+                        )
+                    }
+                }
+            }
 
-            else -> LazyColumn {
+            else -> LazyColumn(modifier = Modifier.selectableGroup()) {
                 item {
+                    WebsiteParserSectionTitle(stringResource(R.string.website_parser_section_selection))
                     WebsiteParserOption(
                         title = stringResource(R.string.website_parser_auto),
                         description = stringResource(R.string.website_parser_auto_desc),
@@ -366,11 +512,65 @@ private fun WebsiteParserPanel(
                         onClick = { onSelect(null) },
                     )
                 }
+                val candidateByRuleId = candidates.associateBy { it.rule.id }
+                val configuredRuleIds = configuredRules.mapTo(hashSetOf()) { it.id }
+                val builtinCandidates = candidates.filter { it.rule.id !in configuredRuleIds }
+                item {
+                    WebsiteParserSectionTitle(
+                        stringResource(R.string.website_parser_section_rules_with_count, configuredRules.size),
+                    )
+                }
+                if (configuredRules.isEmpty()) {
+                    item {
+                        WebsiteParserEmptyState(stringResource(R.string.website_parser_no_configured_rules))
+                    }
+                }
+                items(configuredRules, key = { "configured:${it.id}" }) { rule ->
+                    val candidate = candidateByRuleId[rule.id]
+                    val diagnostics = candidate?.diagnostics
+                    WebsiteParserOption(
+                        title = websiteRuleDisplayName(rule.id, rule.name),
+                        description = when {
+                            !rule.enabled -> stringResource(R.string.website_parser_rule_disabled)
+                            diagnostics == null -> stringResource(R.string.website_parser_rule_enabled)
+                            else -> stringResource(
+                                R.string.website_parser_candidate_desc,
+                                diagnostics.articleCount,
+                                diagnostics.score,
+                                if (diagnostics.accepted) {
+                                    stringResource(R.string.website_parser_available)
+                                } else {
+                                    stringResource(R.string.website_parser_unavailable)
+                                },
+                            )
+                        },
+                        selected = preferredRuleId == rule.id,
+                        enabled = !rule.enabled || diagnostics?.accepted == true,
+                        onClick = { onSelect(rule.id) },
+                    )
+                }
+                item {
+                    WebsiteParserSectionTitle(
+                        stringResource(R.string.website_parser_section_builtin_with_count, builtinCandidates.size),
+                    )
+                }
+                if (builtinCandidates.isEmpty()) {
+                    item {
+                        WebsiteParserEmptyState(stringResource(R.string.website_parser_no_builtin_candidates))
+                    }
+                }
                 // rule.id 理论上已唯一，索引作为最终保护，避免异常上游数据再次使整个界面崩溃。
-                itemsIndexed(candidates, key = { index, candidate -> "${candidate.rule.id}:$index" }) { _, candidate ->
+                itemsIndexed(
+                    builtinCandidates,
+                    key = { index, candidate -> "${candidate.rule.id}:$index" },
+                ) { index, candidate ->
                     val diagnostics = candidate.diagnostics
                     WebsiteParserOption(
-                        title = websiteRuleDisplayName(candidate.rule.id, candidate.rule.name),
+                        title = stringResource(
+                            R.string.website_parser_builtin_candidate_title,
+                            index + 1,
+                            websiteRuleDisplayName(candidate.rule.id, candidate.rule.name),
+                        ),
                         description = stringResource(
                             R.string.website_parser_candidate_desc,
                             diagnostics.articleCount,
@@ -403,13 +603,44 @@ private fun websiteRuleDisplayName(ruleId: String, fallbackName: String?): Strin
             if (suffix == null) {
                 stringResource(R.string.website_parser_smart_detection)
             } else {
-                stringResource(R.string.website_parser_smart_detection_named, suffix)
+                suffix
             }
         }
 
         ruleId == "ithome-home" -> stringResource(R.string.website_rule_ithome)
         else -> fallbackName ?: stringResource(R.string.unknown)
     }
+
+@Composable
+private fun websiteParserCurrentDisplayName(ruleId: String, fallbackName: String?): String =
+    if (ruleId.startsWith(AutomaticWebsiteListDetector.RULE_ID_PREFIX)) {
+        stringResource(R.string.website_parser_smart_detection_with_type)
+    } else {
+        stringResource(
+            R.string.website_parser_rule_name_with_type,
+            websiteRuleDisplayName(ruleId, fallbackName),
+        )
+    }
+
+@Composable
+private fun WebsiteParserSectionTitle(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 12.dp, top = 16.dp, bottom = 4.dp),
+    )
+}
+
+@Composable
+private fun WebsiteParserEmptyState(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.outline,
+        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+    )
+}
 
 @Composable
 private fun WebsiteParserOption(
@@ -419,17 +650,53 @@ private fun WebsiteParserOption(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
-    androidx.compose.foundation.layout.Row(
-        modifier =
-            Modifier.fillMaxWidth()
-                .clickable(enabled = enabled, onClick = onClick)
-                .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color =
+            if (selected) {
+                MaterialTheme.colorScheme.secondaryContainer
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+        shape = RoundedCornerShape(20.dp),
+        tonalElevation = if (selected) 2.dp else 0.dp,
     ) {
-        RadioButton(selected = selected, onClick = onClick, enabled = enabled)
-        Column(modifier = Modifier.padding(start = 8.dp)) {
-            Text(title, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline)
-            Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+        Row(
+            modifier =
+                Modifier.fillMaxWidth()
+                    .selectable(
+                        selected = selected,
+                        enabled = enabled,
+                        role = Role.RadioButton,
+                        onClick = onClick,
+                    )
+                    .padding(horizontal = 8.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            RadioButton(selected = selected, onClick = null, enabled = enabled)
+            Column(modifier = Modifier.padding(start = 8.dp, top = 8.dp).weight(1f)) {
+                Text(
+                    title,
+                    color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (selected) {
+                    Text(
+                        text = stringResource(R.string.website_parser_current_badge),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+            }
         }
     }
 }

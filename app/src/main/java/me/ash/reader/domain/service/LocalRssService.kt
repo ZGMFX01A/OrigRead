@@ -39,6 +39,11 @@ import timber.log.Timber
 
 private const val TAG = "LocalRssService"
 
+data class WebsiteReparseResult(
+    val fetchedCount: Int,
+    val updatedCount: Int,
+)
+
 class LocalRssService
 @Inject
 constructor(
@@ -355,6 +360,11 @@ constructor(
                                         feed = currentFeed,
                                         fetchedArticles = fetchedArticles,
                                     )
+                                } else if (currentFeed.sourceType == SourceType.WEBSITE) {
+                                    updateWebsiteArticlesAndInsertNew(
+                                        feed = currentFeed,
+                                        fetchedArticles = fetchedArticles,
+                                    )
                                 } else {
                                     articleDao.insertListIfNotExist(
                                         articles = fetchedArticles,
@@ -377,6 +387,23 @@ constructor(
         }
             .onFailure { syncLogger.log(it) }
             .getOrNull() ?: ListenableWorker.Result.retry()
+    }
+
+    /** 重新解析来源中已经存在的文章，不新增文章，也不改变阅读状态。 */
+    suspend fun reparseWebsiteArticles(feedId: String): WebsiteReparseResult {
+        val feed = feedDao.queryById(feedId) ?: error("订阅源不存在：$feedId")
+        require(feed.sourceType == SourceType.WEBSITE) { "只有网站来源支持重新解析文章" }
+
+        val fetchedArticles = localSourceService.fetchForSync(feed, Date()).feedWithArticle.articles
+        val existingLinks = articleDao
+            .queryAllByFeedId(feed.accountId, feed.id)
+            .mapTo(hashSetOf(), me.ash.reader.domain.model.article.Article::link)
+        val matchedArticles = fetchedArticles.filter { it.link in existingLinks }
+        updateWebsiteArticlesAndInsertNew(feed = feed, fetchedArticles = matchedArticles)
+        return WebsiteReparseResult(
+            fetchedCount = fetchedArticles.size,
+            updatedCount = matchedArticles.size,
+        )
     }
 
     /**
@@ -419,7 +446,58 @@ constructor(
         return newArticles
     }
 
+    /** 网站来源刷新时更新已有文章的列表元数据，同时保留本地阅读状态和正文缓存。 */
+    private suspend fun updateWebsiteArticlesAndInsertNew(
+        feed: Feed,
+        fetchedArticles: List<me.ash.reader.domain.model.article.Article>,
+    ): List<me.ash.reader.domain.model.article.Article> {
+        if (fetchedArticles.isEmpty()) return emptyList()
+
+        val existingByLink =
+            articleDao.queryArticlesByLinksChunked(
+                linkList = fetchedArticles.map { it.link },
+                feedId = feed.id,
+                accountId = feed.accountId,
+            ).associateBy { it.link }
+
+        val newArticles = mutableListOf<me.ash.reader.domain.model.article.Article>()
+        val updatedArticles = mutableListOf<me.ash.reader.domain.model.article.Article>()
+        fetchedArticles.forEach { fetched ->
+            val existing = existingByLink[fetched.link]
+            if (existing == null) {
+                newArticles += fetched
+            } else {
+                updatedArticles += mergeWebsiteArticleRefresh(existing, fetched)
+            }
+        }
+
+        if (updatedArticles.isNotEmpty()) {
+            articleDao.update(*updatedArticles.toTypedArray())
+        }
+        if (newArticles.isNotEmpty()) {
+            articleDao.insertList(newArticles)
+        }
+        return newArticles
+    }
+
 }
+
+internal fun mergeWebsiteArticleRefresh(
+    existing: me.ash.reader.domain.model.article.Article,
+    fetched: me.ash.reader.domain.model.article.Article,
+): me.ash.reader.domain.model.article.Article =
+    existing.copy(
+        date = fetched.date,
+        title = fetched.title,
+        author = fetched.author,
+        rawDescription = fetched.rawDescription.ifBlank { existing.rawDescription },
+        shortDescription = fetched.shortDescription.ifBlank { existing.shortDescription },
+        img = fetched.img ?: existing.img,
+        link = fetched.link,
+        feedId = existing.feedId,
+        accountId = existing.accountId,
+        // id / isUnread / isStarred / isReadLater / updateAt / fullContent 均保留 existing。
+    )
 
 internal fun mergeJsonArticleRefresh(
     existing: me.ash.reader.domain.model.article.Article,

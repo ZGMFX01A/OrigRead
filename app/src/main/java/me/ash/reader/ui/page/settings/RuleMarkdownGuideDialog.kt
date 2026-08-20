@@ -29,7 +29,7 @@ import me.ash.reader.ui.page.home.reading.AiMarkdown
 import java.util.Locale
 
 /**
- * 在应用内展示规则 Markdown 长文档。
+ * 在应用内展示规则说明和用户手册等 Markdown 长文档。
  *
  * 复用现有轻量 Markdown 渲染器，避免为了两个离线帮助页引入 WebView 或第二套 Markdown 依赖。
  */
@@ -43,7 +43,7 @@ internal fun RuleMarkdownGuideDialog(
     val currentLanguage = LocalConfiguration.current.locales[0].language
     val assetPath =
         remember(assetName, currentLanguage) {
-            // 当前仅维护中英文规则文档；简繁中文共用中文文档，其他语言统一回退英文。
+            // 当前仅维护中英文文档；简繁中文共用中文文档，其他语言统一回退英文。
             val localeSuffix =
                 if (currentLanguage == Locale.CHINESE.language) "zh-CN" else "en"
             "rule-guides/$assetName-$localeSuffix.md"

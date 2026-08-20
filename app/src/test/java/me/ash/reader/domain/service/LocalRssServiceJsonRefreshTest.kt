@@ -63,4 +63,54 @@ class LocalRssServiceJsonRefreshTest {
         assertTrue(merged.isStarred)
         assertTrue(merged.isReadLater)
     }
+
+    @Test
+    fun `website refresh updates list metadata but preserves local state and cached body`() {
+        val originalUpdateAt = Date(1_700_000_000_000)
+        val existing = Article(
+            id = "account-old-id",
+            date = Date(1_690_000_000_000),
+            title = "Old title",
+            author = "Old author",
+            rawDescription = "Old excerpt",
+            shortDescription = "Old excerpt",
+            fullContent = "cached full content",
+            img = "https://example.com/old.jpg",
+            link = "https://example.com/post",
+            feedId = "feed-1",
+            accountId = 1,
+            isUnread = false,
+            isStarred = true,
+            isReadLater = true,
+            updateAt = originalUpdateAt,
+        )
+        val fetched = existing.copy(
+            id = "new-random-id",
+            date = Date(1_710_000_000_000),
+            title = "Updated title",
+            author = "Updated author",
+            rawDescription = "",
+            shortDescription = "",
+            fullContent = null,
+            img = null,
+            isUnread = true,
+            isStarred = false,
+            isReadLater = false,
+            updateAt = Date(1_720_000_000_000),
+        )
+
+        val merged = mergeWebsiteArticleRefresh(existing, fetched)
+
+        assertEquals(existing.id, merged.id)
+        assertEquals("Updated title", merged.title)
+        assertEquals("Updated author", merged.author)
+        assertEquals("Old excerpt", merged.rawDescription)
+        assertEquals("Old excerpt", merged.shortDescription)
+        assertEquals(existing.img, merged.img)
+        assertEquals(existing.updateAt, merged.updateAt)
+        assertEquals(existing.fullContent, merged.fullContent)
+        assertFalse(merged.isUnread)
+        assertTrue(merged.isStarred)
+        assertTrue(merged.isReadLater)
+    }
 }

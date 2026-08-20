@@ -10,7 +10,9 @@ import androidx.compose.material.icons.automirrored.outlined.Article
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.OpenInBrowser
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.Icon
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
@@ -53,6 +55,11 @@ fun FeedOptionView(
     showWebsiteParser: Boolean = false,
     websiteParserName: String = "",
     onWebsiteParserClick: () -> Unit = {},
+    showJsonParser: Boolean = false,
+    jsonParserName: String = "",
+    onJsonParserClick: () -> Unit = {},
+    websiteReparseLoading: Boolean = false,
+    onWebsiteReparseClick: () -> Unit = {},
     articleFilterCount: Int = 0,
     onArticleFilterClick: () -> Unit = {},
     sourceType: SourceType = SourceType.RSS,
@@ -88,6 +95,27 @@ fun FeedOptionView(
                 )
             }
         }
+        if (showJsonParser) {
+            if (showUrl || showWebsiteParser) Spacer(modifier = Modifier.height(18.dp))
+            Column(
+                modifier = Modifier.fillMaxWidth()
+                    .clip(MaterialTheme.shapes.small)
+                    .clickable(onClick = onJsonParserClick)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.json_parser_current, jsonParserName),
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = stringResource(R.string.json_parser_setting_desc),
+                    color = MaterialTheme.colorScheme.outline,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
         if (showArticleFilter) {
             Spacer(modifier = Modifier.height(10.dp))
             Row(
@@ -117,7 +145,7 @@ fun FeedOptionView(
                 )
             }
         }
-        if (showUrl || showWebsiteParser || showArticleFilter) {
+        if (showUrl || showWebsiteParser || showJsonParser || showArticleFilter) {
             Spacer(modifier = Modifier.height(22.dp))
         }
 
@@ -127,6 +155,8 @@ fun FeedOptionView(
             selectedOpenInBrowserPreset = selectedOpenInBrowserPreset,
             showUnsubscribe = showUnsubscribe,
             notSubscribeMode = notSubscribeMode,
+            websiteReparseLoading = websiteReparseLoading,
+            onWebsiteReparseClick = onWebsiteReparseClick,
             allowNotificationPresetOnClick = allowNotificationPresetOnClick,
             parseFullContentPresetOnClick = parseFullContentPresetOnClick,
             openInBrowserPresetOnClick = openInBrowserPresetOnClick,
@@ -179,6 +209,8 @@ private fun Preset(
     allowNotificationPresetOnClick: () -> Unit = {},
     parseFullContentPresetOnClick: () -> Unit = {},
     openInBrowserPresetOnClick: () -> Unit = {},
+    websiteReparseLoading: Boolean = false,
+    onWebsiteReparseClick: () -> Unit = {},
     clearArticlesOnClick: () -> Unit = {},
     unsubscribeOnClick: () -> Unit = {},
     sourceType: SourceType = SourceType.RSS,
@@ -214,6 +246,13 @@ private fun Preset(
                 selected = selectedParseFullContentPreset,
                 icon = Icons.AutoMirrored.Outlined.Article,
                 onClick = parseFullContentPresetOnClick,
+            )
+        }
+        if (sourceType == SourceType.WEBSITE && notSubscribeMode) {
+            Spacer(modifier = Modifier.height(10.dp))
+            WebsiteReparseOption(
+                loading = websiteReparseLoading,
+                onClick = onWebsiteReparseClick,
             )
         }
         Spacer(modifier = Modifier.height(26.dp))
@@ -264,6 +303,43 @@ private fun Preset(
                     unsubscribeOnClick()
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun WebsiteReparseOption(
+    loading: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.medium)
+            .clickable(enabled = !loading, onClick = onClick)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.24f))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.Refresh,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = stringResource(R.string.website_reparse_articles))
+            Text(
+                text = stringResource(R.string.website_reparse_articles_desc),
+                color = MaterialTheme.colorScheme.outline,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        if (loading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                strokeWidth = 2.dp,
+            )
         }
     }
 }

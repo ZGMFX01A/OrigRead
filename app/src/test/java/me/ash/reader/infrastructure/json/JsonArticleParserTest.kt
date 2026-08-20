@@ -84,6 +84,32 @@ class JsonArticleParserTest {
     }
 
     @Test
+    fun `content path should populate article body while description stays the short summary`() {
+        val rule = JsonRule(
+            id = "content-path",
+            name = "Content path",
+            hosts = listOf("example.com"),
+            endpoint = "/api/posts",
+            itemsPath = "$.items[*]",
+            titlePath = "$.title",
+            linkPath = "$.url",
+            descriptionPath = "$.summary",
+            contentPath = "$.content",
+        )
+        val content = """
+            {"items":[{"title":"正文文章","url":"/posts/1","summary":"列表摘要","content":"完整正文内容，补充一段足够的内容用于验证正文路径会提供列表摘要回退。"}]}
+        """.trimIndent()
+
+        val article = JsonArticleParser().parse(content, rule, feed, "https://example.com/api", Date(0)).single()
+
+        assertEquals(
+            "完整正文内容，补充一段足够的内容用于验证正文路径会提供列表摘要回退。",
+            article.rawDescription,
+        )
+        assertEquals("列表摘要", article.shortDescription)
+    }
+
+    @Test
     fun `json path should support array index and wildcard`() {
         val root = kotlinx.serialization.json.Json.parseToJsonElement("{\"items\":[{\"name\":\"a\"},{\"name\":\"b\"}]}")
         assertEquals(2, SimpleJsonPath.query(root, "$.items[*]").size)

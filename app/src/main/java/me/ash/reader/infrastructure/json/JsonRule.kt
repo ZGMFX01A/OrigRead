@@ -35,6 +35,8 @@ data class JsonRule(
     val datePath: String? = null,
     val authorPath: String? = null,
     val descriptionPath: String? = null,
+    /** 可选正文路径；未声明时兼容旧规则，继续使用 descriptionPath。 */
+    val contentPath: String? = null,
     val imagePath: String? = null,
     val idPath: String? = null,
     val dateFormat: String? = null,

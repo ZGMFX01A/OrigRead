@@ -1,6 +1,8 @@
 package me.ash.reader.ui.page.home.reading
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -41,6 +44,11 @@ internal sealed interface AiMarkdownBlock {
 
     data class Code(val text: String) : AiMarkdownBlock
 
+    data class Table(
+        val headers: List<String>,
+        val rows: List<List<String>>,
+    ) : AiMarkdownBlock
+
     data object Divider : AiMarkdownBlock
 }
 
@@ -52,7 +60,7 @@ internal fun splitLeadingBoldBullet(value: String): Pair<String, String>? {
 }
 
 /**
- * 解析 AI 常用 Markdown：标题、段落、无序/有序列表、引用、代码块和分隔线。
+ * 解析 AI 常用 Markdown：标题、段落、无序/有序列表、引用、代码块、表格和分隔线。
  * 行内粗体、斜体、代码和链接在渲染阶段处理。
  */
 internal fun parseAiMarkdown(markdown: String): List<AiMarkdownBlock> {
@@ -68,7 +76,10 @@ internal fun parseAiMarkdown(markdown: String): List<AiMarkdownBlock> {
         }
     }
 
-    markdown.replace("\r\n", "\n").replace('\r', '\n').lines().forEach { rawLine ->
+    val lines = markdown.replace("\r\n", "\n").replace('\r', '\n').lines()
+    var index = 0
+    while (index < lines.size) {
+        val rawLine = lines[index]
         val line = rawLine.trimEnd()
         if (line.trimStart().startsWith("```")) {
             flushParagraph()
@@ -77,15 +88,37 @@ internal fun parseAiMarkdown(markdown: String): List<AiMarkdownBlock> {
                 code.clear()
             }
             inCodeBlock = !inCodeBlock
-            return@forEach
+            index++
+            continue
         }
         if (inCodeBlock) {
             code += rawLine
-            return@forEach
+            index++
+            continue
+        }
+
+        val headerCells = parseAiMarkdownTableRow(line)
+        val separatorCells = lines.getOrNull(index + 1)?.let(::parseAiMarkdownTableRow)
+        if (headerCells != null && separatorCells != null && isAiMarkdownTableSeparator(separatorCells) &&
+            headerCells.size == separatorCells.size
+        ) {
+            flushParagraph()
+            val rows = mutableListOf<List<String>>()
+            var rowIndex = index + 2
+            while (rowIndex < lines.size) {
+                val row = parseAiMarkdownTableRow(lines[rowIndex].trimEnd()) ?: break
+                if (row.size != headerCells.size) break
+                rows += row
+                rowIndex++
+            }
+            blocks += AiMarkdownBlock.Table(headers = headerCells, rows = rows)
+            index = rowIndex
+            continue
         }
         if (line.isBlank()) {
             flushParagraph()
-            return@forEach
+            index++
+            continue
         }
 
         val trimmed = line.trim()
@@ -123,11 +156,23 @@ internal fun parseAiMarkdown(markdown: String): List<AiMarkdownBlock> {
             }
             else -> paragraph += trimmed
         }
+        index++
     }
     flushParagraph()
     if (code.isNotEmpty()) blocks += AiMarkdownBlock.Code(code.joinToString("\n").trimEnd())
     return blocks
 }
+
+/** 只把“表头 + 分隔线”的 GFM 结构识别为表格，避免普通正文中的竖线被误判。 */
+internal fun parseAiMarkdownTableRow(line: String): List<String>? {
+    val trimmed = line.trim()
+    if (!trimmed.contains('|')) return null
+    val cells = trimmed.removePrefix("|").removeSuffix("|").split('|').map(String::trim)
+    return cells.takeIf { it.size >= 2 && it.any(String::isNotBlank) }
+}
+
+internal fun isAiMarkdownTableSeparator(cells: List<String>): Boolean =
+    cells.size >= 2 && cells.all { it.replace(" ", "").matches(Regex(":?-{3,}:?")) }
 
 @Composable
 internal fun AiMarkdown(
@@ -229,7 +274,56 @@ internal fun AiMarkdown(
                                 )
                                 .padding(10.dp),
                     )
+                is AiMarkdownBlock.Table -> AiMarkdownTable(block)
                 AiMarkdownBlock.Divider -> HorizontalDivider()
+            }
+        }
+    }
+}
+
+@Composable
+private fun AiMarkdownTable(table: AiMarkdownBlock.Table) {
+    val borderColor = MaterialTheme.colorScheme.outlineVariant
+    Column(
+        modifier =
+            Modifier.fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .border(1.dp, borderColor, MaterialTheme.shapes.small),
+    ) {
+        AiMarkdownTableRow(table.headers, isHeader = true, borderColor = borderColor)
+        table.rows.forEach { row ->
+            HorizontalDivider(color = borderColor)
+            AiMarkdownTableRow(row, isHeader = false, borderColor = borderColor)
+        }
+    }
+}
+
+@Composable
+private fun AiMarkdownTableRow(
+    cells: List<String>,
+    isHeader: Boolean,
+    borderColor: Color,
+) {
+    Row {
+        cells.forEachIndexed { index, cell ->
+            Box(
+                modifier =
+                    Modifier.width(156.dp)
+                        .background(
+                            if (isHeader) MaterialTheme.colorScheme.surfaceVariant
+                            else Color.Transparent,
+                        )
+                        .border(
+                            width = 0.5.dp,
+                            color = borderColor,
+                        )
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+            ) {
+                Text(
+                    text = markdownInline(cell),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = if (isHeader) FontWeight.SemiBold else FontWeight.Normal,
+                )
             }
         }
     }

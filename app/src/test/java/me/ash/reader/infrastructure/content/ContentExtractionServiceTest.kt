@@ -73,6 +73,96 @@ class ContentExtractionServiceTest {
     }
 
     @Test
+    fun `website rule should choose the highest quality selector instead of the first non empty selector`() {
+        val explicitService = ContentExtractionService(
+            weChatArticleContentExtractor = WeChatArticleContentExtractor(),
+            websiteRuleExtractor = WebsiteRuleContentExtractor(
+                listOf(
+                    WebsiteRule(
+                        id = "ordered-sample",
+                        name = "Ordered sample",
+                        hosts = listOf("example.com"),
+                        articleSelectors = listOf("article"),
+                        titleSelector = "h1",
+                        contentSelectors = listOf("nav", ".story-body"),
+                    ),
+                ),
+            ),
+            readabilityExtractor = ReadabilityContentExtractor(),
+            structuredMetadataExtractor = StructuredMetadataContentExtractor(),
+        )
+        val html = javaClass.getResource("/content/sample-article.html")!!.readText()
+
+        val result = requireNotNull(explicitService.extract(html, "https://example.com/news/1", "规则正文测试"))
+
+        assertEquals(ContentExtractionSource.WEBSITE_RULE, result.source)
+        assertTrue(result.html.contains("规则指定正文第一段"))
+    }
+
+    @Test
+    fun `website rule should reject document root as a content selector`() {
+        val explicitService = ContentExtractionService(
+            weChatArticleContentExtractor = WeChatArticleContentExtractor(),
+            websiteRuleExtractor = WebsiteRuleContentExtractor(
+                listOf(
+                    WebsiteRule(
+                        id = "ai-website-root-sample",
+                        name = "Root sample",
+                        hosts = listOf("example.com"),
+                        articleSelectors = listOf("article"),
+                        titleSelector = "h1",
+                        contentSelectors = listOf("body", ".story-body"),
+                    ),
+                ),
+            ),
+            readabilityExtractor = ReadabilityContentExtractor(),
+            structuredMetadataExtractor = StructuredMetadataContentExtractor(),
+        )
+        val html = javaClass.getResource("/content/sample-article.html")!!.readText()
+
+        val result = requireNotNull(explicitService.extract(html, "https://example.com/news/1", "规则正文测试"))
+
+        assertEquals(ContentExtractionSource.WEBSITE_RULE, result.source)
+        assertTrue(result.html.contains("规则指定正文第一段"))
+        assertTrue(!result.html.contains("首页"))
+    }
+
+    @Test
+    fun `website rule should reject common page shell selectors`() {
+        val explicitService = ContentExtractionService(
+            weChatArticleContentExtractor = WeChatArticleContentExtractor(),
+            websiteRuleExtractor = WebsiteRuleContentExtractor(
+                listOf(
+                    WebsiteRule(
+                        id = "ai-website-shell-sample",
+                        name = "Shell sample",
+                        hosts = listOf("example.com"),
+                        articleSelectors = listOf("article"),
+                        titleSelector = "h1",
+                        contentSelectors = listOf("div#app", ".story-body"),
+                    ),
+                ),
+            ),
+            readabilityExtractor = ReadabilityContentExtractor(),
+            structuredMetadataExtractor = StructuredMetadataContentExtractor(),
+        )
+        val html = """
+            <html><body>
+              <div id="app"><main><article><div class="story-body">
+                <h1>规则正文测试</h1>
+                <p>${"这是正文内容。".repeat(20)}</p>
+              </div></article><aside>推荐内容</aside></main></div>
+            </body></html>
+        """.trimIndent()
+
+        val result = requireNotNull(explicitService.extract(html, "https://example.com/news/1", "规则正文测试"))
+
+        assertEquals(ContentExtractionSource.WEBSITE_RULE, result.source)
+        assertTrue(result.html.contains("这是正文内容"))
+        assertTrue(!result.html.contains("推荐内容"))
+    }
+
+    @Test
     fun `JSON-LD articleBody should be extracted and relative links normalized`() {
         val html = """
             <html><head>

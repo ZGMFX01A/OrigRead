@@ -38,7 +38,7 @@ The goal is simple: **subscribe to the source, preserve the original link, extra
 - **Source-first instead of recommendation-first** — subscriptions stay under your control and articles remain tied to their original source URL.
 - **More than RSS** — RSS/Atom, RSSHub, HTML website rules, automatic DOM detection, JSON/API rules, WordPress REST, Next.js/Nuxt embedded data and dynamic-page fallback can all participate in source discovery.
 - **Deterministic parsing before AI** — normal source parsing, scoring and full-text extraction do not depend on an LLM.
-- **AI is an optional reading tool, not the product itself** — use AI for article summaries and full-article translation without turning the app into a chat client. AI rule generation remains an unfinished experimental feature and is disabled in the current UI.
+- **AI is an optional reading tool, not the product itself** — use AI for article summaries, full-article translation and assisted parsing-rule generation without turning the app into a chat client. Generated rules remain candidates until local validation and explicit confirmation pass.
 - **Local filtering before storage** — global or per-source keyword/regex rules can reject unwanted article titles before they enter the local article database.
 - **Readable full text with an escape hatch** — explicit content rules, Readability, structured metadata and WebView fallback are combined with a one-tap “Read original” action.
 - **Portable configuration** — subscriptions, groups, parsing rules, filters, RSSHub settings, translation settings and AI settings can be exported and restored across devices.
@@ -231,7 +231,7 @@ This works with many OpenAI-compatible cloud services, self-hosted gateways and 
 
 ### AI-assisted parsing-rule generation
 
-Experimental implementation work exists for AI-assisted WebsiteRule/JsonRule generation, but the end-to-end product workflow is **not finished and is disabled in the current UI**. OrigRead does not count this as a released feature until real-source coverage, failure recovery, save behavior and cross-client consistency meet the same validation standard as the deterministic parsers.
+AI-assisted WebsiteRule/JsonRule generation is available as a confirmation-based workflow. The app fetches the target, lets you choose a configured Provider/model, asks the model for a candidate, runs the existing local parser and health checks, and only saves after explicit confirmation. It reports each stage and shows the parsed-article count, score, model, and repair attempts; generated rules still depend on the target site's structure and should be retested when that structure changes.
 
 ## Configuration backup and restore
 

@@ -31,6 +31,18 @@ class AutomaticArticleDateExtractorTest {
         assertEquals(fetchedAt, extractor.extract(item, "https://news.example.com/article/2001"))
     }
 
+    @Test
+    fun `extracts Hacker News relative dates from the age class`() {
+        val item = Jsoup.parseBodyFragment(
+            "<article><span class='age'>11 hours ago</span><a href='/item?id=2002'>Hacker News story</a></article>"
+        ).selectFirst("article")!!
+
+        assertEquals(
+            date("2026-08-04T23:00:00+08:00"),
+            extractor.extract(item, "https://news.ycombinator.com/item?id=2002"),
+        )
+    }
+
     private fun assertDate(itemId: String, path: String, expected: String) {
         val item = document.getElementById(itemId)!!
         val actual = extractor.extract(item, "https://news.example.com$path")

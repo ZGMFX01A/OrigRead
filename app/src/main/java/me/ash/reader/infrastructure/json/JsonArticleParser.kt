@@ -52,6 +52,8 @@ class JsonArticleParser @Inject constructor() {
         val linkValue = stringValue(item, rule.linkPath)?.trim()?.takeIf(String::isNotBlank) ?: return null
         val link = resolveUrl(baseUrl, linkValue) ?: return null
         val description = stringValue(item, rule.descriptionPath).orEmpty()
+        val content = stringValue(item, rule.contentPath).orEmpty()
+        val shortDescription = description.ifBlank { Jsoup.parse(content).text() }.take(280)
         val image = stringValue(item, rule.imagePath)?.let { resolveUrl(baseUrl, it) }
         val stableId = stringValue(item, rule.idPath).orEmpty().ifBlank { link }
 
@@ -60,8 +62,8 @@ class JsonArticleParser @Inject constructor() {
             date = parseDate(SimpleJsonPath.first(item, rule.datePath), rule.dateFormat, fetchedAt),
             title = title,
             author = stringValue(item, rule.authorPath)?.toPlainText()?.ifBlank { null },
-            rawDescription = description,
-            shortDescription = description,
+            rawDescription = content.ifBlank { description },
+            shortDescription = shortDescription,
             img = image,
             link = link,
             feedId = feed.id,

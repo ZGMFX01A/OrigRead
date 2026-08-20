@@ -63,4 +63,35 @@ class AiMarkdownTest {
         assertEquals("后续说明应该另起一行。", split?.second)
         assertEquals(null, splitLeadingBoldBullet("普通列表内容不拆分"))
     }
+
+    @Test
+    fun `parses github flavored markdown tables as table blocks`() {
+        val blocks =
+            parseAiMarkdown(
+                """
+                ### 候选类型怎么选
+
+                | 看到的候选 | 一般怎么选 |
+                | --- | --- |
+                | **RSS / Atom** | 通常优先，稳定且开销小 |
+                | JSON/API | 接口稳定时优先 |
+                """.trimIndent(),
+            )
+
+        val table = blocks.filterIsInstance<AiMarkdownBlock.Table>().single()
+        assertEquals(listOf("看到的候选", "一般怎么选"), table.headers)
+        assertEquals(
+            listOf("**RSS / Atom**", "通常优先，稳定且开销小"),
+            table.rows.first(),
+        )
+        assertTrue(blocks.none { it is AiMarkdownBlock.Paragraph && it.text.contains("---") })
+    }
+
+    @Test
+    fun `does not treat a normal paragraph with pipes as a table`() {
+        val blocks = parseAiMarkdown("状态 A | 状态 B\n下一行说明")
+
+        assertEquals(1, blocks.size)
+        assertTrue(blocks.single() is AiMarkdownBlock.Paragraph)
+    }
 }

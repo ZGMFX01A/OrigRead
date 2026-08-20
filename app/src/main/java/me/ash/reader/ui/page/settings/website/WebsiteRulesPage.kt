@@ -34,7 +34,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -48,6 +47,7 @@ import me.ash.reader.ui.component.base.TextFieldDialog
 import me.ash.reader.ui.ext.MimeType
 import me.ash.reader.ui.ext.collectAsStateValue
 import me.ash.reader.ui.page.settings.RuleMarkdownGuideDialog
+import me.ash.reader.ui.page.settings.AiRuleGenerationDialog
 import me.ash.reader.ui.page.settings.AiRulePreviewDialog
 import me.ash.reader.ui.page.settings.SettingItem
 import me.ash.reader.ui.theme.palette.onLight
@@ -66,6 +66,18 @@ fun WebsiteRulesPage(
     var testUrl by remember { mutableStateOf("") }
     var resultDialogTitle by remember { mutableStateOf<String?>(null) }
     var resultDialogMessage by remember { mutableStateOf<String?>(null) }
+
+    androidx.compose.runtime.LaunchedEffect(uiState.aiGenerating, uiState.aiPreview, uiState.aiError) {
+        if (!uiState.aiGenerating && (uiState.aiPreview != null || uiState.aiError != null)) {
+            aiGenerateDialogVisible = false
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(uiState.aiNotice) {
+        uiState.aiNotice?.let {
+            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+            viewModel.clearAiNotice()
+        }
+    }
 
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
@@ -130,17 +142,10 @@ fun WebsiteRulesPage(
                         },
                     )
                     SettingItem(
-                        modifier = Modifier.alpha(0.5f),
                         title = stringResource(R.string.ai_generate_website_rule),
-                        desc = stringResource(R.string.ai_rule_generation_unavailable_desc),
+                        desc = stringResource(R.string.ai_generate_rule_desc),
                         icon = Icons.Rounded.AutoAwesome,
-                        onClick = {
-                            Toast.makeText(
-                                context,
-                                context.getString(R.string.ai_rule_generation_unavailable_message),
-                                Toast.LENGTH_LONG,
-                            ).show()
-                        },
+                        onClick = { aiGenerateDialogVisible = true },
                         action = {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
@@ -198,7 +203,13 @@ fun WebsiteRulesPage(
                 items(uiState.rules, key = { it.id }) { rule ->
                     SettingItem(
                         title = rule.name,
-                        desc = rule.hosts.joinToString() + " · v${rule.version}",
+                        desc = rule.hosts.joinToString() + " · v${rule.version} · " + stringResource(
+                            if (rule.contentSelectors.isEmpty()) {
+                                R.string.rule_capability_list_generic_content
+                            } else {
+                                R.string.rule_capability_list_and_content
+                            },
+                        ),
                         separatedActions = true,
                         onClick = { viewModel.setEnabled(rule, !rule.enabled) },
                         action = {
@@ -233,17 +244,21 @@ fun WebsiteRulesPage(
         )
     }
 
-    TextFieldDialog(
+    AiRuleGenerationDialog(
         visible = aiGenerateDialogVisible,
         title = stringResource(R.string.ai_generate_website_rule),
-        value = aiGenerateUrl,
-        placeholder = "https://www.example.com/news/",
-        onValueChange = { aiGenerateUrl = it },
+        url = aiGenerateUrl,
+        providers = uiState.aiSettings.providers.filter { it.enabled },
+        defaultProviderId = uiState.aiSettings.defaultProviderId,
+        selectedProviderId = uiState.selectedAiProviderId,
+        model = uiState.selectedAiModel,
+        progress = uiState.aiProgress,
+        isGenerating = uiState.aiGenerating,
+        onUrlChange = { aiGenerateUrl = it },
+        onProviderChange = viewModel::selectAiProvider,
+        onModelChange = viewModel::setAiModel,
         onDismissRequest = { aiGenerateDialogVisible = false },
-        onConfirm = { url ->
-            aiGenerateDialogVisible = false
-            viewModel.generateAiRule(url)
-        },
+        onConfirm = viewModel::generateAiRule,
     )
 
     uiState.aiPreview?.let { preview ->
@@ -264,6 +279,21 @@ fun WebsiteRulesPage(
                     Text(stringResource(R.string.done))
                 }
             },
+            dismissButton =
+                if (uiState.aiCanRetryWithDynamicRendering) {
+                    {
+                        TextButton(
+                            onClick = {
+                                aiGenerateDialogVisible = true
+                                viewModel.retryAiRuleWithDynamicRendering()
+                            },
+                        ) {
+                            Text(stringResource(R.string.ai_rule_retry_with_browser))
+                        }
+                    }
+                } else {
+                    null
+                },
         )
     }
 

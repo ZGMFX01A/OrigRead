@@ -37,9 +37,14 @@ class JsonRuleRepository @Inject constructor(
     fun listRules(): List<JsonRule> = loadRules().sortedBy(JsonRule::name)
 
     fun findRules(url: String): List<JsonRule> {
+        return findConfiguredRules(url).filter(JsonRule::enabled)
+    }
+
+    /** 返回与地址匹配的全部 JSON 规则，供来源设置展示启用/停用状态。 */
+    fun findConfiguredRules(url: String): List<JsonRule> {
         val host = runCatching { URI(url).host.orEmpty().lowercase() }.getOrDefault("")
         return loadRules().filter { rule ->
-            rule.enabled && rule.hosts.any { expected ->
+            rule.hosts.any { expected ->
                 host == expected.lowercase() || host.endsWith(".${expected.lowercase()}")
             }
         }
@@ -49,7 +54,16 @@ class JsonRuleRepository @Inject constructor(
         val incoming = json.decodeFromString<JsonRuleBundle>(content)
         require(incoming.schemaVersion == 1) { "不支持的 JSON 规则版本：${incoming.schemaVersion}" }
         incoming.rules.forEach(::validateRule)
-        val merged = (loadRules() + incoming.rules).associateBy(JsonRule::id).values.toList()
+        val incomingAiHosts = incoming.rules
+            .asSequence()
+            .filter { it.id.startsWith(AI_RULE_ID_PREFIX) }
+            .flatMap { it.hosts.asSequence() }
+            .toList()
+        val existing = loadRules().filterNot { existingRule ->
+            existingRule.id.startsWith(AI_RULE_ID_PREFIX) &&
+                incomingAiHosts.any { incomingHost -> hostsOverlap(existingRule.hosts, listOf(incomingHost)) }
+        }
+        val merged = (existing + incoming.rules).associateBy(JsonRule::id).values.toList()
         writeRules(merged)
         return incoming.rules.size
     }
@@ -76,7 +90,13 @@ class JsonRuleRepository @Inject constructor(
     /** 用户确认 AI 候选后保存单条 JSON 规则；保存前再次校验 schema 与受限 JSONPath。 */
     fun saveRule(rule: JsonRule) {
         validateRule(rule)
-        val merged = (loadRules() + rule).associateBy(JsonRule::id).values.toList()
+        val existing = loadRules().filterNot { existingRule ->
+            existingRule.id.startsWith(AI_RULE_ID_PREFIX) &&
+                rule.id.startsWith(AI_RULE_ID_PREFIX) &&
+                existingRule.id != rule.id &&
+                hostsOverlap(existingRule.hosts, rule.hosts)
+        }
+        val merged = (existing + rule).associateBy(JsonRule::id).values.toList()
         writeRules(merged)
     }
 
@@ -107,6 +127,7 @@ class JsonRuleRepository @Inject constructor(
                         datePath = "$.publishedAt",
                         authorPath = "$.author.name",
                         descriptionPath = "$.summary",
+                        contentPath = "$.content",
                         imagePath = "$.cover",
                         idPath = "$.id",
                     )
@@ -129,6 +150,7 @@ class JsonRuleRepository @Inject constructor(
             rule.datePath,
             rule.authorPath,
             rule.descriptionPath,
+            rule.contentPath,
             rule.imagePath,
             rule.idPath,
         ).forEach { path -> SimpleJsonPath.query(kotlinx.serialization.json.JsonNull, path) }
@@ -144,7 +166,17 @@ class JsonRuleRepository @Inject constructor(
         ruleFile.writeText(json.encodeToString(JsonRuleBundle(rules = rules)))
     }
 
+    private fun hostsOverlap(left: List<String>, right: List<String>): Boolean =
+        left.any { leftHost ->
+            right.any { rightHost ->
+                val a = leftHost.lowercase()
+                val b = rightHost.lowercase()
+                a == b || a.endsWith(".$b") || b.endsWith(".$a")
+            }
+        }
+
     private companion object {
+        const val AI_RULE_ID_PREFIX = "ai-json-"
         val HOST_REGEX = Regex("^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$")
     }
 }

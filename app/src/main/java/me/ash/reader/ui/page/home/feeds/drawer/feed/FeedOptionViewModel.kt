@@ -17,20 +17,26 @@ import kotlinx.coroutines.withContext
 import me.ash.reader.domain.model.feed.Feed
 import me.ash.reader.domain.model.feed.SourceType
 import me.ash.reader.domain.model.group.Group
+import me.ash.reader.domain.repository.ArticleDao
 import me.ash.reader.domain.repository.FeedDao
+import me.ash.reader.domain.service.LocalRssService
 import me.ash.reader.domain.service.RssService
 import me.ash.reader.R
 import me.ash.reader.infrastructure.android.AndroidStringsHelper
 import me.ash.reader.infrastructure.di.ApplicationScope
 import me.ash.reader.infrastructure.di.IODispatcher
 import me.ash.reader.infrastructure.di.MainDispatcher
+import me.ash.reader.infrastructure.rss.ReaderCacheHelper
 import me.ash.reader.infrastructure.rss.RssHelper
 import me.ash.reader.infrastructure.filter.ArticleFilterRepository
 import me.ash.reader.infrastructure.filter.ArticleFilterRule
 import me.ash.reader.infrastructure.filter.ArticleFilterRuleType
+import me.ash.reader.infrastructure.json.JsonRule
+import me.ash.reader.infrastructure.json.JsonRuleRepository
 import me.ash.reader.infrastructure.website.WebsiteHelper
 import me.ash.reader.infrastructure.website.WebsitePageTooComplexException
 import me.ash.reader.infrastructure.website.WebsiteParseCandidate
+import me.ash.reader.infrastructure.website.WebsiteRule
 
 @OptIn(ExperimentalMaterialApi::class)
 @HiltViewModel
@@ -38,13 +44,17 @@ class FeedOptionViewModel
 @Inject
 constructor(
     val rssService: RssService,
+    private val localRssService: LocalRssService,
     @MainDispatcher private val mainDispatcher: CoroutineDispatcher,
     @IODispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val applicationScope: CoroutineScope,
     private val rssHelper: RssHelper,
+    private val articleDao: ArticleDao,
+    private val readerCacheHelper: ReaderCacheHelper,
     private val feedDao: FeedDao,
     private val websiteHelper: WebsiteHelper,
     private val articleFilterRepository: ArticleFilterRepository,
+    private val jsonRuleRepository: JsonRuleRepository,
     private val androidStringsHelper: AndroidStringsHelper,
 ) : ViewModel() {
 
@@ -105,18 +115,42 @@ constructor(
         _feedOptionUiState.update { it.copy(websiteParserDialogVisible = false) }
     }
 
+    fun hideJsonParserDialog() {
+        _feedOptionUiState.update { it.copy(jsonParserDialogVisible = false) }
+    }
+
     suspend fun fetchFeed(feedId: String) {
         val feed = rssService.get().findFeedById(feedId)
         val preference = feed?.takeIf { it.sourceType == SourceType.WEBSITE }
             ?.let { websiteHelper.getParsePreference(it.id) }
+        val configuredWebsiteRules = feed
+            ?.takeIf { it.sourceType == SourceType.WEBSITE }
+            ?.let { websiteHelper.getConfiguredRules(it.url) }
+            .orEmpty()
+        val configuredJsonRules = feed
+            ?.takeIf { it.sourceType == SourceType.JSON }
+            ?.let { jsonRuleRepository.findConfiguredRules(it.url) }
+            .orEmpty()
+        val enabledRuleIds = configuredWebsiteRules.filter(WebsiteRule::enabled).mapTo(hashSetOf(), WebsiteRule::id)
+        val effectivePreferredRuleId =
+            preference?.preferredRuleId?.takeIf { it in enabledRuleIds }
+                ?: preference?.lastSelectedRuleId?.takeIf { it in enabledRuleIds }
+                ?: configuredWebsiteRules.singleOrNull(WebsiteRule::enabled)?.id
+        val effectivePreferredRuleName = effectivePreferredRuleId?.let { ruleId ->
+            configuredWebsiteRules.firstOrNull { it.id == ruleId }?.name
+                ?: websiteHelper.getRuleName(ruleId)
+        }
         _feedOptionUiState.update {
             it.copy(
                 feed = feed,
                 selectedGroupId = feed?.groupId ?: "",
-                preferredWebsiteRuleId = preference?.preferredRuleId,
+                websiteConfiguredRules = configuredWebsiteRules,
+                jsonConfiguredRules = configuredJsonRules,
+                preferredWebsiteRuleId = effectivePreferredRuleId,
                 preferredWebsiteRuleName =
-                    preference?.preferredRuleName
-                        ?: websiteHelper.getRuleName(preference?.preferredRuleId),
+                    effectivePreferredRuleName
+                        ?: preference?.preferredRuleName
+                        ?: websiteHelper.getRuleName(effectivePreferredRuleId),
                 lastSelectedWebsiteRuleId = preference?.lastSelectedRuleId,
                 sourceFilterRules = feed?.let { articleFilterRepository.getByFeed(it.id) }.orEmpty(),
             )
@@ -133,6 +167,7 @@ constructor(
                 websiteParserLoading = true,
                 websiteParserError = null,
                 websiteCandidates = emptyList(),
+                websiteConfiguredRules = websiteHelper.getConfiguredRules(feed.url),
             )
         }
         viewModelScope.launch(ioDispatcher) {
@@ -164,6 +199,9 @@ constructor(
                     .firstOrNull { it.rule.id == selectedId }
                     ?.rule
                     ?.name
+                    ?: _feedOptionUiState.value.websiteConfiguredRules
+                        .firstOrNull { it.id == selectedId }
+                        ?.name
                     ?: websiteHelper.getRuleName(selectedId)
             }
         websiteHelper.setPreferredRule(feed.id, ruleId, selectedRuleName)
@@ -171,11 +209,54 @@ constructor(
             it.copy(
                 preferredWebsiteRuleId = ruleId,
                 preferredWebsiteRuleName = selectedRuleName,
+                websiteConfiguredRules = websiteHelper.getConfiguredRules(feed.url),
                 websiteParserDialogVisible = false,
             )
         }
         applicationScope.launch(ioDispatcher) {
             rssService.get().doSyncOneTime()
+        }
+    }
+
+    fun showJsonParserDialog() {
+        val feed = _feedOptionUiState.value.feed ?: return
+        if (feed.sourceType != SourceType.JSON) return
+        _feedOptionUiState.update {
+            it.copy(
+                jsonParserDialogVisible = true,
+                jsonConfiguredRules = jsonRuleRepository.findConfiguredRules(feed.url),
+            )
+        }
+    }
+
+    /** JSON 来源允许多条规则同时存在；勾选状态直接对应规则 enabled 字段。 */
+    fun setJsonRuleEnabled(rule: JsonRule, enabled: Boolean) {
+        jsonRuleRepository.setEnabled(rule.id, enabled)
+        val feed = _feedOptionUiState.value.feed ?: return
+        _feedOptionUiState.update {
+            it.copy(jsonConfiguredRules = jsonRuleRepository.findConfiguredRules(feed.url))
+        }
+        applicationScope.launch(ioDispatcher) { rssService.get().doSyncOneTime() }
+    }
+
+    /** 更新已有网站文章的列表元数据，并清除正文缓存，让下次打开文章重新抓取。 */
+    fun reparseWebsiteArticles(
+        callback: (Result<me.ash.reader.domain.service.WebsiteReparseResult>) -> Unit = {},
+    ) {
+        val feed = _feedOptionUiState.value.feed?.takeIf { it.sourceType == SourceType.WEBSITE } ?: return
+        if (_feedOptionUiState.value.websiteReparseLoading) return
+        _feedOptionUiState.update { it.copy(websiteReparseLoading = true) }
+        viewModelScope.launch(ioDispatcher) {
+            val result = runCatching {
+                val existingArticles = articleDao.queryAllByFeedId(feed.accountId, feed.id)
+                val reparseResult = localRssService.reparseWebsiteArticles(feed.id)
+                existingArticles.forEach { article -> readerCacheHelper.deleteCacheFor(article.id) }
+                reparseResult
+            }
+            withContext(mainDispatcher) {
+                _feedOptionUiState.update { it.copy(websiteReparseLoading = false) }
+                callback(result)
+            }
         }
     }
 
@@ -361,12 +442,16 @@ data class FeedOptionUiState(
     val newUrl: String = "",
     val changeUrlDialogVisible: Boolean = false,
     val websiteParserDialogVisible: Boolean = false,
+    val jsonParserDialogVisible: Boolean = false,
     val websiteParserLoading: Boolean = false,
     val websiteParserError: String? = null,
     val websiteCandidates: List<WebsiteParseCandidate> = emptyList(),
+    val websiteConfiguredRules: List<WebsiteRule> = emptyList(),
     val preferredWebsiteRuleId: String? = null,
     val preferredWebsiteRuleName: String? = null,
     val lastSelectedWebsiteRuleId: String? = null,
+    val websiteReparseLoading: Boolean = false,
+    val jsonConfiguredRules: List<JsonRule> = emptyList(),
     val sourceFilterDialogVisible: Boolean = false,
     val sourceFilterRules: List<ArticleFilterRule> = emptyList(),
     val sourceFilterError: String? = null,

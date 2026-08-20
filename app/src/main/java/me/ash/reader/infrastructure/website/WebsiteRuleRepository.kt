@@ -21,7 +21,7 @@ class WebsiteRuleRepository @Inject constructor(
 
     /** 返回当前实际生效的全部规则。 */
     fun listRules(): List<WebsiteRule> =
-        (loadCustomRules() + BUILT_IN_RULES)
+        (BUILT_IN_RULES + loadCustomRules())
             .associateBy { it.id }
             .values
             .sortedBy { it.name }
@@ -48,9 +48,13 @@ class WebsiteRuleRepository @Inject constructor(
         }
     }
 
-    /** 导出当前实际生效的规则集合。 */
+    /** 导出用户规则；内置规则只属于当前应用，不进入分享或备份文件。 */
     fun exportRules(): String =
-        json.encodeToString(WebsiteRuleBundle(rules = listRules()))
+        json.encodeToString(
+            WebsiteRuleBundle(
+                rules = loadCustomRules().filterNot { it.id in BUILT_IN_RULE_IDS },
+            ),
+        )
 
     /** 导出可直接修改后导入的固定规则模板。 */
     fun exportTemplate(): String =
@@ -88,18 +92,22 @@ class WebsiteRuleRepository @Inject constructor(
     private val ruleFile
         get() = context.filesDir.resolve("website-rules.json")
 
-    /** 按域名查找全部可用规则；用户规则优先覆盖同 id 的内置规则。 */
-    fun findRules(url: String): List<WebsiteRule> {
+    /** 按域名查找全部已配置规则，包含已停用规则，供设置界面展示状态。 */
+    fun findConfiguredRules(url: String): List<WebsiteRule> {
         val host = runCatching { URI(url).host.orEmpty().lowercase() }.getOrDefault("")
-        return (loadCustomRules() + BUILT_IN_RULES)
+        return (BUILT_IN_RULES + loadCustomRules())
             .associateBy { it.id }
             .values
             .filter { rule ->
-                rule.enabled && rule.hosts.any { expected ->
+                rule.hosts.any { expected ->
                     host == expected.lowercase() || host.endsWith(".${expected.lowercase()}")
                 }
             }
     }
+
+    /** 按域名查找当前同步实际可执行的启用规则。 */
+    fun findRules(url: String): List<WebsiteRule> =
+        findConfiguredRules(url).filter(WebsiteRule::enabled)
 
     /** 兼容原有单规则调用，返回匹配列表中的第一条。 */
     fun findRule(url: String): WebsiteRule? = findRules(url).firstOrNull()
@@ -111,31 +119,42 @@ class WebsiteRuleRepository @Inject constructor(
     fun importRules(content: String): Int {
         val incoming = json.decodeFromString<WebsiteRuleBundle>(content)
         require(incoming.schemaVersion == 1) { "不支持的规则版本：${incoming.schemaVersion}" }
-        incoming.rules.forEach(::validateRule)
+        val userRules = incoming.rules.filterNot { it.id in BUILT_IN_RULE_IDS }
+        userRules.forEach(::validateRule)
 
+        val incomingAiHosts = userRules
+            .asSequence()
+            .filter { it.id.startsWith(AI_RULE_ID_PREFIX) }
+            .flatMap { it.hosts.asSequence() }
+            .toList()
+        val existing = loadCustomRules().filterNot { existingRule ->
+            existingRule.id.startsWith(AI_RULE_ID_PREFIX) &&
+                incomingAiHosts.any { incomingHost -> hostsOverlap(existingRule.hosts, listOf(incomingHost)) }
+        }
         val merged =
-            (loadCustomRules() + incoming.rules)
-                .associateBy { it.id }
-                .values
-                .toList()
+            (existing + userRules)
+            .associateBy { it.id }
+            .values
+            .toList()
         writeCustomRules(merged)
-        return incoming.rules.size
+        return userRules.size
     }
 
     /** 仅校验完整备份中的网站规则，不修改本地状态。 */
     fun validateBackup(content: String) {
         val incoming = json.decodeFromString<WebsiteRuleBundle>(content)
         require(incoming.schemaVersion == 1) { "不支持的网站规则版本：${incoming.schemaVersion}" }
-        incoming.rules.forEach(::validateRule)
+        incoming.rules.filterNot { it.id in BUILT_IN_RULE_IDS }.forEach(::validateRule)
     }
 
     /** 完整配置恢复时以备份中的有效规则集为准，而不是与现有规则继续叠加。 */
     fun restoreBackup(content: String): Int {
         val incoming = json.decodeFromString<WebsiteRuleBundle>(content)
         require(incoming.schemaVersion == 1) { "不支持的网站规则版本：${incoming.schemaVersion}" }
-        incoming.rules.forEach(::validateRule)
-        writeCustomRules(incoming.rules)
-        return incoming.rules.size
+        val userRules = incoming.rules.filterNot { it.id in BUILT_IN_RULE_IDS }
+        userRules.forEach(::validateRule)
+        writeCustomRules(userRules)
+        return userRules.size
     }
 
     /** 供 AI 候选生成等入口复用与手工导入完全相同的规则校验，不执行持久化。 */
@@ -143,8 +162,15 @@ class WebsiteRuleRepository @Inject constructor(
 
     /** 用户确认 AI 候选后保存单条规则；保存前再次执行完整本地校验。 */
     fun saveRule(rule: WebsiteRule) {
+        require(rule.id !in BUILT_IN_RULE_IDS) { "内置规则不能作为用户规则保存：${rule.id}" }
         validateRule(rule)
-        saveCustomRule(rule)
+        val existing = loadCustomRules().filterNot { existingRule ->
+            existingRule.id.startsWith(AI_RULE_ID_PREFIX) &&
+                rule.id.startsWith(AI_RULE_ID_PREFIX) &&
+                existingRule.id != rule.id &&
+                hostsOverlap(existingRule.hosts, rule.hosts)
+        }
+        writeCustomRules((existing + rule).associateBy { it.id }.values.toList())
     }
 
     private fun saveCustomRule(rule: WebsiteRule) {
@@ -161,6 +187,15 @@ class WebsiteRuleRepository @Inject constructor(
             if (!ruleFile.exists()) emptyList()
             else json.decodeFromString<WebsiteRuleBundle>(ruleFile.readText()).rules
         }.getOrDefault(emptyList())
+
+    private fun hostsOverlap(left: List<String>, right: List<String>): Boolean =
+        left.any { leftHost ->
+            right.any { rightHost ->
+                val a = leftHost.lowercase()
+                val b = rightHost.lowercase()
+                a == b || a.endsWith(".$b") || b.endsWith(".$a")
+            }
+        }
 
     /** 防止无效规则在同步阶段才暴露问题。 */
     private fun validateRule(rule: WebsiteRule) {
@@ -183,6 +218,8 @@ class WebsiteRuleRepository @Inject constructor(
     }
 
     private companion object {
+        const val AI_RULE_ID_PREFIX = "ai-website-"
+        val BUILT_IN_RULE_IDS = setOf("ithome-home")
         val HOST_REGEX = Regex("^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$")
 
         val BUILT_IN_RULES = listOf(
