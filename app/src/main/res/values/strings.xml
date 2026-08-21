@@ -26,7 +26,7 @@
     <string name="full_content_failure_network">The article could not be loaded because of a network error.</string>
     <string name="full_content_failure_unknown">The article could not be parsed for an unknown reason.</string>
     <string name="add_filter_rule">Add filter rule</string>
-    <string name="filter_pattern">Keyword or expression</string>
+    <string name="filter_pattern">Keyword or regex</string>
     <string name="filter_type_keyword">Keyword</string>
     <string name="filter_type_regex">Regular expression</string>
     <string name="import_filter_rules">Import filter rules</string>
@@ -36,7 +36,7 @@
     <string name="filter_stats_title">Filtering statistics</string>
     <string name="filter_stats_desc">Filtered %1$d articles in total</string>
     <string name="source_filter_current">Source filter rules (%1$d)</string>
-    <string name="source_filter_entry_desc">Tap to manage keywords and regex rules for this source</string>
+    <string name="source_filter_entry_desc">Manage keywords &amp; regex for this source</string>
     <string name="source_filter_rules">Source filter rules</string>
     <string name="all">All</string>
     <plurals name="all_desc">
@@ -56,7 +56,7 @@
     <string name="feeds">Feeds</string>
     <string name="syncing">Syncing…</string>
     <string name="loading">Loading…</string>
-    <string name="expand_less">Shrink</string>
+    <string name="expand_less">Collapse</string>
     <string name="expand_more">Expand</string>
     <string name="unfold_more">Expand all</string>
     <string name="unfold_less">Collapse all</string>
@@ -83,8 +83,8 @@
     <string name="selected">Selected</string>
     <string name="allow_notification">Allow notifications</string>
     <string name="all_allow_notification_tips">Allow all feeds in the \"%1$s\" group to send notifications</string>
-    <string name="all_allow_notification_toast">Notifications from the \"%1$s\" group are allowed</string>
-    <string name="all_deny_notification_toast">Notifications from the \"%1$s\" group are denied</string>
+    <string name="all_allow_notification_toast">Allowed notifications for \"%1$s\"</string>
+    <string name="all_deny_notification_toast">Disabled notifications for \"%1$s\"</string>
     <string name="parse_full_content">Parse full content</string>
     <string name="source_reading_mode">Open articles</string>
     <string name="read_inside_origread">Read in app (recommended)</string>
@@ -105,12 +105,12 @@
     <string name="open_original_in_browser_desc">Go directly to the external webpage</string>
     <string name="website_parser_setting_desc">Controls how this website source discovers article lists. Keep automatic selection unless a specific rule is more reliable.</string>
     <string name="all_parse_full_content_tips">Full content parsing of all articles in the \"%1$s\" group</string>
-    <string name="all_parse_full_content_toast">Full content parsing of all articles in the \"%1$s\" group is allowed</string>
-    <string name="all_deny_parse_full_content_toast">Full content parsing of all articles in the \"%1$s\" group is denied</string>
+    <string name="all_parse_full_content_toast">Enabled full content for \"%1$s\"</string>
+    <string name="all_deny_parse_full_content_toast">Disabled full content for \"%1$s\"</string>
     <string name="open_in_browser">Open in browser</string>
     <string name="all_open_in_browser_tips">Open all articles in the \"%1$s\" group using the default browser</string>
-    <string name="all_open_in_browser_toast">Opening all articles in the \"%1$s\" group in the default browser is allowed</string>
-    <string name="all_deny_open_in_browser_toast">Opening all articles in the \"%1$s\" group in the default browser is denied</string>
+    <string name="all_open_in_browser_toast">Enabled browser open for \"%1$s\"</string>
+    <string name="all_deny_open_in_browser_toast">Disabled browser open for \"%1$s\"</string>
     <string name="clear_articles">Clear articles</string>
     <string name="clear_articles_in_feed_toast">Cleared all archived articles in the \"%1$s\" feed</string>
     <string name="clear_articles_in_group_toast">Cleared all archived articles in the \"%1$s\" group</string>
@@ -119,7 +119,7 @@
     <string name="add_to_group">Add to group</string>
     <string name="move_to_group">Move to group</string>
     <string name="all_move_to_group_tips">Move all feeds in the \"%1$s\" group to the \"%2$s\" group</string>
-    <string name="all_move_to_group_toast">Moved all feeds to the \"%1$s\" group</string>
+    <string name="all_move_to_group_toast">Moved feeds to \"%1$s\"</string>
     <string name="rename">Rename</string>
     <string name="change_url">Change URL</string>
     <string name="feed_url_placeholder" translatable="false">http://example.com/feed.rss</string>
@@ -144,7 +144,7 @@
     <string name="mark_all_as_read">Mark all as read</string>
     <string name="mark_as_unread">Mark as unread</string>
     <string name="mark_as_starred">Mark as starred</string>
-    <string name="mark_as_unstar">Mark as unstarred</string>
+    <string name="mark_as_unstar">Unstar</string>
     <string name="mark_as_read_one_day">Mark as read older than 1 day</string>
     <string name="mark_as_read_three_days">Mark as read older than 3 days</string>
     <string name="mark_as_read_seven_days">Mark as read older than 7 days</string>
@@ -154,13 +154,13 @@
     <string name="close">Close</string>
     <string name="get_new_updates">Get new updates</string>
     <string name="get_new_updates_desc">New version %1$s is available</string>
-    <string name="in_coding">In progress</string>
+    <string name="in_coding">In development</string>
     <string name="coming_soon">Coming soon</string>
     <string name="accounts">Accounts</string>
     <string name="accounts_desc">Local, services, self-hosted</string>
     <string name="color_and_style">Color &amp; style</string>
     <string name="color_and_style_desc">Theme, color style, font size</string>
-    <string name="interaction">Usage</string>
+    <string name="interaction">Interaction</string>
     <string name="interaction_desc">Startup page, gestures</string>
     <string name="languages">Languages</string>
     <string name="help_translate">Help translate</string>
@@ -182,7 +182,7 @@
     <string name="tips_and_support">Tips &amp; support</string>
     <string name="tips_and_support_desc">GitHub repository and open source licenses</string>
     <string name="user_guide_title">User guide</string>
-    <string name="user_guide_desc">Read the guide for sources, rules, AI generation and troubleshooting</string>
+    <string name="user_guide_desc">Guide for sources, rules, AI generation &amp; troubleshooting</string>
     <string name="welcome">Welcome</string>
     <string name="tos_tips">Please read and agree to OrigRead\'s user agreement and privacy policy to continue.</string>
     <string name="browse_tos_tips">View the <i><u>user agreement and privacy policy</u></i></string>
@@ -202,10 +202,10 @@
     <string name="on">On</string>
     <string name="off">Off</string>
     <string name="other">Other</string>
-    <string name="amoled_dark_theme">Black dark theme</string>
+    <string name="amoled_dark_theme">AMOLED black theme</string>
     <string name="tonal_elevation">Tonal elevation</string>
-    <string name="reading_fonts">Reading fonts</string>
-    <string name="basic_fonts">Basic fonts</string>
+    <string name="reading_fonts">Reading font</string>
+    <string name="basic_fonts">System font</string>
     <string name="google_sans" translatable="false">Google Sans Flex</string>
     <string name="feeds_page">Feeds page</string>
     <string name="flow_page">Flow page</string>
@@ -227,7 +227,7 @@
     <string name="software_update">Software update</string>
     <string name="software_update_desc">Configure GitHub Release update checks</string>
     <string name="auto_check_updates">Check for updates on startup</string>
-    <string name="auto_check_updates_desc">Silently check GitHub Releases when OrigRead starts</string>
+    <string name="auto_check_updates_desc">Silently check GitHub Releases on startup</string>
     <string name="check_updates_now">Check for updates now</string>
     <string name="current_version_value">Current version: %1$s</string>
     <string name="skip_this_version">Skip this version</string>
@@ -242,7 +242,7 @@
     <string name="ai_generate_website_rule">Generate website rule with AI</string>
     <string name="ai_generate_json_rule">Generate JSON rule with AI</string>
     <string name="ai_generate_rule_desc">Fetch the target, choose a configured AI service and model, then validate the candidate locally before saving</string>
-    <string name="ai_rule_generation_unavailable_desc">Still under development and validation; unavailable in this build</string>
+    <string name="ai_rule_generation_unavailable_desc">Under development; unavailable in this build</string>
     <string name="ai_rule_generation_unavailable_message">AI rule generation is not finished yet. Please use rule templates, import, and testing for now.</string>
     <string name="ai_rule_target_url">Target URL</string>
     <string name="ai_rule_dialog_subtitle">Choose a source and let the local parser verify the result</string>
@@ -255,10 +255,10 @@
     <string name="ai_rule_no_provider">No AI service configured</string>
     <string name="ai_rule_default_badge">default</string>
     <string name="ai_rule_model">Model</string>
-    <string name="ai_rule_model_manual_hint">Enter a model ID, or fetch models in AI settings</string>
-    <string name="ai_rule_model_choices">%1$d saved model(s); you can still edit the model ID</string>
+    <string name="ai_rule_model_manual_hint">Enter model ID or fetch in AI settings</string>
+    <string name="ai_rule_model_choices">%1$d saved model(s); ID is editable</string>
     <string name="ai_rule_model_select_hint">Select a model from the configured list</string>
-    <string name="ai_rule_model_custom_hint">Custom model ID; use the list to switch back</string>
+    <string name="ai_rule_model_custom_hint">Custom model ID; use list to switch back</string>
     <string name="ai_rule_model_search">Search models</string>
     <string name="ai_rule_model_no_match">No matching model</string>
     <string name="ai_rule_model_use_custom">Enter a custom model ID</string>
@@ -312,7 +312,7 @@
     <string name="value">value</string>
     <string name="horizontal_padding">Horizontal padding</string>
     <string name="article_date">Article publication time</string>
-    <string name="article_desc">Article descriptions</string>
+    <string name="article_desc">Article previews</string>
     <string name="article_images">Article images</string>
     <string name="feed_names">Feed names</string>
     <string name="feed_favicons">Feed favicons</string>
@@ -332,14 +332,14 @@
     <string name="tips_article_list_tonal_elevation">Tonal elevation for the article list is only available in the light theme</string>
     <string name="tips_group_list_tonal_elevation">Tonal elevation for the group list is only available in the light theme</string>
     <string name="share">Share</string>
-    <string name="touch_to_play_video">Tap to play a video</string>
+    <string name="touch_to_play_video">Tap to play video</string>
     <string name="text">Text</string>
     <string name="font_size">Font size</string>
     <string name="letter_spacing">Letter spacing</string>
     <string name="line_spacing">Line spacing</string>
     <string name="alignment">Alignment</string>
     <string name="general">General</string>
-    <string name="auto_hide_toolbars">Automatically hide toolbars</string>
+    <string name="auto_hide_toolbars">Auto-hide toolbars</string>
     <string name="rearrange_buttons">Rearrange buttons</string>
     <string name="images">Images</string>
     <string name="rounded_corners">Rounded corners</string>
@@ -352,7 +352,7 @@
     <string name="title">Title</string>
     <string name="bold">Bold</string>
     <string name="upper_case">Upper case</string>
-    <string name="subhead">Subhead</string>
+    <string name="subhead">Subheading</string>
     <string name="use_app_theme">Use app theme</string>
     <string name="advanced">Advanced</string>
     <string name="dark_reading_theme">Dark reading theme</string>
@@ -396,11 +396,11 @@
     <string name="list">List</string>
     <string name="add_accounts_desc">Local, services, self-hosted</string>
     <string name="display">Display</string>
-    <string name="synchronous">Syncing</string>
-    <string name="sync_interval">Sync</string>
-    <string name="sync_once_on_start">Sync once on start</string>
-    <string name="only_on_wifi">Only on Wi-Fi</string>
-    <string name="only_when_charging">Only when charging</string>
+    <string name="synchronous">Sync</string>
+    <string name="sync_interval">Sync frequency</string>
+    <string name="sync_once_on_start">Sync on launch</string>
+    <string name="only_on_wifi">Wi-Fi only</string>
+    <string name="only_when_charging">Charging only</string>
     <string name="keep_archived_articles">Keep archived articles</string>
     <string name="block_list">Block list</string>
     <string name="export_as_opml">Export as OPML</string>
@@ -409,7 +409,7 @@
     <string name="clear_all_articles_tips">Are you sure you want to clear the articles list for this account?</string>
     <string name="delete_account_tips">Are you sure you want to delete this account?</string>
     <string name="must_have_an_account">You must have at least 1 account</string>
-    <string name="clear_all_articles_toast"> Cleared the articles list</string>
+    <string name="clear_all_articles_toast">Article list cleared</string>
     <string name="delete_account_toast">Account deleted</string>
     <string name="synchronous_tips">Restart required for changes to take effect</string>
     <string name="keep_archived_tips">Archived items are articles which are marked as read, not starred and not tagged. The \"Keep archived articles\" setting is only effective on this device. Older archived articles will be deleted from this device. The deletion of articles cannot be undone.</string>
@@ -432,12 +432,12 @@
     <string name="default_browser">Force default browser</string>
     <string name="always_ask">Always ask</string>
     <string name="open_link_specific_browser">Browser</string>
-    <string name="open_link_something_wrong">\"Open link\" setting ignored because something went wrong</string>
+    <string name="open_link_something_wrong">Failed to apply open link setting</string>
     <string name="open_link_ask_dialog_title">Open with…</string>
     <string name="include_additional_info">Include additional info</string>
     <string name="exclude">Exclude</string>
     <string name="additional_info_desc">Additional information includes configuration options for each feed, such as whether to allow notification, parse full content, etc. When you intend to use the exported OPML file with other readers, please select \"Exclude\".</string>
-    <string name="grey_out_articles">Grey out articles</string>
+    <string name="grey_out_articles">Dim read articles</string>
     <string name="all_read">All read</string>
     <string name="read_excluding_starred">Read, excluding starred</string>
     <string name="external_links">External links</string>
@@ -453,7 +453,7 @@
     <string name="toggle_starred">Toggle starred</string>
     <string name="line_height_multiple">Line height multiple</string>
     <string name="export">Export</string>
-    <string name="pull_to_switch_article">Pull to switch article</string>
+    <string name="pull_to_switch_article">Pull to switch articles</string>
     <string name="mark_above_as_read">Mark above as read</string>
     <string name="mark_below_as_read">Mark below as read</string>
     <string name="save">Save</string>
@@ -463,7 +463,7 @@
     <string name="only_link">Only link</string>
     <string name="title_and_link">Title and link</string>
     <string name="troubleshooting">Troubleshooting</string>
-    <string name="troubleshooting_desc">Bug report, app preferences</string>
+    <string name="troubleshooting_desc">Bug reports, app preferences</string>
     <string name="bug_report">Bug report</string>
     <string name="issue_tracer_url" translatable="false">https://github.com/ZGMFX01A/OrigRead/issues</string>
     <string name="app_preferences">App preferences</string>
@@ -489,7 +489,7 @@
     <string name="website_parser_title">Website parsing method</string>
     <string name="website_parser_current">Parsing method: %1$s</string>
     <string name="website_parser_auto">Automatic selection</string>
-    <string name="website_parser_auto_with_type">Automatic selection · Automatic strategy</string>
+    <string name="website_parser_auto_with_type">Auto · Automatic strategy</string>
     <string name="website_parser_auto_desc">Automatic strategy · Use the highest-scoring available parser and fall back automatically when it fails</string>
     <string name="website_parser_smart_detection">Smart detection</string>
     <string name="website_parser_smart_detection_named">Smart detection · %1$s</string>
@@ -506,7 +506,7 @@
     <string name="website_parser_builtin_candidate_title">Candidate %1$d · %2$s</string>
     <string name="website_parser_no_configured_rules">No matching website rules are configured</string>
     <string name="website_parser_no_builtin_candidates">No smart-detection result is available</string>
-    <string name="website_parser_current_badge">Currently used</string>
+    <string name="website_parser_current_badge">In use</string>
     <string name="website_parser_page_too_complex">This page is too large for safe smart detection. Automatic analysis was skipped.</string>
     <string name="json_parser_title">JSON parsing rules</string>
     <string name="json_parser_current">JSON parsing rules: %1$s</string>
