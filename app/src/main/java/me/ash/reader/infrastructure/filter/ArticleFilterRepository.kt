@@ -2,6 +2,7 @@ package me.ash.reader.infrastructure.filter
 
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.util.Collections
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -54,15 +55,21 @@ class ArticleFilterRepository @Inject constructor(
     private val ruleFile
         get() = context.filesDir.resolve("article-filter-rules.json")
 
-    @Synchronized
-    fun getAll(): List<ArticleFilterRule> = load().rules
+    /** 规则读取频率远高于写入频率；启动时加载一次，后续读操作只访问内存。 */
+    @Volatile
+    private var cachedBundle = load()
 
-    @Synchronized
+    @Volatile
+    private var cachedCompiledRules = ArticleFilterMatcher.compile(cachedBundle.rules)
+
+    fun getAll(): List<ArticleFilterRule> = cachedBundle.rules
+
+    internal fun getCompiledRules(): List<CompiledFilterRule> = cachedCompiledRules
+
     fun getByFeed(feedId: String): List<ArticleFilterRule> =
-        load().rules.filter { it.feedId == feedId }
+        cachedBundle.rules.filter { it.feedId == feedId }
 
-    @Synchronized
-    fun getStats(): ArticleFilterStats = load().stats
+    fun getStats(): ArticleFilterStats = cachedBundle.stats
 
     /** 新增规则；普通关键词按忽略大小写去重，正则按原表达式去重。 */
     @Synchronized
@@ -73,42 +80,43 @@ class ArticleFilterRepository @Inject constructor(
         type: ArticleFilterRuleType = ArticleFilterRuleType.KEYWORD,
     ) {
         validatePattern(keyword, type)
-        val bundle = load()
-        write(
-            bundle.copy(
-                rules = normalize(
-                    bundle.rules +
-                        ArticleFilterRule(
-                            keyword = keyword,
-                            feedId = feedId,
-                            feedName = feedName,
-                            type = type,
-                        )
-                )
+        val bundle = cachedBundle.copy(
+            rules = normalize(
+                cachedBundle.rules +
+                    ArticleFilterRule(
+                        keyword = keyword,
+                        feedId = feedId,
+                        feedName = feedName,
+                        type = type,
+                    )
+            )
+        )
+        update(bundle)
+    }
+
+    @Synchronized
+    fun setEnabled(rule: ArticleFilterRule, enabled: Boolean) {
+        update(
+            cachedBundle.copy(
+                rules = cachedBundle.rules.map {
+                    if (it.id == rule.id) it.copy(enabled = enabled) else it
+                }
             )
         )
     }
 
     @Synchronized
-    fun setEnabled(rule: ArticleFilterRule, enabled: Boolean) {
-        val bundle = load()
-        write(bundle.copy(rules = bundle.rules.map { if (it.id == rule.id) it.copy(enabled = enabled) else it }))
-    }
-
-    @Synchronized
     fun delete(rule: ArticleFilterRule) {
-        val bundle = load()
-        write(bundle.copy(rules = bundle.rules.filterNot { it.id == rule.id }))
+        update(cachedBundle.copy(rules = cachedBundle.rules.filterNot { it.id == rule.id }))
     }
 
     @Synchronized
     fun recordMatches(count: Int, lastRule: ArticleFilterRule?) {
         if (count <= 0) return
-        val bundle = load()
-        write(
-            bundle.copy(
-                stats = bundle.stats.copy(
-                    totalFiltered = bundle.stats.totalFiltered + count,
+        update(
+            cachedBundle.copy(
+                stats = cachedBundle.stats.copy(
+                    totalFiltered = cachedBundle.stats.totalFiltered + count,
                     lastFilteredAt = System.currentTimeMillis(),
                     lastMatchedRule = lastRule?.keyword,
                 )
@@ -118,12 +126,11 @@ class ArticleFilterRepository @Inject constructor(
 
     @Synchronized
     fun deleteByFeed(feedId: String) {
-        val bundle = load()
-        write(bundle.copy(rules = bundle.rules.filterNot { it.feedId == feedId }))
+        update(cachedBundle.copy(rules = cachedBundle.rules.filterNot { it.feedId == feedId }))
     }
 
     @Synchronized
-    fun exportRules(): String = json.encodeToString(load())
+    fun exportRules(): String = json.encodeToString(cachedBundle)
 
     /** 导入时校验版本、表达式与重复项，保留本机已有过滤统计。 */
     @Synchronized
@@ -131,9 +138,8 @@ class ArticleFilterRepository @Inject constructor(
         val incoming = json.decodeFromString<ArticleFilterRuleBundle>(content)
         require(incoming.schemaVersion == 1) { "Unsupported filter rule version: ${incoming.schemaVersion}" }
         incoming.rules.forEach { validatePattern(it.keyword, it.type) }
-        val current = load()
-        val merged = normalize(current.rules + incoming.rules)
-        write(current.copy(rules = merged))
+        val merged = normalize(cachedBundle.rules + incoming.rules)
+        update(cachedBundle.copy(rules = merged))
         return incoming.rules.size
     }
 
@@ -165,7 +171,7 @@ class ArticleFilterRepository @Inject constructor(
                     feedIdMap[rule.feedId]?.let { mappedId -> rule.copy(feedId = mappedId) }
                 }
             }
-        write(incoming.copy(rules = normalize(restoredRules)))
+        update(incoming.copy(rules = normalize(restoredRules)))
         return restoredRules.size
     }
 
@@ -185,6 +191,13 @@ class ArticleFilterRepository @Inject constructor(
                 Triple(rule.feedId, rule.type, pattern)
             }
 
+    private fun update(bundle: ArticleFilterRuleBundle) {
+        val snapshot = bundle.copy(rules = immutableRules(bundle.rules))
+        write(snapshot)
+        cachedBundle = snapshot
+        cachedCompiledRules = ArticleFilterMatcher.compile(snapshot.rules)
+    }
+
     private fun write(bundle: ArticleFilterRuleBundle) {
         ruleFile.writeText(json.encodeToString(bundle))
     }
@@ -194,5 +207,10 @@ class ArticleFilterRepository @Inject constructor(
         runCatching {
             if (!ruleFile.exists()) ArticleFilterRuleBundle()
             else json.decodeFromString<ArticleFilterRuleBundle>(ruleFile.readText())
-        }.getOrDefault(ArticleFilterRuleBundle())
+        }.getOrDefault(ArticleFilterRuleBundle()).let { bundle ->
+            bundle.copy(rules = immutableRules(bundle.rules))
+        }
+
+    private fun immutableRules(rules: List<ArticleFilterRule>): List<ArticleFilterRule> =
+        Collections.unmodifiableList(rules.toList())
 }

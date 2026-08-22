@@ -22,6 +22,8 @@ import me.ash.reader.R
 import me.ash.reader.ui.component.base.Base64Image
 import me.ash.reader.ui.component.base.RYAsyncImage
 
+private val BASE64_IMAGE_REGEX = Regex("^image/.*;base64,.*")
+
 @Composable
 fun FeedIcon(
     modifier: Modifier = Modifier,
@@ -38,7 +40,7 @@ fun FeedIcon(
         }
     }
     // e.g. image/gif;base64,R0lGODlh...
-    else if ("^image/.*;base64,.*".toRegex().matches(iconUrl)) {
+    else if (BASE64_IMAGE_REGEX.matches(iconUrl)) {
         Base64Image(
             modifier = modifier
                 .size(size)

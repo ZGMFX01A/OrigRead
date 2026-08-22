@@ -1,7 +1,8 @@
 package me.ash.reader.domain.model.article
 
-import androidx.room.Entity
 import androidx.room.ForeignKey
+import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import me.ash.reader.domain.model.feed.Feed
 
@@ -13,7 +14,8 @@ import me.ash.reader.domain.model.feed.Feed
         childColumns = ["feedId"],
         onDelete = ForeignKey.CASCADE,
         onUpdate = ForeignKey.CASCADE
-    )]
+    )],
+    indices = [Index(name = "index_archived_article_feedId", value = ["feedId"])],
 )
 data class ArchivedArticle(
     @PrimaryKey(autoGenerate = true)

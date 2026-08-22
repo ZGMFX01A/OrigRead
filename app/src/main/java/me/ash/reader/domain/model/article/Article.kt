@@ -15,7 +15,20 @@ import java.util.*
         childColumns = ["feedId"],
         onDelete = ForeignKey.CASCADE,
         onUpdate = ForeignKey.CASCADE
-    )]
+    )],
+    indices = [
+        Index(name = "index_article_feedId", value = ["feedId"]),
+        Index(name = "index_article_accountId", value = ["accountId"]),
+        Index(name = "index_article_feedId_link", value = ["feedId", "link"]),
+        Index(
+            name = "index_article_accountId_isUnread_date",
+            value = ["accountId", "isUnread", "date"],
+        ),
+        Index(
+            name = "index_article_accountId_isStarred_date",
+            value = ["accountId", "isStarred", "date"],
+        ),
+    ],
 )
 data class Article(
     @PrimaryKey
@@ -37,9 +50,9 @@ data class Article(
     var img: String? = null,
     @ColumnInfo
     var link: String,
-    @ColumnInfo(index = true)
+    @ColumnInfo
     var feedId: String,
-    @ColumnInfo(index = true)
+    @ColumnInfo
     var accountId: Int,
     @ColumnInfo
     var isUnread: Boolean = true,

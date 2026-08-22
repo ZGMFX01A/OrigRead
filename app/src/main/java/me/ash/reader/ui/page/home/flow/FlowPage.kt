@@ -525,14 +525,28 @@ fun FlowPage(
                     if (markAsReadOnScroll && filterState.filter.isUnread()) {
                         LaunchedEffect(listState.isScrollInProgress) {
                             if (!listState.isScrollInProgress) {
-                                val firstItemKey =
+                                val firstVisibleArticle =
                                     listState.layoutInfo.visibleItemsInfo
                                         .firstOrNull { it.contentType == CONTENT_TYPE_ARTICLE }
-                                        ?.key
+                                val firstItemKey = firstVisibleArticle?.key
+                                if (firstVisibleArticle == null || firstItemKey == null) {
+                                    return@LaunchedEffect
+                                }
+
                                 val items = mutableListOf<ArticleWithFeed>()
                                 var found = false
                                 val itemCount = pagingItems.itemCount
-                                for (index in 0 until itemCount) {
+                                val firstVisibleIndex =
+                                    firstVisibleArticle.index.coerceAtMost(itemCount)
+                                val scanEndExclusive =
+                                    if (settings.flowArticleListDateStickyHeader.value) {
+                                        // Sticky headers add extra LazyColumn items, so their
+                                        // indices no longer map 1:1 to Paging items.
+                                        itemCount
+                                    } else {
+                                        (firstVisibleIndex + 1).coerceAtMost(itemCount)
+                                    }
+                                for (index in 0 until scanEndExclusive) {
                                     pagingItems.peek(index).let {
                                         if (it is ArticleFlowItem.Article) {
                                             if (it.articleWithFeed.article.id == firstItemKey) {
@@ -545,7 +559,7 @@ fun FlowPage(
                                 }
                                 if (items.isNotEmpty() && found) {
                                     viewModel.diffMapHolder.updateDiff(
-                                        articleWithFeed = items.toTypedArray(),
+                                        articleWithFeed = items,
                                         isUnread = false,
                                     )
                                 }

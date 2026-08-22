@@ -133,6 +133,12 @@ fun ArticleItem(
     val articleListDate = LocalFlowArticleListTime.current
     val articleListReadIndicator = LocalFlowArticleListReadIndicator.current
     var imageLoadFailed by remember(imgData) { mutableStateOf(false) }
+    val titleTypography = MaterialTheme.typography.titleMedium
+    val titleStyle = remember(title, titleTypography) {
+        titleTypography
+            .applyTextDirection(title.requiresBidi())
+            .merge(lineHeight = 22.sp)
+    }
 
     Column(
         modifier =
@@ -233,10 +239,7 @@ fun ArticleItem(
                     Text(
                         text = title,
                         color = MaterialTheme.colorScheme.onSurface,
-                        style =
-                            MaterialTheme.typography.titleMedium
-                                .applyTextDirection(title.requiresBidi())
-                                .merge(lineHeight = 22.sp),
+                        style = titleStyle,
                         maxLines =
                             if (articleListDesc != FlowArticleListDescPreference.NONE) 2 else 4,
                         overflow = TextOverflow.Ellipsis,
@@ -256,14 +259,20 @@ fun ArticleItem(
                     articleListDesc != FlowArticleListDescPreference.NONE &&
                         shortDescription.isNotBlank()
                 ) {
+                    val bodySmallTypography = MaterialTheme.typography.bodySmall
+                    val descriptionStyle = remember(
+                        shortDescription,
+                        bodySmallTypography,
+                    ) {
+                        bodySmallTypography.applyTextDirection(
+                            shortDescription.requiresBidi()
+                        )
+                    }
                     Text(
                         modifier = Modifier.padding(top = 4.dp),
                         text = shortDescription,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style =
-                            MaterialTheme.typography.bodySmall.applyTextDirection(
-                                shortDescription.requiresBidi()
-                            ),
+                        style = descriptionStyle,
                         maxLines =
                             when (articleListDesc) {
                                 FlowArticleListDescPreference.LONG -> 4

@@ -31,7 +31,7 @@ import java.util.*
         ArchivedArticle::class,
         RssHttpCache::class,
     ],
-    version = 9,
+    version = 10,
     autoMigrations = [
         AutoMigration(from = 5, to = 6),
         AutoMigration(from = 5, to = 7),
@@ -96,6 +96,7 @@ val allMigrations = arrayOf(
     MIGRATION_2_3,
     MIGRATION_3_4,
     MIGRATION_4_5,
+    MIGRATION_9_10,
 )
 
 @Suppress("ClassName")
@@ -172,6 +173,25 @@ object MIGRATION_4_5 : Migration(4, 5) {
             """
             ALTER TABLE account ADD COLUMN lastArticleId TEXT DEFAULT NULL
             """.trimIndent()
+        )
+    }
+}
+
+@Suppress("ClassName")
+object MIGRATION_9_10 : Migration(9, 10) {
+
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_archived_article_feedId` ON `archived_article` (`feedId`)"
+        )
+        database.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_article_feedId_link` ON `article` (`feedId`, `link`)"
+        )
+        database.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_article_accountId_isUnread_date` ON `article` (`accountId`, `isUnread`, `date`)"
+        )
+        database.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_article_accountId_isStarred_date` ON `article` (`accountId`, `isStarred`, `date`)"
         )
     }
 }

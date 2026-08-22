@@ -71,4 +71,27 @@ class ArticleFilterEngineTest {
 
         assertEquals("feed-a", match?.rule?.feedId)
     }
+
+    @Test
+    fun `compiled rules keep matching semantics`() {
+        val rules =
+            listOf(
+                ArticleFilterRule(keyword = "global"),
+                ArticleFilterRule(
+                    keyword = "RTX\\s+50\\d{2}",
+                    feedId = "feed-a",
+                    type = ArticleFilterRuleType.REGEX,
+                ),
+            )
+
+        val match =
+            ArticleFilterMatcher.matchCompiled(
+                title = "RTX 5090 is back in stock",
+                feedId = "feed-a",
+                rules = ArticleFilterMatcher.compile(rules),
+            )
+
+        assertEquals(ArticleFilterRuleType.REGEX, match?.rule?.type)
+        assertEquals("feed-a", match?.rule?.feedId)
+    }
 }

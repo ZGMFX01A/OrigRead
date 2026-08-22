@@ -180,6 +180,12 @@ class DiffMapHolder @Inject constructor(
     fun updateDiff(
         vararg articleWithFeed: ArticleWithFeed, isUnread: Boolean? = null
     ) {
+        updateDiff(articleWithFeed.asList(), isUnread)
+    }
+
+    fun updateDiff(
+        articleWithFeed: List<ArticleWithFeed>, isUnread: Boolean? = null
+    ) {
         val appliedDiffs = articleWithFeed.mapNotNull {
             updateDiffInternal(it, isUnread)
         }
