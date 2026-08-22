@@ -81,8 +81,8 @@ constructor(
     override val deleteSubscription: Boolean = false
     override val updateSubscription: Boolean = false
 
-    private suspend fun getFeverAPI() =
-        FeverSecurityKey(accountService.getCurrentAccount().securityKey).run {
+    private suspend fun getFeverAPI(account: Account? = null) =
+        FeverSecurityKey((account ?: accountService.getCurrentAccount()).securityKey).run {
             FeverAPI.getInstance(
                 context = context,
                 serverUrl = serverUrl!!,
@@ -402,8 +402,12 @@ constructor(
     }
 
     @CheckResult
-    override suspend fun syncReadStatus(articleIds: Set<String>, isUnread: Boolean): Set<String> {
-        val feverAPI = getFeverAPI()
+    override suspend fun syncReadStatus(
+        articleIds: Set<String>,
+        isUnread: Boolean,
+        account: Account?,
+    ): Set<String> {
+        val feverAPI = getFeverAPI(account)
         val syncedEntries = mutableSetOf<String>()
         articleIds
             .takeIf { it.isNotEmpty() }

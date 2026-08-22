@@ -69,13 +69,15 @@ constructor(
 
     suspend fun getAccountById(accountId: Int): Account? = accountDao.queryById(accountId)
 
-    fun getCurrentAccount(): Account = runBlocking {
-        currentAccountFlow.first { it != null } as Account
-    }
+    fun getCurrentAccount(): Account =
+        currentAccountFlow.value ?: runBlocking {
+            currentAccountFlow.first { it != null } as Account
+        }
 
-    fun getCurrentAccountId(): Int = runBlocking {
-        currentAccountIdFlow.first { it != null } as Int
-    }
+    fun getCurrentAccountId(): Int =
+        currentAccountIdFlow.value ?: runBlocking {
+            currentAccountIdFlow.first { it != null } as Int
+        }
 
     suspend fun isNoAccount(): Boolean = accountDao.queryAll().isEmpty()
 

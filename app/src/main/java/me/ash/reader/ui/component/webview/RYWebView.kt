@@ -3,9 +3,6 @@ package me.ash.reader.ui.component.webview
 import android.util.Log
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -69,25 +66,6 @@ fun RYWebView(
         MaterialTheme.colorScheme.surfaceColorAtElevation((tonalElevation.value + 6).dp).toArgb()
     val boldCharacters = LocalReadingBoldCharacters.current
 
-    val webView by
-        remember(backgroundColor) {
-            mutableStateOf(
-                WebViewLayout.get(
-                    context = context,
-                    readingFontsPreference = readingFonts,
-                    webViewClient =
-                        WebViewClient(
-                            context = context,
-                            refererDomain = refererDomain,
-                            onOpenLink = { url ->
-                                context.openURL(url, openLink, openLinkSpecificBrowser)
-                            },
-                        ),
-                    onImageClick = onImageClick,
-                )
-            )
-        }
-
     val fontPath =
         if (readingFonts is ReadingFontsPreference.External)
             ExternalFonts.FontType.ReadingFont.toPath(context)
@@ -97,7 +75,21 @@ fun RYWebView(
 
     AndroidView(
         modifier = modifier,
-        factory = { webView },
+        factory = {
+            WebViewLayout.get(
+                context = context,
+                readingFontsPreference = readingFonts,
+                webViewClient =
+                    WebViewClient(
+                        context = context,
+                        refererDomain = refererDomain,
+                        onOpenLink = { url ->
+                            context.openURL(url, openLink, openLinkSpecificBrowser)
+                        },
+                    ),
+                onImageClick = onImageClick,
+            )
+        },
         update = {
             it.apply {
                 Log.i("RLog", "maxWidth: ${maxWidth}")
@@ -137,6 +129,14 @@ fun RYWebView(
                     null,
                 )
             }
+        },
+        onRelease = { view ->
+            view.stopLoading()
+            view.removeJavascriptInterface(JavaScriptInterface.NAME)
+            view.loadUrl("about:blank")
+            view.clearHistory()
+            view.removeAllViews()
+            view.destroy()
         },
     )
 }

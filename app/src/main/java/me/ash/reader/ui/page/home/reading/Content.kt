@@ -23,6 +23,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -44,6 +45,7 @@ import me.ash.reader.ui.component.scrollbar.drawVerticalScrollIndicator
 import me.ash.reader.ui.component.webview.RYWebView
 import me.ash.reader.ui.ext.extractDomain
 import me.ash.reader.ui.ext.roundClick
+import org.jsoup.Jsoup
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -70,6 +72,20 @@ fun Content(
     val context = LocalContext.current
     val subheadUpperCase = LocalReadingSubheadUpperCase.current
     val renderer = LocalReadingRenderer.current
+    val nativeReaderBody =
+        remember(content, link, renderer, isLoading, failureReason) {
+            if (
+                renderer == ReadingRendererPreference.NativeComponent &&
+                    !isLoading &&
+                    failureReason == null
+            ) {
+                content.byteInputStream().use { inputStream ->
+                    Jsoup.parse(inputStream, null, link ?: "").body()
+                }
+            } else {
+                null
+            }
+        }
 
     val textContentWidth = LocalTextContentWidth.current
     val maxWidthModifier = Modifier.widthIn(max = textContentWidth)
@@ -175,6 +191,7 @@ fun Content(
                             subheadUpperCase = subheadUpperCase.value,
                             link = link ?: "",
                             content = content,
+                            parsedBody = nativeReaderBody,
                             onImageClick = onImageClick,
                             onLinkClick = { uriHandler.openUri(it) },
                         )

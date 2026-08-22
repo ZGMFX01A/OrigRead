@@ -24,6 +24,7 @@ import android.content.Context
 import android.util.Log
 import androidx.compose.foundation.lazy.LazyListScope
 import me.ash.reader.R
+import org.jsoup.nodes.Element
 
 @Suppress("FunctionName")
 fun LazyListScope.Reader(
@@ -31,16 +32,29 @@ fun LazyListScope.Reader(
     subheadUpperCase: Boolean = false,
     link: String,
     content: String,
+    parsedBody: Element? = null,
     onImageClick: ((imgUrl: String, altText: String) -> Unit)? = null,
     onLinkClick: (String) -> Unit
 ) {
-//    Log.i("RLog", "Reader: ")
-    htmlFormattedText(
-        inputStream = content.byteInputStream(),
-        subheadUpperCase = subheadUpperCase,
-        baseUrl = link,
-        onImageClick = onImageClick,
-        imagePlaceholder = R.drawable.origread_icon,
-        onLinkClick = onLinkClick
-    )
+    if (parsedBody == null) {
+        content.byteInputStream().use { inputStream ->
+            htmlFormattedText(
+                inputStream = inputStream,
+                subheadUpperCase = subheadUpperCase,
+                baseUrl = link,
+                onImageClick = onImageClick,
+                imagePlaceholder = R.drawable.origread_icon,
+                onLinkClick = onLinkClick,
+            )
+        }
+    } else {
+        htmlFormattedText(
+            body = parsedBody,
+            subheadUpperCase = subheadUpperCase,
+            baseUrl = link,
+            onImageClick = onImageClick,
+            imagePlaceholder = R.drawable.origread_icon,
+            onLinkClick = onLinkClick,
+        )
+    }
 }

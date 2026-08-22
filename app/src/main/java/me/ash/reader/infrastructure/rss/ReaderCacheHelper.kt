@@ -22,7 +22,6 @@ constructor(
     private val accountService: AccountService,
 ) {
     private val cacheDir = context.cacheDir.resolve("readability")
-    private val md = MessageDigest.getInstance("SHA-256")
 
     private val currentCacheDir: File
         get() = cacheDir.resolve(accountService.getCurrentAccountId().toString())
@@ -30,7 +29,7 @@ constructor(
     @OptIn(ExperimentalStdlibApi::class)
     private fun getFileNameFor(articleId: String): String {
         val bytes = "$CACHE_VERSION:$articleId".toByteArray()
-        val digest = md.digest(bytes)
+        val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
         return digest.toHexString() + ".html"
     }
 

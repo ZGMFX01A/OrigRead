@@ -68,9 +68,27 @@ fun LazyListScope.htmlFormattedText(
     onImageClick: ((imgUrl: String, altText: String) -> Unit)? = null,
     onLinkClick: (String) -> Unit,
 ) {
-    Jsoup.parse(inputStream, null, baseUrl)?.body()?.let { body ->
+    htmlFormattedText(
+        body = Jsoup.parse(inputStream, null, baseUrl)?.body(),
+        subheadUpperCase = subheadUpperCase,
+        imagePlaceholder = imagePlaceholder,
+        onImageClick = onImageClick,
+        onLinkClick = onLinkClick,
+        baseUrl = baseUrl,
+    )
+}
+
+fun LazyListScope.htmlFormattedText(
+    body: Element?,
+    subheadUpperCase: Boolean = false,
+    baseUrl: String,
+    @DrawableRes imagePlaceholder: Int,
+    onImageClick: ((imgUrl: String, altText: String) -> Unit)? = null,
+    onLinkClick: (String) -> Unit,
+) {
+    body?.let {
         formatBody(
-            element = body,
+            element = it,
             subheadUpperCase = subheadUpperCase,
             imagePlaceholder = imagePlaceholder,
             onImageClick = onImageClick,

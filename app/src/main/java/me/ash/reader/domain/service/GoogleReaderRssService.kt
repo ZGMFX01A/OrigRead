@@ -105,8 +105,8 @@ constructor(
     override val deleteSubscription: Boolean = true
     override val updateSubscription: Boolean = true
 
-    private suspend fun getGoogleReaderAPI() =
-        GoogleReaderSecurityKey(accountService.getCurrentAccount().securityKey).run {
+    private suspend fun getGoogleReaderAPI(account: Account? = null) =
+        GoogleReaderSecurityKey((account ?: accountService.getCurrentAccount()).securityKey).run {
             GoogleReaderAPI.getInstance(
                 context = context,
                 serverUrl = serverUrl!!,
@@ -851,8 +851,12 @@ constructor(
             }
     }
 
-    override suspend fun syncReadStatus(articleIds: Set<String>, isUnread: Boolean): Set<String> {
-        val googleReaderAPI = getGoogleReaderAPI()
+    override suspend fun syncReadStatus(
+        articleIds: Set<String>,
+        isUnread: Boolean,
+        account: Account?,
+    ): Set<String> {
+        val googleReaderAPI = getGoogleReaderAPI(account)
         val syncedEntries = mutableSetOf<String>()
         articleIds
             .takeIf { it.isNotEmpty() }

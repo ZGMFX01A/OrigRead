@@ -93,21 +93,10 @@ constructor(
             val syncInterval = account.syncInterval
             val syncOnlyWhenCharging = account.syncOnlyWhenCharging
             val syncOnlyOnWiFi = account.syncOnlyOnWiFi
-            val workState =
-                workManager
-                    .getWorkInfosForUniqueWork(SYNC_WORK_NAME_PERIODIC)
-                    .get()
-                    .firstOrNull()
-                    ?.state
-
-            val policy =
-                if (workState == WorkInfo.State.ENQUEUED || workState == WorkInfo.State.RUNNING)
-                    ExistingPeriodicWorkPolicy.UPDATE
-                else ExistingPeriodicWorkPolicy.CANCEL_AND_REENQUEUE
 
             workManager.enqueueUniquePeriodicWork(
                 SYNC_WORK_NAME_PERIODIC,
-                policy,
+                ExistingPeriodicWorkPolicy.UPDATE,
                 PeriodicWorkRequestBuilder<SyncWorker>(syncInterval.value, TimeUnit.MINUTES)
                     .setConstraints(
                         Constraints.Builder()
