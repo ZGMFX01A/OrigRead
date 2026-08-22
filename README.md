@@ -16,14 +16,15 @@
 <div align="center">
   RSS / Atom · RSSHub · Website parsing · JSON/API sources · Full-text extraction · Translation · AI summaries · OPML
 </div>
-
 <div align="center">
   <img alt="Android 8.0+" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white" />
   <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?logo=kotlin&logoColor=white" />
   <a href="LICENSE"><img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-blue.svg" /></a>
   <img alt="Latest release" src="https://img.shields.io/github/v/release/ZGMFX01A/OrigRead?display_name=tag&sort=semver" />
+  <img alt="Total GitHub release downloads" src="https://img.shields.io/github/downloads/ZGMFX01A/OrigRead/total?label=%20downloads&logo=github" />
   <img alt="GitHub stars" src="https://img.shields.io/github/stars/ZGMFX01A/OrigRead?style=flat" />
 </div>
+
 
 ## What is OrigRead?
 
@@ -192,6 +193,12 @@ Translation is independent from AI summaries. You can use conventional translati
 - Self-hosted DeepLX / DLX-compatible endpoints.
 
 The reader supports title/body translation, translated-only display, bilingual paragraph display, content-hash caching, provider selection and long-article batching.
+
+## Share articles to note apps
+
+On an article page, **Share** can send more than a link. The original article URL is always included. On the first use, choose the content to share: title, original body, the translation currently open in the reader, and/or the summary currently open in the reader. A short tap uses the saved choices; long-press Share to change them later.
+
+OrigRead sends rich HTML first, with styled text and plain text fallbacks for apps that do not read HTML. Images remain external links rather than being copied as files. A cached translation or summary is not shared unless it is currently open in the reader. Sharing from the article list keeps its existing behavior.
 
 ### AI full-article translation
 

@@ -16,14 +16,15 @@
 <div align="center">
   RSS / Atom · RSSHub · 网页解析 · JSON/API · 全文提取 · 翻译 · AI 摘要 · OPML
 </div>
-
 <div align="center">
   <img alt="Android 8.0+" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white" />
   <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?logo=kotlin&logoColor=white" />
   <a href="LICENSE"><img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-blue.svg" /></a>
   <img alt="Latest release" src="https://img.shields.io/github/v/release/ZGMFX01A/OrigRead?display_name=tag&sort=semver" />
+  <img alt="GitHub Release 总下载次数" src="https://img.shields.io/github/downloads/ZGMFX01A/OrigRead/total?label=%E4%B8%8B%E8%BD%BD%E6%AC%A1%E6%95%B0&logo=github" />
   <img alt="GitHub stars" src="https://img.shields.io/github/stars/ZGMFX01A/OrigRead?style=flat" />
 </div>
+
 
 ## 原读是什么？
 
@@ -192,6 +193,12 @@ JSON / API / WordPress / Next.js / Nuxt
 - 用户自建 DeepLX / DLX 兼容接口。
 
 阅读页支持标题与正文翻译、仅译文显示、双语分段对照、内容哈希缓存、Provider 选择以及长文章分批处理。
+
+## 把文章分享到笔记软件
+
+在文章阅读页点击 **分享**，现在可以分享的不只是链接，原文 URL 始终会保留。第一次使用时，可以选择要发送的内容：文章标题、原文正文、当前阅读页已经打开的翻译，以及当前阅读页已经打开的摘要。保存后短按分享会直接使用这套选择；以后长按分享按钮可以重新修改。
+
+原读会优先发送富文本 HTML；不支持 HTML 的应用会收到带样式文本或纯文本回退。文章里的图片仍以外链地址保留，不会把图片文件本身复制过去。即使历史上生成过摘要或翻译，只要当前阅读页没有打开，就不会被分享。列表页的原有分享方式不变。
 
 ### AI 全文翻译
 

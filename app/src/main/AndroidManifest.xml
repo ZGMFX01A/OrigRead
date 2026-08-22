@@ -9,6 +9,8 @@
         android:maxSdkVersion="28" />
 
     <queries>
+        <package android:name="md.obsidian" />
+        <package android:name="notion.id" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
 

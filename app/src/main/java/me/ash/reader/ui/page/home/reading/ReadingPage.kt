@@ -1,5 +1,7 @@
 package me.ash.reader.ui.page.home.reading
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
@@ -44,6 +46,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import dagger.hilt.android.EntryPointAccessors
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.TextUnit
@@ -59,9 +62,20 @@ import me.ash.reader.infrastructure.ai.availableModels
 import me.ash.reader.infrastructure.preference.LocalPullToSwitchArticle
 import me.ash.reader.infrastructure.preference.LocalReadingAutoHideToolbar
 import me.ash.reader.infrastructure.preference.LocalReadingTextLineHeight
+import me.ash.reader.infrastructure.preference.LocalSettings
 import me.ash.reader.infrastructure.preference.OpenLinkPreference
+import me.ash.reader.infrastructure.preference.ReadingSharePreference
+import me.ash.reader.infrastructure.preference.ReadingShareTarget
 import me.ash.reader.infrastructure.preference.not
+import me.ash.reader.infrastructure.share.ReadingShareContentBuilder
+import me.ash.reader.infrastructure.share.ReadingShareIntent
+import me.ash.reader.infrastructure.share.ReadingShareLabels
+import me.ash.reader.infrastructure.share.ReadingSharePayload
+import me.ash.reader.infrastructure.share.ObsidianShare
+import me.ash.reader.infrastructure.share.NotionShareEntryPoint
+import me.ash.reader.infrastructure.share.NotionShareInProgressException
 import me.ash.reader.infrastructure.translation.TranslationProviderType
+import me.ash.reader.infrastructure.translation.TranslationDisplayMode
 import me.ash.reader.infrastructure.translation.TranslationTarget
 import me.ash.reader.ui.ext.collectAsStateValue
 import me.ash.reader.ui.ext.openURL
@@ -85,6 +99,8 @@ fun ReadingPage(
     onNavigateToStylePage: () -> Unit,
 ) {
     val context = LocalContext.current
+    val settings = LocalSettings.current
+    val coroutineScope = rememberCoroutineScope()
     val hapticFeedback = LocalHapticFeedback.current
     val isPullToSwitchArticleEnabled = LocalPullToSwitchArticle.current.value
     val readingUiState = viewModel.readingUiState.collectAsStateValue()
@@ -93,11 +109,22 @@ fun ReadingPage(
     val translationSettings = viewModel.translationSettings.collectAsStateValue()
     val aiSummaryState = viewModel.aiSummaryUiState.collectAsStateValue()
     val aiSettings = viewModel.aiSettings.collectAsStateValue()
+    val notionShareRepository =
+        remember(context) {
+            EntryPointAccessors.fromApplication(
+                context.applicationContext,
+                NotionShareEntryPoint::class.java,
+            ).notionShareRepository()
+        }
+    val notionShareConfiguration = notionShareRepository.configuration.collectAsStateValue()
+    val notionShareInProgress = notionShareRepository.shareInProgress.collectAsStateValue()
 
     var isReaderScrollingDown by remember { mutableStateOf(false) }
     var showFullScreenImageViewer by remember { mutableStateOf(false) }
     var showAiSummaryOptions by remember { mutableStateOf(false) }
     var showInteractiveVerification by remember { mutableStateOf(false) }
+    var showReadingShareFirstUse by remember { mutableStateOf(false) }
+    var showReadingShareConfig by remember { mutableStateOf(false) }
 
     var currentImageData by remember { mutableStateOf(ImageData()) }
 
@@ -124,6 +151,102 @@ fun ReadingPage(
         translationState.document.takeIf { translationState.showTranslation }
     val displayedTitle = visibleTranslation?.translatedTitle ?: readerState.title
     val displayedContent = visibleTranslation?.translatedContent ?: readerState.content.text.orEmpty()
+    val readingSharePreference = settings.readingShare
+    val readingShareLabels =
+        ReadingShareLabels(
+            sourceUrl = stringResource(R.string.reading_share_source_url),
+            translation = stringResource(R.string.reading_share_translation_option),
+            summary = stringResource(R.string.reading_share_summary_option),
+        )
+
+    fun shareReading(preference: ReadingSharePreference) {
+        fun shareToSystem(intent: Intent) {
+            context.startActivity(
+                Intent.createChooser(
+                    intent,
+                    context.getString(R.string.share),
+                )
+            )
+        }
+
+        fun shareToConfiguredTarget(payload: ReadingSharePayload): Boolean {
+            when (preference.target) {
+                ReadingShareTarget.OBSIDIAN -> {
+                    if (ObsidianShare.share(context, readerState.title, payload.markdown)) return true
+                }
+                ReadingShareTarget.NOTION -> {
+                    if (!notionShareConfiguration.tokenConfigured) {
+                        showReadingShareConfig = true
+                        context.showToast(context.getString(R.string.reading_share_notion_not_configured))
+                        return false
+                    }
+                    context.showToast(context.getString(R.string.reading_share_notion_in_progress))
+                    coroutineScope.launch {
+                        notionShareRepository.share(readerState.title, payload).fold(
+                            onSuccess = { pageUrl ->
+                                context.showToast(
+                                    context.getString(R.string.reading_share_notion_success, pageUrl),
+                                )
+                                val notionIntent =
+                                    Intent(Intent.ACTION_VIEW, Uri.parse(pageUrl)).apply {
+                                        setPackage("notion.id")
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                runCatching { context.startActivity(notionIntent) }
+                                    .onFailure {
+                                        context.openURL(
+                                            pageUrl,
+                                            OpenLinkPreference.AutoPreferDefaultBrowser,
+                                        )
+                                    }
+                            },
+                            onFailure = { error ->
+                                if (error !is NotionShareInProgressException) {
+                                    context.showToast(
+                                        context.getString(
+                                            R.string.reading_share_notion_failure,
+                                            error.message.orEmpty(),
+                                        ),
+                                    )
+                                }
+                            },
+                        )
+                    }
+                    return true
+                }
+                ReadingShareTarget.SYSTEM -> Unit
+            }
+            shareToSystem(ReadingShareIntent.create(readerState.title, payload))
+            return false
+        }
+
+        val payload =
+            ReadingShareContentBuilder.build(
+                title = readerState.title,
+                link = readerState.link,
+                body = readerState.content.text,
+                // 只分享当前阅读页正在显示的翻译；历史缓存不代表用户本次要分享。
+                translatedTitle = visibleTranslation?.translatedTitle,
+                translatedContent = visibleTranslation?.translatedContent,
+                translatedDisplayMode =
+                    visibleTranslation?.displayMode ?: TranslationDisplayMode.TRANSLATED,
+                // 摘要面板关闭时，即使有历史结果也不带入分享内容。
+                summary =
+                    aiSummaryState.document?.summary
+                        ?.takeIf { aiSummaryState.showPanel },
+                preference = preference,
+                labels = readingShareLabels,
+                bodyTitle =
+                    when (preference.target) {
+                        // 文件名/页面标题已经由专有渠道单独写入；正文只保留当前已打开的译文标题。
+                        ReadingShareTarget.OBSIDIAN,
+                        ReadingShareTarget.NOTION -> visibleTranslation?.translatedTitle
+                            ?.takeIf { preference.includeTranslation }
+                        ReadingShareTarget.SYSTEM -> readerState.title
+                    },
+            )
+        shareToConfiguredTarget(payload)
+    }
     val enabledAiProviders =
         if (!aiSettings.enabled) {
             emptyList()
@@ -217,6 +340,15 @@ fun ReadingPage(
                             if (it) viewModel.renderFullContent()
                             else viewModel.renderDescriptionContent()
                         },
+                        onShare = {
+                            if (readingSharePreference.isConfigured) {
+                                shareReading(readingSharePreference)
+                            } else {
+                                showReadingShareFirstUse = true
+                            }
+                        },
+                        shareEnabled = !notionShareInProgress,
+                        onShareLongClick = { showReadingShareConfig = true },
                         ttsButton = {
                             TtsButton(
                                 onClick = { state ->
@@ -554,6 +686,42 @@ fun ReadingPage(
                     providerId = providerId,
                     modelOverride = model,
                     lengthOverride = length,
+                )
+            },
+        )
+    }
+    if (showReadingShareFirstUse) {
+        ReadingShareFirstUseSheet(
+            onDismiss = { showReadingShareFirstUse = false },
+            onUseDefault = {
+                val configuredDefault = ReadingSharePreference.default.copy(isConfigured = true)
+                configuredDefault.save(context, coroutineScope)
+                showReadingShareFirstUse = false
+                shareReading(configuredDefault)
+            },
+            onCustomize = {
+                showReadingShareFirstUse = false
+                showReadingShareConfig = true
+            },
+        )
+    }
+    if (showReadingShareConfig) {
+        ReadingShareConfigSheet(
+            initialPreference = readingSharePreference,
+            obsidianAvailable = ObsidianShare.isInstalled(context),
+            // Notion 通过 API 写入，不依赖本机是否安装 Notion 客户端。
+            notionAvailable = true,
+            notionConfiguration = notionShareConfiguration,
+            onDismiss = { showReadingShareConfig = false },
+            onSave = { preference, notionToken ->
+                preference.save(context, coroutineScope)
+                notionShareRepository.saveConfiguration(notionToken)
+                showReadingShareConfig = false
+            },
+            onOpenNotionSetup = {
+                context.openURL(
+                    "https://www.notion.so/developers/tokens",
+                    OpenLinkPreference.AutoPreferDefaultBrowser,
                 )
             },
         )

@@ -130,6 +130,47 @@ p {
     text-align: var(--text-align) !important;
 }
 
+/* Article pages often carry a light-theme inline color on their text nodes.
+ * Re-apply the reader color at the node level so dark mode is not defeated by
+ * the source page's presentation styles. Semantic descendants are restored
+ * below because this rule intentionally uses !important. */
+article p,
+article span,
+article li,
+article blockquote,
+article td,
+article th,
+article dt,
+article dd,
+    article figcaption,
+    article caption,
+    article small {
+    color: var(--text-color) !important;
+}
+
+/* Preserve semantic colors when article markup wraps them in spans. */
+article a,
+article a span,
+article a * {
+    color: var(--link-text-color) !important;
+}
+
+article h1 span,
+article h2 span,
+article h3 span,
+article h4 span,
+article h5 span,
+article h6 span,
+article strong span,
+article b span {
+    color: var(--bold-text-color) !important;
+}
+
+article pre span,
+article code span {
+    color: var(--code-text-color) !important;
+}
+
 span {
     line-height: var(--line-height) !important;
     letter-spacing: var(--letter-spacing) !important;

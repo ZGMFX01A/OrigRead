@@ -10,7 +10,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.outlined.AccountCircle
-import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.FilterAlt
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.Rule
@@ -68,7 +67,6 @@ fun SettingsPage(
     navigateToAiSettings: () -> Unit,
     navigateToConfigurationBackup: () -> Unit,
     navigateToUpdateSettings: () -> Unit,
-    navigateToTroubleshooting: () -> Unit,
     navigateToTipsAndSupport: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -216,14 +214,6 @@ fun SettingsPage(
                         desc = Locale.getDefault().toDisplayName(),
                         icon = Icons.Outlined.Language,
                         onClick = navigateToLanguages
-                    )
-                }
-                item {
-                    SelectableSettingGroupItem(
-                        title = stringResource(R.string.troubleshooting),
-                        desc = stringResource(R.string.troubleshooting_desc),
-                        icon = Icons.Outlined.BugReport,
-                        onClick = navigateToTroubleshooting
                     )
                 }
                 item {

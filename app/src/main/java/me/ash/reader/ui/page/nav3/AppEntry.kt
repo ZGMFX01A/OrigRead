@@ -219,9 +219,6 @@ fun AppEntry(backStack: NavBackStack<NavKey>) {
                                     backStack.add(Route.ConfigurationBackup)
                                 },
                                 navigateToUpdateSettings = { backStack.add(Route.SoftwareUpdate) },
-                                navigateToTroubleshooting = {
-                                    backStack.add(Route.Troubleshooting)
-                                },
                                 navigateToTipsAndSupport = { backStack.add(Route.TipsAndSupport) },
                             )
                         }
@@ -315,6 +312,7 @@ fun AppEntry(backStack: NavBackStack<NavKey>) {
                             TipsAndSupportPage(
                                 onBack = onBack,
                                 navigateToLicenseList = { backStack.add(Route.LicenseList) },
+                                navigateToTroubleshooting = { backStack.add(Route.Troubleshooting) },
                             )
                         }
                     Route.LicenseList -> NavEntry(key) { LicenseListPage(onBack = onBack) }

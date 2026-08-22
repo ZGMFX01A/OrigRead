@@ -74,6 +74,7 @@ fun Preferences.toSettings(): Settings {
         readingImageHorizontalPadding = ReadingImageHorizontalPaddingPreference.fromPreferences(this),
         readingImageRoundedCorners = ReadingImageRoundedCornersPreference.fromPreferences(this),
         readingImageMaximize = ReadingImageMaximizePreference.fromPreferences(this),
+        readingShare = ReadingSharePreference.fromPreferences(this),
 
         // Interaction
         initialPage = InitialPagePreference.fromPreferences(this),

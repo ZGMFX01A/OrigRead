@@ -6,6 +6,8 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -33,6 +35,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -40,21 +43,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import me.ash.reader.R
 import me.ash.reader.infrastructure.preference.LocalReadingPageTonalElevation
-import me.ash.reader.infrastructure.preference.LocalSharedContent
 import me.ash.reader.infrastructure.preference.ReadingPageTonalElevationPreference
 import me.ash.reader.ui.component.base.FeedbackIconButton
 import me.ash.reader.ui.page.adaptive.NavigationAction
 
 private val sizeSpec = spring<IntSize>(stiffness = 700f)
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun TopBar(
     isShow: Boolean,
@@ -71,10 +73,11 @@ fun TopBar(
     isFullContent: Boolean = false,
     onReadOriginal: () -> Unit = {},
     onFullContent: (Boolean) -> Unit = {},
+    onShare: () -> Unit = {},
+    onShareLongClick: () -> Unit = {},
+    shareEnabled: Boolean = true,
     ttsButton: @Composable () -> Unit = {},
 ) {
-    val context = LocalContext.current
-    val sharedContent = LocalSharedContent.current
     val isOutlined =
         LocalReadingPageTonalElevation.current == ReadingPageTonalElevationPreference.Outlined
 
@@ -167,14 +170,16 @@ fun TopBar(
                         ) {
                             onNavigateToStylePage()
                         }
-                        FeedbackIconButton(
+                        ReadingShareIconButton(
                             modifier = Modifier.size(20.dp),
-                            imageVector = Icons.Outlined.Share,
                             contentDescription = stringResource(R.string.share),
-                            tint = MaterialTheme.colorScheme.onSurface,
-                        ) {
-                            sharedContent.share(context, title, link)
-                        }
+                            tint =
+                                if (shareEnabled) MaterialTheme.colorScheme.onSurface
+                                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                            enabled = shareEnabled,
+                            onClick = onShare,
+                            onLongClick = onShareLongClick,
+                        )
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
                 )
@@ -186,5 +191,41 @@ fun TopBar(
                 )
             }
         }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ReadingShareIconButton(
+    modifier: Modifier,
+    contentDescription: String,
+    tint: Color,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
+    val view = LocalView.current
+    Box(
+        modifier =
+            Modifier.size(48.dp).combinedClickable(
+                enabled = enabled,
+                onClick = {
+                    view.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
+                    view.playSoundEffect(android.view.SoundEffectConstants.CLICK)
+                    onClick()
+                },
+                onLongClick = {
+                    view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                    onLongClick()
+                },
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            modifier = modifier,
+            imageVector = Icons.Outlined.Share,
+            contentDescription = contentDescription,
+            tint = tint,
+        )
     }
 }

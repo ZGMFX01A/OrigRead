@@ -255,6 +255,13 @@ sealed interface PreferencesKey {
         const val readingImageMaximize = "readingImageMaximize"
         const val readingImageHorizontalPadding = "readingImageHorizontalPadding"
         const val readingImageRoundedCorners = "readingImageRoundedCorners"
+        const val readingShareConfigured = "readingShareConfigured"
+        const val readingShareTitle = "readingShareTitle"
+        const val readingShareBody = "readingShareBody"
+        const val readingShareTranslation = "readingShareTranslation"
+        const val readingShareSummary = "readingShareSummary"
+        const val readingShareTarget = "readingShareTarget"
+        const val readingShareTargetExplicit = "readingShareTargetExplicit"
 
         // Interaction
         const val initialPage = "initialPage"
@@ -268,6 +275,9 @@ sealed interface PreferencesKey {
         const val openLink = "openLink"
         const val openLinkAppSpecificBrowser = "openLinkAppSpecificBrowser"
         const val sharedContent = "sharedContent"
+
+        // Troubleshooting
+        const val troubleshootingEnabled = "troubleshootingEnabled"
 
         // Languages
         const val languages = "languages"
@@ -333,6 +343,13 @@ sealed interface PreferencesKey {
                 BooleanKey(readingImageMaximize),
                 IntKey(readingImageHorizontalPadding),
                 IntKey(readingImageRoundedCorners),
+                BooleanKey(readingShareConfigured),
+                BooleanKey(readingShareTitle),
+                BooleanKey(readingShareBody),
+                BooleanKey(readingShareTranslation),
+                BooleanKey(readingShareSummary),
+                StringKey(readingShareTarget),
+                BooleanKey(readingShareTargetExplicit),
                 // Interaction
                 IntKey(initialPage),
                 IntKey(initialFilter),
@@ -345,6 +362,8 @@ sealed interface PreferencesKey {
                 IntKey(openLink),
                 StringKey(openLinkAppSpecificBrowser),
                 IntKey(sharedContent),
+                // Troubleshooting
+                BooleanKey(troubleshootingEnabled),
                 // Languages
                 IntKey(languages),
             )
@@ -419,6 +438,13 @@ data class DataStoreKey<T>(val key: Preferences.Key<T>, val type: Class<T>) {
         const val readingImageMaximize = "readingImageMaximize"
         const val readingImageHorizontalPadding = "readingImageHorizontalPadding"
         const val readingImageRoundedCorners = "readingImageRoundedCorners"
+        const val readingShareConfigured = "readingShareConfigured"
+        const val readingShareTitle = "readingShareTitle"
+        const val readingShareBody = "readingShareBody"
+        const val readingShareTranslation = "readingShareTranslation"
+        const val readingShareSummary = "readingShareSummary"
+        const val readingShareTarget = "readingShareTarget"
+        const val readingShareTargetExplicit = "readingShareTargetExplicit"
 
         // Interaction
         const val initialPage = "initialPage"
@@ -432,6 +458,9 @@ data class DataStoreKey<T>(val key: Preferences.Key<T>, val type: Class<T>) {
         const val openLink = "openLink"
         const val openLinkAppSpecificBrowser = "openLinkAppSpecificBrowser"
         const val sharedContent = "sharedContent"
+
+        // Troubleshooting
+        const val troubleshootingEnabled = "troubleshootingEnabled"
 
         // Languages
         const val languages = "languages"
@@ -565,6 +594,23 @@ data class DataStoreKey<T>(val key: Preferences.Key<T>, val type: Class<T>) {
                     DataStoreKey(intPreferencesKey(readingImageHorizontalPadding), Int::class.java),
                 readingImageRoundedCorners to
                     DataStoreKey(intPreferencesKey(readingImageRoundedCorners), Int::class.java),
+                readingShareConfigured to
+                    DataStoreKey(booleanPreferencesKey(readingShareConfigured), Boolean::class.java),
+                readingShareTitle to
+                    DataStoreKey(booleanPreferencesKey(readingShareTitle), Boolean::class.java),
+                readingShareBody to
+                    DataStoreKey(booleanPreferencesKey(readingShareBody), Boolean::class.java),
+                readingShareTranslation to
+                    DataStoreKey(booleanPreferencesKey(readingShareTranslation), Boolean::class.java),
+                readingShareSummary to
+                    DataStoreKey(booleanPreferencesKey(readingShareSummary), Boolean::class.java),
+                readingShareTarget to
+                    DataStoreKey(stringPreferencesKey(readingShareTarget), String::class.java),
+                readingShareTargetExplicit to
+                    DataStoreKey(
+                        booleanPreferencesKey(readingShareTargetExplicit),
+                        Boolean::class.java,
+                    ),
                 // Interaction
                 initialPage to DataStoreKey(intPreferencesKey(initialPage), Int::class.java),
                 initialFilter to DataStoreKey(intPreferencesKey(initialFilter), Int::class.java),
@@ -586,6 +632,12 @@ data class DataStoreKey<T>(val key: Preferences.Key<T>, val type: Class<T>) {
                         String::class.java,
                     ),
                 sharedContent to DataStoreKey(intPreferencesKey(sharedContent), Int::class.java),
+                // Troubleshooting
+                troubleshootingEnabled to
+                    DataStoreKey(
+                        booleanPreferencesKey(troubleshootingEnabled),
+                        Boolean::class.java,
+                    ),
                 // Languages
                 languages to DataStoreKey(intPreferencesKey(languages), Int::class.java),
             )

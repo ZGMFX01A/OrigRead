@@ -25,7 +25,9 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Balance
 import androidx.compose.material.icons.rounded.Computer
 import androidx.compose.material.icons.rounded.PhoneAndroid
+import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.ReportGmailerrorred
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -33,6 +35,7 @@ import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -56,11 +59,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.graphics.shapes.Morph
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.map
 import me.ash.reader.R
 import me.ash.reader.infrastructure.preference.OpenLinkPreference
 import me.ash.reader.ui.component.base.FeedbackIconButton
 import me.ash.reader.ui.component.base.RYScaffold
 import me.ash.reader.ui.ext.DataStoreKey
+import me.ash.reader.ui.ext.collectAsStateValue
 import me.ash.reader.ui.ext.dataStore
 import me.ash.reader.ui.ext.getCurrentVersion
 import me.ash.reader.ui.ext.openURL
@@ -91,12 +96,17 @@ fun TipsAndSupportPage(
     updateViewModel: UpdateViewModel = hiltViewModel(),
     onBack: () -> Unit,
     navigateToLicenseList: () -> Unit,
+    navigateToTroubleshooting: () -> Unit,
 ) {
     val context = LocalContext.current
     val view = LocalView.current
     val scope = rememberCoroutineScope()
     var currentVersion by remember { mutableStateOf("") }
     var userGuideVisible by remember { mutableStateOf(false) }
+    val troubleshootingEnabled =
+        context.dataStore.data.map { preferences ->
+            preferences[booleanPreferencesKey(DataStoreKey.troubleshootingEnabled)] ?: false
+        }.collectAsStateValue(false)
 
     val morphProgress = remember { Animatable(0f) }
 
@@ -145,6 +155,27 @@ fun TipsAndSupportPage(
             )
         },
         actions = {
+            FeedbackIconButton(
+                modifier = Modifier.size(22.dp),
+                imageVector = Icons.Outlined.BugReport,
+                contentDescription = stringResource(
+                    if (troubleshootingEnabled) R.string.troubleshooting_hide
+                    else R.string.troubleshooting_show
+                ),
+                tint = if (troubleshootingEnabled) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+                onClick = {
+                    scope.launch {
+                        context.dataStore.put(
+                            DataStoreKey.troubleshootingEnabled,
+                            !troubleshootingEnabled,
+                        )
+                    }
+                },
+            )
             FeedbackIconButton(
                 modifier = Modifier.size(20.dp),
                 imageVector = Icons.Rounded.Balance,
@@ -264,6 +295,21 @@ fun TipsAndSupportPage(
                                 )
                             },
                         )
+                        if (troubleshootingEnabled) {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            SettingItem(
+                                title = stringResource(R.string.troubleshooting),
+                                desc = stringResource(R.string.troubleshooting_desc),
+                                icon = Icons.Outlined.ReportGmailerrorred,
+                                onClick = navigateToTroubleshooting,
+                                action = {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                                        contentDescription = stringResource(R.string.go_to),
+                                    )
+                                },
+                            )
+                        }
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
                             text = stringResource(R.string.origread_multiplatform_title),

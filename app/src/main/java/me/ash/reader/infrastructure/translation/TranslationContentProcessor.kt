@@ -57,6 +57,41 @@ class TranslationContentProcessor {
         return document.body().html()
     }
 
+    /** 将只含译文的 HTML 恢复为“原文块 + 译文块”的交替结构。 */
+    fun renderBilingual(originalHtml: String, translatedHtml: String): String? {
+        val originalDocument = Jsoup.parseBodyFragment(originalHtml)
+        val translatedDocument = Jsoup.parseBodyFragment(translatedHtml)
+        val originalElements = selectTranslationBlocks(originalDocument)
+        val translatedElements = selectTranslationBlocks(translatedDocument)
+
+        if (
+            originalElements.isEmpty() ||
+                originalElements.size != translatedElements.size
+        ) {
+            return null
+        }
+
+        originalElements.zip(translatedElements).forEach { (original, translated) ->
+            val translatedText =
+                translated.clone().apply {
+                    select("img, picture, video, audio, source").remove()
+                    select("a:empty").remove()
+                }.html().trim()
+            if (translatedText.isNotBlank()) {
+                original.after(
+                    Element("div")
+                        .addClass("origread-translation")
+                        .attr(
+                            "style",
+                            "margin:.35em 0 1em;padding:.65em .8em;border-left:3px solid currentColor;opacity:.82;",
+                        )
+                        .html(translatedText),
+                )
+            }
+        }
+        return originalDocument.body().html()
+    }
+
     private fun replaceWithTranslatedText(element: Element, translated: String) {
         val media = element.select("img, picture, video, audio, source").map { it.clone() }
         element.empty().text(translated)

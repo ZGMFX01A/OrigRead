@@ -9,6 +9,7 @@ Language: English. The Chinese version is available as `USER_GUIDE-zh-CN.md` in 
 - [Read an article](#read-an-article)
 - [Use AI summaries](#use-ai-summaries)
 - [Translate an article](#translate-an-article)
+- [Share an article to note apps](#share-an-article-to-note-apps)
 - [Read an article aloud](#read-an-article-aloud)
 - [What to do when a source cannot be added](#what-to-do-when-a-source-cannot-be-added)
 - [Manage RSSHub](#manage-rsshub)
@@ -140,6 +141,28 @@ Traditional translation and AI translation are independent from AI summaries. Yo
 Long press opens the available translation choices for this article. You can use a different enabled method/target temporarily, and make it the new default when needed.
 
 If no useful choice appears, return to **Settings → Translation settings** and make sure at least one provider and a valid target language are enabled.
+
+---
+
+## Share an article to note apps
+
+Sharing from the article page can send the article itself, not just its link. The original URL is always included.
+
+### Choose what to share
+
+1. Open an article.
+2. Tap **Share**.
+3. The first time, choose **Use title and link** or **Customize**.
+4. In the custom options, choose the title, original body, generated translation and summary.
+5. Save and choose a destination from the Android share sheet.
+
+After the first setup, a normal tap shares immediately with the saved choices. Long-press **Share** whenever you want to change them. This setting applies to sharing from the article page; sharing from the article list keeps its existing behavior.
+
+### What note apps receive
+
+OrigRead sends rich HTML first. Apps that do not read HTML receive Android styled text or a plain-text fallback. Images stay as external image links; the image files are not copied into the note.
+
+A translation or summary is shared only when it is currently open in the reader. An old cached result is not included just because it exists. The available destination options depend on the apps installed on your device; Obsidian can create a new note automatically, while Notion needs a personal access token configured in the sharing settings.
 
 ---
 
