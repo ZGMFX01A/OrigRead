@@ -37,7 +37,7 @@
         android:allowBackup="true"
         android:enableOnBackInvokedCallback="false"
         android:icon="@drawable/origread_install_icon"
-        android:label="@string/read_you"
+        android:label="@string/app_name"
         android:roundIcon="@drawable/origread_install_icon"
         android:supportsRtl="true"
         android:theme="@style/Theme.Reader"

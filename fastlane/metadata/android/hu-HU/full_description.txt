@@ -1,4 +1,4 @@
-A <i>Read You</i> egy modern és elegáns RSS-olvasó <a href='https://m3.material.io/' target='_blank' rel='nofollow'>Material You </a> dizájnnal.
+A <i>OrigRead</i> egy modern és elegáns RSS-olvasó <a href='https://m3.material.io/' target='_blank' rel='nofollow'>Material You </a> dizájnnal.
 
 <b>Funkciók:</b>
 

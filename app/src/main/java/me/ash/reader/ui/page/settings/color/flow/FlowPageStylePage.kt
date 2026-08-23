@@ -58,7 +58,7 @@ fun FlowPageStylePage(
 
     var filterBarPaddingValue: Int? by remember { mutableStateOf(filterBarPadding) }
 
-    RYScaffold(
+    OrigReadScaffold(
         containerColor = MaterialTheme.colorScheme.surface onLight MaterialTheme.colorScheme.inverseOnSurface,
         navigationIcon = {
             FeedbackIconButton(
@@ -136,7 +136,7 @@ fun FlowPageStylePage(
                             (!articleListFeedIcon).put(context, scope)
                         },
                     ) {
-                        RYSwitch(activated = articleListFeedIcon.value) {
+                        OrigReadSwitch(activated = articleListFeedIcon.value) {
                             (!articleListFeedIcon).put(context, scope)
                         }
                     }
@@ -146,7 +146,7 @@ fun FlowPageStylePage(
                             (!articleListFeedName).put(context, scope)
                         },
                     ) {
-                        RYSwitch(activated = articleListFeedName.value) {
+                        OrigReadSwitch(activated = articleListFeedName.value) {
                             (!articleListFeedName).put(context, scope)
                         }
                     }
@@ -156,7 +156,7 @@ fun FlowPageStylePage(
                             (!articleListImage).put(context, scope)
                         },
                     ) {
-                        RYSwitch(activated = articleListImage.value) {
+                        OrigReadSwitch(activated = articleListImage.value) {
                             (!articleListImage).put(context, scope)
                         }
                     }
@@ -173,7 +173,7 @@ fun FlowPageStylePage(
                             (!articleListTime).put(context, scope)
                         },
                     ) {
-                        RYSwitch(activated = articleListTime.value) {
+                        OrigReadSwitch(activated = articleListTime.value) {
                             (!articleListTime).put(context, scope)
                         }
                     }
@@ -183,7 +183,7 @@ fun FlowPageStylePage(
                             (!articleListStickyDate).put(context, scope)
                         },
                     ) {
-                        RYSwitch(activated = articleListStickyDate.value) {
+                        OrigReadSwitch(activated = articleListStickyDate.value) {
                             (!articleListStickyDate).put(context, scope)
                         }
                     }

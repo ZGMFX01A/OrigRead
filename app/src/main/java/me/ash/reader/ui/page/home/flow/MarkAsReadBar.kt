@@ -26,7 +26,7 @@ import androidx.compose.ui.unit.dp
 import me.ash.reader.R
 import me.ash.reader.domain.model.general.MarkAsReadConditions
 import me.ash.reader.ui.component.base.AnimatedPopup
-import me.ash.reader.ui.component.base.RYExtensibleVisibility
+import me.ash.reader.ui.component.base.OrigReadExtensibleVisibility
 import me.ash.reader.ui.theme.palette.alwaysLight
 
 @Composable

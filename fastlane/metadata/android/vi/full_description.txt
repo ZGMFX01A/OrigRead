@@ -1,4 +1,4 @@
-<i>Read You</i> là trình đọc RSS hiện đại và thanh lịch với thiết kế <a href='https://m3.material.io/' target='_blank' rel='nofollow'>Material You </a>
+<i>OrigRead</i> là trình đọc RSS hiện đại và thanh lịch với thiết kế <a href='https://m3.material.io/' target='_blank' rel='nofollow'>Material You </a>
 
 <b>Tính năng:</b>
 

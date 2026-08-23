@@ -32,7 +32,7 @@ fun DarkThemePage(
     val amoledDarkTheme = LocalAmoledDarkTheme.current
     val scope = rememberCoroutineScope()
 
-    RYScaffold(
+    OrigReadScaffold(
         containerColor = MaterialTheme.colorScheme.surface onLight MaterialTheme.colorScheme.inverseOnSurface,
         navigationIcon = {
             FeedbackIconButton(
@@ -70,7 +70,7 @@ fun DarkThemePage(
                             (!amoledDarkTheme).put(context, scope)
                         },
                     ) {
-                        RYSwitch(activated = amoledDarkTheme.value) {
+                        OrigReadSwitch(activated = amoledDarkTheme.value) {
                             (!amoledDarkTheme).put(context, scope)
                         }
                     }

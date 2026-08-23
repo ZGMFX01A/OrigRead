@@ -47,8 +47,8 @@ import me.ash.reader.infrastructure.ai.AiSummaryLength
 import me.ash.reader.ui.component.base.Banner
 import me.ash.reader.ui.component.base.DisplayText
 import me.ash.reader.ui.component.base.FeedbackIconButton
-import me.ash.reader.ui.component.base.RYScaffold
-import me.ash.reader.ui.component.base.RYSwitch
+import me.ash.reader.ui.component.base.OrigReadScaffold
+import me.ash.reader.ui.component.base.OrigReadSwitch
 import me.ash.reader.ui.ext.collectAsStateValue
 
 @Composable
@@ -63,7 +63,7 @@ fun AiSettingsPage(
     var providerMenuExpanded by remember { mutableStateOf(false) }
     var modelMenuExpanded by remember { mutableStateOf(false) }
 
-    RYScaffold(
+    OrigReadScaffold(
         navigationIcon = {
             FeedbackIconButton(
                 imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
@@ -103,7 +103,7 @@ fun AiSettingsPage(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
-                                RYSwitch(activated = state.settings.enabled) {
+                                OrigReadSwitch(activated = state.settings.enabled) {
                                     viewModel.setEnabled(!state.settings.enabled)
                                 }
                             }
@@ -258,7 +258,7 @@ fun AiSettingsPage(
                                             },
                                         )
                                     }
-                                    RYSwitch(activated = profile.enabled) {
+                                    OrigReadSwitch(activated = profile.enabled) {
                                         viewModel.setProviderEnabled(!profile.enabled)
                                     }
                                 }

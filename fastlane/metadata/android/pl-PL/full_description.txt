@@ -1,4 +1,4 @@
-<i>Read You</i> Nowoczesny i elegancki czytnik RSS w stylu <a href='https://m3.material.io/' target='_blank' rel='nofollow'>Material You </a> Design
+<i>OrigRead</i> Nowoczesny i elegancki czytnik RSS w stylu <a href='https://m3.material.io/' target='_blank' rel='nofollow'>Material You </a> Design
 
 <b>Funkcje:</b>
 

@@ -19,7 +19,7 @@ import androidx.compose.ui.Modifier
 import me.ash.reader.ui.page.settings.LocalInteractionSources
 
 @Composable
-fun RYSwitch(
+fun OrigReadSwitch(
     modifier: Modifier = Modifier,
     activated: Boolean,
     enable: Boolean = true,

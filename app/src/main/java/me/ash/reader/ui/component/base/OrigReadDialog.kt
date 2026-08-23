@@ -6,7 +6,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.window.DialogProperties
 
 @Composable
-fun RYDialog(
+fun OrigReadDialog(
     modifier: Modifier = Modifier,
     visible: Boolean,
     properties: DialogProperties = DialogProperties(),

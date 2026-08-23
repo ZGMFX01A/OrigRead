@@ -32,8 +32,8 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import me.ash.reader.R
 import me.ash.reader.domain.model.account.Account
 import me.ash.reader.domain.model.account.AccountType
-import me.ash.reader.ui.component.base.RYDialog
-import me.ash.reader.ui.component.base.RYOutlinedTextField2
+import me.ash.reader.ui.component.base.OrigReadDialog
+import me.ash.reader.ui.component.base.OrigReadOutlinedTextField2
 import me.ash.reader.ui.ext.collectAsStateValue
 import me.ash.reader.ui.ext.showToast
 import me.ash.reader.ui.page.common.RouteName
@@ -70,7 +70,7 @@ fun AddLocalAccountDialog(
         }
     }
 
-    RYDialog(
+    OrigReadDialog(
         modifier = Modifier.padding(horizontal = 44.dp),
         visible = uiState.addLocalAccountDialogVisible,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -103,7 +103,7 @@ fun AddLocalAccountDialog(
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 Spacer(modifier = Modifier.height(10.dp))
-                RYOutlinedTextField2(
+                OrigReadOutlinedTextField2(
                     modifier = Modifier.fillMaxWidth(),
                     readOnly = accountUiState.isLoading,
                     state = nameState,

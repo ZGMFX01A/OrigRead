@@ -26,7 +26,7 @@ import org.jsoup.parser.Parser
 val SIZE_1000 = Size(1000, 1000)
 
 @Composable
-fun RYAsyncImage(
+fun OrigReadAsyncImage(
     modifier: Modifier = Modifier,
     data: Any? = null,
     size: Size = Size.ORIGINAL,

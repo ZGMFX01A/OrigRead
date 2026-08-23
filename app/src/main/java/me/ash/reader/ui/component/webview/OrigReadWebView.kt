@@ -32,7 +32,7 @@ import me.ash.reader.ui.ext.surfaceColorAtElevation
 import me.ash.reader.ui.theme.palette.alwaysLight
 
 @Composable
-fun RYWebView(
+fun OrigReadWebView(
     modifier: Modifier = Modifier,
     content: String,
     refererDomain: String? = null,

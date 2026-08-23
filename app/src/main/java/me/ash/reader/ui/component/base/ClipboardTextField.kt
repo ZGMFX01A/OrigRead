@@ -25,7 +25,7 @@ fun ClipboardTextField(
 ) {
     Column(modifier = Modifier) {
         Spacer(modifier = Modifier.height(10.dp))
-        RYTextField2(
+        OrigReadTextField2(
             modifier = modifier,
             readOnly = readOnly,
             state = state,

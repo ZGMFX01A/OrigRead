@@ -40,7 +40,7 @@ import me.ash.reader.R
 import me.ash.reader.domain.data.Log
 import me.ash.reader.ui.component.base.DisplayText
 import me.ash.reader.ui.component.base.FeedbackIconButton
-import me.ash.reader.ui.component.base.RYScaffold
+import me.ash.reader.ui.component.base.OrigReadScaffold
 import me.ash.reader.ui.component.base.Subtitle
 import me.ash.reader.ui.theme.palette.onLight
 
@@ -52,7 +52,7 @@ fun TroubleshootingPage(onBack: () -> Unit, viewModel: TroubleshootingViewModel 
 
     LaunchedEffect(viewModel) { viewModel.getSyncLogs().let { syncLogList.addAll(it) } }
 
-    RYScaffold(
+    OrigReadScaffold(
         containerColor =
             MaterialTheme.colorScheme.surface onLight MaterialTheme.colorScheme.inverseOnSurface,
         navigationIcon = {

@@ -95,7 +95,7 @@ private constructor(
                                     .add("output", "json")
                                     .add("Email", username)
                                     .add("Passwd", password)
-                                    .add("client", "ReadYou")
+                                    .add("client", "OrigRead")
                                     .add("accountType", "HOSTED_OR_GOOGLE")
                                     .add("service", "reader")
                                     .build()

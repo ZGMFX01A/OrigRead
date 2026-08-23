@@ -50,6 +50,7 @@ constructor(
 
     private val accountIdKey = intPreferencesKey(DataStoreKey.currentAccountId)
     private val rssReadingModeMigrationKey = booleanPreferencesKey("migration_rss_reading_mode_v1")
+    private val origReadBrandMigrationKey = booleanPreferencesKey("migration_origread_brand_v1")
 
     val currentAccountIdFlow =
         settingsProvider.preferencesFlow
@@ -101,7 +102,7 @@ constructor(
     }
 
     private fun getDefaultAccount(): Account =
-        Account(type = AccountType.Local, name = context.getString(R.string.read_you))
+        Account(type = AccountType.Local, name = context.getString(R.string.origread))
 
     private suspend fun addDefaultAccount(): Account = addAccount(getDefaultAccount())
 
@@ -123,16 +124,21 @@ constructor(
         )
 
     /**
-     * 迁移旧版默认品牌数据，仅修改仍保持原始默认值的账户和订阅，避免覆盖用户自定义内容。
+     * 过渡期运行时兜底：处理极少数未经过标准 DB v10→v11 路径的开发版/异常数据。
+     * 正常正式版升级的账户名和 Release 源已由 MIGRATION_10_11 迁移。
+     * 连续保留若干公开版本后可删除本方法及 migration_origread_brand_v1 标记。
      */
-    suspend fun migrateLegacyBranding() {
+    suspend fun migrateOrigReadIdentifiers() {
+        if (settingsProvider.dataStore.first()[origReadBrandMigrationKey] == true) return
+
         accountDao.queryAll()
             .filter { it.type == AccountType.Local && it.name == "Read You" }
-            .forEach { accountDao.update(it.copy(name = context.getString(R.string.read_you))) }
+            .forEach { accountDao.update(it.copy(name = context.getString(R.string.origread))) }
 
         accountDao.queryAll().forEach { account ->
+            val accountId = account.id ?: return@forEach
             feedDao.queryByLink(
-                accountId = account.id ?: return@forEach,
+                accountId = accountId,
                 url = "https://github.com/ReadYouApp/ReadYou/releases.atom",
             ).forEach { feed ->
                 feedDao.update(
@@ -143,6 +149,10 @@ constructor(
                     )
                 )
             }
+        }
+
+        context.dataStore.edit { preferences ->
+            preferences[origReadBrandMigrationKey] = true
         }
     }
 

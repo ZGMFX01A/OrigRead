@@ -127,7 +127,7 @@ class AndroidApp : Application(), Configuration.Provider {
                         rssService.get().doSyncOneTime(accountService.getCurrentAccountId())
                     }
             } else {
-                accountService.migrateLegacyBranding()
+                accountService.migrateOrigReadIdentifiers()
             }
             accountService.migrateLegacyRssReadingMode()
         }

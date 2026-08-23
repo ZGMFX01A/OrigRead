@@ -31,7 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import me.ash.reader.R
 import me.ash.reader.domain.model.account.Account
-import me.ash.reader.ui.component.base.RYDialog
+import me.ash.reader.ui.component.base.OrigReadDialog
 import me.ash.reader.ui.ext.isOrigReadDefaultAccount
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -46,7 +46,7 @@ fun AccountsTab(
     onClickManage: () -> Unit = {},
     onDismissRequest: () -> Unit = {},
 ) {
-    RYDialog(
+    OrigReadDialog(
         modifier = modifier,
         visible = visible,
         onDismissRequest = onDismissRequest,
@@ -61,7 +61,7 @@ fun AccountsTab(
                     val selected = account.id == currentAccountId
                     val displayName =
                         if (account.isOrigReadDefaultAccount()) {
-                            stringResource(R.string.read_you)
+                            stringResource(R.string.origread)
                         } else {
                             account.name
                         }

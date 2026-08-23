@@ -14,7 +14,7 @@ import androidx.compose.ui.Modifier
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun RYExtensibleVisibility(
+fun OrigReadExtensibleVisibility(
     visible: Boolean,
     modifier: Modifier = Modifier,
     content: @Composable AnimatedVisibilityScope.() -> Unit,

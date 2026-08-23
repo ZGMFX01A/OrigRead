@@ -43,7 +43,7 @@ fun FeedsPageStylePage(
 
     var filterBarPaddingValue: Int? by remember { mutableStateOf(filterBarPadding) }
 
-    RYScaffold(
+    OrigReadScaffold(
         containerColor = MaterialTheme.colorScheme.surface onLight MaterialTheme.colorScheme.inverseOnSurface,
         navigationIcon = {
             FeedbackIconButton(
@@ -115,7 +115,7 @@ fun FeedsPageStylePage(
                             (!groupListExpand).put(context, scope)
                         },
                     ) {
-                        RYSwitch(activated = groupListExpand.value) {
+                        OrigReadSwitch(activated = groupListExpand.value) {
                             (!groupListExpand).put(context, scope)
                         }
                     }

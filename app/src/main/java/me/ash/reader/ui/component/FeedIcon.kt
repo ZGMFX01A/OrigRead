@@ -20,7 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import me.ash.reader.R
 import me.ash.reader.ui.component.base.Base64Image
-import me.ash.reader.ui.component.base.RYAsyncImage
+import me.ash.reader.ui.component.base.OrigReadAsyncImage
 
 private val BASE64_IMAGE_REGEX = Regex("^image/.*;base64,.*")
 
@@ -49,7 +49,7 @@ fun FeedIcon(
             onEmpty = { FontIcon(modifier, size, feedName ?: "") },
         )
     } else {
-        RYAsyncImage(
+        OrigReadAsyncImage(
             modifier = modifier
                 .size(size)
                 .clip(CircleShape),

@@ -35,7 +35,7 @@ import kotlinx.coroutines.Dispatchers
 import me.ash.reader.R
 import me.ash.reader.infrastructure.preference.*
 import me.ash.reader.infrastructure.net.Download
-import me.ash.reader.ui.component.base.RYDialog
+import me.ash.reader.ui.component.base.OrigReadDialog
 import me.ash.reader.ui.ext.collectAsStateValue
 import me.ash.reader.ui.ext.installLatestApk
 import me.ash.reader.ui.ext.openURL
@@ -86,7 +86,7 @@ fun UpdateDialog(
         }
     }
 
-    RYDialog(
+    OrigReadDialog(
         modifier = Modifier.heightIn(max = 560.dp),
         visible = updateUiState.updateDialogVisible,
         onDismissRequest = {

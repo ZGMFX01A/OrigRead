@@ -8,7 +8,7 @@ class RemoteAccountMappingTest {
 
     @Test
     fun `Google Reader 默认分组不应下发为远端 label`() {
-        val defaultGroupId = "7\$read_you_app_default_group"
+        val defaultGroupId = "7\$origread_app_default_group"
 
         assertNull(resolveGoogleReaderRemoteCategoryId(defaultGroupId, defaultGroupId))
         assertEquals(
@@ -31,16 +31,16 @@ class RemoteAccountMappingTest {
                 accountId = 3,
                 remoteFeedId = "7",
                 feedsGroupsMap = mapping,
-                defaultGroupId = "3\$read_you_app_default_group",
+                defaultGroupId = "3\$origread_app_default_group",
             ),
         )
         assertEquals(
-            "3\$read_you_app_default_group",
+            "3\$origread_app_default_group",
             FeverRssService.resolveFeedGroupId(
                 accountId = 3,
                 remoteFeedId = "8",
                 feedsGroupsMap = mapping,
-                defaultGroupId = "3\$read_you_app_default_group",
+                defaultGroupId = "3\$origread_app_default_group",
             ),
         )
     }

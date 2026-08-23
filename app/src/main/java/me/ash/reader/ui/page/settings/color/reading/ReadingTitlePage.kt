@@ -38,7 +38,7 @@ fun ReadingTitlePage(
     var titleAlignDialogVisible by remember { mutableStateOf(false) }
     var subtitleAlignDialogVisible by remember { mutableStateOf(false) }
 
-    RYScaffold(
+    OrigReadScaffold(
         containerColor = MaterialTheme.colorScheme.surface onLight MaterialTheme.colorScheme.inverseOnSurface,
         navigationIcon = {
             FeedbackIconButton(
@@ -87,7 +87,7 @@ fun ReadingTitlePage(
                             ReadingThemePreference.Custom.put(context, scope)
                         },
                     ) {
-                        RYSwitch(activated = titleBold.value) {
+                        OrigReadSwitch(activated = titleBold.value) {
                             (!titleBold).put(context, scope)
                             ReadingThemePreference.Custom.put(context, scope)
                         }
@@ -99,7 +99,7 @@ fun ReadingTitlePage(
                             ReadingThemePreference.Custom.put(context, scope)
                         },
                     ) {
-                        RYSwitch(activated = titleUpperCase.value) {
+                        OrigReadSwitch(activated = titleUpperCase.value) {
                             (!titleUpperCase).put(context, scope)
                             ReadingThemePreference.Custom.put(context, scope)
                         }
@@ -125,7 +125,7 @@ fun ReadingTitlePage(
                             ReadingThemePreference.Custom.put(context, scope)
                         },
                     ) {
-                        RYSwitch(activated = subtitleBold.value) {
+                        OrigReadSwitch(activated = subtitleBold.value) {
                             (!subtitleBold).put(context, scope)
                             ReadingThemePreference.Custom.put(context, scope)
                         }
@@ -137,7 +137,7 @@ fun ReadingTitlePage(
                             ReadingThemePreference.Custom.put(context, scope)
                         },
                     ) {
-                        RYSwitch(activated = subheadUpperCase.value) {
+                        OrigReadSwitch(activated = subheadUpperCase.value) {
                             (!subheadUpperCase).put(context, scope)
                             ReadingThemePreference.Custom.put(context, scope)
                         }

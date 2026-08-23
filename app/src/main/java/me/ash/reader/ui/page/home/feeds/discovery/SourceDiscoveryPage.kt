@@ -62,7 +62,7 @@ import me.ash.reader.infrastructure.discovery.FeedCatalogEntry
 import me.ash.reader.infrastructure.discovery.SourceCategoryLabels
 import me.ash.reader.ui.component.FeedIcon
 import me.ash.reader.ui.component.base.FeedbackIconButton
-import me.ash.reader.ui.component.base.RYScaffold
+import me.ash.reader.ui.component.base.OrigReadScaffold
 import me.ash.reader.ui.ext.collectAsStateValue
 
 /** 按上游原分类浏览内置 RSS 目录；分类仅做本地化展示，不分析或重分类 Feed 内容。 */
@@ -97,7 +97,7 @@ fun SourceDiscoveryPage(
         )
     }
 
-    RYScaffold(
+    OrigReadScaffold(
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.source_discovery_title)) },

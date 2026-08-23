@@ -34,7 +34,7 @@ fun AccountsPage(
     val uiState = viewModel.accountUiState.collectAsStateValue()
     val accounts = viewModel.accounts.collectAsStateValue(initial = emptyList())
 
-    RYScaffold(
+    OrigReadScaffold(
         containerColor = MaterialTheme.colorScheme.surface onLight MaterialTheme.colorScheme.inverseOnSurface,
         navigationIcon = {
             FeedbackIconButton(
@@ -59,7 +59,7 @@ fun AccountsPage(
                         SettingItem(
                             title =
                                 if (it.isOrigReadDefaultAccount()) {
-                                    stringResource(R.string.read_you)
+                                    stringResource(R.string.origread)
                                 } else {
                                     it.name
                                 },

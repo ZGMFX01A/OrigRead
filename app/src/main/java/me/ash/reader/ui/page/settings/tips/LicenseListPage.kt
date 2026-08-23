@@ -20,7 +20,7 @@ import com.mikepenz.aboutlibraries.ui.compose.m3.LibrariesContainer
 import me.ash.reader.R
 import me.ash.reader.infrastructure.preference.OpenLinkPreference
 import me.ash.reader.ui.component.base.FeedbackIconButton
-import me.ash.reader.ui.component.base.RYScaffold
+import me.ash.reader.ui.component.base.OrigReadScaffold
 import me.ash.reader.ui.ext.openURL
 import me.ash.reader.ui.theme.palette.onLight
 
@@ -30,7 +30,7 @@ fun LicenseListPage(
 ) {
     val context = LocalContext.current
 
-    RYScaffold(
+    OrigReadScaffold(
         containerColor = MaterialTheme.colorScheme.surface onLight MaterialTheme.colorScheme.inverseOnSurface,
         navigationIcon = {
             FeedbackIconButton(

@@ -63,7 +63,7 @@ import kotlinx.coroutines.flow.map
 import me.ash.reader.R
 import me.ash.reader.infrastructure.preference.OpenLinkPreference
 import me.ash.reader.ui.component.base.FeedbackIconButton
-import me.ash.reader.ui.component.base.RYScaffold
+import me.ash.reader.ui.component.base.OrigReadScaffold
 import me.ash.reader.ui.ext.DataStoreKey
 import me.ash.reader.ui.ext.collectAsStateValue
 import me.ash.reader.ui.ext.dataStore
@@ -144,7 +144,7 @@ fun TipsAndSupportPage(
         currentVersion = context.getCurrentVersion().toString()
     }
 
-    RYScaffold(
+    OrigReadScaffold(
         containerColor = MaterialTheme.colorScheme.surface onLight MaterialTheme.colorScheme.inverseOnSurface,
         navigationIcon = {
             FeedbackIconButton(
@@ -244,12 +244,12 @@ fun TipsAndSupportPage(
                             Image(
                                 modifier = Modifier.size(136.dp),
                                 painter = painterResource(R.drawable.origread_logo),
-                                contentDescription = stringResource(R.string.read_you),
+                                contentDescription = stringResource(R.string.origread),
                             )
                         }
                         Spacer(modifier = Modifier.height(28.dp))
                         Text(
-                            text = stringResource(R.string.read_you),
+                            text = stringResource(R.string.origread),
                             style = MaterialTheme.typography.displaySmall,
                         )
                         Spacer(modifier = Modifier.height(2.dp))

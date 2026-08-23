@@ -33,7 +33,7 @@ fun DisplayText(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        RYExtensibleVisibility(visible = desc.isNotEmpty()) {
+        OrigReadExtensibleVisibility(visible = desc.isNotEmpty()) {
             Text(
                 text = desc,
                 style = MaterialTheme.typography.labelMedium,

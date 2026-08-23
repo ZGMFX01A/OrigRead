@@ -1,4 +1,4 @@
-<i>Read You</i> Un lector RSS modern i elegant amb disseny <a href='https://m3.material.io/' target='_blank' rel='nofollow'>Material You </a>
+<i>OrigRead</i> Un lector RSS modern i elegant amb disseny <a href='https://m3.material.io/' target='_blank' rel='nofollow'>Material You </a>
 
 <b>Característiques:</b>
 

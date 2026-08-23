@@ -54,7 +54,9 @@ constructor(
     }
 
     companion object {
-        private const val SYNC_WORK_NAME_PERIODIC = "ReadYou"
+        private const val SYNC_WORK_NAME_PERIODIC = "OrigRead"
+        // 过渡期迁移键：旧版本的周期任务使用该唯一名称。
+        private const val LEGACY_SYNC_WORK_NAME_PERIODIC = "ReadYou"
         @Deprecated("do not use")
         private const val READER_WORK_NAME_PERIODIC = "FETCH_FULL_CONTENT_PERIODIC"
         private const val POST_SYNC_WORK_NAME = "POST_SYNC_WORK"
@@ -72,7 +74,16 @@ constructor(
 
         fun cancelPeriodicWork(workManager: WorkManager) {
             workManager.cancelUniqueWork(SYNC_WORK_NAME_PERIODIC)
+            workManager.cancelUniqueWork(LEGACY_SYNC_WORK_NAME_PERIODIC)
             workManager.cancelUniqueWork(READER_WORK_NAME_PERIODIC)
+        }
+
+        /**
+         * 覆盖升级时清理旧品牌名下的唯一周期任务，避免旧 `ReadYou` 与新 `OrigRead` 两套任务并存。
+         * 该方法幂等，属于可在迁移窗口结束后删除的临时运行时迁移。
+         */
+        fun migrateLegacyPeriodicWork(workManager: WorkManager) {
+            workManager.cancelUniqueWork(LEGACY_SYNC_WORK_NAME_PERIODIC)
         }
 
         fun enqueueOneTimeWork(workManager: WorkManager, inputData: Data = workDataOf()) {

@@ -91,8 +91,8 @@ import me.ash.reader.infrastructure.preference.PullToLoadNextFeedPreference
 import me.ash.reader.infrastructure.preference.SortUnreadArticlesPreference
 import me.ash.reader.ui.component.FilterBar
 import me.ash.reader.ui.component.base.FeedbackIconButton
-import me.ash.reader.ui.component.base.RYExtensibleVisibility
-import me.ash.reader.ui.component.base.RYScaffold
+import me.ash.reader.ui.component.base.OrigReadExtensibleVisibility
+import me.ash.reader.ui.component.base.OrigReadScaffold
 import me.ash.reader.ui.component.scrollbar.VerticalScrollIndicatorFactory
 import me.ash.reader.ui.component.scrollbar.drawVerticalScrollIndicator
 import me.ash.reader.ui.component.scrollbar.scrollIndicator
@@ -307,7 +307,7 @@ fun FlowPage(
     val isSyncing = viewModel.isSyncingFlow.collectAsStateValue()
 
     Box(modifier = Modifier.fillMaxSize()) {
-        RYScaffold(
+        OrigReadScaffold(
             containerTonalElevation = articleListTonalElevation.value.dp,
             topBar = {
                 MaterialTheme(
@@ -377,7 +377,7 @@ fun FlowPage(
                             }
                         },
                         actions = {
-                            RYExtensibleVisibility(visible = !filterUiState.filter.isStarred()) {
+                            OrigReadExtensibleVisibility(visible = !filterUiState.filter.isStarred()) {
                                 FeedbackIconButton(
                                     imageVector = Icons.Rounded.DoneAll,
                                     contentDescription = stringResource(R.string.mark_all_as_read),
@@ -442,7 +442,7 @@ fun FlowPage(
                 }
             },
             content = {
-                RYExtensibleVisibility(modifier = Modifier.zIndex(1f), visible = onSearch) {
+                OrigReadExtensibleVisibility(modifier = Modifier.zIndex(1f), visible = onSearch) {
                     BackHandler(onSearch) { onSearch = false }
                     SearchBar(
                         value = filterUiState.searchContent ?: "",
@@ -477,7 +477,7 @@ fun FlowPage(
                     )
                 }
 
-                RYExtensibleVisibility(markAsRead) {
+                OrigReadExtensibleVisibility(markAsRead) {
                     BackHandler(markAsRead) { markAsRead = false }
 
                     MarkAsReadBar {

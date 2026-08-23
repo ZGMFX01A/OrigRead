@@ -11,7 +11,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import me.ash.reader.R
-import me.ash.reader.ui.component.base.RYDialog
+import me.ash.reader.ui.component.base.OrigReadDialog
 import me.ash.reader.ui.ext.collectAsStateValue
 import me.ash.reader.ui.ext.showToast
 
@@ -29,7 +29,7 @@ fun AllMoveToGroupDialog(
         groupOptionUiState.targetGroup?.name ?: ""
     )
 
-    RYDialog(
+    OrigReadDialog(
         visible = groupOptionUiState.allMoveToGroupDialogVisible,
         onDismissRequest = {
             groupOptionViewModel.hideAllMoveToGroupDialog()

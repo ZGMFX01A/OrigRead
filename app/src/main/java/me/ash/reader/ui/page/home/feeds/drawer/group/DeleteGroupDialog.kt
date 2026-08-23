@@ -11,7 +11,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import me.ash.reader.R
-import me.ash.reader.ui.component.base.RYDialog
+import me.ash.reader.ui.component.base.OrigReadDialog
 import me.ash.reader.ui.ext.collectAsStateValue
 import me.ash.reader.ui.ext.showToast
 
@@ -26,7 +26,7 @@ fun DeleteGroupDialog(
     val scope = rememberCoroutineScope()
     val toastString = stringResource(R.string.delete_toast, groupName)
 
-    RYDialog(
+    OrigReadDialog(
         visible = groupOptionUiState.deleteDialogVisible,
         onDismissRequest = {
             groupOptionViewModel.hideDeleteDialog()

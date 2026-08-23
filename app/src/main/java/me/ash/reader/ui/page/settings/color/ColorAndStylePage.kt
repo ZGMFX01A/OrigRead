@@ -64,8 +64,8 @@ import me.ash.reader.ui.component.base.BlockRadioGroupButtonItem
 import me.ash.reader.ui.component.base.DisplayText
 import me.ash.reader.ui.component.base.DynamicSVGImage
 import me.ash.reader.ui.component.base.FeedbackIconButton
-import me.ash.reader.ui.component.base.RYScaffold
-import me.ash.reader.ui.component.base.RYSwitch
+import me.ash.reader.ui.component.base.OrigReadScaffold
+import me.ash.reader.ui.component.base.OrigReadSwitch
 import me.ash.reader.ui.component.base.RadioDialog
 import me.ash.reader.ui.component.base.RadioDialogOption
 import me.ash.reader.ui.component.base.Subtitle
@@ -111,7 +111,7 @@ fun ColorAndStylePage(
         } ?: context.showToast("Cannot get activity result with launcher")
     }
 
-    RYScaffold(
+    OrigReadScaffold(
         containerColor = MaterialTheme.colorScheme.surface onLight MaterialTheme.colorScheme.inverseOnSurface,
         navigationIcon = {
             FeedbackIconButton(
@@ -197,7 +197,7 @@ fun ColorAndStylePage(
                         separatedActions = true,
                         onClick = navigateToDarkTheme,
                     ) {
-                        RYSwitch(
+                        OrigReadSwitch(
                             activated = darkTheme.isDarkTheme()
                         ) {
                             darkThemeNot.put(context, scope)

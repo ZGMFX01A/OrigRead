@@ -33,8 +33,8 @@ import me.ash.reader.infrastructure.preference.ReadingThemePreference
 import me.ash.reader.infrastructure.preference.not
 import me.ash.reader.ui.component.base.DisplayText
 import me.ash.reader.ui.component.base.FeedbackIconButton
-import me.ash.reader.ui.component.base.RYScaffold
-import me.ash.reader.ui.component.base.RYSwitch
+import me.ash.reader.ui.component.base.OrigReadScaffold
+import me.ash.reader.ui.component.base.OrigReadSwitch
 import me.ash.reader.ui.component.base.Subtitle
 import me.ash.reader.ui.component.base.TextFieldDialog
 import me.ash.reader.ui.page.settings.SettingItem
@@ -59,7 +59,7 @@ fun ReadingImagePage(
     var roundedCornersValue: Int? by remember { mutableStateOf(roundedCorners) }
     var horizontalPaddingValue: Int? by remember { mutableStateOf(horizontalPadding) }
 
-    RYScaffold(
+    OrigReadScaffold(
         containerColor = MaterialTheme.colorScheme.surface onLight MaterialTheme.colorScheme.inverseOnSurface,
         navigationIcon = {
             FeedbackIconButton(
@@ -90,7 +90,7 @@ fun ReadingImagePage(
 //                        horizontalArrangement = Arrangement.Center,
 //                        verticalAlignment = Alignment.CenterVertically
 //                    ) {
-//                        RYAsyncImage(
+//                        OrigReadAsyncImage(
 //                            modifier = Modifier
 //                                .fillMaxSize()
 //                                .padding(24.dp)
@@ -130,7 +130,7 @@ fun ReadingImagePage(
                             ReadingThemePreference.Custom.put(context, scope)
                         },
                     ) {
-                        RYSwitch(activated = maximize.value) {
+                        OrigReadSwitch(activated = maximize.value) {
                             (!maximize).put(context, scope)
                             ReadingThemePreference.Custom.put(context, scope)
                         }

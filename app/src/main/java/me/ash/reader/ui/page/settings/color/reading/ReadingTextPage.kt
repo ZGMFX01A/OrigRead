@@ -46,8 +46,8 @@ import me.ash.reader.infrastructure.preference.ReadingThemePreference
 import me.ash.reader.infrastructure.preference.not
 import me.ash.reader.ui.component.base.DisplayText
 import me.ash.reader.ui.component.base.FeedbackIconButton
-import me.ash.reader.ui.component.base.RYScaffold
-import me.ash.reader.ui.component.base.RYSwitch
+import me.ash.reader.ui.component.base.OrigReadScaffold
+import me.ash.reader.ui.component.base.OrigReadSwitch
 import me.ash.reader.ui.component.base.RadioDialog
 import me.ash.reader.ui.component.base.RadioDialogOption
 import me.ash.reader.ui.component.base.Subtitle
@@ -81,7 +81,7 @@ fun ReadingTextPage(
     var lineHeightMultipleValue: String by remember(lineHeight) { mutableStateOf(lineHeight.toString()) }
     var horizontalPaddingValue: Int? by remember { mutableStateOf(horizontalPadding) }
 
-    RYScaffold(
+    OrigReadScaffold(
         containerColor = MaterialTheme.colorScheme.surface onLight MaterialTheme.colorScheme.inverseOnSurface,
         navigationIcon = {
             FeedbackIconButton(
@@ -135,7 +135,7 @@ fun ReadingTextPage(
                             ReadingThemePreference.Custom.put(context, scope)
                         },
                     ) {
-                        RYSwitch(activated = bold.value) {
+                        OrigReadSwitch(activated = bold.value) {
                             (!bold).put(context, scope)
                             ReadingThemePreference.Custom.put(context, scope)
                         }

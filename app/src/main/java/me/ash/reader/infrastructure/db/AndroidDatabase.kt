@@ -31,7 +31,7 @@ import java.util.*
         ArchivedArticle::class,
         RssHttpCache::class,
     ],
-    version = 10,
+    version = 11,
     autoMigrations = [
         AutoMigration(from = 5, to = 6),
         AutoMigration(from = 5, to = 7),
@@ -97,6 +97,7 @@ val allMigrations = arrayOf(
     MIGRATION_3_4,
     MIGRATION_4_5,
     MIGRATION_9_10,
+    MIGRATION_10_11,
 )
 
 @Suppress("ClassName")
@@ -192,6 +193,71 @@ object MIGRATION_9_10 : Migration(9, 10) {
         )
         database.execSQL(
             "CREATE INDEX IF NOT EXISTS `index_article_accountId_isStarred_date` ON `article` (`accountId`, `isStarred`, `date`)"
+        )
+    }
+}
+
+/**
+ * 将早期 Read You 派生的默认分组稳定 ID 正式迁移为 OrigRead ID。
+ *
+ * `feed.groupId -> group.id` 声明了 ON UPDATE CASCADE，因此更新默认分组主键时，
+ * 现有订阅的 groupId 会由 SQLite 在同一事务内同步更新。
+ *
+ * 该 Migration 属于历史升级链。后续可以删除运行时品牌迁移，但不要删除本迁移，
+ * 否则仍停留在 DB v10 的用户将无法直接跨版本升级。
+ */
+@Suppress("ClassName")
+object MIGRATION_10_11 : Migration(10, 11) {
+
+    override fun migrate(database: SupportSQLiteDatabase) {
+        // Room 内的数据品牌迁移放在数据库升级链中，保证用户即使跳过中间版本，
+        // 未来从 DB v10 直接升级到更高版本时仍会完成迁移。
+        database.execSQL(
+            """
+            UPDATE `account`
+            SET `name` = 'OrigRead'
+            WHERE `type` = 1 AND `name` = 'Read You'
+            """.trimIndent()
+        )
+        database.execSQL(
+            """
+            UPDATE `feed`
+            SET `name` = 'OrigRead Releases',
+                `icon` = 'https://github.com/ZGMFX01A.png',
+                `url` = 'https://github.com/ZGMFX01A/OrigRead/releases.atom'
+            WHERE `url` = 'https://github.com/ReadYouApp/ReadYou/releases.atom'
+            """.trimIndent()
+        )
+
+        // 极少数开发版/测试版可能已经提前生成了新 ID。先把旧分组下的 Feed 合并到新分组，
+        // 再删除旧分组，避免后续主键 UPDATE 命中 UNIQUE 冲突。
+        database.execSQL(
+            """
+            UPDATE `feed`
+            SET `groupId` = CAST(`accountId` AS TEXT) || '$' || 'origread_app_default_group'
+            WHERE `groupId` = CAST(`accountId` AS TEXT) || '$' || 'read_you_app_default_group'
+              AND EXISTS (
+                  SELECT 1 FROM `group`
+                  WHERE `group`.`id` = CAST(`feed`.`accountId` AS TEXT) || '$' || 'origread_app_default_group'
+              )
+            """.trimIndent()
+        )
+        database.execSQL(
+            """
+            DELETE FROM `group`
+            WHERE `id` = CAST(`accountId` AS TEXT) || '$' || 'read_you_app_default_group'
+              AND EXISTS (
+                  SELECT 1 FROM `group` AS `new_group`
+                  WHERE `new_group`.`id` = CAST(`group`.`accountId` AS TEXT) || '$' || 'origread_app_default_group'
+              )
+            """.trimIndent()
+        )
+        database.execSQL(
+            """
+            UPDATE `group`
+            SET `id` = CAST(`accountId` AS TEXT) || '$' || 'origread_app_default_group'
+            WHERE `id` = CAST(`accountId` AS TEXT) || '$' || 'read_you_app_default_group'
+            """.trimIndent()
         )
     }
 }

@@ -35,8 +35,8 @@ import me.ash.reader.R
 import me.ash.reader.domain.model.account.Account
 import me.ash.reader.domain.model.account.AccountType
 import me.ash.reader.domain.model.account.security.GoogleReaderSecurityKey
-import me.ash.reader.ui.component.base.RYDialog
-import me.ash.reader.ui.component.base.RYOutlineTextField
+import me.ash.reader.ui.component.base.OrigReadDialog
+import me.ash.reader.ui.component.base.OrigReadOutlineTextField
 import me.ash.reader.ui.ext.collectAsStateValue
 import me.ash.reader.ui.ext.showToast
 import me.ash.reader.ui.page.common.RouteName
@@ -60,7 +60,7 @@ fun AddGoogleReaderAccountDialog(
     var googleReaderPassword by rememberSaveable { mutableStateOf("") }
     var googleReaderClientCertificateAlias by rememberSaveable { mutableStateOf("") }
 
-    RYDialog(
+    OrigReadDialog(
         modifier = Modifier.padding(horizontal = 44.dp),
         visible = uiState.addGoogleReaderAccountDialogVisible,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -93,7 +93,7 @@ fun AddGoogleReaderAccountDialog(
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 Spacer(modifier = Modifier.height(10.dp))
-                RYOutlineTextField(
+                OrigReadOutlineTextField(
                     modifier = Modifier.fillMaxWidth(),
                     readOnly = accountUiState.isLoading,
                     value = googleReaderServerUrl,
@@ -103,7 +103,7 @@ fun AddGoogleReaderAccountDialog(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 )
                 Spacer(modifier = Modifier.height(10.dp))
-                RYOutlineTextField(
+                OrigReadOutlineTextField(
                     modifier = Modifier.fillMaxWidth(),
                     requestFocus = false,
                     readOnly = accountUiState.isLoading,
@@ -113,7 +113,7 @@ fun AddGoogleReaderAccountDialog(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                 )
                 Spacer(modifier = Modifier.height(10.dp))
-                RYOutlineTextField(
+                OrigReadOutlineTextField(
                     modifier = Modifier.fillMaxWidth(),
                     requestFocus = false,
                     readOnly = accountUiState.isLoading,

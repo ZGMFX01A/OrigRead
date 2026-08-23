@@ -32,9 +32,9 @@ import me.ash.reader.infrastructure.preference.not
 import me.ash.reader.ui.component.base.Banner
 import me.ash.reader.ui.component.base.DisplayText
 import me.ash.reader.ui.component.base.FeedbackIconButton
-import me.ash.reader.ui.component.base.RYScaffold
-import me.ash.reader.ui.component.base.RYSwitch
-import me.ash.reader.ui.component.webview.RYWebView
+import me.ash.reader.ui.component.base.OrigReadScaffold
+import me.ash.reader.ui.component.base.OrigReadSwitch
+import me.ash.reader.ui.component.webview.OrigReadWebView
 import me.ash.reader.ui.theme.palette.onLight
 
 @Composable
@@ -48,7 +48,7 @@ fun BoldCharactersPage(
 
     val boldCharacters = LocalReadingBoldCharacters.current
 
-    RYScaffold(
+    OrigReadScaffold(
         containerColor = MaterialTheme.colorScheme.surface onLight MaterialTheme.colorScheme.inverseOnSurface,
         navigationIcon = {
             FeedbackIconButton(
@@ -78,7 +78,7 @@ fun BoldCharactersPage(
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        RYWebView(
+                        OrigReadWebView(
                             content = stringResource(R.string.bold_characters_preview),
                         )
                     }
@@ -90,7 +90,7 @@ fun BoldCharactersPage(
                         modifier = Modifier.padding(horizontal = 8.dp),
                         title = stringResource(R.string.use_bold_characters),
                         action = {
-                            RYSwitch(activated = boldCharacters.value) {
+                            OrigReadSwitch(activated = boldCharacters.value) {
                                 (!boldCharacters).put(context, scope)
                             }
                         },

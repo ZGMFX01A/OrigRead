@@ -223,6 +223,7 @@ abstract class AbstractRssRepository(
     }
 
     fun initSync() {
+        SyncWorker.migrateLegacyPeriodicWork(workManager)
         accountService.getCurrentAccount().let {
             val syncOnStart = it.syncOnStart.value
             if (syncOnStart) {

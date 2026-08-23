@@ -41,8 +41,8 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import me.ash.reader.R
 import me.ash.reader.ui.component.base.DisplayText
 import me.ash.reader.ui.component.base.FeedbackIconButton
-import me.ash.reader.ui.component.base.RYScaffold
-import me.ash.reader.ui.component.base.RYSwitch
+import me.ash.reader.ui.component.base.OrigReadScaffold
+import me.ash.reader.ui.component.base.OrigReadSwitch
 import me.ash.reader.ui.component.base.TextFieldDialog
 import me.ash.reader.ui.ext.MimeType
 import me.ash.reader.ui.ext.collectAsStateValue
@@ -115,7 +115,7 @@ fun WebsiteRulesPage(
         }
     }
 
-    RYScaffold(
+    OrigReadScaffold(
         containerColor = MaterialTheme.colorScheme.surface onLight MaterialTheme.colorScheme.inverseOnSurface,
         navigationIcon = {
             FeedbackIconButton(
@@ -214,7 +214,7 @@ fun WebsiteRulesPage(
                         onClick = { viewModel.setEnabled(rule, !rule.enabled) },
                         action = {
                             Row {
-                                RYSwitch(activated = rule.enabled) {
+                                OrigReadSwitch(activated = rule.enabled) {
                                     viewModel.setEnabled(rule, !rule.enabled)
                                 }
                                 Spacer(Modifier.width(8.dp))

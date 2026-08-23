@@ -71,7 +71,7 @@ class MainActivity : AppCompatActivity() {
             LanguagesPreference.fromValue(languages).let { LanguagesPreference.setLocale(it) }
         }
 
-        // Workaround for https://github.com/ReadYouApp/ReadYou/issues/312: increase cursor window
+        // 增大 CursorWindow，避免大正文/大数据行触发窗口容量问题。
         // size
         try {
             val field: Field = CursorWindow::class.java.getDeclaredField("sCursorWindowSize")

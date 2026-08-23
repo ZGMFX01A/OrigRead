@@ -59,7 +59,7 @@ import me.ash.reader.infrastructure.website.AutomaticWebsiteListDetector
 import me.ash.reader.infrastructure.website.WebsiteRule
 import me.ash.reader.infrastructure.json.JsonRule
 import me.ash.reader.infrastructure.filter.ArticleFilterRuleType
-import me.ash.reader.ui.component.base.RYSwitch
+import me.ash.reader.ui.component.base.OrigReadSwitch
 import me.ash.reader.ui.component.ChangeUrlDialog
 import me.ash.reader.ui.component.FeedIcon
 import me.ash.reader.ui.component.RenameDialog
@@ -147,7 +147,7 @@ fun FeedOptionDrawer(
                                         color = MaterialTheme.colorScheme.outline,
                                     )
                                 }
-                                RYSwitch(activated = rule.enabled) {
+                                OrigReadSwitch(activated = rule.enabled) {
                                     feedOptionViewModel.setSourceFilterEnabled(rule, !rule.enabled)
                                 }
                                 FeedbackIconButton(

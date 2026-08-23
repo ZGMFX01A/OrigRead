@@ -40,8 +40,8 @@ import me.ash.reader.infrastructure.rsshub.RssHubSettingsRepository
 import me.ash.reader.ui.component.base.Banner
 import me.ash.reader.ui.component.base.DisplayText
 import me.ash.reader.ui.component.base.FeedbackIconButton
-import me.ash.reader.ui.component.base.RYScaffold
-import me.ash.reader.ui.component.base.RYSwitch
+import me.ash.reader.ui.component.base.OrigReadScaffold
+import me.ash.reader.ui.component.base.OrigReadSwitch
 import me.ash.reader.ui.ext.collectAsStateValue
 
 @Composable
@@ -53,7 +53,7 @@ fun RssHubSettingsPage(
     val successMessage = stringResource(R.string.rsshub_test_success)
     val failurePrefix = stringResource(R.string.rsshub_test_failed)
 
-    RYScaffold(
+    OrigReadScaffold(
         navigationIcon = {
             FeedbackIconButton(
                 imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
@@ -74,7 +74,7 @@ fun RssHubSettingsPage(
                         title = stringResource(R.string.rsshub_enable),
                         desc = stringResource(R.string.rsshub_enable_desc),
                         action = {
-                            RYSwitch(activated = state.enabled) {
+                            OrigReadSwitch(activated = state.enabled) {
                                 viewModel.setEnabled(!state.enabled)
                             }
                         },
@@ -237,7 +237,7 @@ private fun RssHubInstanceItem(
                         )
                     }
                 }
-                RYSwitch(
+                OrigReadSwitch(
                     activated = instance.enabled,
                     enable = globalEnabled,
                 ) { onEnabledChange(!instance.enabled) }

@@ -1,4 +1,4 @@
-<i>Read You</i>एक आधुनिक और सुंदर RSS रीडर <a href='https://m3.material.io/' target='_blank' rel='nofollow'>Material You </a> डिज़ाइन के साथ
+<i>OrigRead</i>एक आधुनिक और सुंदर RSS रीडर <a href='https://m3.material.io/' target='_blank' rel='nofollow'>Material You </a> डिज़ाइन के साथ
 
 <b>विशेषताएं:</b>
 

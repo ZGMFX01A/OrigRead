@@ -33,7 +33,7 @@ fun RadioDialog(
     options: List<RadioDialogOption> = emptyList(),
     onDismissRequest: () -> Unit = {},
 ) {
-    RYDialog(
+    OrigReadDialog(
         modifier = modifier,
         visible = visible,
         onDismissRequest = onDismissRequest,

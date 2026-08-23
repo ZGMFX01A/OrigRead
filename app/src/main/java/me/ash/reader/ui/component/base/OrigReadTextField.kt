@@ -48,7 +48,7 @@ import me.ash.reader.R
 @OptIn(ExperimentalMaterial3Api::class)
 @Deprecated("Use overloads with text field state instead")
 @Composable
-fun RYOutlineTextField(
+fun OrigReadOutlineTextField(
     modifier: Modifier = Modifier,
     requestFocus: Boolean = true,
     readOnly: Boolean = false,
@@ -71,7 +71,7 @@ fun RYOutlineTextField(
 
     LaunchedEffect(textFlow) { textFlow.collect { onValueChange(it.toString()) } }
 
-    RYOutlinedTextField2(
+    OrigReadOutlinedTextField2(
         state = state,
         modifier = modifier,
         readOnly = readOnly,
@@ -87,7 +87,7 @@ fun RYOutlineTextField(
 
 @Deprecated("Use overloads with state instead")
 @Composable
-fun RYTextField2(
+fun OrigReadTextField2(
     value: String,
     modifier: Modifier = Modifier,
     readOnly: Boolean = false,
@@ -112,7 +112,7 @@ fun RYTextField2(
 
     LaunchedEffect(textFlow) { textFlow.collect { onValueChange(it.toString()) } }
 
-    RYTextField2(
+    OrigReadTextField2(
         state = state,
         modifier = modifier,
         readOnly = readOnly,
@@ -128,7 +128,7 @@ fun RYTextField2(
 }
 
 @Composable
-fun RYTextField2(
+fun OrigReadTextField2(
     state: TextFieldState,
     modifier: Modifier = Modifier,
     readOnly: Boolean = false,
@@ -218,7 +218,7 @@ fun RYTextField2(
 }
 
 @Composable
-fun RYOutlinedTextField2(
+fun OrigReadOutlinedTextField2(
     state: TextFieldState,
     modifier: Modifier = Modifier,
     readOnly: Boolean = false,

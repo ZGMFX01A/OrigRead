@@ -73,7 +73,7 @@ import me.ash.reader.infrastructure.preference.LocalSkipVersionNumber
 import me.ash.reader.ui.component.FilterBar
 import me.ash.reader.ui.component.base.DisplayText
 import me.ash.reader.ui.component.base.FeedbackIconButton
-import me.ash.reader.ui.component.base.RYScaffold
+import me.ash.reader.ui.component.base.OrigReadScaffold
 import me.ash.reader.ui.component.scrollbar.drawVerticalScrollIndicator
 import me.ash.reader.ui.ext.collectAsStateValue
 import me.ash.reader.ui.ext.currentAccountId
@@ -181,7 +181,7 @@ fun FeedsPage(
 
     BackHandler(true) { context.findActivity()?.moveTaskToBack(false) }
 
-    RYScaffold(
+    OrigReadScaffold(
         topBarTonalElevation = topBarTonalElevation.value.dp,
         //        containerTonalElevation = groupListTonalElevation.value.dp,
         topBar = {
@@ -245,7 +245,7 @@ fun FeedsPage(
                         DisplayText(
                             text =
                                 if (account?.isOrigReadDefaultAccount() == true) {
-                                    stringResource(R.string.read_you)
+                                    stringResource(R.string.origread)
                                 } else {
                                     account?.name.orEmpty()
                                 },

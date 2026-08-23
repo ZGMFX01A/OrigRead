@@ -20,8 +20,8 @@ import me.ash.reader.R
 import me.ash.reader.infrastructure.preference.LocalAutoCheckUpdates
 import me.ash.reader.ui.component.base.DisplayText
 import me.ash.reader.ui.component.base.FeedbackIconButton
-import me.ash.reader.ui.component.base.RYScaffold
-import me.ash.reader.ui.component.base.RYSwitch
+import me.ash.reader.ui.component.base.OrigReadScaffold
+import me.ash.reader.ui.component.base.OrigReadSwitch
 import me.ash.reader.ui.ext.DataStoreKey
 import me.ash.reader.ui.ext.dataStore
 import me.ash.reader.ui.ext.getCurrentVersion
@@ -42,7 +42,7 @@ fun UpdateSettingsPage(
     val autoCheckUpdates = LocalAutoCheckUpdates.current
     val currentVersion = context.getCurrentVersion().toString()
 
-    RYScaffold(
+    OrigReadScaffold(
         navigationIcon = {
             FeedbackIconButton(
                 imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
@@ -64,7 +64,7 @@ fun UpdateSettingsPage(
                         desc = stringResource(R.string.auto_check_updates_desc),
                         onClick = { autoCheckUpdates.toggle(context, scope) },
                     ) {
-                        RYSwitch(activated = autoCheckUpdates.value) {
+                        OrigReadSwitch(activated = autoCheckUpdates.value) {
                             autoCheckUpdates.toggle(context, scope)
                         }
                     }

@@ -35,7 +35,7 @@ import androidx.compose.ui.unit.dp
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun RYSelectionChip(
+fun OrigReadSelectionChip(
     content: String,
     selected: Boolean,
     modifier: Modifier = Modifier,
@@ -113,9 +113,9 @@ fun RYSelectionChip(
 
 @Preview
 @Composable
-private fun RYSelectionChipPreview() {
+private fun OrigReadSelectionChipPreview() {
     Column {
         var selected by remember { mutableStateOf(false) }
-        RYSelectionChip(content = "Test", selected = selected, onClick = { selected = !selected })
+        OrigReadSelectionChip(content = "Test", selected = selected, onClick = { selected = !selected })
     }
 }

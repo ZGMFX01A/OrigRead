@@ -66,16 +66,31 @@ android {
         ksp { arg("room.incremental", "true") }
     }
 
-    flavorDimensions.add("channel")
+    flavorDimensions.addAll(listOf("edition", "channel"))
     productFlavors {
+        create("standard") {
+            isDefault = true
+            dimension = "edition"
+            buildConfigField("String", "EDITION", "\"standard\"")
+        }
+        create("llm") {
+            dimension = "edition"
+            applicationIdSuffix = ".llm"
+            buildConfigField("String", "EDITION", "\"llm\"")
+        }
         create("github") {
             isDefault = true
             dimension = "channel"
+            buildConfigField("String", "CHANNEL", "\"github\"")
         }
-        create("fdroid") { dimension = "channel" }
+        create("fdroid") {
+            dimension = "channel"
+            buildConfigField("String", "CHANNEL", "\"fdroid\"")
+        }
         create("googlePlay") {
             dimension = "channel"
             applicationIdSuffix = ".google.play"
+            buildConfigField("String", "CHANNEL", "\"googlePlay\"")
         }
     }
     signingConfigs {
@@ -100,12 +115,14 @@ android {
         all { signingConfig = signingConfigs.getByName("release") }
     }
     applicationVariants.all {
+        val edition = productFlavors.firstOrNull { it.dimension == "edition" }?.name ?: "standard"
+        val artifactName = if (edition == "llm") "OrigRead-LLM" else "OrigRead"
         outputs.all {
             (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFileName =
                 if (releaseVersion != null) {
-                    "OrigRead-${releaseVersion}.apk"
+                    "${artifactName}-${releaseVersion}.apk"
                 } else {
-                    "OrigRead-${defaultConfig.versionName}-${gitCommitHash}.apk"
+                    "${artifactName}-${defaultConfig.versionName}-${gitCommitHash}.apk"
                 }
         }
     }

@@ -43,8 +43,8 @@ import me.ash.reader.infrastructure.preference.SwipeEndActionPreference
 import me.ash.reader.infrastructure.preference.SwipeStartActionPreference
 import me.ash.reader.ui.component.base.DisplayText
 import me.ash.reader.ui.component.base.FeedbackIconButton
-import me.ash.reader.ui.component.base.RYScaffold
-import me.ash.reader.ui.component.base.RYSwitch
+import me.ash.reader.ui.component.base.OrigReadScaffold
+import me.ash.reader.ui.component.base.OrigReadSwitch
 import me.ash.reader.ui.component.base.RadioDialog
 import me.ash.reader.ui.component.base.RadioDialogOption
 import me.ash.reader.ui.component.base.Subtitle
@@ -85,7 +85,7 @@ fun InteractionPage(
     var showSortUnreadArticlesDialog by remember { mutableStateOf(false) }
     var showPullToLoadDialog by remember { mutableStateOf(false) }
 
-    RYScaffold(
+    OrigReadScaffold(
         containerColor = MaterialTheme.colorScheme.surface onLight MaterialTheme.colorScheme.inverseOnSurface,
         navigationIcon = {
             FeedbackIconButton(
@@ -132,7 +132,7 @@ fun InteractionPage(
                             hideEmptyGroups.toggle(context, scope)
                         },
                     ) {
-                        RYSwitch(activated = hideEmptyGroups.value) {
+                        OrigReadSwitch(activated = hideEmptyGroups.value) {
                             hideEmptyGroups.toggle(context, scope)
                         }
                     }
@@ -172,7 +172,7 @@ fun InteractionPage(
                             markAsReadOnScroll.toggle(context, scope)
                         },
                     ) {
-                        RYSwitch(activated = markAsReadOnScroll.value) {
+                        OrigReadSwitch(activated = markAsReadOnScroll.value) {
                             markAsReadOnScroll.toggle(context, scope)
                         }
                     }
@@ -194,7 +194,7 @@ fun InteractionPage(
                     SettingItem(
                         title = stringResource(id = R.string.pull_to_switch_article),
                         onClick = { pullToSwitchArticle.toggle(context, scope) }) {
-                        RYSwitch(activated = pullToSwitchArticle.value) {
+                        OrigReadSwitch(activated = pullToSwitchArticle.value) {
                             pullToSwitchArticle.toggle(context, scope)
                         }
                     }

@@ -41,8 +41,8 @@ import me.ash.reader.infrastructure.translation.displayName
 import me.ash.reader.ui.component.base.Banner
 import me.ash.reader.ui.component.base.DisplayText
 import me.ash.reader.ui.component.base.FeedbackIconButton
-import me.ash.reader.ui.component.base.RYScaffold
-import me.ash.reader.ui.component.base.RYSwitch
+import me.ash.reader.ui.component.base.OrigReadScaffold
+import me.ash.reader.ui.component.base.OrigReadSwitch
 import me.ash.reader.ui.ext.collectAsStateValue
 
 @Composable
@@ -54,7 +54,7 @@ fun TranslationSettingsPage(
     val successPrefix = stringResource(R.string.translation_test_success)
     val failurePrefix = stringResource(R.string.translation_test_failed)
 
-    RYScaffold(
+    OrigReadScaffold(
         navigationIcon = {
             FeedbackIconButton(
                 imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
@@ -262,7 +262,7 @@ private fun ProviderSettingsCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            RYSwitch(activated = settings.enabled) { onEnabled(!settings.enabled) }
+            OrigReadSwitch(activated = settings.enabled) { onEnabled(!settings.enabled) }
         }
 
         if (type != TranslationProviderType.ML_KIT) {

@@ -76,7 +76,7 @@ class WebViewClient(
         error: WebResourceError?,
     ) {
         super.onReceivedError(view, request, error)
-        Log.e("RLog", "RYWebView onReceivedError: $error")
+        Log.e("RLog", "OrigReadWebView onReceivedError: $error")
     }
 
     override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {

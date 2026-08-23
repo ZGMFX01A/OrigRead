@@ -1,4 +1,4 @@
-<i>Read You</i> — mūsdienīgs un elegants RSS lasītājs ar <a href='https://m3.material.io/' target='_blank' rel='nofollow'>Material You </a> dizainu
+<i>OrigRead</i> — mūsdienīgs un elegants RSS lasītājs ar <a href='https://m3.material.io/' target='_blank' rel='nofollow'>Material You </a> dizainu
 
 <b>Funkcionalitāte:</b>
 

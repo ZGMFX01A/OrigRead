@@ -36,7 +36,7 @@ import me.ash.reader.R
 import me.ash.reader.domain.model.group.Group
 import me.ash.reader.ui.component.RenameDialog
 import me.ash.reader.ui.component.base.BottomDrawer
-import me.ash.reader.ui.component.base.RYSelectionChip
+import me.ash.reader.ui.component.base.OrigReadSelectionChip
 import me.ash.reader.ui.component.base.Subtitle
 import me.ash.reader.ui.ext.*
 import me.ash.reader.ui.interaction.alphaIndicationClickable
@@ -175,7 +175,7 @@ private fun Preset(
         horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.Start),
         verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically),
     ) {
-        RYSelectionChip(
+        OrigReadSelectionChip(
             modifier = Modifier,
             content = stringResource(R.string.allow_notification),
             selected = false,
@@ -191,7 +191,7 @@ private fun Preset(
         ) {
             viewModel.showAllAllowNotificationDialog()
         }
-        RYSelectionChip(
+        OrigReadSelectionChip(
             modifier = Modifier,
             content = stringResource(R.string.parse_full_content),
             selected = false,
@@ -207,7 +207,7 @@ private fun Preset(
         ) {
             viewModel.showAllParseFullContentDialog()
         }
-        RYSelectionChip(
+        OrigReadSelectionChip(
             modifier = Modifier,
             content = stringResource(R.string.open_in_browser),
             selected = false,
@@ -223,7 +223,7 @@ private fun Preset(
         ) {
             viewModel.showAllOpenInBrowserDialog()
         }
-        RYSelectionChip(
+        OrigReadSelectionChip(
             modifier = Modifier,
             content = stringResource(R.string.clear_articles),
             selected = false,
@@ -231,7 +231,7 @@ private fun Preset(
             viewModel.showClearDialog()
         }
         if (viewModel.rssService.get().deleteSubscription && group?.id != context.currentAccountId.getDefaultGroupId()) {
-            RYSelectionChip(
+            OrigReadSelectionChip(
                 modifier = Modifier,
                 content = stringResource(R.string.delete_group),
                 selected = false,
@@ -255,7 +255,7 @@ private fun FlowRowGroups(
     ) {
         groupOptionUiState.groups.forEach {
             if (it.id != group?.id) {
-                RYSelectionChip(
+                OrigReadSelectionChip(
                     modifier = Modifier,
                     content = it.name,
                     selected = false,
@@ -276,7 +276,7 @@ private fun LazyRowGroups(
     LazyRow {
         items(groupOptionUiState.groups) {
             if (it.id != group?.id) {
-                RYSelectionChip(
+                OrigReadSelectionChip(
                     modifier = Modifier,
                     content = it.name,
                     selected = false,

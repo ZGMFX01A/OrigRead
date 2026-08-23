@@ -54,9 +54,9 @@ import me.ash.reader.infrastructure.preference.SyncIntervalPreference
 import me.ash.reader.infrastructure.preference.not
 import me.ash.reader.ui.component.base.DisplayText
 import me.ash.reader.ui.component.base.FeedbackIconButton
-import me.ash.reader.ui.component.base.RYDialog
-import me.ash.reader.ui.component.base.RYScaffold
-import me.ash.reader.ui.component.base.RYSwitch
+import me.ash.reader.ui.component.base.OrigReadDialog
+import me.ash.reader.ui.component.base.OrigReadScaffold
+import me.ash.reader.ui.component.base.OrigReadSwitch
 import me.ash.reader.ui.component.base.RadioDialog
 import me.ash.reader.ui.component.base.RadioDialogOption
 import me.ash.reader.ui.component.base.Subtitle
@@ -111,7 +111,7 @@ fun AccountDetailsPage(
             }
         }
 
-    RYScaffold(
+    OrigReadScaffold(
         containerColor =
             MaterialTheme.colorScheme.surface onLight MaterialTheme.colorScheme.inverseOnSurface,
         navigationIcon = {
@@ -191,7 +191,7 @@ fun AccountDetailsPage(
                             }
                         },
                     ) {
-                        RYSwitch(activated = selectedAccount?.syncOnStart?.value == true) {
+                        OrigReadSwitch(activated = selectedAccount?.syncOnStart?.value == true) {
                             selectedAccount?.id?.let {
                                 (!selectedAccount.syncOnStart).put(it, viewModel)
                             }
@@ -205,7 +205,7 @@ fun AccountDetailsPage(
                             }
                         },
                     ) {
-                        RYSwitch(activated = selectedAccount?.syncOnlyOnWiFi?.value == true) {
+                        OrigReadSwitch(activated = selectedAccount?.syncOnlyOnWiFi?.value == true) {
                             selectedAccount?.id?.let {
                                 (!selectedAccount.syncOnlyOnWiFi).put(it, viewModel)
                             }
@@ -219,7 +219,7 @@ fun AccountDetailsPage(
                             }
                         },
                     ) {
-                        RYSwitch(activated = selectedAccount?.syncOnlyWhenCharging?.value == true) {
+                        OrigReadSwitch(activated = selectedAccount?.syncOnlyWhenCharging?.value == true) {
                             selectedAccount?.id?.let {
                                 (!selectedAccount.syncOnlyWhenCharging).put(it, viewModel)
                             }
@@ -336,7 +336,7 @@ fun AccountDetailsPage(
         },
     )
 
-    RYDialog(
+    OrigReadDialog(
         visible = uiState.clearDialogVisible,
         onDismissRequest = { viewModel.hideClearDialog() },
         icon = {
@@ -370,7 +370,7 @@ fun AccountDetailsPage(
         },
     )
 
-    RYDialog(
+    OrigReadDialog(
         visible = uiState.deleteDialogVisible,
         onDismissRequest = { viewModel.hideDeleteDialog() },
         icon = {
@@ -402,7 +402,7 @@ fun AccountDetailsPage(
         },
     )
 
-    RYDialog(
+    OrigReadDialog(
         visible = exportOPMLModeDialogVisible,
         title = {
             Text(
@@ -479,7 +479,7 @@ private fun subscriptionOPMLFileLauncher(
     launcher: ManagedActivityResultLauncher<String, Uri?>,
 ) {
     launcher.launch(
-        "Read-You-" +
+        "OrigRead-" +
             "${context.getCurrentVersion()}-subscription-" +
             "${Date().toString(DateFormat.YYYY_MM_DD_DASH_HH_MM_SS_DASH)}.opml"
     )

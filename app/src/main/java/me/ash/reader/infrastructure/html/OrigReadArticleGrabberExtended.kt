@@ -9,7 +9,7 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import org.jsoup.nodes.TextNode
 
-open class RYArticleGrabberExtended(options: ReadabilityOptions, regExExtended: RegExUtilExtended) : ArticleGrabberExtended(options, regExExtended) {
+open class OrigReadArticleGrabberExtended(options: ReadabilityOptions, regExExtended: RegExUtilExtended) : ArticleGrabberExtended(options, regExExtended) {
 
     override fun prepareNodes(doc: Document, options: ArticleGrabberOptions): List<Element> {
         val elementsToScore = ArrayList<Element>()

@@ -36,7 +36,7 @@ object Readability {
             regExUtil = regExUtil,
             preprocessor = Preprocessor(regExUtil),
             metadataParser = MetadataParser(regExUtil),
-            articleGrabber = RYArticleGrabberExtended(options, regExUtil),
+            articleGrabber = OrigReadArticleGrabberExtended(options, regExUtil),
             postprocessor = PostprocessorExtended(),
         )
     }

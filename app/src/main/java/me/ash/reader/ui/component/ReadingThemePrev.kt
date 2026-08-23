@@ -136,7 +136,7 @@ fun ReadingThemePrev(
 
 @Preview
 @Composable
-private fun ReadYouPreview() {
+private fun OrigReadPreview() {
     ReadingThemePrev(
         selected = ReadingThemePreference.MaterialYou,
         theme = ReadingThemePreference.MaterialYou,

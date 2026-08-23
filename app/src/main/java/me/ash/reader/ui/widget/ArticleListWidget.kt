@@ -384,7 +384,7 @@ private fun PreviewArticleCard() {
                 )
                 Column(GlanceModifier.padding(8.dp)) {
                     Text(
-                        "Read You",
+                        "OrigRead",
                         style =
                             TextStyle(
                                 color = ColorProvider(Color.White),

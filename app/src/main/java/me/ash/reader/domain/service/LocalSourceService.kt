@@ -49,9 +49,7 @@ class LocalSourceService @Inject constructor(
             SourceType.JSON -> SyncFetchResult(jsonSourceHelper.fetch(feed, preDate))
         }
 
-    /**
-     * 保留 Read You 原有 RSS 抓取及图标补全逻辑。
-     */
+    /** 保留成熟的 RSS 抓取及图标补全逻辑。 */
     private suspend fun fetchRss(feed: Feed, preDate: Date): FeedWithArticle {
         var effectiveFeed = feed
         var articles = rssHelper.queryRssXml(feed, "", preDate)

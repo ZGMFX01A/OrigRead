@@ -71,7 +71,7 @@ import me.ash.reader.infrastructure.preference.LocalFlowArticleListTime
 import me.ash.reader.infrastructure.preference.SwipeEndActionPreference
 import me.ash.reader.infrastructure.preference.SwipeStartActionPreference
 import me.ash.reader.ui.component.FeedIcon
-import me.ash.reader.ui.component.base.RYAsyncImage
+import me.ash.reader.ui.component.base.OrigReadAsyncImage
 import me.ash.reader.ui.component.base.SIZE_1000
 import me.ash.reader.ui.component.menu.AnimatedDropdownMenu
 import me.ash.reader.ui.component.swipe.SwipeAction
@@ -286,7 +286,7 @@ fun ArticleItem(
 
             // Image
             if (hasUsableArticleImage(imgData) && articleListImage.value && !imageLoadFailed) {
-                RYAsyncImage(
+                OrigReadAsyncImage(
                     modifier = Modifier.padding(start = 10.dp).size(80.dp).clip(Shape20),
                     data = imgData,
                     scale = Scale.FILL,

@@ -42,7 +42,7 @@ import me.ash.reader.infrastructure.preference.ReadingRendererPreference
 import me.ash.reader.ui.component.reader.LocalTextContentWidth
 import me.ash.reader.ui.component.reader.Reader
 import me.ash.reader.ui.component.scrollbar.drawVerticalScrollIndicator
-import me.ash.reader.ui.component.webview.RYWebView
+import me.ash.reader.ui.component.webview.OrigReadWebView
 import me.ash.reader.ui.ext.extractDomain
 import me.ash.reader.ui.ext.roundClick
 import org.jsoup.Jsoup
@@ -150,7 +150,7 @@ fun Content(
                             // padding
                             headline()
 
-                            RYWebView(
+                            OrigReadWebView(
                                 modifier = Modifier.fillMaxSize(),
                                 content = content,
                                 refererDomain = link.extractDomain(),

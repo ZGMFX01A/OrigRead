@@ -119,7 +119,7 @@
     <string name="help_translate">帮助我们翻译</string>
     <string name="tips_and_support">提示和支持</string>
     <string name="user_guide_title">用户操作手册</string>
-    <string name="read_you">原读</string>
+    <string name="origread">原读</string>
     <string name="article_filter_settings">文章过滤</string>
     <string name="article_filter_settings_desc">按标题关键词或正则表达式过滤文章</string>
     <string name="add_filter_keyword">添加关键词</string>

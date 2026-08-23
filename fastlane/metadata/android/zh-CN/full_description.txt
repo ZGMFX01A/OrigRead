@@ -1,4 +1,4 @@
-<i>Read You</i> 是一个以 <a href='https://m3.material.io/' target='_blank' rel='nofollow'>Material You</a> 风格呈现的 RSS 阅读器
+<i>OrigRead</i> 是一个以 <a href='https://m3.material.io/' target='_blank' rel='nofollow'>Material You</a> 风格呈现的 RSS 阅读器
 
 <b>特性：</b>
 

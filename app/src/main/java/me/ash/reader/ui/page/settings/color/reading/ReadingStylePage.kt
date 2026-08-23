@@ -54,8 +54,8 @@ import me.ash.reader.infrastructure.preference.not
 import me.ash.reader.ui.component.ReadingThemePrev
 import me.ash.reader.ui.component.base.DisplayText
 import me.ash.reader.ui.component.base.FeedbackIconButton
-import me.ash.reader.ui.component.base.RYScaffold
-import me.ash.reader.ui.component.base.RYSwitch
+import me.ash.reader.ui.component.base.OrigReadScaffold
+import me.ash.reader.ui.component.base.OrigReadSwitch
 import me.ash.reader.ui.component.base.RadioDialog
 import me.ash.reader.ui.component.base.RadioDialogOption
 import me.ash.reader.ui.component.base.Subtitle
@@ -101,7 +101,7 @@ fun ReadingStylePage(
             } ?: context.showToast("Cannot get activity result with launcher")
         }
 
-    RYScaffold(
+    OrigReadScaffold(
         containerColor = MaterialTheme.colorScheme.surface onLight MaterialTheme.colorScheme.inverseOnSurface,
         navigationIcon = {
             FeedbackIconButton(
@@ -175,7 +175,7 @@ fun ReadingStylePage(
                         onClick = navigateToReadingBoldCharacters,
                     ) {
                         if (renderer == ReadingRendererPreference.WebView) {
-                            RYSwitch(
+                            OrigReadSwitch(
                                 enable = renderer == ReadingRendererPreference.WebView,
                                 activated = boldCharacters.value,
                             ) {
@@ -194,7 +194,7 @@ fun ReadingStylePage(
                             (!autoHideToolbar).put(context, scope)
                         },
                     ) {
-                        RYSwitch(activated = autoHideToolbar.value) {
+                        OrigReadSwitch(activated = autoHideToolbar.value) {
                             (!autoHideToolbar).put(context, scope)
                         }
                     }
@@ -207,7 +207,7 @@ fun ReadingStylePage(
                     SettingItem(
                         title = stringResource(id = R.string.pull_to_switch_article),
                         onClick = { pullToSwitchArticle.toggle(context, scope) }) {
-                        RYSwitch(activated = pullToSwitchArticle.value, onClick = {
+                        OrigReadSwitch(activated = pullToSwitchArticle.value, onClick = {
                             pullToSwitchArticle.toggle(context, scope)
                         })
                     }

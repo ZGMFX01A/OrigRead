@@ -27,7 +27,7 @@ import androidx.compose.ui.unit.dp
 import me.ash.reader.R
 import me.ash.reader.domain.model.feed.SourceType
 import me.ash.reader.domain.model.group.Group
-import me.ash.reader.ui.component.base.RYSelectionChip
+import me.ash.reader.ui.component.base.OrigReadSelectionChip
 import me.ash.reader.ui.component.base.Subtitle
 
 @Composable
@@ -287,7 +287,7 @@ private fun Preset(
             horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.Start),
             verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically),
         ) {
-            RYSelectionChip(
+            OrigReadSelectionChip(
                 modifier = Modifier,
                 content = stringResource(R.string.clear_articles),
                 selected = false,
@@ -295,7 +295,7 @@ private fun Preset(
                 clearArticlesOnClick()
             }
             if (showUnsubscribe) {
-                RYSelectionChip(
+                OrigReadSelectionChip(
                     modifier = Modifier,
                     content = stringResource(R.string.unsubscribe),
                     selected = false,
@@ -441,7 +441,7 @@ private fun AddToGroup(
     if (groups.size > 6) {
         LazyRow(verticalAlignment = Alignment.CenterVertically) {
             items(groups) {
-                RYSelectionChip(
+                OrigReadSelectionChip(
                     modifier = Modifier,
                     content = it.name,
                     selected = it.id == selectedGroupId,
@@ -458,7 +458,7 @@ private fun AddToGroup(
             verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically),
         ) {
             groups.forEach {
-                RYSelectionChip(
+                OrigReadSelectionChip(
                     modifier = Modifier,
                     content = it.name,
                     selected = it.id == selectedGroupId,

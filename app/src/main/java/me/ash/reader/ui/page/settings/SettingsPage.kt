@@ -43,7 +43,7 @@ import me.ash.reader.infrastructure.preference.toDisplayName
 import me.ash.reader.ui.component.base.Banner
 import me.ash.reader.ui.component.base.DisplayText
 import me.ash.reader.ui.component.base.FeedbackIconButton
-import me.ash.reader.ui.component.base.RYScaffold
+import me.ash.reader.ui.component.base.OrigReadScaffold
 import me.ash.reader.ui.ext.getCurrentVersion
 import me.ash.reader.ui.ext.isGitHub
 import me.ash.reader.ui.page.settings.tips.UpdateDialog
@@ -74,7 +74,7 @@ fun SettingsPage(
     val skipVersion = LocalSkipVersionNumber.current
     val currentVersion by remember { mutableStateOf(context.getCurrentVersion()) }
 
-    RYScaffold(
+    OrigReadScaffold(
         containerColor = MaterialTheme.colorScheme.surface onLight MaterialTheme.colorScheme.inverseOnSurface,
         navigationIcon = {
             FeedbackIconButton(

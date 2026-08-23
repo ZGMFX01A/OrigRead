@@ -1,4 +1,4 @@
-<i>Read You</i> یک خبرخوان مدرن و زیبای RSS با طراحی <a href='https://m3.material.io/' target='_blank' rel='nofollow'>Material You </a> است
+<i>OrigRead</i> یک خبرخوان مدرن و زیبای RSS با طراحی <a href='https://m3.material.io/' target='_blank' rel='nofollow'>Material You </a> است
 
 <b>ویژگی‌ها:</b>
 

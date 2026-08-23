@@ -21,7 +21,7 @@ import me.ash.reader.ui.theme.palette.onDark
 @OptIn(ExperimentalMaterial3Api::class)
 @Deprecated("Use m3 Scaffold instead")
 @Composable
-fun RYScaffold(
+fun OrigReadScaffold(
     modifier: Modifier = Modifier,
     containerColor: Color = MaterialTheme.colorScheme.surface,
     topBarTonalElevation: Dp = 0.dp,

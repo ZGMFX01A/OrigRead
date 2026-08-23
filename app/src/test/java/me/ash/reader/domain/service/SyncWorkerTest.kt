@@ -15,6 +15,15 @@ import org.mockito.kotlin.verify
 
 class SyncWorkerTest {
     @Test
+    fun `legacy ReadYou periodic work is cancelled during migration`() {
+        val workManager = mock<WorkManager>()
+
+        SyncWorker.migrateLegacyPeriodicWork(workManager)
+
+        verify(workManager).cancelUniqueWork("ReadYou")
+    }
+
+    @Test
     fun `enqueue periodic work does not synchronously query WorkManager state`() {
         val workManager = mock<WorkManager> {
             on { getWorkInfosForUniqueWork(any()) } doThrow AssertionError("must not block")

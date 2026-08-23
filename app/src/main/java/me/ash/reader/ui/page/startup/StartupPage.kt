@@ -31,8 +31,8 @@ import kotlinx.coroutines.launch
 import me.ash.reader.R
 import me.ash.reader.ui.component.base.DisplayText
 import me.ash.reader.ui.component.base.DynamicSVGImage
-import me.ash.reader.ui.component.base.RYDialog
-import me.ash.reader.ui.component.base.RYScaffold
+import me.ash.reader.ui.component.base.OrigReadDialog
+import me.ash.reader.ui.component.base.OrigReadScaffold
 import me.ash.reader.ui.component.base.Tips
 import me.ash.reader.ui.ext.DataStoreKey
 import me.ash.reader.ui.ext.dataStore
@@ -50,7 +50,7 @@ fun StartupPage(
     val scope = rememberCoroutineScope()
     var tosVisible by remember { mutableStateOf(false) }
 
-    RYScaffold(
+    OrigReadScaffold(
         content = {
             LazyColumn(modifier = Modifier.navigationBarsPadding()) {
                 item {
@@ -102,7 +102,7 @@ fun StartupPage(
         },
     )
 
-    RYDialog(
+    OrigReadDialog(
         visible = tosVisible,
         onDismissRequest = { tosVisible = false },
         icon = {

@@ -117,7 +117,7 @@
     <string name="use_device_languages">使用裝置語言</string>
     <string name="help_translate">協助翻譯</string>
     <string name="tips_and_support">提示和支援</string>
-    <string name="read_you">原讀</string>
+    <string name="origread">原讀</string>
     <string name="article_filter_settings">文章過濾</string>
     <string name="article_filter_settings_desc">依標題關鍵字或正規表示式過濾文章</string>
     <string name="add_filter_keyword">新增關鍵字</string>

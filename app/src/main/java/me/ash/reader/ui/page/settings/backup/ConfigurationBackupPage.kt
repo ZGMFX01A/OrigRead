@@ -43,8 +43,8 @@ import me.ash.reader.R
 import me.ash.reader.ui.component.base.Banner
 import me.ash.reader.ui.component.base.DisplayText
 import me.ash.reader.ui.component.base.FeedbackIconButton
-import me.ash.reader.ui.component.base.RYScaffold
-import me.ash.reader.ui.component.base.RYSwitch
+import me.ash.reader.ui.component.base.OrigReadScaffold
+import me.ash.reader.ui.component.base.OrigReadSwitch
 import me.ash.reader.ui.ext.MimeType
 import me.ash.reader.ui.ext.collectAsStateValue
 import me.ash.reader.ui.page.settings.SettingItem
@@ -112,7 +112,7 @@ fun ConfigurationBackupPage(
             }
         }
 
-    RYScaffold(
+    OrigReadScaffold(
         navigationIcon = {
             FeedbackIconButton(
                 imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
@@ -141,7 +141,7 @@ fun ConfigurationBackupPage(
                         icon = Icons.Outlined.Key,
                         onClick = { includeSecrets = !includeSecrets },
                     ) {
-                        RYSwitch(activated = includeSecrets) { includeSecrets = !includeSecrets }
+                        OrigReadSwitch(activated = includeSecrets) { includeSecrets = !includeSecrets }
                     }
                 }
                 if (includeSecrets) {
