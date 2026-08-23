@@ -9,6 +9,7 @@ import kotlinx.coroutines.launch
 import me.ash.reader.domain.service.AppService
 import me.ash.reader.infrastructure.net.Download
 import me.ash.reader.ui.ext.isGitHub
+import me.ash.reader.ui.ext.isLlmEdition
 import javax.inject.Inject
 
 @HiltViewModel
@@ -65,7 +66,12 @@ class UpdateViewModel @Inject constructor(
                 downloadFlow =
                     appService.downloadUpdate(
                         url = url,
-                        filename = "OrigRead-$version.apk",
+                        filename =
+                            if (isLlmEdition) {
+                                "OrigRead-LLM-$version.apk"
+                            } else {
+                                "OrigRead-$version.apk"
+                            },
                     ),
             )
         }

@@ -12,13 +12,13 @@ import me.ash.reader.infrastructure.di.IODispatcher
 import me.ash.reader.infrastructure.di.MainDispatcher
 import me.ash.reader.infrastructure.net.Download
 import me.ash.reader.infrastructure.net.NetworkDataSource
-import me.ash.reader.infrastructure.net.githubReleaseCheckCandidates
 import me.ash.reader.infrastructure.net.getTrustedLatestRelease
+import me.ash.reader.infrastructure.net.githubReleaseCheckCandidates
 import me.ash.reader.infrastructure.net.preferredTrustedApkAsset
 import me.ash.reader.infrastructure.preference.*
 import me.ash.reader.infrastructure.preference.NewVersionSizePreference.formatSize
 import me.ash.reader.ui.ext.getCurrentVersion
-import me.ash.reader.ui.ext.getLatestApk
+import me.ash.reader.ui.ext.isLlmEdition
 import me.ash.reader.ui.ext.showToast
 import me.ash.reader.ui.ext.skipVersionNumber
 import javax.inject.Inject
@@ -66,7 +66,11 @@ class AppService @Inject constructor(
             val latestLog = latest.body ?: ""
             val latestPublishDate = latest.published_at ?: latest.created_at ?: ""
             // GitHub Release 不保证 APK 永远位于 assets 第一项，必须按文件类型明确选择。
-            val apkAsset = latest.preferredTrustedApkAsset(repositoryUrl)
+            val apkAsset =
+                latest.preferredTrustedApkAsset(
+                    repositoryUrl = repositoryUrl,
+                    llmEdition = isLlmEdition,
+                )
             val latestSize = apkAsset?.size ?: 0
             val latestDownloadUrl = apkAsset?.browser_download_url.orEmpty()
 

@@ -16,7 +16,7 @@ internal data class OrigReadReleaseLinks(
  * 内置订阅使用 GitHub `releases.atom`，Feed 正文不会携带 Assets 列表；
  * APK 文件名与发布 tag 保持一致，例如 `v1.0.1` -> `OrigRead-v1.0.1.apk`。
  */
-internal fun String?.toOrigReadReleaseLinks(): OrigReadReleaseLinks? {
+internal fun String?.toOrigReadReleaseLinks(llmEdition: Boolean = false): OrigReadReleaseLinks? {
     val releasePageUrl = this?.trim()?.takeIf { it.startsWith(ORIGREAD_RELEASE_TAG_PREFIX) }
         ?: return null
     val tag =
@@ -31,6 +31,7 @@ internal fun String?.toOrigReadReleaseLinks(): OrigReadReleaseLinks? {
     return OrigReadReleaseLinks(
         releasePageUrl = releasePageUrl,
         apkDownloadUrl =
-            "$ORIGREAD_RELEASE_DOWNLOAD_PREFIX$tag/OrigRead-$tag.apk",
+            "$ORIGREAD_RELEASE_DOWNLOAD_PREFIX$tag/" +
+                if (llmEdition) "OrigRead-LLM-$tag.apk" else "OrigRead-$tag.apk",
     )
 }

@@ -23,6 +23,33 @@ class LatestReleaseAssetSelectorTest {
     }
 
     @Test
+    fun `standard 与 llm 只选择各自安装包`() {
+        val release =
+            LatestRelease(
+                assets =
+                    listOf(
+                        AssetsItem(
+                            name = "OrigRead-LLM-v1.2.0.apk",
+                            browser_download_url = "https://example.com/llm.apk",
+                        ),
+                        AssetsItem(
+                            name = "OrigRead-v1.2.0.apk",
+                            browser_download_url = "https://example.com/standard.apk",
+                        ),
+                    ),
+            )
+
+        assertEquals(
+            "https://example.com/standard.apk",
+            release.preferredApkAsset(llmEdition = false)?.browser_download_url,
+        )
+        assertEquals(
+            "https://example.com/llm.apk",
+            release.preferredApkAsset(llmEdition = true)?.browser_download_url,
+        )
+    }
+
+    @Test
     fun `没有 apk 资产时返回空`() {
         val release =
             LatestRelease(

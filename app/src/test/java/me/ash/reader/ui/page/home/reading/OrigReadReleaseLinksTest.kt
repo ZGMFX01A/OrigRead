@@ -30,6 +30,18 @@ class OrigReadReleaseLinksTest {
     }
 
     @Test
+    fun `llm edition builds llm apk download link`() {
+        val links =
+            "https://github.com/ZGMFX01A/OrigRead/releases/tag/v1.0.1"
+                .toOrigReadReleaseLinks(llmEdition = true)
+
+        assertEquals(
+            "https://github.com/ZGMFX01A/OrigRead/releases/download/v1.0.1/OrigRead-LLM-v1.0.1.apk",
+            links?.apkDownloadUrl,
+        )
+    }
+
+    @Test
     fun `ignores unrelated github pages`() {
         assertNull("https://github.com/ZGMFX01A/OrigRead/commits/main".toOrigReadReleaseLinks())
     }

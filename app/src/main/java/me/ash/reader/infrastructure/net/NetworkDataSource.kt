@@ -153,19 +153,27 @@ sealed class Download {
  *
  * GitHub Release 可能同时包含校验文件、源码压缩包或后续增加的其他资产，不能依赖列表第一项。
  */
-internal fun LatestRelease.preferredApkAsset(): AssetsItem? =
+internal fun LatestRelease.preferredApkAsset(llmEdition: Boolean = false): AssetsItem? =
     assets.orEmpty()
         .asSequence()
         .filter { asset ->
             val name = asset.name.orEmpty()
             val url = asset.browser_download_url.orEmpty()
+            val normalizedName = name.lowercase()
+            val matchesEdition =
+                if (llmEdition) {
+                    normalizedName.startsWith("origread-llm-")
+                } else {
+                    normalizedName.startsWith("origread-") &&
+                        !normalizedName.startsWith("origread-llm-")
+                }
             url.isNotBlank() &&
+                matchesEdition &&
                 (name.endsWith(".apk", ignoreCase = true) ||
                     asset.content_type.equals("application/vnd.android.package-archive", ignoreCase = true))
         }
         .sortedWith(
-            compareByDescending<AssetsItem> { it.name.orEmpty().startsWith("OrigRead-", ignoreCase = true) }
-                .thenBy { it.name.orEmpty().contains("debug", ignoreCase = true) }
+            compareBy<AssetsItem> { it.name.orEmpty().contains("debug", ignoreCase = true) }
                 .thenBy { it.name.orEmpty() },
         )
         .firstOrNull()
@@ -179,7 +187,10 @@ internal fun LatestRelease.isTrustedReleaseMetadata(repositoryUrl: String): Bool
         releasePage.equals("$repository/releases/tag/$tag", ignoreCase = true)
 }
 
-internal fun LatestRelease.preferredTrustedApkAsset(repositoryUrl: String): AssetsItem? {
+internal fun LatestRelease.preferredTrustedApkAsset(
+    repositoryUrl: String,
+    llmEdition: Boolean = false,
+): AssetsItem? {
     val downloadPrefix = "${repositoryUrl.trim().trimEnd('/')}/releases/download/"
     return copy(
         assets = assets.orEmpty().filter { asset ->
@@ -187,5 +198,5 @@ internal fun LatestRelease.preferredTrustedApkAsset(repositoryUrl: String): Asse
                 ?.trim()
                 ?.startsWith(downloadPrefix, ignoreCase = true) == true
         },
-    ).preferredApkAsset()
+    ).preferredApkAsset(llmEdition = llmEdition)
 }

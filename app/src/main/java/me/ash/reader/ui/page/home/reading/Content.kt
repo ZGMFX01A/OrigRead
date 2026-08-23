@@ -44,6 +44,7 @@ import me.ash.reader.ui.component.reader.Reader
 import me.ash.reader.ui.component.scrollbar.drawVerticalScrollIndicator
 import me.ash.reader.ui.component.webview.OrigReadWebView
 import me.ash.reader.ui.ext.extractDomain
+import me.ash.reader.ui.ext.isLlmEdition
 import me.ash.reader.ui.ext.roundClick
 import org.jsoup.Jsoup
 
@@ -90,7 +91,7 @@ fun Content(
     val textContentWidth = LocalTextContentWidth.current
     val maxWidthModifier = Modifier.widthIn(max = textContentWidth)
     val uriHandler = LocalUriHandler.current
-    val releaseLinks = link.toOrigReadReleaseLinks()
+    val releaseLinks = link.toOrigReadReleaseLinks(llmEdition = isLlmEdition)
 
     val headline =
         @Composable {
