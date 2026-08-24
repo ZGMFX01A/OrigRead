@@ -94,4 +94,96 @@ class AiMarkdownTest {
         assertEquals(1, blocks.size)
         assertTrue(blocks.single() is AiMarkdownBlock.Paragraph)
     }
+
+    @Test
+    fun `keeps fenced code language for rich code block`() {
+        val code =
+            parseAiMarkdown(
+                """
+                ```kotlin
+                val answer = 42
+                ```
+                """.trimIndent(),
+            ).single() as AiMarkdownBlock.Code
+
+        assertEquals("kotlin", code.language)
+        assertEquals("val answer = 42", code.text)
+    }
+
+    @Test
+    fun `parses fenced and display latex as math blocks without mistaking prices`() {
+        val fenced =
+            parseAiMarkdown(
+                """
+                ```latex
+                E = mc^2
+                ```
+                """.trimIndent(),
+            ).single()
+        val display = parseAiMarkdown("${'$'}${'$'}E = mc^2${'$'}${'$'}").single()
+        val price = parseAiMarkdown("这张显卡售价 $1600，属于普通正文。").single()
+
+        assertEquals(AiMarkdownBlock.Math("E = mc^2"), fenced)
+        assertEquals(AiMarkdownBlock.Math("E = mc^2"), display)
+        assertTrue(price is AiMarkdownBlock.Paragraph)
+    }
+
+    @Test
+    fun `parses mermaid fence as a dedicated special block`() {
+        val block =
+            parseAiMarkdown(
+                """
+                ```mermaid
+                graph TD
+                  A --> B
+                ```
+                """.trimIndent(),
+            ).single()
+
+        assertEquals(AiMarkdownBlock.Mermaid("graph TD\n  A --> B"), block)
+    }
+
+    @Test
+    fun `serializes table back to markdown for block copy`() {
+        val table =
+            AiMarkdownBlock.Table(
+                headers = listOf("项目", "说明"),
+                rows = listOf(listOf("A|B", "测试")),
+            )
+
+        assertEquals(
+            "| 项目 | 说明 |\n| --- | --- |\n| A\\|B | 测试 |",
+            table.toMarkdown(),
+        )
+    }
+
+    @Test
+    fun `keeps escaped pipes inside github flavored markdown table cells`() {
+        val table =
+            parseAiMarkdown(
+                """
+                | 名称 | 说明 |
+                | --- | --- |
+                | A\|B | 竖线属于单元格正文 |
+                """.trimIndent(),
+            ).filterIsInstance<AiMarkdownBlock.Table>().single()
+
+        assertEquals(listOf("A|B", "竖线属于单元格正文"), table.rows.single())
+    }
+
+    @Test
+    fun `pads short table rows and ignores extra body cells`() {
+        val table =
+            parseAiMarkdown(
+                """
+                | A | B | C |
+                | --- | --- | --- |
+                | 1 | 2 |
+                | 3 | 4 | 5 | extra |
+                """.trimIndent(),
+            ).filterIsInstance<AiMarkdownBlock.Table>().single()
+
+        assertEquals(listOf("1", "2", ""), table.rows[0])
+        assertEquals(listOf("3", "4", "5"), table.rows[1])
+    }
 }

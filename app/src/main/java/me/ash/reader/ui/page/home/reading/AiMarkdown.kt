@@ -1,27 +1,38 @@
 package me.ash.reader.ui.page.home.reading
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
@@ -31,6 +42,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import me.ash.reader.R
 
 /** AI 摘要常见 Markdown 块类型。保持实现轻量，避免为一个阅读面板引入完整 Markdown WebView。 */
 internal sealed interface AiMarkdownBlock {
@@ -42,12 +54,22 @@ internal sealed interface AiMarkdownBlock {
 
     data class Quote(val text: String) : AiMarkdownBlock
 
-    data class Code(val text: String) : AiMarkdownBlock
+    /** 保留 fenced code 的语言标识，供代码块标题和后续语法高亮使用。 */
+    data class Code(
+        val text: String,
+        val language: String? = null,
+    ) : AiMarkdownBlock
 
     data class Table(
         val headers: List<String>,
         val rows: List<List<String>>,
     ) : AiMarkdownBlock
+
+    /** 显示公式；LLM edition 可通过 specialBlockRenderer 接管为真正的 LaTeX 渲染。 */
+    data class Math(val latex: String) : AiMarkdownBlock
+
+    /** Mermaid 图表源；先与普通代码分型，避免以后再破坏解析模型。 */
+    data class Mermaid(val source: String) : AiMarkdownBlock
 
     data object Divider : AiMarkdownBlock
 }
@@ -67,7 +89,9 @@ internal fun parseAiMarkdown(markdown: String): List<AiMarkdownBlock> {
     val blocks = mutableListOf<AiMarkdownBlock>()
     val paragraph = mutableListOf<String>()
     val code = mutableListOf<String>()
+    val lines = markdown.replace("\r\n", "\n").replace('\r', '\n').lines()
     var inCodeBlock = false
+    var codeLanguage: String? = null
 
     fun flushParagraph() {
         if (paragraph.isNotEmpty()) {
@@ -76,7 +100,40 @@ internal fun parseAiMarkdown(markdown: String): List<AiMarkdownBlock> {
         }
     }
 
-    val lines = markdown.replace("\r\n", "\n").replace('\r', '\n').lines()
+    fun flushCodeBlock() {
+        val source = code.joinToString("\n").trimEnd()
+        val normalizedLanguage = codeLanguage?.trim()?.lowercase()?.takeIf(String::isNotBlank)
+        blocks +=
+            when (normalizedLanguage) {
+                "math", "latex", "tex" -> AiMarkdownBlock.Math(source)
+                "mermaid" -> AiMarkdownBlock.Mermaid(source)
+                else -> AiMarkdownBlock.Code(text = source, language = codeLanguage?.trim()?.takeIf(String::isNotBlank))
+            }
+        code.clear()
+        codeLanguage = null
+    }
+
+    fun parseDisplayMath(startIndex: Int, startToken: String, endToken: String): Pair<AiMarkdownBlock.Math, Int>? {
+        val first = lines[startIndex].trim()
+        if (first == startToken) {
+            val content = mutableListOf<String>()
+            var cursor = startIndex + 1
+            while (cursor < lines.size && lines[cursor].trim() != endToken) {
+                content += lines[cursor]
+                cursor++
+            }
+            if (cursor < lines.size) {
+                return AiMarkdownBlock.Math(content.joinToString("\n").trim()) to (cursor + 1)
+            }
+        }
+        if (first.startsWith(startToken) && first.endsWith(endToken) && first.length > startToken.length + endToken.length) {
+            return AiMarkdownBlock.Math(
+                first.removePrefix(startToken).removeSuffix(endToken).trim(),
+            ) to (startIndex + 1)
+        }
+        return null
+    }
+
     var index = 0
     while (index < lines.size) {
         val rawLine = lines[index]
@@ -84,8 +141,9 @@ internal fun parseAiMarkdown(markdown: String): List<AiMarkdownBlock> {
         if (line.trimStart().startsWith("```")) {
             flushParagraph()
             if (inCodeBlock) {
-                blocks += AiMarkdownBlock.Code(code.joinToString("\n").trimEnd())
-                code.clear()
+                flushCodeBlock()
+            } else {
+                codeLanguage = line.trimStart().removePrefix("```").trim().takeIf(String::isNotBlank)
             }
             inCodeBlock = !inCodeBlock
             index++
@@ -94,6 +152,24 @@ internal fun parseAiMarkdown(markdown: String): List<AiMarkdownBlock> {
         if (inCodeBlock) {
             code += rawLine
             index++
+            continue
+        }
+
+        // 只识别块级公式，避免把价格里的 "$1600" 之类文本误当成数学表达式。
+        val dollarMath = parseDisplayMath(index, "$$", "$$")
+        if (dollarMath != null) {
+            val (block, nextIndex) = dollarMath
+            flushParagraph()
+            blocks += block
+            index = nextIndex
+            continue
+        }
+        val bracketMath = parseDisplayMath(index, "\\[", "\\]")
+        if (bracketMath != null) {
+            val (block, nextIndex) = bracketMath
+            flushParagraph()
+            blocks += block
+            index = nextIndex
             continue
         }
 
@@ -107,8 +183,15 @@ internal fun parseAiMarkdown(markdown: String): List<AiMarkdownBlock> {
             var rowIndex = index + 2
             while (rowIndex < lines.size) {
                 val row = parseAiMarkdownTableRow(lines[rowIndex].trimEnd()) ?: break
-                if (row.size != headerCells.size) break
-                rows += row
+                // GFM 允许 body row 少列时补空单元格、多列时忽略多余单元格。
+                // 不能像旧实现一样直接 break，否则一个不规整的数据行会把整张表从这里截断。
+                rows +=
+                    when {
+                        row.size < headerCells.size ->
+                            row + List(headerCells.size - row.size) { "" }
+                        row.size > headerCells.size -> row.take(headerCells.size)
+                        else -> row
+                    }
                 rowIndex++
             }
             blocks += AiMarkdownBlock.Table(headers = headerCells, rows = rows)
@@ -159,7 +242,7 @@ internal fun parseAiMarkdown(markdown: String): List<AiMarkdownBlock> {
         index++
     }
     flushParagraph()
-    if (code.isNotEmpty()) blocks += AiMarkdownBlock.Code(code.joinToString("\n").trimEnd())
+    if (code.isNotEmpty()) flushCodeBlock()
     return blocks
 }
 
@@ -167,8 +250,61 @@ internal fun parseAiMarkdown(markdown: String): List<AiMarkdownBlock> {
 internal fun parseAiMarkdownTableRow(line: String): List<String>? {
     val trimmed = line.trim()
     if (!trimmed.contains('|')) return null
-    val cells = trimmed.removePrefix("|").removeSuffix("|").split('|').map(String::trim)
+
+    // 不能直接 split('|')：GFM 允许使用 \| 在单元格正文中表达字面量竖线。
+    // 这里按字符扫描，只把“前面没有奇数个反斜杠”的 | 当作列分隔符；转义本身去掉一层。
+    val start = if (trimmed.startsWith('|')) 1 else 0
+    val endExclusive =
+        if (trimmed.endsWith('|') && !isEscapedMarkdownPipe(trimmed, trimmed.lastIndex)) {
+            trimmed.lastIndex
+        } else {
+            trimmed.length
+        }
+    val cells = mutableListOf<String>()
+    val current = StringBuilder()
+    var index = start
+    while (index < endExclusive) {
+        val char = trimmed[index]
+        if (char == '|' && !isEscapedMarkdownPipe(trimmed, index)) {
+            cells += current.toString().trim()
+            current.clear()
+            index++
+            continue
+        }
+        if (char == '\\' && index + 1 < endExclusive && trimmed[index + 1] == '|' &&
+            !isEscapedMarkdownBackslash(trimmed, index)
+        ) {
+            current.append('|')
+            index += 2
+            continue
+        }
+        current.append(char)
+        index++
+    }
+    cells += current.toString().trim()
     return cells.takeIf { it.size >= 2 && it.any(String::isNotBlank) }
+}
+
+/** 判断竖线前是否有奇数个连续反斜杠，即该竖线是否被 Markdown 转义。 */
+private fun isEscapedMarkdownPipe(value: String, pipeIndex: Int): Boolean {
+    var slashCount = 0
+    var cursor = pipeIndex - 1
+    while (cursor >= 0 && value[cursor] == '\\') {
+        slashCount++
+        cursor--
+    }
+    return slashCount % 2 == 1
+}
+
+/** 判断当前反斜杠自身是否已被前一个反斜杠转义。 */
+private fun isEscapedMarkdownBackslash(value: String, slashIndex: Int): Boolean {
+    var slashCount = 0
+    var cursor = slashIndex - 1
+    while (cursor >= 0 && value[cursor] == '\\') {
+        slashCount++
+        cursor--
+    }
+    return slashCount % 2 == 1
 }
 
 internal fun isAiMarkdownTableSeparator(cells: List<String>): Boolean =
@@ -179,6 +315,7 @@ internal fun AiMarkdown(
     markdown: String,
     modifier: Modifier = Modifier,
     hideLeadingSummaryHeading: Boolean = false,
+    specialBlockRenderer: (@Composable (AiMarkdownBlock) -> Boolean)? = null,
 ) {
     val blocks =
         remember(markdown, hideLeadingSummaryHeading) {
@@ -187,6 +324,8 @@ internal fun AiMarkdown(
         }
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         blocks.forEach { block ->
+            // LLM edition 可只接管 Math/Mermaid 等重型块；普通摘要继续走轻量原生渲染。
+            if (specialBlockRenderer?.invoke(block) == true) return@forEach
             when (block) {
                 is AiMarkdownBlock.Heading -> {
                     Text(
@@ -261,20 +400,10 @@ internal fun AiMarkdown(
                             modifier = Modifier.padding(start = 10.dp),
                         )
                     }
-                is AiMarkdownBlock.Code ->
-                    Text(
-                        text = block.text,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                        modifier =
-                            Modifier.fillMaxWidth()
-                                .background(
-                                    MaterialTheme.colorScheme.surfaceVariant,
-                                    MaterialTheme.shapes.small,
-                                )
-                                .padding(10.dp),
-                    )
+                is AiMarkdownBlock.Code -> AiMarkdownCodeBlock(block)
                 is AiMarkdownBlock.Table -> AiMarkdownTable(block)
+                is AiMarkdownBlock.Math -> AiMarkdownMathFallback(block)
+                is AiMarkdownBlock.Mermaid -> AiMarkdownMermaidFallback(block)
                 AiMarkdownBlock.Divider -> HorizontalDivider()
             }
         }
@@ -282,33 +411,171 @@ internal fun AiMarkdown(
 }
 
 @Composable
-private fun AiMarkdownTable(table: AiMarkdownBlock.Table) {
-    val borderColor = MaterialTheme.colorScheme.outlineVariant
-    Column(
-        modifier =
-            Modifier.fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .border(1.dp, borderColor, MaterialTheme.shapes.small),
+private fun AiMarkdownCodeBlock(block: AiMarkdownBlock.Code) {
+    val title = block.language?.ifBlank { null } ?: stringResource(R.string.ai_markdown_code)
+    AiMarkdownSpecialBlockCard(
+        title = title,
+        source = block.text,
     ) {
-        AiMarkdownTableRow(table.headers, isHeader = true, borderColor = borderColor)
-        table.rows.forEach { row ->
-            HorizontalDivider(color = borderColor)
-            AiMarkdownTableRow(row, isHeader = false, borderColor = borderColor)
+        Box(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        ) {
+            Text(
+                text = block.text,
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            )
+        }
+    }
+}
+
+/**
+ * 特殊 Markdown 块统一外壳：标题/类型放左侧、独立复制放右侧，内容保持各自渲染方式。
+ * Code、Table、LaTeX、Mermaid 都复用这层，后续增加图表或工具结果时不会再堆一套按钮样式。
+ */
+@Composable
+internal fun AiMarkdownSpecialBlockCard(
+    title: String,
+    source: String,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val clipboardManager = LocalClipboardManager.current
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+        tonalElevation = 0.dp,
+    ) {
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 3.dp, bottom = 3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = title,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Medium,
+                )
+                IconButton(
+                    onClick = { clipboardManager.setText(AnnotatedString(source)) },
+                    modifier = Modifier.size(34.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.ContentCopy,
+                        contentDescription = stringResource(R.string.ai_markdown_copy_block, title),
+                        modifier = Modifier.size(17.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            content()
         }
     }
 }
 
 @Composable
+private fun AiMarkdownMathFallback(block: AiMarkdownBlock.Math) {
+    AiMarkdownSpecialBlockCard(
+        title = stringResource(R.string.ai_markdown_latex),
+        source = block.latex,
+    ) {
+        Text(
+            text = block.latex,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            style = MaterialTheme.typography.bodySmall,
+            fontFamily = FontFamily.Monospace,
+        )
+    }
+}
+
+@Composable
+private fun AiMarkdownMermaidFallback(block: AiMarkdownBlock.Mermaid) {
+    AiMarkdownSpecialBlockCard(
+        title = "Mermaid",
+        source = block.source,
+    ) {
+        Box(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+            Text(
+                text = block.source,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AiMarkdownTable(table: AiMarkdownBlock.Table) {
+    val borderColor = MaterialTheme.colorScheme.outlineVariant
+    val columnCount = table.headers.size.coerceAtLeast(1)
+    val minimumColumnWidth = 132.dp
+
+    AiMarkdownSpecialBlockCard(
+        title = stringResource(R.string.ai_markdown_table),
+        source = table.toMarkdown(),
+    ) {
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            // 两三列常见表格应直接吃满当前正文宽度；列数较多时再按最小列宽横向滚动。
+            val tableWidth = maxOf(maxWidth, minimumColumnWidth * columnCount.toFloat())
+            val scrollState = rememberScrollState()
+
+            Box(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(scrollState),
+            ) {
+                Column(modifier = Modifier.width(tableWidth)) {
+                    AiMarkdownTableRow(
+                        cells = table.headers,
+                        tableWidth = tableWidth,
+                        isHeader = true,
+                        borderColor = borderColor,
+                    )
+                    table.rows.forEach { row ->
+                        HorizontalDivider(color = borderColor)
+                        AiMarkdownTableRow(
+                            cells = row,
+                            tableWidth = tableWidth,
+                            isHeader = false,
+                            borderColor = borderColor,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 将表格复制为标准 Markdown，而不是把多个单元格简单粘成一串文本。 */
+internal fun AiMarkdownBlock.Table.toMarkdown(): String {
+    fun cell(value: String): String = value.replace("|", "\\|")
+    val header = headers.joinToString(" | ", prefix = "| ", postfix = " |") { cell(it) }
+    val separator = headers.joinToString(" | ", prefix = "| ", postfix = " |") { "---" }
+    val body = rows.joinToString("\n") { row ->
+        row.joinToString(" | ", prefix = "| ", postfix = " |") { cell(it) }
+    }
+    return listOf(header, separator, body).filter(String::isNotBlank).joinToString("\n")
+}
+
+@Composable
 private fun AiMarkdownTableRow(
     cells: List<String>,
+    tableWidth: androidx.compose.ui.unit.Dp,
     isHeader: Boolean,
     borderColor: Color,
 ) {
-    Row {
-        cells.forEachIndexed { index, cell ->
+    val cellWidth = tableWidth / cells.size.coerceAtLeast(1).toFloat()
+    Row(modifier = Modifier.width(tableWidth).height(IntrinsicSize.Min)) {
+        cells.forEach { cell ->
             Box(
                 modifier =
-                    Modifier.width(156.dp)
+                    Modifier.width(cellWidth)
+                        .fillMaxHeight()
                         .background(
                             if (isHeader) MaterialTheme.colorScheme.surfaceVariant
                             else Color.Transparent,

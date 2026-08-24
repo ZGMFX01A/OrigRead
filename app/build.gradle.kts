@@ -173,6 +173,14 @@ dependencies {
     androidTestImplementation(libs.compose.ui.test.junit4)
     implementation(libs.compose.material3)
 
+    // LLM edition 富文本公式渲染。Standard 不引入，避免普通阅读版承担额外公式字体/解析依赖。
+    "llmImplementation"(libs.latex.base)
+    "llmImplementation"(libs.latex.parser)
+    "llmImplementation"(libs.latex.renderer)
+    "llmImplementation"(libs.codehigh.parser)
+    "llmImplementation"(libs.codehigh.render)
+    "llmImplementation"(libs.diagram.render)
+
     // Coil
     implementation(libs.coil.base)
     implementation(libs.coil.compose)

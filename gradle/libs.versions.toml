@@ -55,6 +55,9 @@ glance = "1.2.0-beta01"
 mlKitTranslate = "17.0.3"
 mlKitLanguageId = "17.0.6"
 jsonJvm = "20240303"
+latex = "1.5.0-kt2.1.0"
+codehigh = "1.1.2"
+diagram = "1.0.4"
 
 nav3 = "1.0.0"
 kotlinxSerializationCore = "1.9.0"
@@ -82,6 +85,14 @@ compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
 compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+
+# LLM rich text
+latex-base = { module = "io.github.huarangmeng:latex-base", version.ref = "latex" }
+latex-parser = { module = "io.github.huarangmeng:latex-parser", version.ref = "latex" }
+latex-renderer = { module = "io.github.huarangmeng:latex-renderer", version.ref = "latex" }
+codehigh-parser = { module = "io.github.huarangmeng:codehighlight-parser", version.ref = "codehigh" }
+codehigh-render = { module = "io.github.huarangmeng:codehighlight-render", version.ref = "codehigh" }
+diagram-render = { module = "io.github.huarangmeng:diagram-render", version.ref = "diagram" }
 
 # Coil
 coil-base = { group = "io.coil-kt", name = "coil-base", version.ref = "coil" }

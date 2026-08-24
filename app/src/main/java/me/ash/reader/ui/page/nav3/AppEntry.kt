@@ -58,7 +58,6 @@ import me.ash.reader.ui.page.settings.json.JsonRulesPage
 import me.ash.reader.ui.page.settings.rsshub.RssHubSettingsPage
 import me.ash.reader.ui.page.settings.filter.ArticleFilterSettingsPage
 import me.ash.reader.ui.page.settings.translation.TranslationSettingsPage
-import me.ash.reader.ui.page.settings.ai.AiSettingsPage
 import me.ash.reader.ui.page.settings.backup.ConfigurationBackupPage
 import me.ash.reader.ui.page.settings.update.UpdateSettingsPage
 import me.ash.reader.ui.page.startup.StartupPage
@@ -303,7 +302,7 @@ fun AppEntry(backStack: NavBackStack<NavKey>) {
                     Route.ArticleFilters -> NavEntry(key) { ArticleFilterSettingsPage(onBack = onBack) }
                     Route.TranslationSettings ->
                         NavEntry(key) { TranslationSettingsPage(onBack = onBack) }
-                    Route.AiSettings -> NavEntry(key) { AiSettingsPage(onBack = onBack) }
+                    Route.AiSettings -> NavEntry(key) { EditionAiSettingsPage(onBack = onBack) }
                     Route.ConfigurationBackup ->
                         NavEntry(key) { ConfigurationBackupPage(onBack = onBack) }
                     Route.SoftwareUpdate -> NavEntry(key) { UpdateSettingsPage(onBack = onBack) }

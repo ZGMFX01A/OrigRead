@@ -69,10 +69,20 @@ data class LlmContextItem(
     val title: String? = null,
     val sourceId: String? = null,
     val priority: Int = 0,
-)
+) {
+    init {
+        require(id.isNotBlank()) { "上下文 id 不能为空" }
+    }
+}
 
 data class LlmContextPolicy(
-    val maxCharacters: Int = 32_000,
+    /**
+     * OrigRead 注入给模型的阅读材料预算，单位为近似 token。
+     *
+     * OpenAI-Compatible 服务并不共享同一个 tokenizer，因此这里不能伪装成供应商精确 token 数；
+     * ContextComposer 使用偏保守的跨语言估算器控制正文截断，避免继续把 UTF-16 字符数误叫成 context window。
+     */
+    val maxTokens: Int = 128_000,
     val allowedTypes: Set<LlmContextType> = LlmContextType.entries.toSet(),
 )
 

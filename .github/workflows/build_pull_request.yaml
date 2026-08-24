@@ -12,9 +12,17 @@ jobs:
                   java-version: 17
 
             - uses: gradle/actions/setup-gradle@v4
-            - run: ./gradlew assembleGithubRelease
+
+            - name: Build Standard and LLM APKs
+              run: >-
+                  ./gradlew
+                  assembleStandardGithubRelease
+                  assembleLlmGithubRelease
 
             - uses: actions/upload-artifact@v4
               with:
                   name: github-${{ github.sha }}
-                  path: app/build/outputs/apk/github/release/*.apk
+                  path: |
+                      app/build/outputs/apk/standardGithub/release/*.apk
+                      app/build/outputs/apk/llmGithub/release/*.apk
+

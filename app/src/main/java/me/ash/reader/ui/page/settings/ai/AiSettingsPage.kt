@@ -54,6 +54,7 @@ import me.ash.reader.ui.ext.collectAsStateValue
 @Composable
 fun AiSettingsPage(
     onBack: () -> Unit,
+    additionalSettingsContent: (@Composable () -> Unit)? = null,
     viewModel: AiSettingsViewModel = hiltViewModel(),
 ) {
     val state = viewModel.uiState.collectAsStateValue()
@@ -141,6 +142,9 @@ fun AiSettingsPage(
                         }
                     }
                 }
+                additionalSettingsContent?.let { content ->
+                    item { content() }
+                }
                 item {
                     OutlinedCard(
                         modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
@@ -152,11 +156,6 @@ fun AiSettingsPage(
                             Text(
                                 text = stringResource(R.string.ai_providers),
                                 style = MaterialTheme.typography.titleMedium,
-                            )
-                            Text(
-                                text = stringResource(R.string.ai_providers_desc),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             FilledTonalButton(
                                 onClick = viewModel::addProvider,
@@ -211,18 +210,6 @@ fun AiSettingsPage(
                                     }
                                 }
                             }
-                            if (state.settings.providers.size > 1) {
-                                Text(
-                                    text =
-                                        stringResource(
-                                            R.string.ai_provider_switch_hint,
-                                            state.settings.providers.size,
-                                            profile.name,
-                                        ),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
                         }
                     }
                 }
@@ -271,17 +258,6 @@ fun AiSettingsPage(
                                         Text(stringResource(R.string.ai_set_default_provider))
                                     }
                                 }
-                                if (profile.models.isNotEmpty()) {
-                                    Text(
-                                        text =
-                                            stringResource(
-                                                R.string.ai_provider_models_summary,
-                                                profile.models.size,
-                                            ),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
                                 OutlinedTextField(
                                     value = profile.name,
                                     onValueChange = viewModel::setProviderName,
@@ -299,6 +275,33 @@ fun AiSettingsPage(
                                         Text(stringResource(R.string.ai_endpoint_desc))
                                     },
                                 )
+                                // 配置顺序遵循真实操作链：先确定 Endpoint 与凭据，再获取/选择模型。
+                                OutlinedTextField(
+                                    value = state.apiKeyDraft,
+                                    onValueChange = viewModel::updateApiKeyDraft,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    visualTransformation = PasswordVisualTransformation(),
+                                    label = { Text(stringResource(R.string.ai_optional_api_key)) },
+                                    supportingText = {
+                                        Text(stringResource(R.string.ai_optional_api_key_desc))
+                                    },
+                                )
+                                Button(
+                                    onClick = viewModel::saveApiKey,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    enabled = state.apiKeyDraft.isNotBlank() || state.hasApiKey,
+                                ) {
+                                    Text(
+                                        stringResource(
+                                            if (state.hasApiKey && state.apiKeyDraft.isBlank()) {
+                                                R.string.ai_remove_key
+                                            } else {
+                                                R.string.ai_save_key
+                                            }
+                                        )
+                                    )
+                                }
                                 OutlinedTextField(
                                     value = state.modelDraft,
                                     onValueChange = viewModel::setModel,
@@ -375,33 +378,6 @@ fun AiSettingsPage(
                                         text = stringResource(R.string.ai_fetch_models_failed, error),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.error,
-                                    )
-                                }
-
-                                OutlinedTextField(
-                                    value = state.apiKeyDraft,
-                                    onValueChange = viewModel::updateApiKeyDraft,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    singleLine = true,
-                                    visualTransformation = PasswordVisualTransformation(),
-                                    label = { Text(stringResource(R.string.ai_optional_api_key)) },
-                                    supportingText = {
-                                        Text(stringResource(R.string.ai_optional_api_key_desc))
-                                    },
-                                )
-                                Button(
-                                    onClick = viewModel::saveApiKey,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    enabled = state.apiKeyDraft.isNotBlank() || state.hasApiKey,
-                                ) {
-                                    Text(
-                                        stringResource(
-                                            if (state.hasApiKey && state.apiKeyDraft.isBlank()) {
-                                                R.string.ai_remove_key
-                                            } else {
-                                                R.string.ai_save_key
-                                            }
-                                        )
                                     )
                                 }
                                 HorizontalDivider()

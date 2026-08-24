@@ -1,4 +1,4 @@
-﻿name: "Build Commit"
+name: "Build Commit"
 on:
     push:
         branches:
@@ -23,20 +23,29 @@ jobs:
 
             - name: Run unit tests
               if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-              run: ./gradlew testGithubReleaseUnitTest --max-workers=2
+              run: >-
+                  ./gradlew
+                  testStandardGithubReleaseUnitTest
+                  testLlmGithubReleaseUnitTest
+                  --max-workers=2
 
-            - name: Build APK
+            - name: Build APKs
               if: startsWith(github.ref, 'refs/tags/v')
               env:
                   RELEASE_VERSION: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
-              run: ./gradlew assembleGithubRelease
+              run: >-
+                  ./gradlew
+                  assembleStandardGithubRelease
+                  assembleLlmGithubRelease
 
             - name: Upload workflow artifact
               if: startsWith(github.ref, 'refs/tags/v')
               uses: actions/upload-artifact@v4
               with:
                   name: OrigRead-${{ github.ref_name }}-${{ github.sha }}
-                  path: app/build/outputs/apk/github/release/*.apk
+                  path: |
+                      app/build/outputs/apk/standardGithub/release/*.apk
+                      app/build/outputs/apk/llmGithub/release/*.apk
 
             - name: Create GitHub Release
               if: startsWith(github.ref, 'refs/tags/v')
@@ -44,5 +53,7 @@ jobs:
               with:
                   name: OrigRead ${{ github.ref_name }}
                   generate_release_notes: true
-                  files: app/build/outputs/apk/github/release/*.apk
+                  files: |
+                      app/build/outputs/apk/standardGithub/release/*.apk
+                      app/build/outputs/apk/llmGithub/release/*.apk
 

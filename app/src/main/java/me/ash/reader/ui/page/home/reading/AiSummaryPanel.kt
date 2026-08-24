@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.CircularProgressIndicator
@@ -61,6 +62,8 @@ internal fun AiSummaryPanel(
     activeModel: String?,
     onClose: () -> Unit,
     onRegenerate: () -> Unit,
+    /** LLM edition 可提供文章级追问入口；Standard 传 null 时摘要 UI 完全保持原样。 */
+    onAskArticle: (() -> Unit)? = null,
     onStop: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -268,6 +271,18 @@ internal fun AiSummaryPanel(
                         )
                     }
                     Spacer(modifier = Modifier.weight(1f))
+                    if (!isLoading && onAskArticle != null) {
+                        IconButton(
+                            onClick = onAskArticle,
+                            modifier = Modifier.size(36.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Forum,
+                                contentDescription = stringResource(R.string.ai_ask_article),
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
                     IconButton(
                         onClick = if (isLoading) onStop else onRegenerate,
                         modifier = Modifier.size(36.dp),

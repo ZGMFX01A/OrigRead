@@ -68,6 +68,7 @@ fun BottomBar(
     isAiSummaryEnabled: Boolean = true,
     isAiSummaryLoading: Boolean = false,
     hasAiSummary: Boolean = false,
+    aiActionContentDescription: String? = null,
     onUnread: (isUnread: Boolean) -> Unit = {},
     onStarred: (isStarred: Boolean) -> Unit = {},
     onNextArticle: () -> Unit = {},
@@ -286,7 +287,9 @@ fun BottomBar(
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     AiSummaryAccentIcon(
-                                        contentDescription = stringResource(R.string.ai_summary_generate),
+                                        contentDescription =
+                                            aiActionContentDescription
+                                                ?: stringResource(R.string.ai_summary_generate),
                                         active = hasAiSummary,
                                         enabled = isAiSummaryEnabled,
                                         size = 30.dp,

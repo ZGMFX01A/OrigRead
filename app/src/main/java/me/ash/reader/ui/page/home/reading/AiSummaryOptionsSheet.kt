@@ -9,11 +9,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -44,6 +49,8 @@ internal fun AiSummaryOptionsSheet(
     initialModel: String?,
     initialLength: AiSummaryLength,
     onDismiss: () -> Unit,
+    /** LLM edition 才提供；让深度对话保持为摘要之后/高级动作中的第二层能力。 */
+    onAskArticle: (() -> Unit)? = null,
     onGenerate: (providerId: String, model: String, length: AiSummaryLength) -> Unit,
 ) {
     val initialProvider =
@@ -74,10 +81,35 @@ internal fun AiSummaryOptionsSheet(
                     .padding(horizontal = 20.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                text = stringResource(R.string.ai_summary_regenerate_options),
-                style = MaterialTheme.typography.headlineSmall,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            ) {
+                Text(
+                    text =
+                        stringResource(
+                            if (onAskArticle != null) R.string.ai_reading_actions
+                            else R.string.ai_summary_regenerate_options
+                        ),
+                    style = MaterialTheme.typography.headlineSmall,
+                    modifier = Modifier.weight(1f),
+                )
+                if (onAskArticle != null) {
+                    IconButton(onClick = onAskArticle) {
+                        Icon(
+                            imageVector = Icons.Rounded.Forum,
+                            contentDescription = stringResource(R.string.ai_ask_article),
+                        )
+                    }
+                }
+            }
+
+            if (onAskArticle != null) {
+                Text(
+                    text = stringResource(R.string.ai_summary),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
 
             Text(
                 text = stringResource(R.string.ai_summary_choose_provider),

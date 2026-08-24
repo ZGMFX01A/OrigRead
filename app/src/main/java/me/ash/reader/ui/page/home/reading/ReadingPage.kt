@@ -78,6 +78,7 @@ import me.ash.reader.infrastructure.translation.TranslationProviderType
 import me.ash.reader.infrastructure.translation.TranslationDisplayMode
 import me.ash.reader.infrastructure.translation.TranslationTarget
 import me.ash.reader.ui.ext.collectAsStateValue
+import me.ash.reader.ui.ext.isLlmEdition
 import me.ash.reader.ui.ext.openURL
 import me.ash.reader.ui.ext.showToast
 import me.ash.reader.ui.page.adaptive.ArticleListReaderViewModel
@@ -122,6 +123,7 @@ fun ReadingPage(
     var isReaderScrollingDown by remember { mutableStateOf(false) }
     var showFullScreenImageViewer by remember { mutableStateOf(false) }
     var showAiSummaryOptions by remember { mutableStateOf(false) }
+    var showArticleAssistant by remember { mutableStateOf(false) }
     var showInteractiveVerification by remember { mutableStateOf(false) }
     var showReadingShareFirstUse by remember { mutableStateOf(false) }
     var showReadingShareConfig by remember { mutableStateOf(false) }
@@ -151,6 +153,18 @@ fun ReadingPage(
         translationState.document.takeIf { translationState.showTranslation }
     val displayedTitle = visibleTranslation?.translatedTitle ?: readerState.title
     val displayedContent = visibleTranslation?.translatedContent ?: readerState.content.text.orEmpty()
+    val articleAssistantContext =
+        readerState.articleId?.let { articleId ->
+            ArticleAssistantContext(
+                articleId = articleId,
+                title = readerState.title.orEmpty(),
+                link = readerState.link,
+                originalContent = readerState.content.text.orEmpty(),
+                summary = aiSummaryState.document?.summary,
+                translatedTitle = visibleTranslation?.translatedTitle,
+                translatedContent = visibleTranslation?.translatedContent,
+            )
+        }
     val readingSharePreference = settings.readingShare
     val readingShareLabels =
         ReadingShareLabels(
@@ -290,6 +304,11 @@ fun ReadingPage(
             lifecycleOwner.lifecycle.removeObserver(observer)
             viewModel.textToSpeechManager.stop()
         }
+    }
+
+    LaunchedEffect(readerState.articleId) {
+        // 阅读对象变化时关闭上一文章的助手，避免旧会话覆盖在新正文之上。
+        showArticleAssistant = false
     }
 
     LaunchedEffect(translationState.errorMessage) {
@@ -522,6 +541,12 @@ fun ReadingPage(
                                                 activeModel = aiSummaryState.activeModel,
                                                 onClose = viewModel::dismissAiSummary,
                                                 onRegenerate = { showAiSummaryOptions = true },
+                                                onAskArticle =
+                                                    if (isLlmEdition) {
+                                                        { showArticleAssistant = true }
+                                                    } else {
+                                                        null
+                                                    },
                                                 onStop = viewModel::stopAiSummary,
                                                 modifier =
                                                     Modifier.fillMaxWidth()
@@ -633,6 +658,9 @@ fun ReadingPage(
                         isAiSummaryEnabled = aiSummaryAvailable,
                         isAiSummaryLoading = aiSummaryState.isLoading,
                         hasAiSummary = aiSummaryState.document != null,
+                        // 两个 edition 的短按语义保持一致：中央 AI 主动作永远是摘要。
+                        // LLM 深度对话通过长按动作面板或摘要卡片中的 Ask 渐进进入。
+                        aiActionContentDescription = null,
                         onUnread = { viewModel.updateReadStatus(it) },
                         onStarred = { viewModel.updateStarredStatus(it) },
                         onNextArticle = {
@@ -641,7 +669,9 @@ fun ReadingPage(
                                 onLoadArticle(id, index)
                             }
                         },
-                        onAiSummary = { viewModel.summarizeArticle() },
+                        onAiSummary = {
+                            viewModel.summarizeArticle()
+                        },
                         onAiSummaryLongClick = { showAiSummaryOptions = true },
                         onStopAiSummary = viewModel::stopAiSummary,
                         onTranslate = viewModel::translateOrToggle,
@@ -651,6 +681,11 @@ fun ReadingPage(
                 }
             }
         },
+    )
+    EditionArticleAssistantSheet(
+        visible = showArticleAssistant,
+        context = articleAssistantContext,
+        onDismiss = { showArticleAssistant = false },
     )
     if (showFullScreenImageViewer) {
 
@@ -679,6 +714,15 @@ fun ReadingPage(
             initialModel = aiSummaryState.activeModel ?: aiSummaryState.document?.model,
             initialLength = aiSummaryState.document?.length ?: aiSettings.summaryLength,
             onDismiss = { showAiSummaryOptions = false },
+            onAskArticle =
+                if (isLlmEdition) {
+                    {
+                        showAiSummaryOptions = false
+                        showArticleAssistant = true
+                    }
+                } else {
+                    null
+                },
             onGenerate = { providerId, model, length ->
                 showAiSummaryOptions = false
                 viewModel.summarizeArticle(
