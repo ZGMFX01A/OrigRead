@@ -48,6 +48,14 @@ object LlmChatDatabaseModule {
             }
         }
 
+    /** v4 为文章会话保存手动选择的 Skill；null 继续表示 OrigRead 默认 Chat 工作流。 */
+    private val MIGRATION_3_4 =
+        object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE llm_conversations ADD COLUMN skill_id TEXT")
+            }
+        }
+
     /** 创建 LLM Chat Room 数据库单例。 */
     @Provides
     @Singleton
@@ -56,7 +64,7 @@ object LlmChatDatabaseModule {
             context,
             LlmChatDatabase::class.java,
             DATABASE_NAME,
-        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build()
+        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build()
 
     /** 向业务层提供 Chat DAO 单例。 */
     @Provides

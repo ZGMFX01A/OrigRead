@@ -113,4 +113,6 @@ data class LlmExecutionPlan(
     val automaticToolCalling: Boolean,
     val context: ComposedLlmContext,
     val skillId: String?,
+    /** 已启用 Skill 的受控指令正文；null 表示本次执行使用 OrigRead 默认工作流。 */
+    val skillInstructions: String? = null,
 )

@@ -15,6 +15,8 @@ data class LlmAdvancedSettings(
     val streamResponses: Boolean = true,
     val showReasoning: Boolean = true,
     val contextMaxTokens: Int = LlmSettingsRepository.DEFAULT_CONTEXT_TOKENS,
+    val skillsEnabled: Boolean = false,
+    val mcpEnabled: Boolean = false,
 )
 
 @Singleton
@@ -37,6 +39,10 @@ class LlmSettingsRepository @Inject constructor(
 
     fun setContextMaxTokens(value: Int) =
         update { it.copy(contextMaxTokens = normalizeContextTokens(value)) }
+
+    fun setSkillsEnabled(value: Boolean) = update { it.copy(skillsEnabled = value) }
+
+    fun setMcpEnabled(value: Boolean) = update { it.copy(mcpEnabled = value) }
 
     private fun update(transform: (LlmAdvancedSettings) -> LlmAdvancedSettings) {
         val transformed = transform(_settings.value)
@@ -62,6 +68,8 @@ class LlmSettingsRepository @Inject constructor(
                 normalizeContextTokens(
                     preferences.getInt(KEY_CONTEXT_MAX_TOKENS, DEFAULT_CONTEXT_TOKENS)
                 ),
+            skillsEnabled = preferences.getBoolean(KEY_SKILLS_ENABLED, false),
+            mcpEnabled = preferences.getBoolean(KEY_MCP_ENABLED, false),
         )
 
     private fun persist(settings: LlmAdvancedSettings) {
@@ -70,6 +78,8 @@ class LlmSettingsRepository @Inject constructor(
             .putBoolean(KEY_STREAM_RESPONSES, settings.streamResponses)
             .putBoolean(KEY_SHOW_REASONING, settings.showReasoning)
             .putInt(KEY_CONTEXT_MAX_TOKENS, settings.contextMaxTokens)
+            .putBoolean(KEY_SKILLS_ENABLED, settings.skillsEnabled)
+            .putBoolean(KEY_MCP_ENABLED, settings.mcpEnabled)
             .remove(KEY_CONTEXT_MAX_CHARACTERS)
             .apply()
     }
@@ -88,6 +98,8 @@ class LlmSettingsRepository @Inject constructor(
         private const val KEY_STREAM_RESPONSES = "stream_responses"
         private const val KEY_SHOW_REASONING = "show_reasoning"
         private const val KEY_CONTEXT_MAX_TOKENS = "context_max_tokens"
+        private const val KEY_SKILLS_ENABLED = "skills_enabled"
+        private const val KEY_MCP_ENABLED = "mcp_enabled"
         // 2026-08-24 以前的实验版曾把 UTF-16 字符预算误显示成 Context；新版本不继承该语义。
         private const val KEY_CONTEXT_MAX_CHARACTERS = "context_max_characters"
     }

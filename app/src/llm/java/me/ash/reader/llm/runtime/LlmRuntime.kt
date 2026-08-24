@@ -2,6 +2,7 @@ package me.ash.reader.llm.runtime
 
 import javax.inject.Inject
 import javax.inject.Singleton
+import me.ash.reader.llm.skill.LlmSkillRepository
 
 /**
  * LLM edition 的统一执行入口。
@@ -14,6 +15,7 @@ class LlmRuntime @Inject constructor(
     private val providerAdapter: OpenAiCompatibleLlmAdapter,
     private val contextComposer: LlmContextComposer,
     private val toolRuntime: LlmToolRuntime,
+    private val skillRepository: LlmSkillRepository,
 ) {
 
     fun prepare(
@@ -36,6 +38,7 @@ class LlmRuntime @Inject constructor(
             )
         val tools = toolRuntime.resolveAllowed(profile.enabledToolIds)
         val context = contextComposer.compose(contextItems, profile.contextPolicy)
+        val skill = skillRepository.activeSkill(profile.skillId)
 
         return LlmExecutionPlan(
             providerId = provider.id,
@@ -47,7 +50,8 @@ class LlmRuntime @Inject constructor(
             // 不支持 Tool Calling 的模型仍保留手动 Tool 能力，但绝不伪造自动 Function Calling。
             automaticToolCalling = capability.supportsToolCalling && tools.isNotEmpty(),
             context = context,
-            skillId = profile.skillId,
+            skillId = skill?.id,
+            skillInstructions = skill?.instructionBundle()?.takeIf(String::isNotBlank),
         )
     }
 }

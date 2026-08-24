@@ -30,6 +30,7 @@ class LlmChatRepository @Inject constructor(
     suspend fun createConversation(
         providerId: String?,
         model: String?,
+        skillId: String?,
         articleId: String,
         articleTitle: String,
         articleLink: String?,
@@ -42,6 +43,7 @@ class LlmChatRepository @Inject constructor(
                 title = deriveConversationTitle(titleSeed.orEmpty()),
                 providerId = providerId,
                 model = model,
+                skillId = skillId,
                 articleId = articleId,
                 articleTitle = articleTitle.trim().takeIf(String::isNotBlank),
                 articleLink = articleLink?.trim()?.takeIf(String::isNotBlank),
@@ -62,17 +64,19 @@ class LlmChatRepository @Inject constructor(
         )
     }
 
-    /** 保存会话绑定的 Provider/Model。 */
+    /** 保存会话绑定的 Provider/Model/Skill。 */
     suspend fun updateConversationRuntime(
         conversationId: String,
         providerId: String?,
         model: String?,
+        skillId: String?,
     ) {
         val current = dao.getConversation(conversationId) ?: return
         dao.updateConversation(
             current.copy(
                 providerId = providerId,
                 model = model,
+                skillId = skillId,
                 updatedAt = System.currentTimeMillis(),
             )
         )

@@ -27,6 +27,7 @@ class AiSummaryCache @Inject constructor(
         model: String,
         outputLanguage: String,
         length: AiSummaryLength,
+        promptVariant: String = AiTaskPromptCustomization.DEFAULT_CACHE_VARIANT,
     ): AiSummaryDocument? =
         withContext(ioDispatcher) {
             runCatching {
@@ -39,6 +40,7 @@ class AiSummaryCache @Inject constructor(
                             model = model,
                             outputLanguage = outputLanguage,
                             length = length,
+                            promptVariant = promptVariant,
                         )
                     if (!file.exists()) return@withContext null
                     decode(file.readText())
@@ -51,6 +53,7 @@ class AiSummaryCache @Inject constructor(
         content: String,
         provider: AiProviderProfile,
         document: AiSummaryDocument,
+        promptVariant: String = AiTaskPromptCustomization.DEFAULT_CACHE_VARIANT,
     ) =
         withContext(ioDispatcher) {
             runCatching {
@@ -63,6 +66,7 @@ class AiSummaryCache @Inject constructor(
                         model = document.model,
                         outputLanguage = document.outputLanguage,
                         length = document.length,
+                        promptVariant = promptVariant,
                     )
                 file.parentFile?.mkdirs()
                 file.writeText(encode(document))
@@ -77,19 +81,24 @@ class AiSummaryCache @Inject constructor(
         model: String,
         outputLanguage: String,
         length: AiSummaryLength,
+        promptVariant: String,
     ): File {
-        val rawKey =
-            listOf(
-                    CACHE_VERSION,
-                    articleId,
-                    sha256(title),
-                    sha256(content),
-                    sha256(endpoint.trim()),
-                    model.trim(),
-                    outputLanguage.trim(),
-                    length.name,
-                )
-                .joinToString(":")
+        val keyParts =
+            mutableListOf(
+                CACHE_VERSION,
+                articleId,
+                sha256(title),
+                sha256(content),
+                sha256(endpoint.trim()),
+                model.trim(),
+                outputLanguage.trim(),
+                length.name,
+            )
+        // 默认 Prompt 必须保持 P4 前完全相同的缓存 Key，避免 Standard/未绑定 Skill 的用户无故丢失旧摘要缓存。
+        if (promptVariant != AiTaskPromptCustomization.DEFAULT_CACHE_VARIANT) {
+            keyParts += promptVariant
+        }
+        val rawKey = keyParts.joinToString(":")
         return context.cacheDir
             .resolve("ai_summaries")
             .resolve(accountService.getCurrentAccountId().toString())

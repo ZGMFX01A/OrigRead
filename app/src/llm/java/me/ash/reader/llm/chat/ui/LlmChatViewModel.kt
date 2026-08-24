@@ -36,6 +36,7 @@ import me.ash.reader.llm.runtime.LlmRuntime
 import me.ash.reader.llm.runtime.ModelCapabilityOverride
 import me.ash.reader.llm.runtime.estimateLlmTokens
 import me.ash.reader.llm.settings.LlmSettingsRepository
+import me.ash.reader.llm.skill.LlmSkillRouter
 import me.ash.reader.ui.page.home.reading.ArticleAssistantContext
 
 /** Chat 页面全部可观察状态；Provider/Model 继续复用现有 AI 设置，不另存密钥。 */
@@ -71,6 +72,7 @@ class LlmChatViewModel @Inject constructor(
     private val repository: LlmChatRepository,
     private val settingsRepository: AiSettingsRepository,
     private val llmSettingsRepository: LlmSettingsRepository,
+    private val skillRouter: LlmSkillRouter,
     private val llmRuntime: LlmRuntime,
     private val transport: LlmChatTransport,
 ) : ViewModel() {
@@ -260,7 +262,11 @@ class LlmChatViewModel @Inject constructor(
         val provider =
             settingsRepository.current().providers.firstOrNull { it.id == providerId && it.enabled }
                 ?: return
-        runtimeSelection.value = RuntimeSelection(provider.id, provider.resolvedDefaultModel())
+        runtimeSelection.value =
+            runtimeSelection.value.copy(
+                providerId = provider.id,
+                model = provider.resolvedDefaultModel(),
+            )
         publishRuntimeState(settingsRepository.current().providers.filter(AiProviderProfile::enabled))
         persistCurrentRuntimeSelection()
     }
@@ -283,7 +289,8 @@ class LlmChatViewModel @Inject constructor(
                 ?: return
         val normalized = model.trim()
         if (normalized.isBlank() || normalized !in provider.availableModels()) return
-        runtimeSelection.value = RuntimeSelection(provider.id, normalized)
+        runtimeSelection.value =
+            runtimeSelection.value.copy(providerId = provider.id, model = normalized)
         publishRuntimeState(settingsRepository.current().providers.filter(AiProviderProfile::enabled))
         persistCurrentRuntimeSelection()
     }
@@ -294,7 +301,7 @@ class LlmChatViewModel @Inject constructor(
         llmSettingsRepository.setReasoningEffort(value)
     }
 
-    /** 将当前 Provider/Model 绑定到已创建会话，方便下次恢复。 */
+    /** 将当前 Provider/Model 绑定到已创建会话；Skill 改为逐请求自动路由。 */
     private fun persistCurrentRuntimeSelection() {
         val conversationId = selectedConversationId.value ?: return
         val selection = runtimeSelection.value
@@ -303,6 +310,7 @@ class LlmChatViewModel @Inject constructor(
                 conversationId = conversationId,
                 providerId = selection.providerId,
                 model = selection.model,
+                skillId = null,
             )
         }
     }
@@ -323,6 +331,7 @@ class LlmChatViewModel @Inject constructor(
                         .createConversation(
                             providerId = selection.providerId,
                             model = selection.model,
+                            skillId = null,
                             articleId = currentArticle.articleId,
                             articleTitle = currentArticle.title,
                             articleLink = currentArticle.link,
@@ -338,6 +347,7 @@ class LlmChatViewModel @Inject constructor(
                 conversationId = conversationId,
                 providerId = selection.providerId,
                 model = selection.model,
+                skillId = null,
             )
             repository.appendMessage(
                 conversationId = conversationId,
@@ -443,12 +453,16 @@ class LlmChatViewModel @Inject constructor(
             val currentArticle =
                 articleContext.value ?: error("当前文章上下文已失效，请重新打开阅读助手")
             val advancedSettings = llmSettingsRepository.current()
+            val latestUserInput =
+                history.lastOrNull { it.role == LlmChatRole.USER }?.content.orEmpty()
+            val autoSkillId = skillRouter.resolve(latestUserInput)?.id
             val plan =
                 llmRuntime.prepare(
                     profile =
                         LlmExecutionProfile(
                             providerId = selection.providerId,
                             model = selection.model,
+                            skillId = autoSkillId,
                             reasoningEffort = advancedSettings.reasoningEffort,
                             capabilityOverride =
                                 if (advancedSettings.streamResponses) {

@@ -32,6 +32,7 @@ data class LlmConversationEntity(
     val title: String,
     @ColumnInfo(name = "provider_id") val providerId: String?,
     val model: String?,
+    @ColumnInfo(name = "skill_id") val skillId: String? = null,
     /** v1 产生的旧通用会话迁移后为 null，不会混入任何文章的会话历史。 */
     @ColumnInfo(name = "article_id") val articleId: String? = null,
     @ColumnInfo(name = "article_title") val articleTitle: String? = null,

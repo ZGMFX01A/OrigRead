@@ -9,6 +9,9 @@ import kotlinx.coroutines.withContext
 import me.ash.reader.infrastructure.ai.AiErrorCode
 import me.ash.reader.infrastructure.ai.AiException
 import me.ash.reader.infrastructure.ai.AiSettingsRepository
+import me.ash.reader.infrastructure.ai.AiTaskPromptCustomization
+import me.ash.reader.infrastructure.ai.AiTaskPromptCustomizer
+import me.ash.reader.infrastructure.ai.AiTaskType
 import me.ash.reader.infrastructure.ai.OpenAiCompatibleProvider
 import me.ash.reader.infrastructure.di.IODispatcher
 import org.json.JSONArray
@@ -26,6 +29,7 @@ class TranslationService @Inject constructor(
     private val aiSettingsRepository: AiSettingsRepository,
     private val aiProvider: OpenAiCompatibleProvider,
     private val cache: TranslationCache,
+    private val aiTaskPromptCustomizer: AiTaskPromptCustomizer,
     @IODispatcher private val ioDispatcher: CoroutineDispatcher,
 ) {
     private val contentProcessor = TranslationContentProcessor()
@@ -45,6 +49,15 @@ class TranslationService @Inject constructor(
                 }
             // 缓存只是可再生成结果；即使本地已有译文，也必须先确认当前服务仍启用且配置有效。
             validateTarget(actualTarget, settings)
+            val promptCustomization =
+                if (actualTarget is TranslationTarget.Ai) {
+                    aiTaskPromptCustomizer.customize(
+                        task = AiTaskType.TRANSLATION,
+                        baseSystemPrompt = buildAiTranslationSystemPrompt(targetLanguage),
+                    )
+                } else {
+                    AiTaskPromptCustomization(systemPrompt = "")
+                }
             cache.read(
                     articleId,
                     title,
@@ -52,6 +65,7 @@ class TranslationService @Inject constructor(
                     actualTarget,
                     targetLanguage,
                     settings.displayMode,
+                    promptCustomization.cacheVariant,
                 )
                 ?.let { return@withContext it }
 
@@ -78,6 +92,7 @@ class TranslationService @Inject constructor(
                             target = actualTarget,
                             texts = sourceTexts,
                             targetLanguage = targetLanguage,
+                            systemPrompt = promptCustomization.systemPrompt,
                         )
                 }
             val translatedTitle = if (hasTitle) translated.texts.first() else title
@@ -97,7 +112,12 @@ class TranslationService @Inject constructor(
                             settings.displayMode,
                         ),
                 )
-            cache.write(title, content, document)
+            cache.write(
+                title,
+                content,
+                document,
+                promptVariant = promptCustomization.cacheVariant,
+            )
             document
         }
 
@@ -160,6 +180,7 @@ class TranslationService @Inject constructor(
         target: TranslationTarget.Ai,
         texts: List<String>,
         targetLanguage: String,
+        systemPrompt: String,
     ): TranslationBatchResult {
         val aiSettings = aiSettingsRepository.current()
         if (!aiSettings.enabled) {
@@ -200,7 +221,7 @@ class TranslationService @Inject constructor(
             val raw =
                 try {
                     aiProvider.complete(
-                        systemPrompt = buildAiTranslationSystemPrompt(targetLanguage),
+                        systemPrompt = systemPrompt,
                         userPrompt =
                             buildAiTranslationUserPrompt(
                                 articleTitle = articleTitle,

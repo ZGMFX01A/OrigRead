@@ -14,6 +14,7 @@ class AiSummaryService @Inject constructor(
     private val settingsRepository: AiSettingsRepository,
     private val provider: OpenAiCompatibleProvider,
     private val cache: AiSummaryCache,
+    private val promptCustomizer: AiTaskPromptCustomizer,
     @IODispatcher private val ioDispatcher: CoroutineDispatcher,
 ) {
     /** 获取指定 OpenAI Compatible 服务支持的模型列表。 */
@@ -65,6 +66,11 @@ class AiSummaryService @Inject constructor(
                 throw AiException(AiErrorCode.NOT_CONFIGURED, "请先配置所选 AI 服务的地址和模型")
             }
             val length = lengthOverride ?: settings.summaryLength
+            val promptCustomization =
+                promptCustomizer.customize(
+                    task = AiTaskType.SUMMARY,
+                    baseSystemPrompt = buildAiSummarySystemPrompt(settings.outputLanguage),
+                )
             onProgress(AiSummaryProgressStage.PREPARING)
             if (!forceRefresh) {
                 cache
@@ -76,6 +82,7 @@ class AiSummaryService @Inject constructor(
                         model = model,
                         outputLanguage = settings.outputLanguage,
                         length = length,
+                        promptVariant = promptCustomization.cacheVariant,
                     )
                     ?.let { return@withContext it }
             }
@@ -99,13 +106,19 @@ class AiSummaryService @Inject constructor(
                         status = AiSummaryStatus.NOT_NEEDED,
                         skipReason = skipReason,
                     )
-                cache.write(title, content, profile, document)
+                cache.write(
+                    title,
+                    content,
+                    profile,
+                    document,
+                    promptVariant = promptCustomization.cacheVariant,
+                )
                 return@withContext document
             }
             onProgress(AiSummaryProgressStage.GENERATING)
             val result =
                 provider.completeDetailedCancellable(
-                    systemPrompt = buildAiSummarySystemPrompt(settings.outputLanguage),
+                    systemPrompt = promptCustomization.systemPrompt,
                     userPrompt =
                         buildAiSummaryUserPrompt(
                             title = title,
@@ -137,7 +150,13 @@ class AiSummaryService @Inject constructor(
                     domain = decision.domain,
                     skipReason = decision.reason,
                 )
-            cache.write(title, content, profile, document)
+            cache.write(
+                title,
+                content,
+                profile,
+                document,
+                promptVariant = promptCustomization.cacheVariant,
+            )
             document
         }
 

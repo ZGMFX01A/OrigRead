@@ -9,6 +9,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import me.ash.reader.domain.service.AccountService
+import me.ash.reader.infrastructure.ai.AiTaskPromptCustomization
 import me.ash.reader.infrastructure.di.IODispatcher
 import org.json.JSONObject
 
@@ -26,10 +27,20 @@ class TranslationCache @Inject constructor(
         target: TranslationTarget,
         targetLanguage: String,
         mode: TranslationDisplayMode,
+        promptVariant: String = AiTaskPromptCustomization.DEFAULT_CACHE_VARIANT,
     ): TranslationDocument? =
         withContext(ioDispatcher) {
             runCatching {
-                    val file = cacheFile(articleId, title, content, target, targetLanguage, mode)
+                    val file =
+                        cacheFile(
+                            articleId,
+                            title,
+                            content,
+                            target,
+                            targetLanguage,
+                            mode,
+                            promptVariant,
+                        )
                     if (!file.exists()) return@withContext null
                     decode(file.readText())
                 }
@@ -40,6 +51,7 @@ class TranslationCache @Inject constructor(
         title: String,
         content: String,
         document: TranslationDocument,
+        promptVariant: String = AiTaskPromptCustomization.DEFAULT_CACHE_VARIANT,
     ) =
         withContext(ioDispatcher) {
             runCatching {
@@ -51,6 +63,7 @@ class TranslationCache @Inject constructor(
                         document.target,
                         document.targetLanguage,
                         document.displayMode,
+                        promptVariant,
                     )
                 file.parentFile?.mkdirs()
                 file.writeText(encode(document))
@@ -64,18 +77,23 @@ class TranslationCache @Inject constructor(
         target: TranslationTarget,
         targetLanguage: String,
         mode: TranslationDisplayMode,
+        promptVariant: String,
     ): File {
-        val rawKey =
-            listOf(
-                    CACHE_VERSION,
-                    articleId,
-                    sha256(title),
-                    sha256(content),
-                    target.cacheKey(),
-                    targetLanguage,
-                    mode.name,
-                )
-                .joinToString(":")
+        val keyParts =
+            mutableListOf(
+                CACHE_VERSION,
+                articleId,
+                sha256(title),
+                sha256(content),
+                target.cacheKey(),
+                targetLanguage,
+                mode.name,
+            )
+        // 默认 Prompt 保留既有缓存 Key；只有实际使用 Skill 时才追加变体，避免普通译文缓存整体失效。
+        if (promptVariant != AiTaskPromptCustomization.DEFAULT_CACHE_VARIANT) {
+            keyParts += promptVariant
+        }
+        val rawKey = keyParts.joinToString(":")
         val fileName = sha256(rawKey) + ".json"
         return context.cacheDir
             .resolve("translations")

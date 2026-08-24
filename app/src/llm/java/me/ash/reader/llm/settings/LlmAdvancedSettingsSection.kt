@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
@@ -43,11 +44,15 @@ class LlmAdvancedSettingsViewModel @Inject constructor(
     fun setStreamResponses(value: Boolean) = repository.setStreamResponses(value)
     fun setShowReasoning(value: Boolean) = repository.setShowReasoning(value)
     fun setContextMaxTokens(value: Int) = repository.setContextMaxTokens(value)
+    fun setSkillsEnabled(value: Boolean) = repository.setSkillsEnabled(value)
+    fun setMcpEnabled(value: Boolean) = repository.setMcpEnabled(value)
 }
 
 /** LLM edition 专属设置区；Provider/API Key 等基础配置仍由公共 AiSettingsPage 管理。 */
 @Composable
 fun LlmAdvancedSettingsSection(
+    onOpenSkills: (() -> Unit)? = null,
+    onOpenMcp: (() -> Unit)? = null,
     viewModel: LlmAdvancedSettingsViewModel = hiltViewModel(),
 ) {
     val settings by viewModel.settings.collectAsState()
@@ -163,6 +168,48 @@ fun LlmAdvancedSettingsSection(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+
+    OutlinedCard(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp).fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.llm_settings_extensions_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            SettingsSwitchRow(
+                title = stringResource(R.string.llm_settings_skills),
+                desc = stringResource(R.string.llm_settings_skills_desc),
+                checked = settings.skillsEnabled,
+                onCheckedChange = viewModel::setSkillsEnabled,
+            )
+            if (settings.skillsEnabled && onOpenSkills != null) {
+                FilledTonalButton(
+                    onClick = onOpenSkills,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(stringResource(R.string.llm_skill_manage))
+                }
+            }
+
+            HorizontalDivider()
+            SettingsSwitchRow(
+                title = stringResource(R.string.llm_settings_mcp),
+                desc = stringResource(R.string.llm_settings_mcp_desc),
+                checked = settings.mcpEnabled,
+                onCheckedChange = viewModel::setMcpEnabled,
+            )
+            if (settings.mcpEnabled && onOpenMcp != null) {
+                FilledTonalButton(
+                    onClick = onOpenMcp,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(stringResource(R.string.llm_settings_mcp_manage))
+                }
+            }
         }
     }
 }
