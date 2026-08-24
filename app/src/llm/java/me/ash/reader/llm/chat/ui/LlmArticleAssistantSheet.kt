@@ -2,6 +2,7 @@ package me.ash.reader.llm.chat.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -49,12 +51,14 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -81,6 +85,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import me.ash.reader.R
 import me.ash.reader.infrastructure.ai.availableModels
 import me.ash.reader.llm.chat.data.LlmChatRole
@@ -773,7 +778,7 @@ private fun AssistantComposer(
     onSend: () -> Unit,
     onStop: () -> Unit,
 ) {
-    var reasoningExpanded by remember { mutableStateOf(false) }
+    var reasoningSheetVisible by remember { mutableStateOf(false) }
     val selectedProvider = uiState.providers.firstOrNull { it.id == uiState.selectedProviderId }
     val configured = uiState.selectedProviderId != null && uiState.selectedModel != null
 
@@ -794,7 +799,6 @@ private fun AssistantComposer(
                 AssistChip(
                     onClick = onOpenModelPicker,
                     enabled = !uiState.isGenerating && uiState.providers.isNotEmpty(),
-                    // 模型切换只是输入区的辅助工具，不应为了“填满一行”抢占主要视觉空间。
                     modifier = Modifier.widthIn(max = 248.dp),
                     label = {
                         Text(
@@ -814,42 +818,16 @@ private fun AssistantComposer(
                     },
                 )
                 Spacer(modifier = Modifier.weight(1f))
-                Box {
-                    IconButton(
-                        onClick = { reasoningExpanded = true },
-                        enabled = !uiState.isGenerating,
-                        modifier = Modifier.size(36.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Lightbulb,
-                            contentDescription = stringResource(R.string.llm_settings_reasoning_effort),
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = reasoningExpanded,
-                        onDismissRequest = { reasoningExpanded = false },
-                    ) {
-                        listOf(
-                            LlmReasoningEffort.AUTO,
-                            LlmReasoningEffort.LOW,
-                            LlmReasoningEffort.MEDIUM,
-                            LlmReasoningEffort.HIGH,
-                        ).forEach { effort ->
-                            DropdownMenuItem(
-                                text = { Text(effort.displayName()) },
-                                trailingIcon = {
-                                    if (uiState.reasoningEffort == effort) {
-                                        Icon(Icons.Rounded.Check, contentDescription = null)
-                                    }
-                                },
-                                onClick = {
-                                    reasoningExpanded = false
-                                    onReasoningEffortChange(effort)
-                                },
-                            )
-                        }
-                    }
+                IconButton(
+                    onClick = { reasoningSheetVisible = true },
+                    enabled = !uiState.isGenerating,
+                    modifier = Modifier.size(36.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Lightbulb,
+                        contentDescription = stringResource(R.string.llm_settings_reasoning_effort),
+                        modifier = Modifier.size(20.dp),
+                    )
                 }
             }
 
@@ -879,6 +857,14 @@ private fun AssistantComposer(
             )
         }
     }
+
+    if (reasoningSheetVisible) {
+        ReasoningEffortSheet(
+            currentEffort = uiState.reasoningEffort,
+            onDismiss = { reasoningSheetVisible = false },
+            onSelect = onReasoningEffortChange,
+        )
+    }
 }
 
 private fun LlmReasoningEffort.displayName(): String =
@@ -891,25 +877,31 @@ private fun LlmReasoningEffort.displayName(): String =
         LlmReasoningEffort.MAXIMUM -> "Maximum"
     }
 
+/** 对话内 Reasoning Effort 快速调节面板，使用移动端离散 Slider 表达强度档位。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ModelPickerSheet(
-    uiState: LlmChatUiState,
+private fun ReasoningEffortSheet(
+    currentEffort: LlmReasoningEffort,
     onDismiss: () -> Unit,
-    onSelect: (providerId: String, model: String) -> Unit,
+    onSelect: (LlmReasoningEffort) -> Unit,
 ) {
-    var query by rememberSaveable { mutableStateOf("") }
-    val normalizedQuery = query.trim()
-    val groupedModels =
-        uiState.providers.mapNotNull { provider ->
-            val models =
-                provider.availableModels().filter { model ->
-                    normalizedQuery.isBlank() ||
-                        model.contains(normalizedQuery, ignoreCase = true) ||
-                        provider.name.contains(normalizedQuery, ignoreCase = true)
-                }
-            provider.takeIf { models.isNotEmpty() }?.let { it to models }
+    val efforts =
+        remember {
+            listOf(
+                LlmReasoningEffort.AUTO,
+                LlmReasoningEffort.MINIMAL,
+                LlmReasoningEffort.LOW,
+                LlmReasoningEffort.MEDIUM,
+                LlmReasoningEffort.HIGH,
+                LlmReasoningEffort.MAXIMUM,
+            )
         }
+    var sliderPosition by
+        rememberSaveable(currentEffort) {
+            mutableStateOf(efforts.indexOf(currentEffort).coerceAtLeast(0).toFloat())
+        }
+    val selectedIndex = sliderPosition.roundToInt().coerceIn(efforts.indices)
+    val selectedEffort = efforts[selectedIndex]
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -918,28 +910,104 @@ private fun ModelPickerSheet(
         Column(
             modifier =
                 Modifier.fillMaxWidth()
-                    .fillMaxHeight(0.78f)
                     .navigationBarsPadding()
-                    .padding(horizontal = 18.dp),
+                    .padding(start = 28.dp, end = 28.dp, bottom = 28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Text(
-                text = stringResource(R.string.llm_model_picker_title),
+                text = stringResource(R.string.llm_settings_reasoning_effort),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = stringResource(R.string.llm_settings_reasoning_effort_desc),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            ) {
+                Box(
+                    modifier = Modifier.size(64.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Lightbulb,
+                        contentDescription = null,
+                        modifier = Modifier.size(34.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+            Text(
+                text = selectedEffort.displayName(),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
             )
-            Spacer(Modifier.size(12.dp))
+            Slider(
+                value = sliderPosition,
+                onValueChange = { rawValue ->
+                    val nextIndex = rawValue.roundToInt().coerceIn(efforts.indices)
+                    sliderPosition = nextIndex.toFloat()
+                    val nextEffort = efforts[nextIndex]
+                    if (nextEffort != currentEffort) {
+                        onSelect(nextEffort)
+                    }
+                },
+                valueRange = 0f..efforts.lastIndex.toFloat(),
+                steps = (efforts.size - 2).coerceAtLeast(0),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ModelPickerSheet(
+    uiState: LlmChatUiState,
+    onDismiss: () -> Unit,
+    onSelect: (providerId: String, model: String) -> Unit,
+) {
+    var query by rememberSaveable { mutableStateOf("") }
+    var providerFilterId by rememberSaveable { mutableStateOf<String?>(null) }
+    val normalizedQuery = query.trim()
+    val groupedModels =
+        uiState.providers
+            .filter { providerFilterId == null || it.id == providerFilterId }
+            .mapNotNull { provider ->
+                val models =
+                    provider.availableModels().filter { model ->
+                        normalizedQuery.isBlank() ||
+                            model.contains(normalizedQuery, ignoreCase = true) ||
+                            provider.name.contains(normalizedQuery, ignoreCase = true)
+                    }
+                provider.takeIf { models.isNotEmpty() }?.let { it to models }
+            }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(
+            modifier =
+                Modifier.fillMaxWidth()
+                    .fillMaxHeight(0.88f)
+                    .navigationBarsPadding()
+                    .padding(horizontal = 18.dp),
+        ) {
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 placeholder = { Text(stringResource(R.string.llm_model_search_hint)) },
-                leadingIcon = {
-                    Icon(Icons.Rounded.Search, contentDescription = null)
-                },
-                shape = RoundedCornerShape(18.dp),
+                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+                shape = RoundedCornerShape(26.dp),
             )
-            Spacer(Modifier.size(10.dp))
+            Spacer(Modifier.size(12.dp))
 
             if (groupedModels.isEmpty()) {
                 Box(
@@ -954,80 +1022,105 @@ private fun ModelPickerSheet(
             } else {
                 LazyColumn(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
-                    contentPadding = PaddingValues(bottom = 16.dp),
+                    contentPadding = PaddingValues(bottom = 12.dp),
                 ) {
                     groupedModels.forEach { (provider, models) ->
                         item(key = "provider:${provider.id}") {
-                            Surface(
-                                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                                shape = RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp),
-                                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                            Row(
+                                modifier =
+                                    Modifier.fillMaxWidth()
+                                        .padding(start = 6.dp, end = 6.dp, top = 16.dp, bottom = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        text = provider.name,
-                                        modifier = Modifier.weight(1f),
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.SemiBold,
-                                    )
-                                    Text(
-                                        text = models.size.toString(),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
+                                Text(
+                                    text = provider.name,
+                                    modifier = Modifier.weight(1f),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Text(
+                                    text = models.size.toString(),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
                         }
-                        models.forEachIndexed { index, model ->
+                        models.forEach { model ->
                             item(key = "${provider.id}:$model") {
                                 val selected =
                                     uiState.selectedProviderId == provider.id &&
                                         uiState.selectedModel == model
-                                val isLastModel = index == models.lastIndex
                                 Surface(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape =
-                                        if (isLastModel) {
-                                            RoundedCornerShape(bottomStart = 14.dp, bottomEnd = 14.dp)
-                                        } else {
-                                            RoundedCornerShape(0.dp)
-                                        },
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                                    shape = RoundedCornerShape(20.dp),
                                     color =
                                         if (selected) MaterialTheme.colorScheme.secondaryContainer
-                                        else MaterialTheme.colorScheme.surface,
-                                ) {
-                                    Column {
-                                        Row(
-                                            modifier =
-                                                Modifier.fillMaxWidth()
-                                                    .clickable { onSelect(provider.id, model) }
-                                                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                        ) {
-                                            Text(
-                                                text = model,
-                                                modifier = Modifier.weight(1f),
-                                                maxLines = 2,
-                                                overflow = TextOverflow.Ellipsis,
+                                        else MaterialTheme.colorScheme.surfaceContainerLow,
+                                    border =
+                                        if (selected) {
+                                            BorderStroke(
+                                                1.dp,
+                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.28f),
                                             )
-                                            if (selected) {
-                                                Spacer(Modifier.width(10.dp))
-                                                Icon(
-                                                    Icons.Rounded.Check,
-                                                    contentDescription = null,
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(18.dp),
+                                        } else {
+                                            null
+                                        },
+                                ) {
+                                    Row(
+                                        modifier =
+                                            Modifier.fillMaxWidth()
+                                                .clickable { onSelect(provider.id, model) }
+                                                .padding(horizontal = 14.dp, vertical = 14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Surface(
+                                            modifier = Modifier.size(44.dp),
+                                            shape = RoundedCornerShape(14.dp),
+                                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Text(
+                                                    text = provider.monogram(),
+                                                    style = MaterialTheme.typography.labelLarge,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.primary,
                                                 )
                                             }
                                         }
-                                        if (!isLastModel) {
-                                            HorizontalDivider(
-                                                modifier = Modifier.padding(horizontal = 14.dp),
-                                                color = MaterialTheme.colorScheme.outlineVariant,
+                                        Spacer(Modifier.width(14.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = model,
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Medium,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
                                             )
+                                            Text(
+                                                text = provider.name,
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        }
+                                        if (selected) {
+                                            Spacer(Modifier.width(12.dp))
+                                            Surface(
+                                                modifier = Modifier.size(32.dp),
+                                                shape = CircleShape,
+                                                color = MaterialTheme.colorScheme.primary,
+                                            ) {
+                                                Box(contentAlignment = Alignment.Center) {
+                                                    Icon(
+                                                        Icons.Rounded.Check,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                                        modifier = Modifier.size(18.dp),
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -1036,9 +1129,44 @@ private fun ModelPickerSheet(
                     }
                 }
             }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Row(
+                modifier =
+                    Modifier.fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                FilterChip(
+                    selected = providerFilterId == null,
+                    onClick = { providerFilterId = null },
+                    label = { Text(stringResource(R.string.all)) },
+                )
+                uiState.providers.forEach { provider ->
+                    FilterChip(
+                        selected = providerFilterId == provider.id,
+                        onClick = {
+                            providerFilterId =
+                                if (providerFilterId == provider.id) null else provider.id
+                        },
+                        label = {
+                            Text(
+                                text = provider.name,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        },
+                    )
+                }
+            }
         }
     }
 }
+
+/** 模型卡片使用稳定的 Provider 缩写作为轻量视觉锚点，不引入额外品牌图标依赖。 */
+private fun me.ash.reader.infrastructure.ai.AiProviderProfile.monogram(): String =
+    name.trim().take(2).ifBlank { "AI" }.uppercase()
 
 @Composable
 private fun RenameConversationDialog(

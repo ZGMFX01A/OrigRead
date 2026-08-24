@@ -44,7 +44,7 @@
     <string name="llm_model_search_empty">No matching model</string>
     <string name="llm_settings_runtime_title">LLM runtime</string>
     <string name="llm_settings_runtime_desc">Runtime options for article chat.</string>
-    <string name="llm_settings_reasoning_effort">Reasoning effort</string>
+    <string name="llm_settings_reasoning_effort">Reasoning Effort</string>
     <string name="llm_settings_reasoning_effort_desc">Used when supported by the model and service.</string>
     <string name="llm_reasoning_auto">Auto</string>
     <string name="llm_reasoning_low">Low</string>
