@@ -2,9 +2,11 @@ package me.ash.reader.ui.component.webview
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Rect
 import android.view.ActionMode
 import android.view.Menu
 import android.view.MenuItem
+import android.view.View
 import android.webkit.WebView
 import org.json.JSONTokener
 
@@ -59,7 +61,7 @@ private class ArticleSelectionActionModeCallback(
     private val label: String,
     private val onSelectedText: (String) -> Unit,
     private val delegate: ActionMode.Callback,
-) : ActionMode.Callback {
+) : ActionMode.Callback2() {
     override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
         if (!delegate.onCreateActionMode(mode, menu)) return false
         ensureAskAiItem(menu)
@@ -86,6 +88,23 @@ private class ArticleSelectionActionModeCallback(
 
     override fun onDestroyActionMode(mode: ActionMode) {
         delegate.onDestroyActionMode(mode)
+    }
+
+    /**
+     * WebView/Chromium 会通过 Callback2 提供当前文本选区的局部矩形，FloatingToolbar 正是依赖该矩形
+     * 锚定在选中文字附近。包装回调时必须继续转发它；否则系统只能退化为顶部等兜底位置。
+     */
+    override fun onGetContentRect(
+        mode: ActionMode,
+        view: View,
+        outRect: Rect,
+    ) {
+        val delegateCallback2 = delegate as? ActionMode.Callback2
+        if (delegateCallback2 != null) {
+            delegateCallback2.onGetContentRect(mode, view, outRect)
+        } else {
+            super.onGetContentRect(mode, view, outRect)
+        }
     }
 
     /**
