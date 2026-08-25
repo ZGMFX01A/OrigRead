@@ -233,11 +233,13 @@ fun LlmSkillSettingsPage(
                 uiState.importError?.let { message ->
                     item { StatusText(message, error = true) }
                 }
-                item {
-                    SkillBindingsCard(
-                        state = uiState.skillState,
-                        onBind = viewModel::bind,
-                    )
+                if (uiState.skillState.skills.any(LlmSkillRecord::enabled)) {
+                    item {
+                        SkillBindingsCard(
+                            state = uiState.skillState,
+                            onBind = viewModel::bind,
+                        )
+                    }
                 }
                 if (uiState.skillState.skills.isEmpty()) {
                     item {

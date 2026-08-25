@@ -1,7 +1,11 @@
 package me.ash.reader.llm.mcp
 
+import android.net.Uri
+import androidx.browser.customtabs.CustomTabsIntent
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -40,6 +44,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -51,7 +56,9 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import me.ash.reader.R
 import me.ash.reader.llm.runtime.LlmToolRisk
 import me.ash.reader.ui.component.base.DisplayText
@@ -66,6 +73,8 @@ data class McpServerUiState(
     val refreshing: Boolean = false,
     val error: String? = null,
     val health: McpHealthUiState? = null,
+    val oauthAuthorizing: Boolean = false,
+    val oauthError: String? = null,
 )
 
 /** MCP Server 的一次主动测活结果；只属于当前设置页，不持久化瞬时网络状态。 */
@@ -86,6 +95,7 @@ data class McpSettingsUiState(
 class McpSettingsViewModel @Inject constructor(
     private val repository: McpServerRepository,
     private val toolRegistry: McpToolRegistry,
+    private val oauthManager: McpOAuthManager,
 ) : ViewModel() {
     private val _uiState =
         MutableStateFlow(
@@ -129,6 +139,11 @@ class McpSettingsViewModel @Inject constructor(
 
     fun hasCustomHeaders(serverId: String): Boolean = repository.hasCustomHeaders(serverId)
 
+    fun hasOAuthAuthorization(serverId: String): Boolean = repository.hasOAuthAuthorization(serverId)
+
+    fun hasOAuthClientConfig(serverId: String): Boolean =
+        repository.oauthClientConfig(serverId).clientId.isNotBlank()
+
     /**
      * 保存 Server；返回 null 表示成功，返回字符串则由编辑 Sheet 原位展示错误。
      * 空凭据在“编辑已有配置”场景表示保留原密钥，而不是静默清空。
@@ -140,6 +155,9 @@ class McpSettingsViewModel @Inject constructor(
         authType: McpAuthType,
         bearerToken: String,
         customHeadersText: String,
+        oauthClientId: String,
+        oauthClientSecret: String,
+        oauthClientAuthMethod: McpOAuthClientAuthMethod,
     ): String? {
         val normalizedName = name.trim()
         val normalizedEndpoint = endpoint.trim()
@@ -152,6 +170,10 @@ class McpSettingsViewModel @Inject constructor(
 
         val existingHasBearer = existing?.let { repository.hasBearerToken(it.id) } == true
         val existingHasHeaders = existing?.let { repository.hasCustomHeaders(it.id) } == true
+        val oauthEndpointChanged =
+            existing?.let { it.authType == McpAuthType.OAUTH && it.endpoint.trim() != normalizedEndpoint } == true
+        val oauthAuthTypeChanged = existing?.authType != null && existing.authType != authType
+        val oauthClientReplaced = authType == McpAuthType.OAUTH && oauthClientId.isNotBlank()
         val parsedHeaders =
             if (customHeadersText.isBlank()) {
                 emptyMap()
@@ -166,6 +188,11 @@ class McpSettingsViewModel @Inject constructor(
             }
             McpAuthType.CUSTOM_HEADERS -> {
                 if (parsedHeaders.isEmpty() && !existingHasHeaders) return "至少填写一个 Custom Header"
+            }
+            McpAuthType.OAUTH -> {
+                if (oauthClientId.isBlank() && oauthClientSecret.isNotBlank()) {
+                    return "填写 Client Secret 时必须同时填写 Client ID"
+                }
             }
         }
 
@@ -189,20 +216,45 @@ class McpSettingsViewModel @Inject constructor(
                     McpAuthType.NONE -> {
                         repository.setBearerToken(serverId, "")
                         repository.setCustomHeaders(serverId, emptyMap())
+                        repository.clearOAuthAuthorization(serverId, keepClientConfig = false)
                     }
                     McpAuthType.BEARER -> {
                         if (bearerToken.isNotBlank()) repository.setBearerToken(serverId, bearerToken)
                         repository.setCustomHeaders(serverId, emptyMap())
+                        repository.clearOAuthAuthorization(serverId, keepClientConfig = false)
                     }
                     McpAuthType.CUSTOM_HEADERS -> {
                         if (parsedHeaders.isNotEmpty()) repository.setCustomHeaders(serverId, parsedHeaders)
                         repository.setBearerToken(serverId, "")
+                        repository.clearOAuthAuthorization(serverId, keepClientConfig = false)
+                    }
+                    McpAuthType.OAUTH -> {
+                        repository.setBearerToken(serverId, "")
+                        repository.setCustomHeaders(serverId, emptyMap())
+                        if (oauthEndpointChanged || oauthAuthTypeChanged || oauthClientReplaced) {
+                            // Token 与 DCR/预注册 Client 的 issuer/resource 绑定；配置变化后必须重新授权。
+                            repository.clearOAuthAuthorization(serverId, keepClientConfig = true)
+                        }
+                        if (oauthClientId.isNotBlank()) {
+                            repository.setOAuthClientConfig(
+                                serverId,
+                                McpOAuthClientConfig(
+                                    clientId = oauthClientId.trim(),
+                                    clientSecret = oauthClientSecret,
+                                    authMethod =
+                                        if (oauthClientSecret.isBlank()) McpOAuthClientAuthMethod.NONE
+                                        else oauthClientAuthMethod,
+                                ),
+                            )
+                        }
                     }
                 }
 
                 repository.clearCatalog(serverId)
                 toolRegistry.unloadServer(serverId)
-                refreshServer(serverId)
+                if (authType != McpAuthType.OAUTH || repository.hasOAuthAuthorization(serverId)) {
+                    refreshServer(serverId)
+                }
             }
             .exceptionOrNull()
             ?.message
@@ -211,7 +263,12 @@ class McpSettingsViewModel @Inject constructor(
     fun setEnabled(serverId: String, enabled: Boolean) {
         clearHealth(serverId)
         repository.setEnabled(serverId, enabled)
-        if (enabled) refreshServer(serverId) else toolRegistry.unloadServer(serverId)
+        val profile = repository.server(serverId)
+        if (enabled && profile != null && repository.isConfigured(profile)) {
+            refreshServer(serverId)
+        } else {
+            toolRegistry.unloadServer(serverId)
+        }
     }
 
     fun refreshServer(serverId: String) {
@@ -339,6 +396,69 @@ class McpSettingsViewModel @Inject constructor(
         repository.removeServer(serverId)
     }
 
+    /** OAuth 只由用户显式触发；成功后立即 discovery，避免仅拿到 Token 就显示“可用”。 */
+    fun authorizeServer(
+        serverId: String,
+        openAuthorizationUrl: (String) -> Unit,
+    ) {
+        val profile = repository.server(serverId) ?: return
+        if (profile.authType != McpAuthType.OAUTH || !profile.enabled) return
+        if (_uiState.value.servers.firstOrNull { it.profile.id == serverId }?.oauthAuthorizing == true) return
+        clearHealth(serverId)
+        _uiState.update { state ->
+            state.copy(
+                servers =
+                    state.servers.map {
+                        if (it.profile.id == serverId) {
+                            it.copy(oauthAuthorizing = true, oauthError = null)
+                        } else it
+                    }
+            )
+        }
+        viewModelScope.launch {
+            runCatching {
+                    oauthManager.authorize(profile) { url ->
+                        withContext(Dispatchers.Main.immediate) { openAuthorizationUrl(url) }
+                    }
+                    repository.clearCatalog(serverId)
+                    toolRegistry.unloadServer(serverId)
+                    toolRegistry.refreshServer(serverId, forceRefresh = true)
+                }
+                .onSuccess { catalog ->
+                    _uiState.update { state ->
+                        state.copy(
+                            servers =
+                                state.servers.map {
+                                    if (it.profile.id == serverId) {
+                                        it.copy(
+                                            catalog = catalog,
+                                            oauthAuthorizing = false,
+                                            oauthError = null,
+                                            error = null,
+                                        )
+                                    } else it
+                                }
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _uiState.update { state ->
+                        state.copy(
+                            servers =
+                                state.servers.map {
+                                    if (it.profile.id == serverId) {
+                                        it.copy(
+                                            oauthAuthorizing = false,
+                                            oauthError = error.message ?: "OAuth 授权失败",
+                                        )
+                                    } else it
+                                }
+                        )
+                    }
+                }
+        }
+    }
+
     /** MCP 测活结果只对当时的 Endpoint / 认证 / 启用状态有效，配置变化后不保留旧结论。 */
     private fun clearHealth(serverId: String) {
         _uiState.update { state ->
@@ -391,6 +511,7 @@ fun McpSettingsPage(
     viewModel: McpSettingsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
     var editorProfile by remember { mutableStateOf<McpServerProfile?>(null) }
     var editorVisible by remember { mutableStateOf(false) }
     var toolsServerId by remember { mutableStateOf<String?>(null) }
@@ -448,6 +569,7 @@ fun McpSettingsPage(
                     items(uiState.servers, key = { it.profile.id }) { server ->
                         McpServerCard(
                             state = server,
+                            oauthAuthorized = viewModel.hasOAuthAuthorization(server.profile.id),
                             onEnabledChange = { viewModel.setEnabled(server.profile.id, it) },
                             onEdit = {
                                 editorProfile = server.profile
@@ -455,6 +577,11 @@ fun McpSettingsPage(
                             },
                             onRefresh = { viewModel.refreshServer(server.profile.id) },
                             onTest = { viewModel.testServer(server.profile.id) },
+                            onAuthorize = {
+                                viewModel.authorizeServer(server.profile.id) { url ->
+                                    CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(url))
+                                }
+                            },
                             onShowTools = { toolsServerId = server.profile.id },
                         )
                     }
@@ -469,8 +596,9 @@ fun McpSettingsPage(
             profile = current,
             hasBearerToken = current?.let { viewModel.hasBearerToken(it.id) } == true,
             hasCustomHeaders = current?.let { viewModel.hasCustomHeaders(it.id) } == true,
+            hasOAuthClientConfig = current?.let { viewModel.hasOAuthClientConfig(it.id) } == true,
             onDismiss = { editorVisible = false },
-            onSave = { name, endpoint, authType, token, headers ->
+            onSave = { name, endpoint, authType, token, headers, clientId, clientSecret, clientAuth ->
                 val error =
                     viewModel.saveServer(
                         existing = current,
@@ -479,6 +607,9 @@ fun McpSettingsPage(
                         authType = authType,
                         bearerToken = token,
                         customHeadersText = headers,
+                        oauthClientId = clientId,
+                        oauthClientSecret = clientSecret,
+                        oauthClientAuthMethod = clientAuth,
                     )
                 if (error == null) editorVisible = false
                 error
@@ -524,10 +655,12 @@ fun McpSettingsPage(
 @Composable
 private fun McpServerCard(
     state: McpServerUiState,
+    oauthAuthorized: Boolean,
     onEnabledChange: (Boolean) -> Unit,
     onEdit: () -> Unit,
     onRefresh: () -> Unit,
     onTest: () -> Unit,
+    onAuthorize: () -> Unit,
     onShowTools: () -> Unit,
 ) {
     OutlinedCard(modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth()) {
@@ -556,6 +689,43 @@ private fun McpServerCard(
                 }
             }
             HorizontalDivider()
+            if (state.profile.authType == McpAuthType.OAUTH) {
+                when {
+                    state.oauthAuthorizing -> {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            Text(
+                                stringResource(R.string.llm_mcp_oauth_authorizing),
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                    state.oauthError != null -> {
+                        Text(
+                            text = state.oauthError,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    oauthAuthorized -> {
+                        Text(
+                            text = stringResource(R.string.llm_mcp_oauth_authorized),
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    else -> {
+                        Text(
+                            text = stringResource(R.string.llm_mcp_oauth_required),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
             when {
                 state.refreshing -> {
                     Row(
@@ -636,6 +806,19 @@ private fun McpServerCard(
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                if (state.profile.authType == McpAuthType.OAUTH) {
+                    TextButton(
+                        onClick = onAuthorize,
+                        enabled = state.profile.enabled && !state.oauthAuthorizing && !state.refreshing,
+                    ) {
+                        Text(
+                            stringResource(
+                                if (oauthAuthorized) R.string.llm_mcp_oauth_reauthorize
+                                else R.string.llm_mcp_oauth_authorize
+                            )
+                        )
+                    }
+                }
                 state.catalog?.takeIf { it.tools.isNotEmpty() }?.let { catalog ->
                     TextButton(onClick = onShowTools) {
                         Icon(Icons.Outlined.Extension, contentDescription = null)
@@ -668,8 +851,18 @@ private fun McpServerEditorSheet(
     profile: McpServerProfile?,
     hasBearerToken: Boolean,
     hasCustomHeaders: Boolean,
+    hasOAuthClientConfig: Boolean,
     onDismiss: () -> Unit,
-    onSave: (String, String, McpAuthType, String, String) -> String?,
+    onSave: (
+        String,
+        String,
+        McpAuthType,
+        String,
+        String,
+        String,
+        String,
+        McpOAuthClientAuthMethod,
+    ) -> String?,
     onDelete: (() -> Unit)?,
 ) {
     var name by remember(profile?.id) { mutableStateOf(profile?.name.orEmpty()) }
@@ -677,6 +870,9 @@ private fun McpServerEditorSheet(
     var authType by remember(profile?.id) { mutableStateOf(profile?.authType ?: McpAuthType.NONE) }
     var bearerToken by remember(profile?.id) { mutableStateOf("") }
     var customHeaders by remember(profile?.id) { mutableStateOf("") }
+    var oauthClientId by remember(profile?.id) { mutableStateOf("") }
+    var oauthClientSecret by remember(profile?.id) { mutableStateOf("") }
+    var oauthClientAuthMethod by remember(profile?.id) { mutableStateOf(McpOAuthClientAuthMethod.NONE) }
     var error by remember(profile?.id) { mutableStateOf<String?>(null) }
 
     ModalBottomSheet(
@@ -713,7 +909,10 @@ private fun McpServerEditorSheet(
                 text = stringResource(R.string.llm_mcp_auth),
                 style = MaterialTheme.typography.titleSmall,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
                 McpAuthType.entries.forEach { type ->
                     FilterChip(
                         selected = authType == type,
@@ -763,6 +962,54 @@ private fun McpServerEditorSheet(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                McpAuthType.OAUTH -> {
+                    Text(
+                        text = stringResource(R.string.llm_mcp_oauth_client_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedTextField(
+                        value = oauthClientId,
+                        onValueChange = { oauthClientId = it; error = null },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text(stringResource(R.string.llm_mcp_oauth_client_id)) },
+                        placeholder = { if (hasOAuthClientConfig) Text("••••••••") },
+                    )
+                    OutlinedTextField(
+                        value = oauthClientSecret,
+                        onValueChange = { oauthClientSecret = it; error = null },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text(stringResource(R.string.llm_mcp_oauth_client_secret)) },
+                        visualTransformation = PasswordVisualTransformation(),
+                    )
+                    if (oauthClientId.isNotBlank() && oauthClientSecret.isNotBlank()) {
+                        Text(
+                            text = stringResource(R.string.llm_mcp_oauth_client_auth),
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            McpOAuthClientAuthMethod.entries.forEach { method ->
+                                FilterChip(
+                                    selected = oauthClientAuthMethod == method,
+                                    onClick = { oauthClientAuthMethod = method; error = null },
+                                    label = { Text(mcpOAuthClientAuthLabel(method)) },
+                                )
+                            }
+                        }
+                    }
+                    if (hasOAuthClientConfig) {
+                        Text(
+                            text = stringResource(R.string.llm_mcp_leave_blank_keep_secret),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
             error?.let {
                 Text(
@@ -773,7 +1020,17 @@ private fun McpServerEditorSheet(
             }
             FilledTonalButton(
                 onClick = {
-                    error = onSave(name, endpoint, authType, bearerToken, customHeaders)
+                    error =
+                        onSave(
+                            name,
+                            endpoint,
+                            authType,
+                            bearerToken,
+                            customHeaders,
+                            oauthClientId,
+                            oauthClientSecret,
+                            oauthClientAuthMethod,
+                        )
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) {
@@ -869,6 +1126,14 @@ private fun mcpAuthLabel(type: McpAuthType): String =
         McpAuthType.NONE -> stringResource(R.string.llm_mcp_auth_none)
         McpAuthType.BEARER -> "Bearer"
         McpAuthType.CUSTOM_HEADERS -> "Headers"
+        McpAuthType.OAUTH -> stringResource(R.string.llm_mcp_auth_oauth)
+    }
+
+private fun mcpOAuthClientAuthLabel(method: McpOAuthClientAuthMethod): String =
+    when (method) {
+        McpOAuthClientAuthMethod.NONE -> "None"
+        McpOAuthClientAuthMethod.CLIENT_SECRET_POST -> "Secret POST"
+        McpOAuthClientAuthMethod.CLIENT_SECRET_BASIC -> "Secret Basic"
     }
 
 @Composable

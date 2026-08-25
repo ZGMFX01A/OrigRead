@@ -16,6 +16,7 @@ import me.ash.reader.llm.chat.runtime.parseNonStreamingPayload
 import me.ash.reader.llm.chat.runtime.parseStreamPayload
 import me.ash.reader.llm.chat.data.deriveConversationTitle
 import me.ash.reader.llm.chat.ui.buildArticleContextItems
+import me.ash.reader.llm.chat.ui.shouldExposeManualToolFallback
 import me.ash.reader.llm.runtime.ComposedLlmContext
 import me.ash.reader.llm.runtime.LlmContextType
 import me.ash.reader.llm.runtime.LlmExecutionPlan
@@ -230,6 +231,34 @@ class LlmChatFoundationTest {
         } finally {
             server.shutdown()
         }
+    }
+
+    @Test
+    fun `manual tool fallback is exposed only when tools exist but automatic calling is unavailable`() {
+        val tool =
+            LlmToolDescriptor(
+                id = "mcp:server:search",
+                name = "search",
+                description = "Search documents",
+                source = LlmToolSource.MCP,
+                sourceId = "server",
+            )
+        val basePlan =
+            LlmExecutionPlan(
+                providerId = "test-provider",
+                providerName = "Test",
+                runtimeConfig = AiRuntimeConfig("https://example.com/v1", "test-model", ""),
+                capability = ModelCapability(supportsToolCalling = false),
+                reasoningParameter = null,
+                tools = listOf(tool),
+                automaticToolCalling = false,
+                context = ComposedLlmContext("", emptyList(), emptyList(), false),
+                skillId = null,
+            )
+
+        assertTrue(shouldExposeManualToolFallback(basePlan))
+        assertFalse(shouldExposeManualToolFallback(basePlan.copy(automaticToolCalling = true)))
+        assertFalse(shouldExposeManualToolFallback(basePlan.copy(tools = emptyList())))
     }
 
     @Test

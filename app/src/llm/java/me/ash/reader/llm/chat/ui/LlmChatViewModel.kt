@@ -41,6 +41,7 @@ import me.ash.reader.llm.runtime.LlmExecutionProfile
 import me.ash.reader.llm.runtime.LlmReasoningEffort
 import me.ash.reader.llm.runtime.LlmRuntime
 import me.ash.reader.llm.runtime.LlmToolCall
+import me.ash.reader.llm.runtime.LlmToolDescriptor
 import me.ash.reader.llm.runtime.LlmToolResult
 import me.ash.reader.llm.runtime.LlmToolRuntime
 import me.ash.reader.llm.runtime.LlmToolSource
@@ -68,8 +69,39 @@ data class LlmChatUiState(
     val reasoningEffort: LlmReasoningEffort = LlmReasoningEffort.AUTO,
     val webSearchEnabled: Boolean = false,
     val webSearchMode: WebSearchMode = WebSearchMode.AUTO,
+    val manualToolFallbackAvailable: Boolean = false,
+    val manualTools: List<LlmToolDescriptor> = emptyList(),
+    val manualToolContexts: List<LlmManualToolContext> = emptyList(),
+    val pendingManualTool: LlmPendingManualTool? = null,
+    val manualToolRunning: Boolean = false,
     val isGenerating: Boolean = false,
     val transientError: String? = null,
+)
+
+/** 手动 Tool 结果只作为当前文章助手的参考资料，不伪造 Provider Function Calling 历史。 */
+data class LlmManualToolContext(
+    val id: String,
+    val toolId: String,
+    val toolName: String,
+    val sourceId: String?,
+    val content: String,
+) {
+    fun toContextItem(): LlmContextItem =
+        LlmContextItem(
+            id = "manual-tool:$id",
+            type = LlmContextType.TOOL_RESULT,
+            content = content,
+            title = toolName,
+            sourceId = sourceId,
+            priority = MANUAL_TOOL_CONTEXT_PRIORITY,
+        )
+}
+
+/** 敏感/写入 Tool 的待确认请求；批准后 Runtime 仍会再次检查 allowed Tool 与 confirmed 标志。 */
+data class LlmPendingManualTool(
+    val callId: String,
+    val descriptor: LlmToolDescriptor,
+    val argumentsJson: String,
 )
 
 /** 当前会话的运行时选择，只保存 Provider/Model 标识，不持有 API Key。 */
@@ -104,6 +136,7 @@ class LlmChatViewModel @Inject constructor(
     private val runtimeSelection = MutableStateFlow(RuntimeSelection())
     private var forceWebSearchNextRequest = false
     private var generationJob: Job? = null
+    private var manualToolJob: Job? = null
     private var conversationSelectionInitialized = false
 
     init {
@@ -163,6 +196,7 @@ class LlmChatViewModel @Inject constructor(
                             else settings.webSearchMode,
                     )
                 }
+                refreshManualToolFallback()
             }
         }
     }
@@ -175,6 +209,7 @@ class LlmChatViewModel @Inject constructor(
         val articleChanged = articleContext.value?.articleId != context.articleId
         if (articleChanged) {
             stopGeneration()
+            manualToolJob?.cancel(CancellationException("文章已切换"))
             conversationSelectionInitialized = false
             selectedConversationId.value = null
             _uiState.update {
@@ -183,6 +218,9 @@ class LlmChatViewModel @Inject constructor(
                     currentConversationId = null,
                     conversations = emptyList(),
                     messages = emptyList(),
+                    manualToolContexts = emptyList(),
+                    pendingManualTool = null,
+                    manualToolRunning = false,
                     transientError = null,
                 )
             }
@@ -469,6 +507,119 @@ class LlmChatViewModel @Inject constructor(
         _uiState.update { it.copy(transientError = null) }
     }
 
+    /** 用户打开手动 Tool 面板前重新读取 Registry，兼容其在 MCP 设置页刷新 Catalog 后返回 Chat 的场景。 */
+    fun refreshManualTools() {
+        if (!hasGenerationInFlight() && manualToolJob?.isCompleted != false) {
+            refreshManualToolFallback()
+        }
+    }
+
+    /**
+     * 不支持标准 Tool Calling 的模型可以显式运行 MCP Tool；结果作为 TOOL_RESULT Context 附加。
+     * JSON 参数先本地验证，真正执行仍经过 [LlmToolRuntime] 的 enabledToolIds / risk 门控。
+     */
+    fun runManualTool(toolId: String, rawArgumentsJson: String) {
+        refreshManualToolFallback()
+        val state = _uiState.value
+        if (!state.manualToolFallbackAvailable || hasGenerationInFlight() || manualToolJob?.isCompleted == false) return
+        val descriptor = state.manualTools.firstOrNull { it.id == toolId } ?: return
+        val arguments = rawArgumentsJson.trim().ifBlank { "{}" }
+        runCatching { org.json.JSONObject(arguments) }
+            .onFailure {
+                _uiState.update { current -> current.copy(transientError = "Tool 参数必须是有效 JSON Object") }
+                return
+            }
+        val request =
+            LlmPendingManualTool(
+                callId = "manual:${UUID.randomUUID()}",
+                descriptor = descriptor,
+                argumentsJson = arguments,
+            )
+        startManualToolJob(request, confirmed = false)
+    }
+
+    /** 用户批准敏感/写入 Tool；Runtime 仍会再次检查确认标记，不能由 UI 直接越权。 */
+    fun approveManualTool() {
+        if (hasGenerationInFlight() || manualToolJob?.isCompleted == false) return
+        val pending = _uiState.value.pendingManualTool ?: return
+        startManualToolJob(pending, confirmed = true)
+    }
+
+    /** 拒绝手动 Tool 不调用远端，也不会产生 Tool Context。 */
+    fun denyManualTool() {
+        if (manualToolJob?.isCompleted == false) return
+        _uiState.update { it.copy(pendingManualTool = null) }
+    }
+
+    /** Tool Context 是一次显式附件，用户可在发送前或后随时移除。 */
+    fun removeManualToolContext(contextId: String) {
+        if (hasGenerationInFlight()) return
+        _uiState.update { state ->
+            state.copy(manualToolContexts = state.manualToolContexts.filterNot { it.id == contextId })
+        }
+    }
+
+    private fun startManualToolJob(
+        request: LlmPendingManualTool,
+        confirmed: Boolean,
+    ) {
+        if (manualToolJob?.isCompleted == false) return
+        val articleId = articleContext.value?.articleId ?: return
+        val job =
+            viewModelScope.launch(start = CoroutineStart.LAZY) {
+                _uiState.update { it.copy(manualToolRunning = true, transientError = null) }
+                try {
+                    val result =
+                        toolRuntime.execute(
+                            call =
+                                LlmToolCall(
+                                    id = request.callId,
+                                    toolId = request.descriptor.id,
+                                    argumentsJson = request.argumentsJson,
+                                ),
+                            profile = LlmExecutionProfile(enabledToolIds = setOf(request.descriptor.id)),
+                            confirmed = confirmed,
+                        )
+                    // 切文章期间即使远端已经完成，也不允许把旧文章 Tool Result 附到新文章。
+                    if (articleContext.value?.articleId != articleId) return@launch
+                    when (result) {
+                        is LlmToolResult.Success -> {
+                            val context =
+                                LlmManualToolContext(
+                                    id = UUID.randomUUID().toString(),
+                                    toolId = request.descriptor.id,
+                                    toolName = request.descriptor.name,
+                                    sourceId = request.descriptor.sourceId,
+                                    content = result.content.ifBlank { "Tool completed without text output." },
+                                )
+                            _uiState.update {
+                                it.copy(
+                                    manualToolContexts = it.manualToolContexts + context,
+                                    pendingManualTool = null,
+                                )
+                            }
+                        }
+                        is LlmToolResult.ConfirmationRequired -> {
+                            _uiState.update { it.copy(pendingManualTool = request) }
+                        }
+                        is LlmToolResult.Failure -> {
+                            _uiState.update {
+                                it.copy(
+                                    pendingManualTool = null,
+                                    transientError = result.message,
+                                )
+                            }
+                        }
+                    }
+                } finally {
+                    manualToolJob = null
+                    _uiState.update { it.copy(manualToolRunning = false) }
+                }
+            }
+        manualToolJob = job
+        job.start()
+    }
+
     /** 用户明确允许敏感/写入 Tool 后才执行；执行结果完成后自动续接同一轮模型回复。 */
     fun approveToolCall(toolCallId: String) {
         if (hasGenerationInFlight()) return
@@ -698,7 +849,9 @@ class LlmChatViewModel @Inject constructor(
                     articleTitle = currentArticle.title,
                 )
             val contextItems =
-                buildArticleContextItems(currentArticle) + webSearch?.toContextItems().orEmpty()
+                buildArticleContextItems(currentArticle) +
+                    _uiState.value.manualToolContexts.map(LlmManualToolContext::toContextItem) +
+                    webSearch?.toContextItems().orEmpty()
             val enabledToolIds =
                 if (advancedSettings.mcpEnabled) {
                     toolRuntime.descriptors()
@@ -866,6 +1019,58 @@ class LlmChatViewModel @Inject constructor(
                 availableModels = selectedProvider?.availableModels().orEmpty(),
             )
         }
+        refreshManualToolFallback()
+    }
+
+    /**
+     * 只有 MCP 已启用、有已加载 MCP Tool，且当前模型无法标准 Tool Calling 时才显示手动 Tool 入口。
+     * 复用 Runtime 的 capability / override 解析，避免 UI 与真正请求链出现两套能力判断。
+     */
+    private fun refreshManualToolFallback() {
+        val settings = llmSettingsRepository.current()
+        val descriptors =
+            if (settings.mcpEnabled) {
+                toolRuntime.descriptors().filter { it.source == LlmToolSource.MCP && it.enabled }
+            } else {
+                emptyList()
+            }
+        if (descriptors.isEmpty()) {
+            _uiState.update {
+                it.copy(
+                    manualToolFallbackAvailable = false,
+                    manualTools = emptyList(),
+                    pendingManualTool = null,
+                )
+            }
+            return
+        }
+
+        val selection = runtimeSelection.value
+        val available =
+            runCatching {
+                    val plan =
+                        llmRuntime.prepare(
+                            profile =
+                                LlmExecutionProfile(
+                                    providerId = selection.providerId,
+                                    model = selection.model,
+                                    enabledToolIds = descriptors.map(LlmToolDescriptor::id).toSet(),
+                                    reasoningEffort = settings.reasoningEffort,
+                                    capabilityOverride =
+                                        if (settings.streamResponses) null
+                                        else ModelCapabilityOverride(supportsStreaming = false),
+                                ),
+                        )
+                    shouldExposeManualToolFallback(plan)
+                }
+                .getOrDefault(false)
+        _uiState.update {
+            it.copy(
+                manualToolFallbackAvailable = available,
+                manualTools = if (available) descriptors else emptyList(),
+                pendingManualTool = if (available) it.pendingManualTool else null,
+            )
+        }
     }
 
     /** 取消中的 Job 仍属于在途任务，直到 STOPPED/ERROR/COMPLETE 状态真正落库并完成 finally。 */
@@ -897,6 +1102,16 @@ private const val STREAM_PERSIST_INTERVAL_MS = 90L
 
 /** 单条用户请求最多允许的自动 Tool 往返轮数，防止模型与外部 Tool 进入无限循环。 */
 private const val MAX_AUTOMATIC_TOOL_ROUNDS = 8
+
+/** 用户显式运行的 Tool Result 优先级：摘要 130 > 译文 120 > 手动 Tool 115 > Web Search 110 > 原文 100。 */
+private const val MANUAL_TOOL_CONTEXT_PRIORITY = 115
+
+/**
+ * 手动 Tool 入口只用于“Tool 已进入本轮执行计划，但模型本身不能标准 Tool Calling”的场景。
+ * 独立成纯函数后可直接回归，避免 UI 与 Runtime 的能力结论出现两套判断。
+ */
+internal fun shouldExposeManualToolFallback(plan: me.ash.reader.llm.runtime.LlmExecutionPlan): Boolean =
+    plan.tools.isNotEmpty() && !plan.automaticToolCalling
 
 /** Streaming Tool Call 的可变聚合状态；Provider 会把 arguments 拆成多个增量 chunk。 */
 private data class MutableToolCallPart(

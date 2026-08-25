@@ -30,6 +30,25 @@ class McpRemoteClient @Inject constructor(
     private val requestIds = AtomicLong(1L)
     private val connections = ConcurrentHashMap<String, McpConnection>()
 
+    /**
+     * OAuth 首次授权前探测 Resource Server challenge。
+     * 只返回 HTTP 状态与 WWW-Authenticate，不把未授权响应误当成协议错误。
+     */
+    suspend fun authorizationChallenge(profile: McpServerProfile): McpAuthorizationChallenge =
+        withContext(ioDispatcher) {
+            val response =
+                send(
+                    profile = profile.copy(authType = McpAuthType.NONE),
+                    bearerToken = "",
+                    customHeaders = emptyMap(),
+                    body = rpcRequest(nextId(), "server/discover", JSONObject().put("_meta", modernMeta())),
+                    protocolVersion = MODERN_PROTOCOL_VERSION,
+                    method = "server/discover",
+                    name = null,
+                )
+            McpAuthorizationChallenge(response.statusCode, response.wwwAuthenticate)
+        }
+
     suspend fun discoverTools(
         profile: McpServerProfile,
         bearerToken: String,
@@ -118,7 +137,7 @@ class McpRemoteClient @Inject constructor(
                 name = null,
             )
         if (response.statusCode == 401 || response.statusCode == 403) {
-            throw McpException("MCP 认证失败：HTTP ${response.statusCode}")
+            throw McpAuthorizationException(response.statusCode, response.wwwAuthenticate)
         }
         val errorCode = response.payload?.optJSONObject("error")?.optInt("code")
         if (errorCode == MCP_HEADER_MISMATCH) {
@@ -162,7 +181,7 @@ class McpRemoteClient @Inject constructor(
                 name = null,
             )
         if (response.statusCode == 401 || response.statusCode == 403) {
-            throw McpException("MCP 认证失败：HTTP ${response.statusCode}")
+            throw McpAuthorizationException(response.statusCode, response.wwwAuthenticate)
         }
         val result = requireResult(response, "initialize")
         val protocolVersion = result.optString("protocolVersion").ifBlank { LEGACY_PREFERRED_VERSION }
@@ -295,7 +314,10 @@ class McpRemoteClient @Inject constructor(
                 .header("Accept", "application/json, text/event-stream")
                 .header("Content-Type", "application/json")
                 .apply {
-                    if (profile.authType == McpAuthType.BEARER && bearerToken.isNotBlank()) {
+                    if (
+                        profile.authType in setOf(McpAuthType.BEARER, McpAuthType.OAUTH) &&
+                            bearerToken.isNotBlank()
+                    ) {
                         header("Authorization", "Bearer $bearerToken")
                     }
                     if (profile.authType == McpAuthType.CUSTOM_HEADERS) {
@@ -326,11 +348,15 @@ class McpRemoteClient @Inject constructor(
             statusCode = response.code,
             payload = payload,
             sessionId = response.header("Mcp-Session-Id"),
+            wwwAuthenticate = response.header("WWW-Authenticate"),
         )
     }
 
     private fun requireResult(response: McpHttpResponse, operation: String): JSONObject {
         if (response.statusCode !in 200..299) {
+            if (response.statusCode == 401 || response.statusCode == 403) {
+                throw McpAuthorizationException(response.statusCode, response.wwwAuthenticate)
+            }
             throw McpException("MCP $operation 失败：HTTP ${response.statusCode}")
         }
         val payload = response.payload ?: throw McpException("MCP $operation 返回空响应")
@@ -367,7 +393,14 @@ private data class McpHttpResponse(
     val statusCode: Int,
     val payload: JSONObject?,
     val sessionId: String?,
+    val wwwAuthenticate: String?,
 )
+
+/** 保留 Bearer challenge，供 OAuth token refresh / scope step-up 判断。 */
+class McpAuthorizationException(
+    val statusCode: Int,
+    val wwwAuthenticate: String?,
+) : McpException("MCP 认证失败：HTTP $statusCode")
 
 private fun rpcRequest(id: Long, method: String, params: JSONObject): JSONObject =
     JSONObject().put("jsonrpc", "2.0").put("id", id).put("method", method).put("params", params)

@@ -3,6 +3,7 @@ package me.ash.reader.llm.runtime
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 
 enum class LlmToolSource {
     NATIVE_PROVIDER,
@@ -100,6 +101,9 @@ class LlmToolRuntime @Inject constructor() {
             return LlmToolResult.ConfirmationRequired(tool.descriptor)
         }
         return runCatching { tool.execute(call.argumentsJson) }
-            .getOrElse { LlmToolResult.Failure(it.message ?: "Tool 执行失败") }
+            .getOrElse { error ->
+                if (error is CancellationException) throw error
+                LlmToolResult.Failure(error.message ?: "Tool 执行失败")
+            }
     }
 }

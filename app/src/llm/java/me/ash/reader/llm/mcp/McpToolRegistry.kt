@@ -11,6 +11,7 @@ import me.ash.reader.llm.runtime.LlmToolRuntime
 class McpToolRegistry @Inject constructor(
     private val repository: McpServerRepository,
     private val client: McpRemoteClient,
+    private val oauthManager: McpOAuthManager,
     private val toolRuntime: LlmToolRuntime,
 ) {
     suspend fun refreshServer(serverId: String, forceRefresh: Boolean = true): McpToolCatalog {
@@ -21,12 +22,7 @@ class McpToolRegistry @Inject constructor(
                 repository.cachedCatalog(serverId)?.takeIf(McpToolCatalog::isFresh)
             } else {
                 null
-            } ?: client.discoverTools(
-                profile = profile,
-                bearerToken = repository.bearerToken(serverId),
-                customHeaders = repository.customHeaders(serverId),
-                forceRefresh = forceRefresh,
-            )
+            } ?: discoverToolsWithAuth(profile, forceRefresh)
         repository.saveCatalog(catalog)
         registerCatalog(profile, catalog)
         return catalog
@@ -46,6 +42,44 @@ class McpToolRegistry @Inject constructor(
         client.invalidate(serverId)
     }
 
+    /** OAuth 401 只允许 refresh + retry 一次；403 scope challenge 留给显式重新授权。 */
+    private suspend fun discoverToolsWithAuth(
+        profile: McpServerProfile,
+        forceRefresh: Boolean,
+    ): McpToolCatalog {
+        val initialToken = authToken(profile)
+        return try {
+            client.discoverTools(
+                profile = profile,
+                bearerToken = initialToken,
+                customHeaders = repository.customHeaders(profile.id),
+                forceRefresh = forceRefresh,
+            )
+        } catch (error: McpAuthorizationException) {
+            if (profile.authType != McpAuthType.OAUTH) throw error
+            if (error.statusCode == 403) {
+                oauthManager.recordScopeChallenge(profile.id, error.wwwAuthenticate)
+                throw McpException("MCP OAuth 权限范围不足，请重新授权此 Server")
+            }
+            val refreshed = oauthManager.accessToken(profile, forceRefresh = true)
+            client.invalidate(profile.id)
+            client.discoverTools(
+                profile = profile,
+                bearerToken = refreshed,
+                customHeaders = emptyMap(),
+                forceRefresh = true,
+            )
+        }
+    }
+
+    private suspend fun authToken(profile: McpServerProfile): String =
+        when (profile.authType) {
+            McpAuthType.BEARER -> repository.bearerToken(profile.id)
+            McpAuthType.OAUTH -> oauthManager.accessToken(profile)
+            McpAuthType.NONE,
+            McpAuthType.CUSTOM_HEADERS -> ""
+        }
+
     private fun unregisterTools(serverId: String) {
         toolRuntime.descriptors()
             .filter { it.sourceId == serverId }
@@ -62,6 +96,7 @@ class McpToolRegistry @Inject constructor(
                     definition = definition,
                     repository = repository,
                     client = client,
+                    oauthManager = oauthManager,
                 )
             )
         }
@@ -73,18 +108,43 @@ private class RemoteMcpTool(
     private val definition: McpToolDefinition,
     private val repository: McpServerRepository,
     private val client: McpRemoteClient,
+    private val oauthManager: McpOAuthManager,
 ) : LlmTool {
     override val descriptor = definition.descriptor(profile.id)
 
     override suspend fun execute(argumentsJson: String): LlmToolResult {
+        val initialToken =
+            when (profile.authType) {
+                McpAuthType.BEARER -> repository.bearerToken(profile.id)
+                McpAuthType.OAUTH -> oauthManager.accessToken(profile)
+                McpAuthType.NONE,
+                McpAuthType.CUSTOM_HEADERS -> ""
+            }
         val result =
-            client.callTool(
-                profile = profile,
-                bearerToken = repository.bearerToken(profile.id),
-                customHeaders = repository.customHeaders(profile.id),
-                toolName = definition.name,
-                argumentsJson = argumentsJson,
-            )
+            try {
+                client.callTool(
+                    profile = profile,
+                    bearerToken = initialToken,
+                    customHeaders = repository.customHeaders(profile.id),
+                    toolName = definition.name,
+                    argumentsJson = argumentsJson,
+                )
+            } catch (error: McpAuthorizationException) {
+                if (profile.authType != McpAuthType.OAUTH) throw error
+                if (error.statusCode == 403) {
+                    oauthManager.recordScopeChallenge(profile.id, error.wwwAuthenticate)
+                    throw McpException("MCP OAuth 权限范围不足，请在 MCP 设置中重新授权")
+                }
+                val refreshed = oauthManager.accessToken(profile, forceRefresh = true)
+                client.invalidate(profile.id)
+                client.callTool(
+                    profile = profile,
+                    bearerToken = refreshed,
+                    customHeaders = emptyMap(),
+                    toolName = definition.name,
+                    argumentsJson = argumentsJson,
+                )
+            }
         return if (result.isError) {
             LlmToolResult.Failure(result.content.ifBlank { "MCP Tool 返回错误" })
         } else {

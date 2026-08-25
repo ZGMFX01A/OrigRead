@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import me.ash.reader.infrastructure.ai.AiHttpClient
 import me.ash.reader.llm.runtime.LlmToolRisk
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.json.JSONObject
@@ -333,6 +334,119 @@ class McpFoundationTest {
             LlmToolRisk.WRITE,
             inferMcpToolRisk(JSONObject().put("readOnlyHint", true).put("destructiveHint", true)),
         )
+    }
+
+    @Test
+    fun `oauth dcr payload declares native loopback client and refresh grant`() {
+        val redirectUri = "http://127.0.0.1:49152/callback"
+        val payload = buildDynamicClientRegistrationPayload(redirectUri)
+        val grantTypes = payload.getJSONArray("grant_types")
+
+        assertEquals("OrigRead LLM", payload.getString("client_name"))
+        assertEquals("native", payload.getString("application_type"))
+        assertEquals("none", payload.getString("token_endpoint_auth_method"))
+        assertEquals(redirectUri, payload.getJSONArray("redirect_uris").getString(0))
+        assertEquals(
+            listOf("authorization_code", "refresh_token"),
+            List(grantTypes.length()) { index -> grantTypes.getString(index) },
+        )
+    }
+
+    @Test
+    fun `oauth authorization url carries pkce state resource and scopes`() {
+        val metadata =
+            McpAuthorizationServerMetadata(
+                issuer = "https://auth.example.com",
+                authorizationEndpoint = "https://auth.example.com/authorize",
+                tokenEndpoint = "https://auth.example.com/token",
+                registrationEndpoint = null,
+                scopesSupported = setOf("mcp:tools"),
+                codeChallengeMethodsSupported = setOf("S256"),
+                authorizationResponseIssParameterSupported = true,
+            )
+        val url =
+            buildAuthorizationUrl(
+                metadata = metadata,
+                clientId = "origread-client",
+                redirectUri = "http://127.0.0.1:49152/callback",
+                resource = "https://mcp.example.com/mcp",
+                scope = "mcp:tools offline_access",
+                state = "state-value",
+                codeChallenge = "challenge-value",
+            ).toHttpUrl()
+
+        assertEquals("code", url.queryParameter("response_type"))
+        assertEquals("S256", url.queryParameter("code_challenge_method"))
+        assertEquals("challenge-value", url.queryParameter("code_challenge"))
+        assertEquals("state-value", url.queryParameter("state"))
+        assertEquals("https://mcp.example.com/mcp", url.queryParameter("resource"))
+        assertEquals("mcp:tools offline_access", url.queryParameter("scope"))
+    }
+
+    @Test
+    fun `oauth callback rejects state and issuer mismatch before code exchange`() {
+        val metadata =
+            McpAuthorizationServerMetadata(
+                issuer = "https://auth.example.com",
+                authorizationEndpoint = "https://auth.example.com/authorize",
+                tokenEndpoint = "https://auth.example.com/token",
+                registrationEndpoint = null,
+                scopesSupported = emptySet(),
+                codeChallengeMethodsSupported = setOf("S256"),
+                authorizationResponseIssParameterSupported = true,
+            )
+
+        validateAuthorizationCallback(
+            callback = McpOAuthCallback("code", "expected", metadata.issuer, null, null),
+            expectedState = "expected",
+            metadata = metadata,
+        )
+        val wrongState =
+            runCatching {
+                validateAuthorizationCallback(
+                    callback = McpOAuthCallback("code", "wrong", metadata.issuer, null, null),
+                    expectedState = "expected",
+                    metadata = metadata,
+                )
+            }.exceptionOrNull()
+        val wrongIssuer =
+            runCatching {
+                validateAuthorizationCallback(
+                    callback = McpOAuthCallback("code", "expected", "https://other.example.com", null, null),
+                    expectedState = "expected",
+                    metadata = metadata,
+                )
+            }.exceptionOrNull()
+
+        assertTrue(wrongState is IllegalArgumentException)
+        assertTrue(wrongIssuer is McpException)
+    }
+
+    @Test
+    fun `oauth bearer challenge preserves resource metadata and quoted scope`() {
+        val challenge =
+            parseBearerChallenge(
+                "Bearer realm=\"mcp\", resource_metadata=\"https://mcp.example.com/.well-known/oauth-protected-resource/mcp\", scope=\"read write\""
+            )
+
+        assertEquals(
+            "https://mcp.example.com/.well-known/oauth-protected-resource/mcp",
+            challenge["resource_metadata"],
+        )
+        assertEquals("read write", challenge["scope"])
+    }
+
+    @Test
+    fun `oauth authorization server metadata rejects non tls remote endpoints`() {
+        val metadata =
+            JSONObject()
+                .put("issuer", "https://auth.example.com")
+                .put("authorization_endpoint", "http://auth.example.com/authorize")
+                .put("token_endpoint", "https://auth.example.com/token")
+
+        val error = runCatching { parseAuthorizationServerMetadata(metadata) }.exceptionOrNull()
+
+        assertTrue(error is McpException)
     }
 
     private fun jsonResponse(body: String): MockResponse =

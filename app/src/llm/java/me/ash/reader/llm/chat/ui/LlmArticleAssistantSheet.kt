@@ -29,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.outlined.Public
+import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
@@ -96,6 +97,7 @@ import me.ash.reader.llm.chat.data.LlmMessageStatus
 import me.ash.reader.llm.chat.data.LlmToolCallEntity
 import me.ash.reader.llm.chat.data.LlmToolCallStatus
 import me.ash.reader.llm.runtime.LlmReasoningEffort
+import me.ash.reader.llm.runtime.LlmToolDescriptor
 import me.ash.reader.llm.search.WebSearchMode
 import me.ash.reader.ui.page.home.reading.AiSummaryAccentIcon
 import me.ash.reader.ui.page.home.reading.ArticleAssistantContext
@@ -120,6 +122,7 @@ fun LlmArticleAssistantSheet(
     var historyExpanded by remember { mutableStateOf(false) }
     var conversationMenuExpanded by remember { mutableStateOf(false) }
     var modelPickerVisible by remember { mutableStateOf(false) }
+    var manualToolSheetVisible by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<LlmConversationEntity?>(null) }
     var deleteTarget by remember { mutableStateOf<LlmConversationEntity?>(null) }
     var autoFollow by remember(uiState.currentConversationId) { mutableStateOf(true) }
@@ -295,6 +298,11 @@ fun LlmArticleAssistantSheet(
                 uiState = uiState,
                 onInputChange = { input = it },
                 onOpenModelPicker = { modelPickerVisible = true },
+                onOpenManualTool = {
+                    viewModel.refreshManualTools()
+                    manualToolSheetVisible = true
+                },
+                onRemoveManualToolContext = viewModel::removeManualToolContext,
                 onWebSearchModeChange = viewModel::setWebSearchMode,
                 onReasoningEffortChange = viewModel::setReasoningEffort,
                 onSend = {
@@ -316,6 +324,45 @@ fun LlmArticleAssistantSheet(
             onSelect = { providerId, model ->
                 viewModel.selectProviderModel(providerId, model)
                 modelPickerVisible = false
+            },
+        )
+    }
+
+    if (manualToolSheetVisible && uiState.manualToolFallbackAvailable) {
+        ManualToolSheet(
+            tools = uiState.manualTools,
+            running = uiState.manualToolRunning,
+            onDismiss = { manualToolSheetVisible = false },
+            onRun = { toolId, argumentsJson ->
+                viewModel.runManualTool(toolId, argumentsJson)
+                manualToolSheetVisible = false
+            },
+        )
+    }
+
+    uiState.pendingManualTool?.let { pending ->
+        AlertDialog(
+            onDismissRequest = viewModel::denyManualTool,
+            title = { Text(stringResource(R.string.llm_manual_tool_confirm_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.llm_manual_tool_confirm_desc, pending.descriptor.name))
+                    Text(
+                        text = pending.argumentsJson.take(1600),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::denyManualTool) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = viewModel::approveManualTool) {
+                    Text(stringResource(R.string.confirm))
+                }
             },
         )
     }
@@ -885,6 +932,8 @@ private fun AssistantComposer(
     uiState: LlmChatUiState,
     onInputChange: (String) -> Unit,
     onOpenModelPicker: () -> Unit,
+    onOpenManualTool: () -> Unit,
+    onRemoveManualToolContext: (String) -> Unit,
     onWebSearchModeChange: (WebSearchMode) -> Unit,
     onReasoningEffortChange: (LlmReasoningEffort) -> Unit,
     onSend: () -> Unit,
@@ -904,6 +953,45 @@ private fun AssistantComposer(
                     .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            if (uiState.manualToolContexts.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    uiState.manualToolContexts.forEach { context ->
+                        AssistChip(
+                            onClick = { },
+                            label = {
+                                Text(
+                                    text = context.toolName,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Outlined.Extension,
+                                    contentDescription = stringResource(R.string.llm_manual_tool_attached),
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            },
+                            trailingIcon = {
+                                IconButton(
+                                    onClick = { onRemoveManualToolContext(context.id) },
+                                    enabled = !uiState.isGenerating && !uiState.manualToolRunning,
+                                    modifier = Modifier.size(24.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Delete,
+                                        contentDescription = stringResource(R.string.llm_manual_tool_remove),
+                                        modifier = Modifier.size(14.dp),
+                                    )
+                                }
+                            },
+                        )
+                    }
+                }
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -948,6 +1036,23 @@ private fun AssistantComposer(
                                 },
                             modifier = Modifier.size(20.dp),
                         )
+                    }
+                }
+                if (uiState.manualToolFallbackAvailable) {
+                    IconButton(
+                        onClick = onOpenManualTool,
+                        enabled = !uiState.isGenerating && !uiState.manualToolRunning,
+                        modifier = Modifier.size(36.dp),
+                    ) {
+                        if (uiState.manualToolRunning) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(
+                                imageVector = Icons.Outlined.Extension,
+                                contentDescription = stringResource(R.string.llm_manual_tool),
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
                     }
                 }
                 IconButton(
@@ -1004,6 +1109,125 @@ private fun AssistantComposer(
             onDismiss = { reasoningSheetVisible = false },
             onSelect = onReasoningEffortChange,
         )
+    }
+}
+
+/**
+ * 不支持标准 Tool Calling 模型的显式 MCP Tool 降级入口。
+ * Tool Result 由 ViewModel 转成 TOOL_RESULT Context；这里不构造任何假的 assistant.tool_calls。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ManualToolSheet(
+    tools: List<LlmToolDescriptor>,
+    running: Boolean,
+    onDismiss: () -> Unit,
+    onRun: (String, String) -> Unit,
+) {
+    var selectedToolId by remember(tools) { mutableStateOf<String?>(null) }
+    var argumentsJson by remember(selectedToolId) { mutableStateOf("{}") }
+    val selectedTool = tools.firstOrNull { it.id == selectedToolId }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.llm_manual_tool_title),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = stringResource(R.string.llm_manual_tool_desc),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            if (selectedTool == null) {
+                tools.forEach { tool ->
+                    Surface(
+                        onClick = { selectedToolId = tool.id },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Text(tool.name, style = MaterialTheme.typography.titleSmall)
+                            tool.description.takeIf(String::isNotBlank)?.let { description ->
+                                Text(
+                                    text = description,
+                                    maxLines = 3,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(onClick = { selectedToolId = null }, enabled = !running) {
+                        Text(stringResource(R.string.back))
+                    }
+                    Text(
+                        text = selectedTool.name,
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Text(
+                    text = stringResource(R.string.llm_manual_tool_schema),
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                ) {
+                    Text(
+                        text = selectedTool.inputSchemaJson.take(6000),
+                        modifier = Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                OutlinedTextField(
+                    value = argumentsJson,
+                    onValueChange = { argumentsJson = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !running,
+                    minLines = 3,
+                    maxLines = 8,
+                    label = { Text(stringResource(R.string.llm_manual_tool_arguments)) },
+                )
+                TextButton(
+                    onClick = { onRun(selectedTool.id, argumentsJson) },
+                    enabled = !running,
+                    modifier = Modifier.align(Alignment.End),
+                ) {
+                    if (running) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text(stringResource(R.string.llm_manual_tool_run))
+                }
+            }
+            Spacer(Modifier.size(12.dp))
+        }
     }
 }
 
