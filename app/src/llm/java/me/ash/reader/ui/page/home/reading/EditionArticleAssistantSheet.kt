@@ -8,11 +8,15 @@ import me.ash.reader.llm.chat.ui.LlmArticleAssistantSheet
 internal fun EditionArticleAssistantSheet(
     visible: Boolean,
     context: ArticleAssistantContext?,
+    articleAnalysisRequested: Boolean,
+    onArticleAnalysisConsumed: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     if (!visible || context == null) return
     LlmArticleAssistantSheet(
         articleContext = context,
+        articleAnalysisRequested = articleAnalysisRequested,
+        onArticleAnalysisConsumed = onArticleAnalysisConsumed,
         onDismiss = onDismiss,
     )
 }

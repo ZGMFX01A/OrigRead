@@ -117,6 +117,8 @@ private const val CONTEXT_SOURCE_PREVIEW_LIMIT = 1_200
 @Composable
 fun LlmArticleAssistantSheet(
     articleContext: ArticleAssistantContext,
+    articleAnalysisRequested: Boolean = false,
+    onArticleAnalysisConsumed: () -> Unit = {},
     onDismiss: () -> Unit,
     viewModel: LlmChatViewModel = hiltViewModel(),
 ) {
@@ -135,9 +137,18 @@ fun LlmArticleAssistantSheet(
     val coroutineScope = rememberCoroutineScope()
     val canScrollUp by remember { derivedStateOf { listState.canScrollBackward } }
     val canScrollDown by remember { derivedStateOf { listState.canScrollForward } }
+    val articleAnalysisPrompt = stringResource(R.string.llm_article_analysis_request)
 
     LaunchedEffect(articleContext) {
         viewModel.bindArticleContext(articleContext)
+    }
+    LaunchedEffect(articleAnalysisRequested) {
+        if (articleAnalysisRequested) {
+            // 先同步当前文章 Context，再消费一次性 UI 请求；真正任务类型由 ViewModel/Room 持久化。
+            viewModel.bindArticleContext(articleContext)
+            onArticleAnalysisConsumed()
+            viewModel.analyzeArticle(articleAnalysisPrompt)
+        }
     }
     LaunchedEffect(
         uiState.messages.size,

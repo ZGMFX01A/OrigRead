@@ -11,6 +11,12 @@ enum class LlmReasoningEffort {
     MAXIMUM,
 }
 
+/** 单次 LLM 请求的受控任务类型；CHAT 为普通文章追问，ARTICLE_ANALYSIS 为阅读页一键深度分析。 */
+enum class LlmExecutionTask {
+    CHAT,
+    ARTICLE_ANALYSIS,
+}
+
 enum class ReasoningParameterStyle {
     NONE,
     OPENAI_REASONING_EFFORT,
@@ -104,6 +110,7 @@ data class LlmRenderedContextItem(
 )
 
 data class LlmExecutionProfile(
+    val task: LlmExecutionTask = LlmExecutionTask.CHAT,
     val providerId: String? = null,
     val model: String? = null,
     val reasoningEffort: LlmReasoningEffort = LlmReasoningEffort.AUTO,
@@ -114,6 +121,7 @@ data class LlmExecutionProfile(
 )
 
 data class LlmExecutionPlan(
+    val task: LlmExecutionTask = LlmExecutionTask.CHAT,
     val providerId: String,
     val providerName: String,
     val runtimeConfig: AiRuntimeConfig,

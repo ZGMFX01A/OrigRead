@@ -784,6 +784,7 @@
     <string name="ai_summary_model_manual_hint">Choose a fetched model or enter a model ID directly</string>
     <string name="ai_reading_actions">AI Reading</string>
     <string name="ai_ask_article">Ask this article</string>
+    <string name="ai_analyze_article">Deep analysis</string>
     <string name="configuration_backup_title">Backup &amp; restore</string>
     <string name="configuration_backup_desc">Export subscriptions, rules, reading preferences, translation and AI settings</string>
     <string name="configuration_backup_scope_title">Portable configuration backup</string>

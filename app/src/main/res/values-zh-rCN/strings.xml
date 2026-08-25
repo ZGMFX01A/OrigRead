@@ -750,6 +750,7 @@
     <string name="ai_summary_model_manual_hint">可选择已获取的模型，也可以直接输入模型 ID</string>
     <string name="ai_reading_actions">AI 阅读</string>
     <string name="ai_ask_article">询问这篇文章</string>
+    <string name="ai_analyze_article">深度分析</string>
     <string name="configuration_backup_title">备份与恢复</string>
     <string name="configuration_backup_desc">备份与恢复订阅、规则、阅读偏好、翻译与 AI 设置</string>
     <string name="configuration_backup_scope_title">可迁移配置范围</string>

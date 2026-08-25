@@ -41,6 +41,7 @@ import me.ash.reader.llm.runtime.LlmContextItem
 import me.ash.reader.llm.runtime.LlmContextPolicy
 import me.ash.reader.llm.runtime.LlmContextType
 import me.ash.reader.llm.runtime.LlmExecutionProfile
+import me.ash.reader.llm.runtime.LlmExecutionTask
 import me.ash.reader.llm.runtime.LlmReasoningEffort
 import me.ash.reader.llm.runtime.LlmRuntime
 import me.ash.reader.llm.runtime.LlmToolCall
@@ -54,7 +55,9 @@ import me.ash.reader.llm.search.WebSearchMode
 import me.ash.reader.llm.search.WebSearchRouter
 import me.ash.reader.llm.search.toContextItems
 import me.ash.reader.llm.settings.LlmSettingsRepository
+import me.ash.reader.llm.skill.LlmSkillRepository
 import me.ash.reader.llm.skill.LlmSkillRouter
+import me.ash.reader.llm.skill.LlmSkillTask
 import me.ash.reader.ui.page.home.reading.ArticleAssistantContext
 
 /** Chat 页面全部可观察状态；Provider/Model 继续复用现有 AI 设置，不另存密钥。 */
@@ -125,6 +128,7 @@ class LlmChatViewModel @Inject constructor(
     private val repository: LlmChatRepository,
     private val settingsRepository: AiSettingsRepository,
     private val llmSettingsRepository: LlmSettingsRepository,
+    private val skillRepository: LlmSkillRepository,
     private val skillRouter: LlmSkillRouter,
     private val webSearchRouter: WebSearchRouter,
     private val llmRuntime: LlmRuntime,
@@ -443,6 +447,24 @@ class LlmChatViewModel @Inject constructor(
      * 首条消息会同时创建会话，避免用户打开页面但从未发言时产生空历史记录。
      */
     fun sendMessage(rawText: String) {
+        sendUserRequest(rawText, LlmExecutionTask.CHAT)
+    }
+
+    /**
+     * P6.3 一键 Article Analysis。
+     *
+     * 任务类型随 user message 持久化；后续重新生成、Tool 审批续接或进程恢复都能重新解析到
+     * ARTICLE_ANALYSIS，而不是依赖一次性的 Compose flag 或根据提示词文本猜测任务。
+     */
+    fun analyzeArticle(rawText: String) {
+        sendUserRequest(rawText, LlmExecutionTask.ARTICLE_ANALYSIS)
+    }
+
+    /** 普通 Ask 与一键分析共用同一条会话、Provider/Model、Tool、ContextRef 执行链。 */
+    private fun sendUserRequest(
+        rawText: String,
+        requestTask: LlmExecutionTask,
+    ) {
         val text = rawText.trim()
         val currentArticle = articleContext.value ?: return
         if (text.isBlank() || hasGenerationInFlight()) return
@@ -480,6 +502,7 @@ class LlmChatViewModel @Inject constructor(
                 conversationId = conversationId,
                 role = LlmChatRole.USER,
                 content = text,
+                requestTask = requestTask,
             )
             generateAssistant(conversationId)
         }
@@ -851,9 +874,32 @@ class LlmChatViewModel @Inject constructor(
             val currentArticle =
                 articleContext.value ?: error("当前文章上下文已失效，请重新打开阅读助手")
             val advancedSettings = llmSettingsRepository.current()
+            val requestTask =
+                repository.getMessages(conversationId)
+                    .lastOrNull { it.role == LlmChatRole.USER }
+                    ?.requestTask
+                    ?: LlmExecutionTask.CHAT
             val latestUserInput =
                 history.lastOrNull { it.role == LlmChatRole.USER }?.content.orEmpty()
-            val autoSkillId = skillRouter.resolve(latestUserInput)?.id
+            val requestSkillId =
+                resolveRequestSkillId(
+                    requestTask = requestTask,
+                    autoChatSkillId =
+                        if (requestTask == LlmExecutionTask.CHAT) {
+                            skillRouter.resolve(latestUserInput)?.id
+                        } else {
+                            null
+                        },
+                    articleAnalysisSkillId =
+                        if (
+                            requestTask == LlmExecutionTask.ARTICLE_ANALYSIS &&
+                                advancedSettings.skillsEnabled
+                        ) {
+                            skillRepository.boundSkill(LlmSkillTask.ARTICLE_ANALYSIS)?.id
+                        } else {
+                            null
+                        },
+                )
             val effectiveWebSearchMode =
                 if (allowWebSearch && forceWebSearchNextRequest) WebSearchMode.FORCE
                 else if (allowWebSearch) advancedSettings.webSearchMode
@@ -887,9 +933,10 @@ class LlmChatViewModel @Inject constructor(
                 llmRuntime.prepare(
                     profile =
                         LlmExecutionProfile(
+                            task = requestTask,
                             providerId = selection.providerId,
                             model = selection.model,
-                            skillId = autoSkillId,
+                            skillId = requestSkillId,
                             enabledToolIds = enabledToolIds,
                             reasoningEffort = advancedSettings.reasoningEffort,
                             capabilityOverride =
@@ -1156,6 +1203,20 @@ private const val MANUAL_TOOL_CONTEXT_PRIORITY = 115
  */
 internal fun shouldExposeManualToolFallback(plan: me.ash.reader.llm.runtime.LlmExecutionPlan): Boolean =
     plan.tools.isNotEmpty() && !plan.automaticToolCalling
+
+/**
+ * P6.3 的任务级 Skill 选择必须与普通 Chat 自动路由互斥：
+ * Article Analysis 只消费 P4 的固定 ARTICLE_ANALYSIS 绑定，不能被用户可见的分析请求文本误路由到其他 Skill。
+ */
+internal fun resolveRequestSkillId(
+    requestTask: LlmExecutionTask,
+    autoChatSkillId: String?,
+    articleAnalysisSkillId: String?,
+): String? =
+    when (requestTask) {
+        LlmExecutionTask.CHAT -> autoChatSkillId
+        LlmExecutionTask.ARTICLE_ANALYSIS -> articleAnalysisSkillId
+    }
 
 /** Streaming Tool Call 的可变聚合状态；Provider 会把 arguments 拆成多个增量 chunk。 */
 private data class MutableToolCallPart(

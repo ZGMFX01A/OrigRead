@@ -41,6 +41,7 @@ class LlmRuntime @Inject constructor(
         val skill = skillRepository.activeSkill(profile.skillId)
 
         return LlmExecutionPlan(
+            task = profile.task,
             providerId = provider.id,
             providerName = provider.name,
             runtimeConfig = runtimeConfig,

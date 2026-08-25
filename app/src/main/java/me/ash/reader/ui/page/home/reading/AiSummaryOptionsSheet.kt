@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Analytics
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
@@ -51,6 +52,8 @@ internal fun AiSummaryOptionsSheet(
     onDismiss: () -> Unit,
     /** LLM edition 才提供；让深度对话保持为摘要之后/高级动作中的第二层能力。 */
     onAskArticle: (() -> Unit)? = null,
+    /** LLM edition 的一键深度分析；与 Ask 共用阅读上下文，但作为独立任务执行。 */
+    onAnalyzeArticle: (() -> Unit)? = null,
     onGenerate: (providerId: String, model: String, length: AiSummaryLength) -> Unit,
 ) {
     val initialProvider =
@@ -95,6 +98,14 @@ internal fun AiSummaryOptionsSheet(
                     modifier = Modifier.weight(1f),
                 )
                 if (onAskArticle != null) {
+                    if (onAnalyzeArticle != null) {
+                        IconButton(onClick = onAnalyzeArticle) {
+                            Icon(
+                                imageVector = Icons.Rounded.Analytics,
+                                contentDescription = stringResource(R.string.ai_analyze_article),
+                            )
+                        }
+                    }
                     IconButton(onClick = onAskArticle) {
                         Icon(
                             imageVector = Icons.Rounded.Forum,

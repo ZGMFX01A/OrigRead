@@ -7,6 +7,8 @@ import androidx.compose.runtime.Composable
 internal fun EditionArticleAssistantSheet(
     visible: Boolean,
     context: ArticleAssistantContext?,
+    articleAnalysisRequested: Boolean,
+    onArticleAnalysisConsumed: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     // Standard 版本刻意不渲染 LLM UI。

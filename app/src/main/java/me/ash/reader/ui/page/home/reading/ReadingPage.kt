@@ -127,6 +127,7 @@ fun ReadingPage(
     var showFullScreenImageViewer by remember { mutableStateOf(false) }
     var showAiSummaryOptions by remember { mutableStateOf(false) }
     var showArticleAssistant by remember { mutableStateOf(false) }
+    var articleAnalysisRequested by remember(readerState.articleId) { mutableStateOf(false) }
     var selectedTextForAssistant by remember(readerState.articleId) { mutableStateOf<String?>(null) }
     var showInteractiveVerification by remember { mutableStateOf(false) }
     var showReadingShareFirstUse by remember { mutableStateOf(false) }
@@ -709,6 +710,8 @@ fun ReadingPage(
     EditionArticleAssistantSheet(
         visible = showArticleAssistant,
         context = articleAssistantContext,
+        articleAnalysisRequested = articleAnalysisRequested,
+        onArticleAnalysisConsumed = { articleAnalysisRequested = false },
         onDismiss = { showArticleAssistant = false },
     )
     if (showFullScreenImageViewer) {
@@ -742,6 +745,16 @@ fun ReadingPage(
                 if (isLlmEdition) {
                     {
                         showAiSummaryOptions = false
+                        showArticleAssistant = true
+                    }
+                } else {
+                    null
+                },
+            onAnalyzeArticle =
+                if (isLlmEdition) {
+                    {
+                        showAiSummaryOptions = false
+                        articleAnalysisRequested = true
                         showArticleAssistant = true
                     }
                 } else {

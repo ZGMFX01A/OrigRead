@@ -7,6 +7,7 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 import androidx.room.TypeConverter
 import me.ash.reader.llm.runtime.LlmContextType
+import me.ash.reader.llm.runtime.LlmExecutionTask
 
 /** Chat 消息角色；传输层会显式映射到 OpenAI-Compatible role。 */
 enum class LlmChatRole {
@@ -73,6 +74,8 @@ data class LlmMessageEntity(
     @ColumnInfo(name = "conversation_id") val conversationId: String,
     val role: LlmChatRole,
     val content: String,
+    /** 只有用户发起的特殊阅读任务需要持久化；null/CHAT 都按普通文章追问恢复。 */
+    @ColumnInfo(name = "request_task") val requestTask: LlmExecutionTask? = null,
     val reasoning: String? = null,
     val status: LlmMessageStatus = LlmMessageStatus.COMPLETE,
     @ColumnInfo(name = "error_message") val errorMessage: String? = null,
@@ -212,4 +215,13 @@ class LlmChatConverters {
     @TypeConverter
     fun stringToContextType(value: String): LlmContextType =
         runCatching { LlmContextType.valueOf(value) }.getOrDefault(LlmContextType.MANUAL)
+
+    /** 特殊请求任务以稳定枚举名称保存；普通历史消息允许继续为 null。 */
+    @TypeConverter
+    fun executionTaskToString(value: LlmExecutionTask?): String? = value?.name
+
+    /** 未知未来任务类型保守降级为普通 Chat，避免旧版本恢复时误触发一键任务语义。 */
+    @TypeConverter
+    fun stringToExecutionTask(value: String?): LlmExecutionTask? =
+        value?.let { encoded -> runCatching { LlmExecutionTask.valueOf(encoded) }.getOrNull() }
 }

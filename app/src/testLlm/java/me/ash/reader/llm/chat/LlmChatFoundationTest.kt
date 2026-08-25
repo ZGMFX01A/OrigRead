@@ -9,9 +9,11 @@ import kotlinx.coroutines.runBlocking
 import me.ash.reader.infrastructure.ai.AiHttpClient
 import me.ash.reader.infrastructure.ai.AiRuntimeConfig
 import me.ash.reader.llm.chat.data.LlmChatRole
+import me.ash.reader.llm.chat.data.LlmChatConverters
 import me.ash.reader.llm.chat.runtime.LlmChatRequestMessage
 import me.ash.reader.llm.chat.runtime.LlmChatRequestToolCall
 import me.ash.reader.llm.chat.runtime.LlmChatTransport
+import me.ash.reader.llm.chat.runtime.buildLlmChatSystemPrompt
 import me.ash.reader.llm.chat.runtime.parseNonStreamingPayload
 import me.ash.reader.llm.chat.runtime.parseStreamPayload
 import me.ash.reader.llm.chat.data.deriveConversationTitle
@@ -20,6 +22,7 @@ import me.ash.reader.llm.chat.data.buildToolResultContextRefEntities
 import me.ash.reader.llm.chat.data.LlmToolCallEntity
 import me.ash.reader.llm.chat.data.LlmToolCallStatus
 import me.ash.reader.llm.chat.ui.buildArticleContextItems
+import me.ash.reader.llm.chat.ui.resolveRequestSkillId
 import me.ash.reader.llm.chat.ui.shouldExposeManualToolFallback
 import me.ash.reader.llm.runtime.ComposedLlmContext
 import me.ash.reader.llm.runtime.LlmContextComposer
@@ -27,6 +30,7 @@ import me.ash.reader.llm.runtime.LlmContextItem
 import me.ash.reader.llm.runtime.LlmContextPolicy
 import me.ash.reader.llm.runtime.LlmContextType
 import me.ash.reader.llm.runtime.LlmExecutionPlan
+import me.ash.reader.llm.runtime.LlmExecutionTask
 import me.ash.reader.llm.runtime.LlmReasoningEffort
 import me.ash.reader.llm.runtime.LlmToolDescriptor
 import me.ash.reader.llm.runtime.LlmToolSource
@@ -43,6 +47,71 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LlmChatFoundationTest {
+    @Test
+    fun `article analysis consumes fixed analysis skill instead of chat auto route`() {
+        assertEquals(
+            "analysis-skill",
+            resolveRequestSkillId(
+                requestTask = LlmExecutionTask.ARTICLE_ANALYSIS,
+                autoChatSkillId = "accidental-chat-skill",
+                articleAnalysisSkillId = "analysis-skill",
+            ),
+        )
+        assertEquals(
+            "chat-skill",
+            resolveRequestSkillId(
+                requestTask = LlmExecutionTask.CHAT,
+                autoChatSkillId = "chat-skill",
+                articleAnalysisSkillId = "analysis-skill",
+            ),
+        )
+    }
+
+    @Test
+    fun `article analysis system prompt keeps hard task skill context ordering`() {
+        val prompt =
+            buildLlmChatSystemPrompt(
+                LlmExecutionPlan(
+                    task = LlmExecutionTask.ARTICLE_ANALYSIS,
+                    providerId = "provider",
+                    providerName = "Provider",
+                    runtimeConfig = AiRuntimeConfig("https://example.com/v1", "model", ""),
+                    capability = ModelCapability(),
+                    reasoningParameter = null,
+                    tools = emptyList(),
+                    automaticToolCalling = false,
+                    context =
+                        ComposedLlmContext(
+                            text = "[ORIGREAD_CONTEXT type=ARTICLE id=article:1]article body[/ORIGREAD_CONTEXT]",
+                            includedIds = listOf("article:1"),
+                            omittedIds = emptyList(),
+                            truncated = false,
+                        ),
+                    skillId = "analysis-skill",
+                    skillInstructions = "Use an evidence matrix.",
+                )
+            ).orEmpty()
+
+        val hardIndex = prompt.indexOf("OrigRead hard rule")
+        val taskIndex = prompt.indexOf("<origread_task type=\"ARTICLE_ANALYSIS\">")
+        val skillIndex = prompt.indexOf("<origread_user_skill id=\"analysis-skill\">")
+        val contextIndex = prompt.indexOf("[ORIGREAD_CONTEXT type=ARTICLE")
+        assertTrue(hardIndex >= 0)
+        assertTrue(taskIndex > hardIndex)
+        assertTrue(skillIndex > taskIndex)
+        assertTrue(contextIndex > skillIndex)
+        assertTrue(prompt.contains("never invent tool results or sources", ignoreCase = true))
+    }
+
+    @Test
+    fun `article analysis request task survives room converter round trip`() {
+        val converters = LlmChatConverters()
+        val encoded = converters.executionTaskToString(LlmExecutionTask.ARTICLE_ANALYSIS)
+        assertEquals("ARTICLE_ANALYSIS", encoded)
+        assertEquals(LlmExecutionTask.ARTICLE_ANALYSIS, converters.stringToExecutionTask(encoded))
+        assertNull(converters.stringToExecutionTask("FUTURE_UNKNOWN_TASK"))
+    }
+
     @Test
     fun `article assistant builds stable selection summary translation and article contexts`() {
         val items =

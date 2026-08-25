@@ -3,6 +3,7 @@ package me.ash.reader.llm.chat.data
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import me.ash.reader.llm.runtime.LlmExecutionTask
 import kotlinx.coroutines.flow.Flow
 
 @Singleton
@@ -112,6 +113,7 @@ class LlmChatRepository @Inject constructor(
         conversationId: String,
         role: LlmChatRole,
         content: String,
+        requestTask: LlmExecutionTask? = null,
         status: LlmMessageStatus = LlmMessageStatus.COMPLETE,
     ): LlmMessageEntity {
         val now = System.currentTimeMillis()
@@ -121,6 +123,7 @@ class LlmChatRepository @Inject constructor(
                 conversationId = conversationId,
                 role = role,
                 content = content,
+                requestTask = requestTask,
                 status = status,
                 createdAt = now,
                 updatedAt = now,

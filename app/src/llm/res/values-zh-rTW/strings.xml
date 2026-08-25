@@ -39,6 +39,8 @@
     <string name="llm_prompt_summarize">請概括這篇文章的核心觀點，並保留關鍵事實。</string>
     <string name="llm_prompt_explain">請用更直接的方式解釋這篇文章最難理解的部分。</string>
     <string name="llm_prompt_evidence">列出支持文章主要結論的關鍵證據，並指出證據不足之處。</string>
+    <string name="llm_article_analysis_request">深入分析這篇文章。</string>
+    <string name="ai_analyze_article">深度分析</string>
     <string name="llm_model_picker_title">模型</string>
     <string name="llm_model_search_hint">搜尋服務或模型</string>
     <string name="llm_model_search_empty">沒有符合的模型</string>

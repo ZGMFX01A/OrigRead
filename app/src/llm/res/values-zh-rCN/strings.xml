@@ -39,6 +39,7 @@
     <string name="llm_prompt_summarize">请概括这篇文章的核心观点，并保留关键事实。</string>
     <string name="llm_prompt_explain">请解释这篇文章最难理解的部分，用更直白的方式说明。</string>
     <string name="llm_prompt_evidence">列出这篇文章支持主要结论的关键证据，并指出证据不足之处。</string>
+    <string name="llm_article_analysis_request">深入分析这篇文章。</string>
     <string name="llm_model_picker_title">模型</string>
     <string name="llm_model_search_hint">搜索服务或模型</string>
     <string name="llm_model_search_empty">没有匹配的模型</string>

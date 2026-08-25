@@ -39,6 +39,7 @@
     <string name="llm_prompt_summarize">Summarize the core ideas of this article and preserve the key facts.</string>
     <string name="llm_prompt_explain">Explain the hardest parts of this article in clearer, more direct language.</string>
     <string name="llm_prompt_evidence">List the key evidence supporting the article’s main conclusions and point out where the evidence is weak.</string>
+    <string name="llm_article_analysis_request">Deeply analyze this article.</string>
     <string name="llm_model_picker_title">Model</string>
     <string name="llm_model_search_hint">Search services and models</string>
     <string name="llm_model_search_empty">No matching model</string>

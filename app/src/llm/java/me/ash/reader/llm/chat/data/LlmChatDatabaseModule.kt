@@ -135,6 +135,17 @@ object LlmChatDatabaseModule {
             }
         }
 
+    /**
+     * v7 为用户消息增加可选 request_task，用于恢复 P6.3 Article Analysis 的任务语义。
+     * 旧消息保持 null，继续按普通 Chat 处理；不把一次性 UI 状态保存在内存里。
+     */
+    private val MIGRATION_6_7 =
+        object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE llm_messages ADD COLUMN request_task TEXT")
+            }
+        }
+
     /** 创建 LLM Chat Room 数据库单例。 */
     @Provides
     @Singleton
@@ -149,6 +160,7 @@ object LlmChatDatabaseModule {
             MIGRATION_3_4,
             MIGRATION_4_5,
             MIGRATION_5_6,
+            MIGRATION_6_7,
         ).build()
 
     /** 向业务层提供 Chat DAO 单例。 */

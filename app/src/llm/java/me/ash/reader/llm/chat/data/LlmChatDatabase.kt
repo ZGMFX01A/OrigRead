@@ -11,7 +11,7 @@ import androidx.room.TypeConverters
         LlmToolCallEntity::class,
         LlmContextRefEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 @TypeConverters(LlmChatConverters::class)
