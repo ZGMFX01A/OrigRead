@@ -61,7 +61,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -98,6 +97,8 @@ import me.ash.reader.llm.chat.data.LlmMessageEntity
 import me.ash.reader.llm.chat.data.LlmMessageStatus
 import me.ash.reader.llm.chat.data.LlmToolCallEntity
 import me.ash.reader.llm.chat.data.LlmToolCallStatus
+import me.ash.reader.llm.quickmessage.LlmQuickMessage
+import me.ash.reader.llm.quickmessage.LlmQuickMessageResolution
 import me.ash.reader.llm.runtime.LlmReasoningEffort
 import me.ash.reader.llm.runtime.LlmContextType
 import me.ash.reader.llm.runtime.LlmToolDescriptor
@@ -213,7 +214,6 @@ fun LlmArticleAssistantSheet(
                 ArticleAssistantEmptyState(
                     configured = uiState.selectedProviderId != null && uiState.selectedModel != null,
                     articleTitle = articleContext.title,
-                    onSuggestion = viewModel::sendMessage,
                     modifier = Modifier.weight(1f),
                 )
             } else {
@@ -327,6 +327,7 @@ fun LlmArticleAssistantSheet(
                 onRemoveManualToolContext = viewModel::removeManualToolContext,
                 onWebSearchModeChange = viewModel::setWebSearchMode,
                 onReasoningEffortChange = viewModel::setReasoningEffort,
+                onQuickMessage = viewModel::sendQuickMessage,
                 onSend = {
                     val text = input.trim()
                     if (text.isNotBlank()) {
@@ -557,11 +558,8 @@ private fun AssistantHeader(
 private fun ArticleAssistantEmptyState(
     configured: Boolean,
     articleTitle: String,
-    onSuggestion: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val explainPrompt = stringResource(R.string.llm_prompt_explain)
-    val evidencePrompt = stringResource(R.string.llm_prompt_evidence)
     Column(
         modifier = modifier.fillMaxWidth().padding(horizontal = 22.dp),
         verticalArrangement = Arrangement.Center,
@@ -582,19 +580,6 @@ private fun ArticleAssistantEmptyState(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        if (configured) {
-            Spacer(Modifier.size(18.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SuggestionChip(
-                    onClick = { onSuggestion(explainPrompt) },
-                    label = { Text(stringResource(R.string.llm_suggestion_explain)) },
-                )
-                SuggestionChip(
-                    onClick = { onSuggestion(evidencePrompt) },
-                    label = { Text(stringResource(R.string.llm_suggestion_evidence)) },
-                )
-            }
-        }
     }
 }
 
@@ -984,11 +969,13 @@ private fun AssistantComposer(
     onRemoveManualToolContext: (String) -> Unit,
     onWebSearchModeChange: (WebSearchMode) -> Unit,
     onReasoningEffortChange: (LlmReasoningEffort) -> Unit,
+    onQuickMessage: (LlmQuickMessage) -> LlmQuickMessageResolution,
     onSend: () -> Unit,
     onStop: () -> Unit,
 ) {
     var webSearchSheetVisible by remember { mutableStateOf(false) }
     var reasoningSheetVisible by remember { mutableStateOf(false) }
+    var quickMessageSheetVisible by remember { mutableStateOf(false) }
     val selectedProvider = uiState.providers.firstOrNull { it.id == uiState.selectedProviderId }
     val configured = uiState.selectedProviderId != null && uiState.selectedModel != null
 
@@ -1067,6 +1054,19 @@ private fun AssistantComposer(
                     },
                 )
                 Spacer(modifier = Modifier.weight(1f))
+                if (uiState.quickMessages.isNotEmpty()) {
+                    IconButton(
+                        onClick = { quickMessageSheetVisible = true },
+                        enabled = !uiState.isGenerating,
+                        modifier = Modifier.size(36.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.MoreVert,
+                            contentDescription = stringResource(R.string.llm_quick_message_open),
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
                 if (uiState.webSearchEnabled) {
                     IconButton(
                         onClick = { webSearchSheetVisible = true },
@@ -1157,6 +1157,119 @@ private fun AssistantComposer(
             onDismiss = { reasoningSheetVisible = false },
             onSelect = onReasoningEffortChange,
         )
+    }
+
+    if (quickMessageSheetVisible) {
+        QuickMessageSheet(
+            messages = uiState.quickMessages,
+            onDismiss = { quickMessageSheetVisible = false },
+            onSelect = onQuickMessage,
+        )
+    }
+}
+
+/**
+ * Chat 只保留一个 Quick Messages 紧凑入口；具体快捷项在这里按需展开。
+ * 点击后直接发送普通 USER 消息，模板变量缺失时停留在面板并明确说明原因。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun QuickMessageSheet(
+    messages: List<LlmQuickMessage>,
+    onDismiss: () -> Unit,
+    onSelect: (LlmQuickMessage) -> LlmQuickMessageResolution,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var resolutionError by remember { mutableStateOf<LlmQuickMessageResolution?>(null) }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+    ) {
+        Column(
+            modifier =
+                Modifier.fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 18.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.llm_quick_messages_title),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+
+            resolutionError?.let { error ->
+                val errorText =
+                    when {
+                        error.unsupportedVariables.isNotEmpty() ->
+                            stringResource(
+                                R.string.llm_quick_message_unsupported_variables,
+                                error.unsupportedVariables.joinToString(", "),
+                            )
+                        error.unavailableVariables.isNotEmpty() ->
+                            stringResource(
+                                R.string.llm_quick_message_missing_variables,
+                                error.unavailableVariables.joinToString(", "),
+                            )
+                        else -> stringResource(R.string.llm_quick_message_empty_content)
+                    }
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.errorContainer,
+                ) {
+                    Text(
+                        text = errorText,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                }
+            }
+
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(bottom = 12.dp),
+            ) {
+                items(messages, key = LlmQuickMessage::id) { message ->
+                    Surface(
+                        modifier =
+                            Modifier.fillMaxWidth()
+                                .clickable {
+                                    val resolution = onSelect(message)
+                                    if (resolution.ready) {
+                                        onDismiss()
+                                    } else {
+                                        resolutionError = resolution
+                                    }
+                                },
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Text(
+                                text = message.title,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                text = message.content,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

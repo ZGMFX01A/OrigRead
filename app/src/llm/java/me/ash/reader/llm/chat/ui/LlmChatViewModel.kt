@@ -37,6 +37,11 @@ import me.ash.reader.llm.chat.runtime.LlmChatToolCallDelta
 import me.ash.reader.llm.chat.runtime.LlmChatTransport
 import me.ash.reader.llm.chat.runtime.resolveToolByApiName
 import me.ash.reader.llm.mcp.McpToolRegistry
+import me.ash.reader.llm.quickmessage.LlmQuickMessage
+import me.ash.reader.llm.quickmessage.LlmQuickMessageContext
+import me.ash.reader.llm.quickmessage.LlmQuickMessageRepository
+import me.ash.reader.llm.quickmessage.LlmQuickMessageResolution
+import me.ash.reader.llm.quickmessage.resolveQuickMessageTemplate
 import me.ash.reader.llm.runtime.LlmContextItem
 import me.ash.reader.llm.runtime.LlmContextPolicy
 import me.ash.reader.llm.runtime.LlmContextType
@@ -76,6 +81,7 @@ data class LlmChatUiState(
     val reasoningEffort: LlmReasoningEffort = LlmReasoningEffort.AUTO,
     val webSearchEnabled: Boolean = false,
     val webSearchMode: WebSearchMode = WebSearchMode.AUTO,
+    val quickMessages: List<LlmQuickMessage> = emptyList(),
     val manualToolFallbackAvailable: Boolean = false,
     val manualTools: List<LlmToolDescriptor> = emptyList(),
     val manualToolContexts: List<LlmManualToolContext> = emptyList(),
@@ -128,6 +134,7 @@ class LlmChatViewModel @Inject constructor(
     private val repository: LlmChatRepository,
     private val settingsRepository: AiSettingsRepository,
     private val llmSettingsRepository: LlmSettingsRepository,
+    private val quickMessageRepository: LlmQuickMessageRepository,
     private val skillRepository: LlmSkillRepository,
     private val skillRouter: LlmSkillRouter,
     private val webSearchRouter: WebSearchRouter,
@@ -153,6 +160,7 @@ class LlmChatViewModel @Inject constructor(
         recoverInterruptedGenerations()
         observeAiSettings()
         observeLlmSettings()
+        observeQuickMessages()
         observeConversations()
         observeMessages()
         observeToolCalls()
@@ -206,6 +214,17 @@ class LlmChatViewModel @Inject constructor(
                     )
                 }
                 refreshManualToolFallback()
+            }
+        }
+    }
+
+    /** Quick Messages 只作为普通 USER 消息模板进入 UI；这里不会把它写进 Runtime/Profile/System Prompt。 */
+    private fun observeQuickMessages() {
+        viewModelScope.launch {
+            quickMessageRepository.messages.collect { messages ->
+                _uiState.update {
+                    it.copy(quickMessages = messages.filter(LlmQuickMessage::enabled))
+                }
             }
         }
     }
@@ -448,6 +467,31 @@ class LlmChatViewModel @Inject constructor(
      */
     fun sendMessage(rawText: String) {
         sendUserRequest(rawText, LlmExecutionTask.CHAT)
+    }
+
+    /**
+     * 将 Quick Message 按点击瞬间的阅读上下文展开后，作为普通 USER / CHAT 请求发送。
+     *
+     * Quick Message 不进入 System Prompt，不改变 Skill 路由，也不会修改 Tool/MCP 权限；
+     * 如果模板依赖的阅读变量当前不可用，则返回解析结果并拒绝发送，交给 UI 明确提示。
+     */
+    fun sendQuickMessage(message: LlmQuickMessage): LlmQuickMessageResolution {
+        val currentArticle = articleContext.value
+        val resolution =
+            resolveQuickMessageTemplate(
+                template = message.content,
+                context =
+                    LlmQuickMessageContext(
+                        articleTitle = currentArticle?.title.orEmpty(),
+                        articleUrl = currentArticle?.link,
+                        selection = currentArticle?.selectedText,
+                        summary = currentArticle?.summary,
+                    ),
+            )
+        resolution.content?.takeIf { resolution.ready }?.let { resolved ->
+            sendUserRequest(resolved, LlmExecutionTask.CHAT)
+        }
+        return resolution
     }
 
     /**

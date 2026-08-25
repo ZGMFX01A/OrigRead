@@ -53,6 +53,7 @@ class LlmAdvancedSettingsViewModel @Inject constructor(
 @Composable
 fun LlmAdvancedSettingsSection(
     onOpenSkills: (() -> Unit)? = null,
+    onOpenQuickMessages: (() -> Unit)? = null,
     onOpenWebSearch: (() -> Unit)? = null,
     onOpenMcp: (() -> Unit)? = null,
     viewModel: LlmAdvancedSettingsViewModel = hiltViewModel(),
@@ -194,6 +195,27 @@ fun LlmAdvancedSettingsSection(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(stringResource(R.string.llm_skill_manage))
+                }
+            }
+
+            HorizontalDivider()
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = stringResource(R.string.llm_quick_messages_title),
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(
+                    text = stringResource(R.string.llm_quick_messages_settings_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (onOpenQuickMessages != null) {
+                    FilledTonalButton(
+                        onClick = onOpenQuickMessages,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(R.string.llm_quick_messages_manage))
+                    }
                 }
             }
 
