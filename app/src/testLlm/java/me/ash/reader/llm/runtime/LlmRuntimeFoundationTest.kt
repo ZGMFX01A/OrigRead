@@ -99,6 +99,9 @@ class LlmRuntimeFoundationTest {
         assertTrue(result.truncated)
         assertTrue(LlmContextComposer().estimateTokens(result.text) <= 80)
         assertTrue(result.text.endsWith("[/ORIGREAD_CONTEXT]"))
+        assertEquals(listOf("article"), result.renderedItems.map(LlmRenderedContextItem::id))
+        assertFalse(result.renderedItems.single().truncated)
+        assertEquals(200, result.renderedItems.single().content.length)
     }
 
     @Test
@@ -174,6 +177,8 @@ class LlmRuntimeFoundationTest {
             )
 
         assertEquals("A", renderedContent)
+        assertEquals("A", truncated.renderedItems.single().content)
+        assertTrue(truncated.renderedItems.single().truncated)
         assertTrue(truncated.truncated)
         assertFalse(renderedContent.any(Char::isSurrogate))
     }

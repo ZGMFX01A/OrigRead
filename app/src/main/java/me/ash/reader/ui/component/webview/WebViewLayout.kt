@@ -10,13 +10,13 @@ import me.ash.reader.infrastructure.preference.ReadingFontsPreference
 object WebViewLayout {
 
     @SuppressLint("SetJavaScriptEnabled")
-    fun get(
+    internal fun get(
         context: Context,
         readingFontsPreference: ReadingFontsPreference,
         webViewClient: WebViewClient,
         onImageClick: ((imgUrl: String, altText: String) -> Unit)? = null,
     ) =
-        WebView(context).apply {
+        ArticleSelectionWebView(context).apply {
             this.webViewClient = webViewClient
             scrollBarSize = 0
             isHorizontalScrollBarEnabled = false

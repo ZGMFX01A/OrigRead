@@ -23,11 +23,14 @@ import me.ash.reader.infrastructure.ai.availableModels
 import me.ash.reader.infrastructure.ai.resolvedDefaultModel
 import me.ash.reader.llm.chat.data.LlmChatRepository
 import me.ash.reader.llm.chat.data.LlmChatRole
+import me.ash.reader.llm.chat.data.LlmContextRefEntity
 import me.ash.reader.llm.chat.data.LlmConversationEntity
 import me.ash.reader.llm.chat.data.LlmMessageEntity
 import me.ash.reader.llm.chat.data.LlmMessageStatus
 import me.ash.reader.llm.chat.data.LlmToolCallEntity
 import me.ash.reader.llm.chat.data.LlmToolCallStatus
+import me.ash.reader.llm.chat.data.buildContextRefEntities
+import me.ash.reader.llm.chat.data.buildToolResultContextRefEntities
 import me.ash.reader.llm.chat.runtime.LlmChatRequestMessage
 import me.ash.reader.llm.chat.runtime.LlmChatRequestToolCall
 import me.ash.reader.llm.chat.runtime.LlmChatToolCallDelta
@@ -61,6 +64,7 @@ data class LlmChatUiState(
     val currentConversationId: String? = null,
     val messages: List<LlmMessageEntity> = emptyList(),
     val toolCalls: List<LlmToolCallEntity> = emptyList(),
+    val contextRefs: List<LlmContextRefEntity> = emptyList(),
     val providers: List<AiProviderProfile> = emptyList(),
     val selectedProviderId: String? = null,
     val selectedModel: String? = null,
@@ -148,6 +152,7 @@ class LlmChatViewModel @Inject constructor(
         observeConversations()
         observeMessages()
         observeToolCalls()
+        observeContextRefs()
     }
 
     /** 进程被系统杀死时无法执行 finally；重进 Chat 后把遗留 STREAMING 状态收口为 STOPPED。 */
@@ -218,6 +223,7 @@ class LlmChatViewModel @Inject constructor(
                     currentConversationId = null,
                     conversations = emptyList(),
                     messages = emptyList(),
+                    contextRefs = emptyList(),
                     manualToolContexts = emptyList(),
                     pendingManualTool = null,
                     manualToolRunning = false,
@@ -284,6 +290,21 @@ class LlmChatViewModel @Inject constructor(
         }
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    /** ContextRef 与请求级 assistant 消息绑定；切换会话时同步恢复当时实际使用的来源快照。 */
+    private fun observeContextRefs() {
+        viewModelScope.launch {
+            selectedConversationId
+                .flatMapLatest { conversationId ->
+                    if (conversationId == null) flowOf(emptyList())
+                    else repository.observeContextRefs(conversationId)
+                }
+                .collect { contextRefs ->
+                    _uiState.update { it.copy(contextRefs = contextRefs) }
+                }
+        }
+    }
+
     /** 新建空白会话视图；真正的数据库会话在发送第一条消息时延迟创建。 */
     fun newConversation() {
         if (articleContext.value == null) return
@@ -301,6 +322,7 @@ class LlmChatViewModel @Inject constructor(
             it.copy(
                 currentConversationId = null,
                 messages = emptyList(),
+                contextRefs = emptyList(),
                 transientError = null,
             )
         }
@@ -884,6 +906,28 @@ class LlmChatViewModel @Inject constructor(
                     contextItems = contextItems,
                 )
 
+            // P6 ContextRef 必须在真正发请求前冻结。即使后续网络失败，错误消息也能解释当次请求准备使用了哪些来源；
+            // 同一 assistant placeholder 若重新 prepare，则 Repository 事务替换旧快照，不留下半套来源。
+            val contextRefCreatedAt = System.currentTimeMillis()
+            val contextRefs =
+                buildContextRefEntities(
+                    conversationId = conversationId,
+                    assistantMessageId = assistant.id,
+                    candidates = contextItems,
+                    composed = plan.context,
+                    createdAt = contextRefCreatedAt,
+                ) +
+                    buildToolResultContextRefEntities(
+                        conversationId = conversationId,
+                        assistantMessageId = assistant.id,
+                        toolCalls = repository.getToolCalls(conversationId),
+                        createdAt = contextRefCreatedAt,
+                    )
+            repository.replaceContextRefsForAssistant(
+                assistantMessageId = assistant.id,
+                contextRefs = contextRefs,
+            )
+
             fallbackPromptTokens = transport.estimateRequestTokens(plan, history)
             requestStartedAtNanos = System.nanoTime()
 
@@ -1136,11 +1180,24 @@ private fun mergeToolCallDeltas(
 private fun AiProviderProfile?.orEmptyModels(): List<String> = this?.availableModels().orEmpty()
 
 /**
- * 当前译文与摘要属于用户正在看的派生内容，优先于长原文进入有限 Context；
+ * 当前选区、译文与摘要属于用户正在看的高相关派生内容，优先于长原文进入有限 Context；
  * 原文仍作为基础事实来源参与剩余预算，P2 ContextComposer 负责安全截断。
  */
 internal fun buildArticleContextItems(context: ArticleAssistantContext): List<LlmContextItem> =
     buildList {
+        context.selectedText?.trim()?.takeIf(String::isNotBlank)?.let { selection ->
+            add(
+                LlmContextItem(
+                    id = "article:${context.articleId}:selection",
+                    type = LlmContextType.SELECTED_TEXT,
+                    title = context.title,
+                    sourceId = context.link,
+                    content = selection,
+                    // 用户刚刚显式选中的正文与当前问题相关度最高，必须优先于摘要/译文/整篇正文进入预算。
+                    priority = 160,
+                )
+            )
+        }
         context.summary?.trim()?.takeIf(String::isNotBlank)?.let { summary ->
             add(
                 LlmContextItem(

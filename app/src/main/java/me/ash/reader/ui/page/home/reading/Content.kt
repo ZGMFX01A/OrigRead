@@ -69,6 +69,7 @@ fun Content(
     onReadOriginal: () -> Unit = {},
     onVerifyAndParse: (() -> Unit)? = null,
     onImageClick: ((imgUrl: String, altText: String) -> Unit)? = null,
+    onSelectedTextAction: ((String) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val subheadUpperCase = LocalReadingSubheadUpperCase.current
@@ -92,6 +93,7 @@ fun Content(
     val maxWidthModifier = Modifier.widthIn(max = textContentWidth)
     val uriHandler = LocalUriHandler.current
     val releaseLinks = link.toOrigReadReleaseLinks(llmEdition = isLlmEdition)
+    val selectedTextActionLabel = stringResource(R.string.selected_text_ai)
 
     val headline =
         @Composable {
@@ -156,6 +158,12 @@ fun Content(
                                 content = content,
                                 refererDomain = link.extractDomain(),
                                 onImageClick = onImageClick,
+                                selectionActionLabel =
+                                    selectedTextActionLabel.takeIf {
+                                        isLlmEdition && onSelectedTextAction != null
+                                    },
+                                onSelectedTextAction =
+                                    onSelectedTextAction.takeIf { isLlmEdition },
                             )
                             releaseLinks?.let {
                                 OrigReadReleaseActions(
@@ -173,44 +181,49 @@ fun Content(
             }
 
             ReadingRendererPreference.NativeComponent -> {
-                SelectionContainer {
-                    LazyColumn(
-                        modifier = modifier.fillMaxSize().drawVerticalScrollIndicator(listState),
-                        state = listState,
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        item {
-                            // Top bar height
-                            Spacer(modifier = Modifier.height(topBarSpacerHeight))
-                            // padding
-                            Spacer(modifier = Modifier.height(topContentPadding))
-                            headline()
-                        }
-
-                        Reader(
-                            context = context,
-                            subheadUpperCase = subheadUpperCase.value,
-                            link = link ?: "",
-                            content = content,
-                            parsedBody = nativeReaderBody,
-                            onImageClick = onImageClick,
-                            onLinkClick = { uriHandler.openUri(it) },
-                        )
-
-                        releaseLinks?.let { links ->
+                PrioritizedProcessTextContextMenu(
+                    enabled = isLlmEdition && onSelectedTextAction != null,
+                    targetLabel = selectedTextActionLabel,
+                ) {
+                    SelectionContainer {
+                        LazyColumn(
+                            modifier = modifier.fillMaxSize().drawVerticalScrollIndicator(listState),
+                            state = listState,
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
                             item {
-                                OrigReadReleaseActions(
-                                    links = links,
-                                    onOpenUrl = uriHandler::openUri,
+                                // Top bar height
+                                Spacer(modifier = Modifier.height(topBarSpacerHeight))
+                                // padding
+                                Spacer(modifier = Modifier.height(topContentPadding))
+                                headline()
+                            }
+
+                            Reader(
+                                context = context,
+                                subheadUpperCase = subheadUpperCase.value,
+                                link = link ?: "",
+                                content = content,
+                                parsedBody = nativeReaderBody,
+                                onImageClick = onImageClick,
+                                onLinkClick = { uriHandler.openUri(it) },
+                            )
+
+                            releaseLinks?.let { links ->
+                                item {
+                                    OrigReadReleaseActions(
+                                        links = links,
+                                        onOpenUrl = uriHandler::openUri,
+                                    )
+                                }
+                            }
+
+                            item {
+                                Spacer(modifier = Modifier.height(128.dp))
+                                Spacer(
+                                    modifier = Modifier.height(contentPadding.calculateBottomPadding())
                                 )
                             }
-                        }
-
-                        item {
-                            Spacer(modifier = Modifier.height(128.dp))
-                            Spacer(
-                                modifier = Modifier.height(contentPadding.calculateBottomPadding())
-                            )
                         }
                     }
                 }

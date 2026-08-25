@@ -80,6 +80,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -91,16 +92,20 @@ import kotlin.math.roundToInt
 import me.ash.reader.R
 import me.ash.reader.infrastructure.ai.availableModels
 import me.ash.reader.llm.chat.data.LlmChatRole
+import me.ash.reader.llm.chat.data.LlmContextRefEntity
 import me.ash.reader.llm.chat.data.LlmConversationEntity
 import me.ash.reader.llm.chat.data.LlmMessageEntity
 import me.ash.reader.llm.chat.data.LlmMessageStatus
 import me.ash.reader.llm.chat.data.LlmToolCallEntity
 import me.ash.reader.llm.chat.data.LlmToolCallStatus
 import me.ash.reader.llm.runtime.LlmReasoningEffort
+import me.ash.reader.llm.runtime.LlmContextType
 import me.ash.reader.llm.runtime.LlmToolDescriptor
 import me.ash.reader.llm.search.WebSearchMode
 import me.ash.reader.ui.page.home.reading.AiSummaryAccentIcon
 import me.ash.reader.ui.page.home.reading.ArticleAssistantContext
+
+private const val CONTEXT_SOURCE_PREVIEW_LIMIT = 1_200
 
 /**
  * 文章级 LLM 阅读助手。
@@ -123,6 +128,7 @@ fun LlmArticleAssistantSheet(
     var conversationMenuExpanded by remember { mutableStateOf(false) }
     var modelPickerVisible by remember { mutableStateOf(false) }
     var manualToolSheetVisible by remember { mutableStateOf(false) }
+    var contextSourcesAssistantId by remember { mutableStateOf<String?>(null) }
     var renameTarget by remember { mutableStateOf<LlmConversationEntity?>(null) }
     var deleteTarget by remember { mutableStateOf<LlmConversationEntity?>(null) }
     var autoFollow by remember(uiState.currentConversationId) { mutableStateOf(true) }
@@ -214,6 +220,11 @@ fun LlmArticleAssistantSheet(
                                 AssistantMessage(
                                     message = message,
                                     showReasoning = uiState.showReasoning,
+                                    contextRefCount =
+                                        uiState.contextRefs.count { ref ->
+                                            ref.assistantMessageId == message.id
+                                        },
+                                    onShowContextSources = { contextSourcesAssistantId = message.id },
                                     canRegenerate =
                                         !uiState.isGenerating &&
                                             message.id == lastAssistantId &&
@@ -337,6 +348,13 @@ fun LlmArticleAssistantSheet(
                 viewModel.runManualTool(toolId, argumentsJson)
                 manualToolSheetVisible = false
             },
+        )
+    }
+
+    contextSourcesAssistantId?.let { assistantMessageId ->
+        ContextSourcesSheet(
+            refs = uiState.contextRefs.filter { it.assistantMessageId == assistantMessageId },
+            onDismiss = { contextSourcesAssistantId = null },
         )
     }
 
@@ -600,6 +618,8 @@ private fun ScrollJumpButton(
 private fun AssistantMessage(
     message: LlmMessageEntity,
     showReasoning: Boolean,
+    contextRefCount: Int,
+    onShowContextSources: () -> Unit,
     canRegenerate: Boolean,
     onRegenerate: () -> Unit,
 ) {
@@ -682,6 +702,23 @@ private fun AssistantMessage(
                         contentDescription = stringResource(R.string.llm_chat_copy),
                         modifier = Modifier.size(18.dp),
                     )
+                }
+                if (contextRefCount > 0) {
+                    TextButton(
+                        onClick = onShowContextSources,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Public,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            stringResource(R.string.llm_context_sources_count, contextRefCount),
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
                 }
                 if (canRegenerate) {
                     IconButton(onClick = onRegenerate, modifier = Modifier.size(34.dp)) {
@@ -1111,6 +1148,144 @@ private fun AssistantComposer(
         )
     }
 }
+
+/**
+ * 展示某一次 Assistant 请求冻结下来的 ContextRef。
+ * 历史来源只读，不允许在这里删除；“未纳入”明确表示该候选资料没有进入当次模型 Prompt。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ContextSourcesSheet(
+    refs: List<LlmContextRefEntity>,
+    onDismiss: () -> Unit,
+) {
+    val uriHandler = LocalUriHandler.current
+    val orderedRefs =
+        remember(refs) {
+            refs.sortedWith(
+                compareByDescending<LlmContextRefEntity> { it.includedInPrompt }
+                    .thenByDescending { it.priority }
+                    .thenBy { it.createdAt }
+            )
+        }
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.llm_context_sources_title),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = stringResource(R.string.llm_context_sources_desc),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().fillMaxHeight(0.72f),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(bottom = 20.dp),
+            ) {
+                items(orderedRefs, key = LlmContextRefEntity::id) { ref ->
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(7.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(
+                                    text = ref.title ?: contextTypeLabel(ref.type),
+                                    modifier = Modifier.weight(1f),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = contextRefStatusLabel(ref),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color =
+                                        if (ref.includedInPrompt) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Text(
+                                text = contextTypeLabel(ref.type),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            ref.sourceId?.takeIf(String::isNotBlank)?.let { source ->
+                                Text(
+                                    text = stringResource(R.string.llm_context_source, source),
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            val preview =
+                                (ref.promptContentSnapshot ?: ref.contentSnapshot)
+                                    .trim()
+                                    .take(CONTEXT_SOURCE_PREVIEW_LIMIT)
+                            if (preview.isNotBlank()) {
+                                Text(
+                                    text = preview,
+                                    maxLines = 8,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            ref.sourceUrl?.let { sourceUrl ->
+                                TextButton(
+                                    onClick = { runCatching { uriHandler.openUri(sourceUrl) } },
+                                    modifier = Modifier.align(Alignment.End),
+                                ) {
+                                    Text(stringResource(R.string.llm_context_open_source))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun contextRefStatusLabel(ref: LlmContextRefEntity): String =
+    when {
+        !ref.includedInPrompt -> stringResource(R.string.llm_context_omitted)
+        ref.truncatedInPrompt -> stringResource(R.string.llm_context_truncated)
+        else -> stringResource(R.string.llm_context_included)
+    }
+
+@Composable
+private fun contextTypeLabel(type: LlmContextType): String =
+    stringResource(
+        when (type) {
+            LlmContextType.ARTICLE -> R.string.llm_context_type_article
+            LlmContextType.ARTICLE_SUMMARY -> R.string.llm_context_type_summary
+            LlmContextType.ARTICLE_TRANSLATION -> R.string.llm_context_type_translation
+            LlmContextType.SELECTED_TEXT -> R.string.llm_context_type_selection
+            LlmContextType.MANUAL -> R.string.llm_context_type_manual
+            LlmContextType.WEB_SEARCH_RESULT -> R.string.llm_context_type_web_search
+            LlmContextType.TOOL_RESULT -> R.string.llm_context_type_tool_result
+        }
+    )
 
 /**
  * 不支持标准 Tool Calling 模型的显式 MCP Tool 降级入口。

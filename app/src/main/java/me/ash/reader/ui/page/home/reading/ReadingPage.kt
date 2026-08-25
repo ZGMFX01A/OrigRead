@@ -61,9 +61,11 @@ import me.ash.reader.infrastructure.android.TextToSpeechManager
 import me.ash.reader.infrastructure.ai.availableModels
 import me.ash.reader.infrastructure.preference.LocalPullToSwitchArticle
 import me.ash.reader.infrastructure.preference.LocalReadingAutoHideToolbar
+import me.ash.reader.infrastructure.preference.LocalReadingRenderer
 import me.ash.reader.infrastructure.preference.LocalReadingTextLineHeight
 import me.ash.reader.infrastructure.preference.LocalSettings
 import me.ash.reader.infrastructure.preference.OpenLinkPreference
+import me.ash.reader.infrastructure.preference.ReadingRendererPreference
 import me.ash.reader.infrastructure.preference.ReadingSharePreference
 import me.ash.reader.infrastructure.preference.ReadingShareTarget
 import me.ash.reader.infrastructure.preference.not
@@ -101,6 +103,7 @@ fun ReadingPage(
 ) {
     val context = LocalContext.current
     val settings = LocalSettings.current
+    val readingRenderer = LocalReadingRenderer.current
     val coroutineScope = rememberCoroutineScope()
     val hapticFeedback = LocalHapticFeedback.current
     val isPullToSwitchArticleEnabled = LocalPullToSwitchArticle.current.value
@@ -124,6 +127,7 @@ fun ReadingPage(
     var showFullScreenImageViewer by remember { mutableStateOf(false) }
     var showAiSummaryOptions by remember { mutableStateOf(false) }
     var showArticleAssistant by remember { mutableStateOf(false) }
+    var selectedTextForAssistant by remember(readerState.articleId) { mutableStateOf<String?>(null) }
     var showInteractiveVerification by remember { mutableStateOf(false) }
     var showReadingShareFirstUse by remember { mutableStateOf(false) }
     var showReadingShareConfig by remember { mutableStateOf(false) }
@@ -163,6 +167,7 @@ fun ReadingPage(
                 summary = aiSummaryState.document?.summary,
                 translatedTitle = visibleTranslation?.translatedTitle,
                 translatedContent = visibleTranslation?.translatedContent,
+                selectedText = selectedTextForAssistant,
             )
         }
     val readingSharePreference = settings.readingShare
@@ -628,6 +633,15 @@ fun ReadingPage(
                                                     currentImageData = ImageData(imgUrl, altText)
                                                     showFullScreenImageViewer = true
                                                 },
+                                                onSelectedTextAction =
+                                                    if (isLlmEdition) {
+                                                        { selectedText ->
+                                                            selectedTextForAssistant = selectedText
+                                                            showArticleAssistant = true
+                                                        }
+                                                    } else {
+                                                        null
+                                                    },
                                             )
                                             PullToLoadIndicator(
                                                 state = state,
@@ -680,6 +694,16 @@ fun ReadingPage(
                     )
                 }
             }
+        },
+    )
+    EditionSelectedTextActionHost(
+        // WebView 正文已有应用内 ActionMode；PROCESS_TEXT 只给 Compose NativeComponent 提供选区文本兼容通道。
+        enabled =
+            articleAssistantContext != null &&
+                readingRenderer == ReadingRendererPreference.NativeComponent,
+        onSelectedText = { selectedText ->
+            selectedTextForAssistant = selectedText
+            showArticleAssistant = true
         },
     )
     EditionArticleAssistantSheet(

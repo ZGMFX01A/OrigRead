@@ -37,6 +37,7 @@ class LlmContextComposer @Inject constructor() {
         val builder = StringBuilder()
         val included = mutableListOf<String>()
         val omitted = mutableListOf<String>()
+        val renderedItems = mutableListOf<LlmRenderedContextItem>()
         var usedTokens = 0
         var truncated = false
 
@@ -61,6 +62,12 @@ class LlmContextComposer @Inject constructor() {
             builder.append(block.text)
             usedTokens += separatorTokens + block.estimatedTokens
             included += item.id
+            renderedItems +=
+                LlmRenderedContextItem(
+                    id = item.id,
+                    content = block.content,
+                    truncated = block.truncated,
+                )
             truncated = truncated || block.truncated
 
             if (usedTokens >= policy.maxTokens) {
@@ -85,11 +92,13 @@ class LlmContextComposer @Inject constructor() {
             includedIds = included.distinct(),
             omittedIds = omitted.distinct().filterNot(included::contains),
             truncated = truncated,
+            renderedItems = renderedItems,
         )
     }
 
     private data class RenderedBlock(
         val text: String,
+        val content: String,
         val estimatedTokens: Int,
         val truncated: Boolean,
     )
@@ -118,6 +127,7 @@ class LlmContextComposer @Inject constructor() {
         val text = "$prefix$renderedContent$footer"
         return RenderedBlock(
             text = text,
+            content = renderedContent,
             estimatedTokens = estimateLlmTokens(text),
             truncated = renderedContent.length < content.length,
         )

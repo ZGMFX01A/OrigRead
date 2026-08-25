@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
@@ -32,6 +33,13 @@ interface LlmChatDao {
     )
     fun observeToolCalls(conversationId: String): Flow<List<LlmToolCallEntity>>
 
+    /** 观察当前会话全部 ContextRef；P6 来源 UI 按 assistant 消息分组展示。 */
+    @Query(
+        "SELECT * FROM llm_context_refs WHERE conversation_id = :conversationId " +
+            "ORDER BY created_at ASC, id ASC"
+    )
+    fun observeContextRefs(conversationId: String): Flow<List<LlmContextRefEntity>>
+
     /** 查询指定会话。 */
     @Query("SELECT * FROM llm_conversations WHERE id = :conversationId LIMIT 1")
     suspend fun getConversation(conversationId: String): LlmConversationEntity?
@@ -49,6 +57,13 @@ interface LlmChatDao {
             "ORDER BY created_at ASC, id ASC"
     )
     suspend fun getToolCalls(conversationId: String): List<LlmToolCallEntity>
+
+    /** 读取某一次 Assistant 请求保存的精确 Context 快照。 */
+    @Query(
+        "SELECT * FROM llm_context_refs WHERE assistant_message_id = :assistantMessageId " +
+            "ORDER BY priority DESC, created_at ASC, id ASC"
+    )
+    suspend fun getContextRefsForAssistant(assistantMessageId: String): List<LlmContextRefEntity>
 
     /** 插入会话；UUID 冲突直接失败，禁止覆盖历史会话。 */
     @Insert(onConflict = OnConflictStrategy.ABORT)
@@ -73,6 +88,25 @@ interface LlmChatDao {
     /** Provider 同一轮可能返回多个 Tool Call，批量落库。 */
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertToolCalls(toolCalls: List<LlmToolCallEntity>)
+
+    /** 一次请求的 ContextRef 批量落库；由 replaceContextRefsForAssistant 保证先清旧记录。 */
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertContextRefs(contextRefs: List<LlmContextRefEntity>)
+
+    @Query("DELETE FROM llm_context_refs WHERE assistant_message_id = :assistantMessageId")
+    suspend fun deleteContextRefsForAssistant(assistantMessageId: String)
+
+    /**
+     * 同一 Assistant placeholder 在真正发请求前可能重新 prepare；ContextRef 必须原子替换，避免崩溃后留下半套来源。
+     */
+    @Transaction
+    suspend fun replaceContextRefsForAssistant(
+        assistantMessageId: String,
+        contextRefs: List<LlmContextRefEntity>,
+    ) {
+        deleteContextRefsForAssistant(assistantMessageId)
+        if (contextRefs.isNotEmpty()) insertContextRefs(contextRefs)
+    }
 
     /** 更新单个 Tool Call 的审批/执行结果。 */
     @Update

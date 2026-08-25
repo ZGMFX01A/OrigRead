@@ -6,6 +6,7 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import androidx.room.TypeConverter
+import me.ash.reader.llm.runtime.LlmContextType
 
 /** Chat 消息角色；传输层会显式映射到 OpenAI-Compatible role。 */
 enum class LlmChatRole {
@@ -123,6 +124,57 @@ data class LlmToolCallEntity(
     @ColumnInfo(name = "updated_at") val updatedAt: Long,
 )
 
+/**
+ * 一次 Assistant 请求实际使用或评估过的 Context 快照。
+ *
+ * ContextRef 与 assistant_message_id 绑定而不是只绑定会话：同一个用户问题重新生成时，搜索结果、摘要、
+ * 译文或 Tool Result 可能已经变化，必须分别保留每次请求当时的来源内容，才能恢复真实历史依据。
+ */
+@Entity(
+    tableName = "llm_context_refs",
+    foreignKeys = [
+        ForeignKey(
+            entity = LlmMessageEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["assistant_message_id"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+        ForeignKey(
+            entity = LlmConversationEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["conversation_id"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [
+        Index(value = ["assistant_message_id"]),
+        Index(value = ["conversation_id"]),
+        Index(value = ["assistant_message_id", "context_id"], unique = true),
+    ],
+)
+data class LlmContextRefEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "conversation_id") val conversationId: String,
+    @ColumnInfo(name = "assistant_message_id") val assistantMessageId: String,
+    /** Runtime 中本轮候选 Context 的稳定 ID，例如 article:<id>:summary。 */
+    @ColumnInfo(name = "context_id") val contextId: String,
+    val type: LlmContextType,
+    val title: String? = null,
+    /** 原始来源标识：URL、MCP Server ID 等均原样保留。 */
+    @ColumnInfo(name = "source_id") val sourceId: String? = null,
+    /** 只有来源本身是可打开 HTTP(S) 地址时才写入，避免把 MCP Server ID 伪装成 URL。 */
+    @ColumnInfo(name = "source_url") val sourceUrl: String? = null,
+    /** 生成当时的完整来源快照；后续正文/摘要/搜索结果变化不会覆盖历史依据。 */
+    @ColumnInfo(name = "content_snapshot") val contentSnapshot: String,
+    /** 本轮预算后真正送入模型的正文片段；null 表示该候选 Context 被预算/策略排除。 */
+    @ColumnInfo(name = "prompt_content_snapshot") val promptContentSnapshot: String? = null,
+    @ColumnInfo(name = "content_sha256") val contentSha256: String,
+    val priority: Int,
+    @ColumnInfo(name = "included_in_prompt") val includedInPrompt: Boolean,
+    @ColumnInfo(name = "truncated_in_prompt") val truncatedInPrompt: Boolean,
+    @ColumnInfo(name = "created_at") val createdAt: Long,
+)
+
 /** Room 只保存稳定枚举名称，未来新增状态时旧数据仍可按已知名称读取。 */
 class LlmChatConverters {
     /** 将消息角色保存为稳定枚举名称。 */
@@ -151,4 +203,13 @@ class LlmChatConverters {
     @TypeConverter
     fun stringToToolCallStatus(value: String): LlmToolCallStatus =
         runCatching { LlmToolCallStatus.valueOf(value) }.getOrDefault(LlmToolCallStatus.ERROR)
+
+    /** Context 类型按 Runtime 的稳定枚举名称保存。 */
+    @TypeConverter
+    fun contextTypeToString(value: LlmContextType): String = value.name
+
+    /** 未知 Context 类型保守降级为 MANUAL，仅用于恢复历史数据。 */
+    @TypeConverter
+    fun stringToContextType(value: String): LlmContextType =
+        runCatching { LlmContextType.valueOf(value) }.getOrDefault(LlmContextType.MANUAL)
 }

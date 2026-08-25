@@ -13,4 +13,6 @@ data class ArticleAssistantContext(
     val summary: String? = null,
     val translatedTitle: String? = null,
     val translatedContent: String? = null,
+    /** LLM edition 从系统正文选区动作传入的临时文本；Standard 永远保持 null。 */
+    val selectedText: String? = null,
 )

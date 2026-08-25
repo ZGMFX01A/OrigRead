@@ -92,6 +92,15 @@ data class ComposedLlmContext(
     val includedIds: List<String>,
     val omittedIds: List<String>,
     val truncated: Boolean,
+    /** 每个已纳入 Context 的实际正文片段；不包含 OrigRead 安全边界 wrapper。 */
+    val renderedItems: List<LlmRenderedContextItem> = emptyList(),
+)
+
+/** ContextComposer 在预算处理后真正送入模型的单项正文，用于来源快照与历史可复现。 */
+data class LlmRenderedContextItem(
+    val id: String,
+    val content: String,
+    val truncated: Boolean,
 )
 
 data class LlmExecutionProfile(

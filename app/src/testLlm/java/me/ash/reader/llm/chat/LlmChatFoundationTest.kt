@@ -15,9 +15,16 @@ import me.ash.reader.llm.chat.runtime.LlmChatTransport
 import me.ash.reader.llm.chat.runtime.parseNonStreamingPayload
 import me.ash.reader.llm.chat.runtime.parseStreamPayload
 import me.ash.reader.llm.chat.data.deriveConversationTitle
+import me.ash.reader.llm.chat.data.buildContextRefEntities
+import me.ash.reader.llm.chat.data.buildToolResultContextRefEntities
+import me.ash.reader.llm.chat.data.LlmToolCallEntity
+import me.ash.reader.llm.chat.data.LlmToolCallStatus
 import me.ash.reader.llm.chat.ui.buildArticleContextItems
 import me.ash.reader.llm.chat.ui.shouldExposeManualToolFallback
 import me.ash.reader.llm.runtime.ComposedLlmContext
+import me.ash.reader.llm.runtime.LlmContextComposer
+import me.ash.reader.llm.runtime.LlmContextItem
+import me.ash.reader.llm.runtime.LlmContextPolicy
 import me.ash.reader.llm.runtime.LlmContextType
 import me.ash.reader.llm.runtime.LlmExecutionPlan
 import me.ash.reader.llm.runtime.LlmReasoningEffort
@@ -37,7 +44,7 @@ import org.junit.Test
 
 class LlmChatFoundationTest {
     @Test
-    fun `article assistant builds stable article summary and translation contexts`() {
+    fun `article assistant builds stable selection summary translation and article contexts`() {
         val items =
             buildArticleContextItems(
                 ArticleAssistantContext(
@@ -48,11 +55,13 @@ class LlmChatFoundationTest {
                     summary = "summary body",
                     translatedTitle = "Translated title",
                     translatedContent = "translated body",
+                    selectedText = "selected excerpt",
                 )
             )
 
         assertEquals(
             listOf(
+                LlmContextType.SELECTED_TEXT,
                 LlmContextType.ARTICLE_SUMMARY,
                 LlmContextType.ARTICLE_TRANSLATION,
                 LlmContextType.ARTICLE,
@@ -61,15 +70,69 @@ class LlmChatFoundationTest {
         )
         assertEquals(
             listOf(
+                "article:article-1:selection",
                 "article:article-1:summary",
                 "article:article-1:translation",
                 "article:article-1:original",
             ),
             items.map { it.id },
         )
-        assertEquals("Translated title", items[1].title)
+        assertEquals("selected excerpt", items[0].content)
+        assertEquals("Translated title", items[2].title)
         assertTrue(items[0].priority > items[1].priority)
         assertTrue(items[1].priority > items[2].priority)
+        assertTrue(items[2].priority > items[3].priority)
+    }
+
+    @Test
+    fun `article assistant omits blank selected text context`() {
+        val items =
+            buildArticleContextItems(
+                ArticleAssistantContext(
+                    articleId = "article-1",
+                    title = "Original title",
+                    link = "https://example.com/article-1",
+                    originalContent = "original body",
+                    selectedText = "  \n\t  ",
+                )
+            )
+
+        assertEquals(listOf(LlmContextType.ARTICLE), items.map { it.type })
+    }
+
+    @Test
+    fun `article assistant selection is rendered into prompt and frozen as context ref`() {
+        val items =
+            buildArticleContextItems(
+                ArticleAssistantContext(
+                    articleId = "article-1",
+                    title = "Original title",
+                    link = "https://example.com/article-1",
+                    originalContent = "original body",
+                    selectedText = "selected excerpt",
+                )
+            )
+        val composed =
+            LlmContextComposer().compose(
+                items = items,
+                policy = LlmContextPolicy(maxTokens = 512),
+            )
+        val refs =
+            buildContextRefEntities(
+                conversationId = "conversation",
+                assistantMessageId = "assistant",
+                candidates = items,
+                composed = composed,
+                createdAt = 123L,
+            )
+
+        val selectionRef = refs.single { it.type == LlmContextType.SELECTED_TEXT }
+        assertEquals("article:article-1:selection", selectionRef.contextId)
+        assertEquals("selected excerpt", selectionRef.contentSnapshot)
+        assertEquals("selected excerpt", selectionRef.promptContentSnapshot)
+        assertEquals("https://example.com/article-1", selectionRef.sourceUrl)
+        assertTrue(selectionRef.includedInPrompt)
+        assertTrue(composed.text.contains("selected excerpt"))
     }
 
     @Test
@@ -259,6 +322,105 @@ class LlmChatFoundationTest {
         assertTrue(shouldExposeManualToolFallback(basePlan))
         assertFalse(shouldExposeManualToolFallback(basePlan.copy(automaticToolCalling = true)))
         assertFalse(shouldExposeManualToolFallback(basePlan.copy(tools = emptyList())))
+    }
+
+    @Test
+    fun `context refs preserve full source snapshot separately from rendered prompt fragment`() {
+        val article =
+            LlmContextItem(
+                id = "article:1:original",
+                type = LlmContextType.ARTICLE,
+                content = "A".repeat(200),
+                title = "Article",
+                sourceId = "https://example.com/article",
+                priority = 100,
+            )
+        val tool =
+            LlmContextItem(
+                id = "manual-tool:1",
+                type = LlmContextType.TOOL_RESULT,
+                content = "tool-result",
+                title = "Tool",
+                sourceId = "mcp-server-id",
+                priority = 10,
+            )
+        val composed =
+            LlmContextComposer().compose(
+                items = listOf(article, tool),
+                policy = LlmContextPolicy(maxTokens = 80),
+            )
+
+        val refs =
+            buildContextRefEntities(
+                conversationId = "conversation",
+                assistantMessageId = "assistant",
+                candidates = listOf(article, tool),
+                composed = composed,
+                createdAt = 123L,
+            )
+        val articleRef = refs.single { it.contextId == article.id }
+        val toolRef = refs.single { it.contextId == tool.id }
+
+        assertEquals(article.content, articleRef.contentSnapshot)
+        assertTrue(articleRef.promptContentSnapshot.orEmpty().length < article.content.length)
+        assertTrue(articleRef.includedInPrompt)
+        assertTrue(articleRef.truncatedInPrompt)
+        assertEquals(article.sourceId, articleRef.sourceUrl)
+        assertEquals(64, articleRef.contentSha256.length)
+        assertFalse(toolRef.includedInPrompt)
+        assertNull(toolRef.promptContentSnapshot)
+        assertNull(toolRef.sourceUrl)
+    }
+
+    @Test
+    fun `tool result context refs include only finalized provider history results`() {
+        val now = 123L
+        val calls =
+            listOf(
+                LlmToolCallEntity(
+                    id = "complete-local",
+                    conversationId = "conversation",
+                    assistantMessageId = "previous-assistant",
+                    providerCallId = "call-1",
+                    toolId = "mcp:deepwiki:read",
+                    apiName = "read_wiki",
+                    argumentsJson = "{}",
+                    status = LlmToolCallStatus.COMPLETE,
+                    resultContent = "wiki result",
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+                LlmToolCallEntity(
+                    id = "pending-local",
+                    conversationId = "conversation",
+                    assistantMessageId = "previous-assistant",
+                    providerCallId = "call-2",
+                    toolId = "mcp:deepwiki:write",
+                    apiName = "write_wiki",
+                    argumentsJson = "{}",
+                    status = LlmToolCallStatus.PENDING_APPROVAL,
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+            )
+
+        val refs =
+            buildToolResultContextRefEntities(
+                conversationId = "conversation",
+                assistantMessageId = "next-assistant",
+                toolCalls = calls,
+                createdAt = now,
+            )
+
+        assertEquals(1, refs.size)
+        val ref = refs.single()
+        assertEquals("tool-result:complete-local", ref.contextId)
+        assertEquals(LlmContextType.TOOL_RESULT, ref.type)
+        assertEquals("wiki result", ref.contentSnapshot)
+        assertEquals("wiki result", ref.promptContentSnapshot)
+        assertTrue(ref.includedInPrompt)
+        assertFalse(ref.truncatedInPrompt)
+        assertEquals("mcp:deepwiki:read", ref.sourceId)
     }
 
     @Test

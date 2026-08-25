@@ -778,4 +778,5 @@
     <string name="ai_markdown_table">表格</string>
     <string name="ai_markdown_latex">LaTeX</string>
     <string name="ai_markdown_copy_block">复制%1$s</string>
+    <string name="selected_text_ai">AI</string>
 </resources>

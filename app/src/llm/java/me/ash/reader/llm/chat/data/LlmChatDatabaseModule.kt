@@ -92,6 +92,49 @@ object LlmChatDatabaseModule {
             }
         }
 
+    /**
+     * v6 增加请求级 ContextRef 快照。
+     * 每条记录同时关联会话和产生该请求的 assistant 消息；删除消息/会话时由外键级联清理。
+     */
+    private val MIGRATION_5_6 =
+        object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS llm_context_refs (" +
+                        "id TEXT NOT NULL, " +
+                        "conversation_id TEXT NOT NULL, " +
+                        "assistant_message_id TEXT NOT NULL, " +
+                        "context_id TEXT NOT NULL, " +
+                        "type TEXT NOT NULL, " +
+                        "title TEXT, " +
+                        "source_id TEXT, " +
+                        "source_url TEXT, " +
+                        "content_snapshot TEXT NOT NULL, " +
+                        "prompt_content_snapshot TEXT, " +
+                        "content_sha256 TEXT NOT NULL, " +
+                        "priority INTEGER NOT NULL, " +
+                        "included_in_prompt INTEGER NOT NULL, " +
+                        "truncated_in_prompt INTEGER NOT NULL, " +
+                        "created_at INTEGER NOT NULL, " +
+                        "PRIMARY KEY(id), " +
+                        "FOREIGN KEY(assistant_message_id) REFERENCES llm_messages(id) ON UPDATE NO ACTION ON DELETE CASCADE, " +
+                        "FOREIGN KEY(conversation_id) REFERENCES llm_conversations(id) ON UPDATE NO ACTION ON DELETE CASCADE)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_llm_context_refs_assistant_message_id " +
+                        "ON llm_context_refs(assistant_message_id)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_llm_context_refs_conversation_id " +
+                        "ON llm_context_refs(conversation_id)"
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_llm_context_refs_assistant_message_id_context_id " +
+                        "ON llm_context_refs(assistant_message_id, context_id)"
+                )
+            }
+        }
+
     /** 创建 LLM Chat Room 数据库单例。 */
     @Provides
     @Singleton
@@ -100,7 +143,13 @@ object LlmChatDatabaseModule {
             context,
             LlmChatDatabase::class.java,
             DATABASE_NAME,
-        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build()
+        ).addMigrations(
+            MIGRATION_1_2,
+            MIGRATION_2_3,
+            MIGRATION_3_4,
+            MIGRATION_4_5,
+            MIGRATION_5_6,
+        ).build()
 
     /** 向业务层提供 Chat DAO 单例。 */
     @Provides

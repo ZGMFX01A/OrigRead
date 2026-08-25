@@ -22,6 +22,10 @@ class LlmChatRepository @Inject constructor(
     fun observeToolCalls(conversationId: String): Flow<List<LlmToolCallEntity>> =
         dao.observeToolCalls(conversationId)
 
+    /** 观察指定会话所有请求级 ContextRef，供 P6 来源/Context 管理 UI 恢复历史依据。 */
+    fun observeContextRefs(conversationId: String): Flow<List<LlmContextRefEntity>> =
+        dao.observeContextRefs(conversationId)
+
     /** 查询指定会话。 */
     suspend fun getConversation(conversationId: String): LlmConversationEntity? =
         dao.getConversation(conversationId)
@@ -32,6 +36,9 @@ class LlmChatRepository @Inject constructor(
 
     suspend fun getToolCalls(conversationId: String): List<LlmToolCallEntity> =
         dao.getToolCalls(conversationId)
+
+    suspend fun getContextRefsForAssistant(assistantMessageId: String): List<LlmContextRefEntity> =
+        dao.getContextRefsForAssistant(assistantMessageId)
 
     /** 新建会话，并以首条用户文本生成本地标题。 */
     suspend fun createConversation(
@@ -157,6 +164,14 @@ class LlmChatRepository @Inject constructor(
         if (toolCalls.isEmpty()) return
         dao.insertToolCalls(toolCalls)
         touchConversation(toolCalls.first().conversationId)
+    }
+
+    /** 保存某一次模型请求的来源快照；不会修改会话活动时间，避免仅重建来源 UI 扰动历史排序。 */
+    suspend fun replaceContextRefsForAssistant(
+        assistantMessageId: String,
+        contextRefs: List<LlmContextRefEntity>,
+    ) {
+        dao.replaceContextRefsForAssistant(assistantMessageId, contextRefs)
     }
 
     /** 更新单个 Tool Call 的审批或执行结果。 */

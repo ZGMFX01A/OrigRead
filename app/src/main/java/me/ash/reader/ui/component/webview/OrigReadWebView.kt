@@ -37,6 +37,8 @@ fun OrigReadWebView(
     content: String,
     refererDomain: String? = null,
     onImageClick: ((imgUrl: String, altText: String) -> Unit)? = null,
+    selectionActionLabel: String? = null,
+    onSelectedTextAction: ((String) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val maxWidth = LocalConfiguration.current.screenWidthDp.dp.value
@@ -92,6 +94,7 @@ fun OrigReadWebView(
         },
         update = {
             it.apply {
+                configureSelectionAction(selectionActionLabel, onSelectedTextAction)
                 Log.i("RLog", "maxWidth: ${maxWidth}")
                 Log.i("RLog", "readingFont: ${context.filesDir.absolutePath}")
                 Log.i("RLog", "CustomWebView: ${content}")
@@ -132,6 +135,7 @@ fun OrigReadWebView(
         },
         onRelease = { view ->
             view.stopLoading()
+            view.configureSelectionAction(null, null)
             view.removeJavascriptInterface(JavaScriptInterface.NAME)
             view.loadUrl("about:blank")
             view.clearHistory()
