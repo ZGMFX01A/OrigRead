@@ -44,6 +44,7 @@ class LlmAdvancedSettingsViewModel @Inject constructor(
     fun setStreamResponses(value: Boolean) = repository.setStreamResponses(value)
     fun setShowReasoning(value: Boolean) = repository.setShowReasoning(value)
     fun setContextMaxTokens(value: Int) = repository.setContextMaxTokens(value)
+    fun setCustomInstructions(value: String) = repository.setCustomInstructions(value)
     fun setSkillsEnabled(value: Boolean) = repository.setSkillsEnabled(value)
     fun setWebSearchEnabled(value: Boolean) = repository.setWebSearchEnabled(value)
     fun setMcpEnabled(value: Boolean) = repository.setMcpEnabled(value)
@@ -52,6 +53,7 @@ class LlmAdvancedSettingsViewModel @Inject constructor(
 /** LLM edition 专属设置区；Provider/API Key 等基础配置仍由公共 AiSettingsPage 管理。 */
 @Composable
 fun LlmAdvancedSettingsSection(
+    onOpenCustomInstructions: (() -> Unit)? = null,
     onOpenSkills: (() -> Unit)? = null,
     onOpenQuickMessages: (() -> Unit)? = null,
     onOpenWebSearch: (() -> Unit)? = null,
@@ -171,6 +173,44 @@ fun LlmAdvancedSettingsSection(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+
+            HorizontalDivider()
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = stringResource(R.string.llm_custom_instructions_title),
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(
+                    text = stringResource(R.string.llm_custom_instructions_settings_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text =
+                        stringResource(
+                            if (settings.customInstructions.isBlank()) {
+                                R.string.llm_custom_instructions_not_configured
+                            } else {
+                                R.string.llm_custom_instructions_configured
+                            }
+                        ),
+                    style = MaterialTheme.typography.labelMedium,
+                    color =
+                        if (settings.customInstructions.isBlank()) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        },
+                )
+                if (onOpenCustomInstructions != null) {
+                    FilledTonalButton(
+                        onClick = onOpenCustomInstructions,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(R.string.llm_custom_instructions_manage))
+                    }
+                }
+            }
         }
     }
 

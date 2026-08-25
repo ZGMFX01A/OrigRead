@@ -9,16 +9,22 @@ import me.ash.reader.llm.mcp.McpSettingsPage
 import me.ash.reader.llm.quickmessage.LlmQuickMessageSettingsPage
 import me.ash.reader.llm.search.WebSearchSettingsPage
 import me.ash.reader.llm.settings.LlmAdvancedSettingsSection
+import me.ash.reader.llm.settings.LlmCustomInstructionsSettingsPage
 import me.ash.reader.llm.skill.LlmSkillSettingsPage
 import me.ash.reader.ui.page.settings.ai.AiSettingsPage
 
 /** LLM edition 在基础 AI 阅读设置上叠加 Runtime / Context / Reasoning 参数。 */
 @Composable
 internal fun EditionAiSettingsPage(onBack: () -> Unit) {
+    var showCustomInstructions by remember { mutableStateOf(false) }
     var showSkills by remember { mutableStateOf(false) }
     var showQuickMessages by remember { mutableStateOf(false) }
     var showWebSearch by remember { mutableStateOf(false) }
     var showMcp by remember { mutableStateOf(false) }
+    if (showCustomInstructions) {
+        LlmCustomInstructionsSettingsPage(onBack = { showCustomInstructions = false })
+        return
+    }
     if (showSkills) {
         LlmSkillSettingsPage(onBack = { showSkills = false })
         return
@@ -39,6 +45,7 @@ internal fun EditionAiSettingsPage(onBack: () -> Unit) {
         onBack = onBack,
         additionalSettingsContent = {
             LlmAdvancedSettingsSection(
+                onOpenCustomInstructions = { showCustomInstructions = true },
                 onOpenSkills = { showSkills = true },
                 onOpenQuickMessages = { showQuickMessages = true },
                 onOpenWebSearch = { showWebSearch = true },
