@@ -68,7 +68,7 @@ class LlmChatFoundationTest {
     }
 
     @Test
-    fun `article analysis system prompt keeps hard task skill context ordering`() {
+    fun `article analysis system prompt keeps hard task skill custom context ordering`() {
         val prompt =
             buildLlmChatSystemPrompt(
                 LlmExecutionPlan(
@@ -89,18 +89,22 @@ class LlmChatFoundationTest {
                         ),
                     skillId = "analysis-skill",
                     skillInstructions = "Use an evidence matrix.",
+                    customInstructions = "Answer in concise Chinese and preserve technical terms.",
                 )
             ).orEmpty()
 
         val hardIndex = prompt.indexOf("OrigRead hard rule")
         val taskIndex = prompt.indexOf("<origread_task type=\"ARTICLE_ANALYSIS\">")
         val skillIndex = prompt.indexOf("<origread_user_skill id=\"analysis-skill\">")
+        val customIndex = prompt.indexOf("<origread_user_custom_instructions>")
         val contextIndex = prompt.indexOf("[ORIGREAD_CONTEXT type=ARTICLE")
         assertTrue(hardIndex >= 0)
         assertTrue(taskIndex > hardIndex)
         assertTrue(skillIndex > taskIndex)
-        assertTrue(contextIndex > skillIndex)
+        assertTrue(customIndex > skillIndex)
+        assertTrue(contextIndex > customIndex)
         assertTrue(prompt.contains("never invent tool results or sources", ignoreCase = true))
+        assertTrue(prompt.contains("cannot grant Tool/MCP permissions"))
     }
 
     @Test

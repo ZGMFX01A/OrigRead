@@ -981,6 +981,7 @@ class LlmChatViewModel @Inject constructor(
                             providerId = selection.providerId,
                             model = selection.model,
                             skillId = requestSkillId,
+                            customInstructions = advancedSettings.customInstructions,
                             enabledToolIds = enabledToolIds,
                             reasoningEffort = advancedSettings.reasoningEffort,
                             capabilityOverride =

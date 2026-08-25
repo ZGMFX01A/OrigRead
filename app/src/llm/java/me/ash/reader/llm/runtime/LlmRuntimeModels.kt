@@ -116,6 +116,7 @@ data class LlmExecutionProfile(
     val reasoningEffort: LlmReasoningEffort = LlmReasoningEffort.AUTO,
     val capabilityOverride: ModelCapabilityOverride? = null,
     val skillId: String? = null,
+    val customInstructions: String? = null,
     val enabledToolIds: Set<String> = emptySet(),
     val contextPolicy: LlmContextPolicy = LlmContextPolicy(),
 )
@@ -133,4 +134,6 @@ data class LlmExecutionPlan(
     val skillId: String?,
     /** 已启用 Skill 的受控指令正文；null 表示本次执行使用 OrigRead 默认工作流。 */
     val skillInstructions: String? = null,
+    /** 用户长期回答偏好；固定低于任务/Skill、高于外部 Context Data。 */
+    val customInstructions: String? = null,
 )

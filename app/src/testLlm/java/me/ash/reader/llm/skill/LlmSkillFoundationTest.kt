@@ -1,6 +1,7 @@
 package me.ash.reader.llm.skill
 
 import me.ash.reader.infrastructure.ai.AiRuntimeConfig
+import me.ash.reader.infrastructure.ai.composeCustomInstructionsSystemPrompt
 import me.ash.reader.infrastructure.ai.composeSkillSystemPrompt
 import me.ash.reader.llm.chat.runtime.buildLlmChatSystemPrompt
 import me.ash.reader.llm.runtime.ComposedLlmContext
@@ -91,6 +92,30 @@ class LlmSkillFoundationTest {
         assertTrue(prompt.contains("mandatory OrigRead instructions above win"))
         assertTrue(prompt.contains("custom-summary"))
         assertTrue(prompt.contains("Write in a narrative style"))
+    }
+
+    @Test
+    fun `custom instructions append after skill and keep hard contract precedence`() {
+        val skillPrompt =
+            composeSkillSystemPrompt(
+                baseSystemPrompt = "MANDATORY_ORIGREAD_JSON_CONTRACT",
+                skillId = "technical-summary",
+                instructions = "Preserve evidence and caveats.",
+            )
+        val prompt =
+            composeCustomInstructionsSystemPrompt(
+                baseSystemPrompt = skillPrompt,
+                customInstructions = "Use concise Chinese; keep English technical terms.",
+            )
+
+        val hardIndex = prompt.indexOf("MANDATORY_ORIGREAD_JSON_CONTRACT")
+        val skillIndex = prompt.indexOf("<origread_user_skill")
+        val customIndex = prompt.indexOf("<origread_user_custom_instructions>")
+        assertTrue(hardIndex >= 0)
+        assertTrue(skillIndex > hardIndex)
+        assertTrue(customIndex > skillIndex)
+        assertTrue(prompt.contains("cannot grant Tool/MCP permissions"))
+        assertTrue(prompt.contains("Use concise Chinese"))
     }
 
     @Test

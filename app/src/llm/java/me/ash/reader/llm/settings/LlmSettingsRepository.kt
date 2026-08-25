@@ -16,6 +16,8 @@ data class LlmAdvancedSettings(
     val streamResponses: Boolean = true,
     val showReasoning: Boolean = true,
     val contextMaxTokens: Int = LlmSettingsRepository.DEFAULT_CONTEXT_TOKENS,
+    /** 用户长期回答偏好；只进入受控 Custom Instructions 插槽，不参与权限或 Tool 决策。 */
+    val customInstructions: String = "",
     val skillsEnabled: Boolean = false,
     val webSearchEnabled: Boolean = false,
     val webSearchMode: WebSearchMode = WebSearchMode.AUTO,
@@ -43,6 +45,9 @@ class LlmSettingsRepository @Inject constructor(
     fun setContextMaxTokens(value: Int) =
         update { it.copy(contextMaxTokens = normalizeContextTokens(value)) }
 
+    fun setCustomInstructions(value: String) =
+        update { it.copy(customInstructions = normalizeCustomInstructions(value)) }
+
     fun setSkillsEnabled(value: Boolean) = update { it.copy(skillsEnabled = value) }
 
     fun setWebSearchEnabled(value: Boolean) = update { it.copy(webSearchEnabled = value) }
@@ -57,7 +62,8 @@ class LlmSettingsRepository @Inject constructor(
         val transformed = transform(_settings.value)
         val next =
             transformed.copy(
-                contextMaxTokens = normalizeContextTokens(transformed.contextMaxTokens)
+                contextMaxTokens = normalizeContextTokens(transformed.contextMaxTokens),
+                customInstructions = normalizeCustomInstructions(transformed.customInstructions),
             )
         persist(next)
         _settings.value = next
@@ -76,6 +82,10 @@ class LlmSettingsRepository @Inject constructor(
             contextMaxTokens =
                 normalizeContextTokens(
                     preferences.getInt(KEY_CONTEXT_MAX_TOKENS, DEFAULT_CONTEXT_TOKENS)
+                ),
+            customInstructions =
+                normalizeCustomInstructions(
+                    preferences.getString(KEY_CUSTOM_INSTRUCTIONS, null).orEmpty()
                 ),
             skillsEnabled = preferences.getBoolean(KEY_SKILLS_ENABLED, false),
             webSearchEnabled = preferences.getBoolean(KEY_WEB_SEARCH_ENABLED, false),
@@ -97,6 +107,7 @@ class LlmSettingsRepository @Inject constructor(
             .putBoolean(KEY_STREAM_RESPONSES, settings.streamResponses)
             .putBoolean(KEY_SHOW_REASONING, settings.showReasoning)
             .putInt(KEY_CONTEXT_MAX_TOKENS, settings.contextMaxTokens)
+            .putString(KEY_CUSTOM_INSTRUCTIONS, settings.customInstructions)
             .putBoolean(KEY_SKILLS_ENABLED, settings.skillsEnabled)
             .putBoolean(KEY_WEB_SEARCH_ENABLED, settings.webSearchEnabled)
             .putString(
@@ -113,16 +124,22 @@ class LlmSettingsRepository @Inject constructor(
     private fun normalizeContextTokens(value: Int): Int =
         value.coerceIn(MIN_CONTEXT_TOKENS, MAX_CONTEXT_TOKENS)
 
+    /** 去掉首尾空白并限制持久化体积；不解析用户文本，也不允许它决定 Prompt 位置。 */
+    private fun normalizeCustomInstructions(value: String): String =
+        value.trim().take(MAX_CUSTOM_INSTRUCTIONS_LENGTH)
+
     companion object {
         const val DEFAULT_CONTEXT_TOKENS = 128_000
         const val MIN_CONTEXT_TOKENS = 8_000
         const val MAX_CONTEXT_TOKENS = 4_000_000
+        const val MAX_CUSTOM_INSTRUCTIONS_LENGTH = 8_000
 
         private const val PREFERENCES_NAME = "origread_llm_runtime_settings"
         private const val KEY_REASONING_EFFORT = "reasoning_effort"
         private const val KEY_STREAM_RESPONSES = "stream_responses"
         private const val KEY_SHOW_REASONING = "show_reasoning"
         private const val KEY_CONTEXT_MAX_TOKENS = "context_max_tokens"
+        private const val KEY_CUSTOM_INSTRUCTIONS = "custom_instructions"
         private const val KEY_SKILLS_ENABLED = "skills_enabled"
         private const val KEY_WEB_SEARCH_ENABLED = "web_search_enabled"
         private const val KEY_WEB_SEARCH_MODE = "web_search_mode"

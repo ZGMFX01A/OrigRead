@@ -53,6 +53,7 @@ class LlmRuntime @Inject constructor(
             context = context,
             skillId = skill?.id,
             skillInstructions = skill?.instructionBundle()?.takeIf(String::isNotBlank),
+            customInstructions = profile.customInstructions?.trim()?.takeIf(String::isNotBlank),
         )
     }
 }
