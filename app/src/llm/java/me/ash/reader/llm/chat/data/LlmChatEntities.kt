@@ -12,6 +12,7 @@ enum class LlmChatRole {
     SYSTEM,
     USER,
     ASSISTANT,
+    TOOL,
 }
 
 /** 消息持久化状态，用于恢复停止、错误和流式中的 UI 状态。 */
@@ -19,6 +20,18 @@ enum class LlmMessageStatus {
     COMPLETE,
     STREAMING,
     STOPPED,
+    ERROR,
+}
+
+/**
+ * 模型 Tool Call 的持久状态。
+ * RUNNING 被进程中断后只能恢复为 ERROR，禁止自动重放潜在副作用。
+ */
+enum class LlmToolCallStatus {
+    PENDING_APPROVAL,
+    RUNNING,
+    COMPLETE,
+    DENIED,
     ERROR,
 }
 
@@ -70,6 +83,46 @@ data class LlmMessageEntity(
     @ColumnInfo(name = "updated_at") val updatedAt: Long,
 )
 
+/**
+ * Assistant 请求执行的单个 Tool Call。
+ * Provider call id 与 OrigRead 内部 toolId 分开保存：前者用于 tool role 回传，后者用于安全执行。
+ */
+@Entity(
+    tableName = "llm_tool_calls",
+    foreignKeys = [
+        ForeignKey(
+            entity = LlmMessageEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["assistant_message_id"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+        ForeignKey(
+            entity = LlmConversationEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["conversation_id"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [
+        Index(value = ["assistant_message_id"]),
+        Index(value = ["conversation_id"]),
+    ],
+)
+data class LlmToolCallEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "conversation_id") val conversationId: String,
+    @ColumnInfo(name = "assistant_message_id") val assistantMessageId: String,
+    @ColumnInfo(name = "provider_call_id") val providerCallId: String,
+    @ColumnInfo(name = "tool_id") val toolId: String,
+    @ColumnInfo(name = "api_name") val apiName: String,
+    @ColumnInfo(name = "arguments_json") val argumentsJson: String,
+    val status: LlmToolCallStatus,
+    @ColumnInfo(name = "result_content") val resultContent: String? = null,
+    @ColumnInfo(name = "error_message") val errorMessage: String? = null,
+    @ColumnInfo(name = "created_at") val createdAt: Long,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long,
+)
+
 /** Room 只保存稳定枚举名称，未来新增状态时旧数据仍可按已知名称读取。 */
 class LlmChatConverters {
     /** 将消息角色保存为稳定枚举名称。 */
@@ -89,4 +142,13 @@ class LlmChatConverters {
     @TypeConverter
     fun stringToStatus(value: String): LlmMessageStatus =
         runCatching { LlmMessageStatus.valueOf(value) }.getOrDefault(LlmMessageStatus.COMPLETE)
+
+    /** Tool Call 状态按稳定枚举名称保存。 */
+    @TypeConverter
+    fun toolCallStatusToString(value: LlmToolCallStatus): String = value.name
+
+    /** 未知 Tool Call 状态保守降级为 ERROR，禁止未来版本误自动执行。 */
+    @TypeConverter
+    fun stringToToolCallStatus(value: String): LlmToolCallStatus =
+        runCatching { LlmToolCallStatus.valueOf(value) }.getOrDefault(LlmToolCallStatus.ERROR)
 }

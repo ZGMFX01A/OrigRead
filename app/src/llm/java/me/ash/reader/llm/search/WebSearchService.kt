@@ -1,0 +1,99 @@
+package me.ash.reader.llm.search
+
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * Dedicated Search 的统一执行入口。
+ *
+ * 这里只处理用户明确配置的 Dedicated Search Provider，不接管模型原生联网能力，也不把 MCP Search Tool
+ * 映射为 Web Search backend；上层 Chat 仍不直接依赖某个供应商 Adapter。
+ */
+@Singleton
+class WebSearchService @Inject constructor(
+    private val repository: WebSearchRepository,
+    exa: ExaWebSearchProvider,
+    tavily: TavilyWebSearchProvider,
+    brave: BraveWebSearchProvider,
+    perplexity: PerplexityWebSearchProvider,
+    linkup: LinkupWebSearchProvider,
+    firecrawl: FirecrawlWebSearchProvider,
+    searxng: SearxngWebSearchProvider,
+) {
+    private val adapters: Map<WebSearchProviderKind, WebSearchProviderAdapter> =
+        listOf<WebSearchProviderAdapter>(
+                exa,
+                tavily,
+                brave,
+                perplexity,
+                linkup,
+                firecrawl,
+                searxng,
+            )
+            .associateBy(WebSearchProviderAdapter::kind)
+
+    suspend fun search(
+        request: WebSearchRequest,
+        providerId: String? = null,
+    ): WebSearchResponse {
+        val profile = configuredProfile(providerId)
+        val adapter = adapterFor(profile)
+        return adapter.search(
+            profile = profile,
+            apiKey = repository.getApiKey(profile.id),
+            request = request,
+        )
+    }
+
+    /**
+     * 对指定 Provider 做一次真实最小请求，用于设置页“测活”。
+     *
+     * 多数 Search API 没有独立健康端点，单纯 HEAD/GET 无法验证 API Key 和请求格式；因此这里真实搜索
+     * 1 条结果且不主动抓取全文，以较低开销覆盖 Endpoint、认证与响应解析。
+     */
+    suspend fun checkHealth(providerId: String): WebSearchHealthCheckResult {
+        val profile = configuredProfile(providerId)
+        val adapter = adapterFor(profile)
+        val startedAt = System.nanoTime()
+        val response =
+            adapter.search(
+                profile = profile,
+                apiKey = repository.getApiKey(profile.id),
+                request =
+                    WebSearchRequest(
+                        query = HEALTH_CHECK_QUERY,
+                        maxResults = 1,
+                        includeContent = false,
+                    ),
+            )
+        val latencyMs = ((System.nanoTime() - startedAt) / 1_000_000L).coerceAtLeast(0L)
+        return WebSearchHealthCheckResult(
+            providerId = profile.id,
+            providerName = profile.name,
+            latencyMs = latencyMs,
+            resultCount = response.results.size,
+        )
+    }
+
+    private fun configuredProfile(providerId: String?): WebSearchProviderProfile {
+        val settings = repository.current()
+        val profile =
+            providerId
+                ?.let { id -> settings.providers.firstOrNull { it.id == id } }
+                ?: settings.defaultProvider()
+                ?: throw WebSearchException("没有配置 Web Search Provider")
+        if (!repository.isConfigured(profile.id)) {
+            throw WebSearchException("Web Search Provider 未完成配置：${profile.name}")
+        }
+        return profile
+    }
+
+    private fun adapterFor(profile: WebSearchProviderProfile): WebSearchProviderAdapter =
+        adapters[profile.kind]
+            ?: throw WebSearchException("暂不支持搜索服务：${profile.kind.name}")
+
+    companion object {
+        internal const val HEALTH_CHECK_QUERY = "OrigRead connectivity test"
+    }
+}
+

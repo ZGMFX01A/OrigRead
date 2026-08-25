@@ -5,8 +5,8 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 
 @Database(
-    entities = [LlmConversationEntity::class, LlmMessageEntity::class],
-    version = 4,
+    entities = [LlmConversationEntity::class, LlmMessageEntity::class, LlmToolCallEntity::class],
+    version = 5,
     exportSchema = true,
 )
 @TypeConverters(LlmChatConverters::class)

@@ -56,6 +56,42 @@ object LlmChatDatabaseModule {
             }
         }
 
+    /**
+     * v5 增加独立 Tool Call 表。审批/执行状态必须可恢复，不能只放在 ViewModel 内存中；
+     * RUNNING 若在进程退出时中断，后续统一标记 ERROR，禁止自动重放潜在副作用。
+     */
+    private val MIGRATION_4_5 =
+        object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS llm_tool_calls (" +
+                        "id TEXT NOT NULL, " +
+                        "conversation_id TEXT NOT NULL, " +
+                        "assistant_message_id TEXT NOT NULL, " +
+                        "provider_call_id TEXT NOT NULL, " +
+                        "tool_id TEXT NOT NULL, " +
+                        "api_name TEXT NOT NULL, " +
+                        "arguments_json TEXT NOT NULL, " +
+                        "status TEXT NOT NULL, " +
+                        "result_content TEXT, " +
+                        "error_message TEXT, " +
+                        "created_at INTEGER NOT NULL, " +
+                        "updated_at INTEGER NOT NULL, " +
+                        "PRIMARY KEY(id), " +
+                        "FOREIGN KEY(assistant_message_id) REFERENCES llm_messages(id) ON UPDATE NO ACTION ON DELETE CASCADE, " +
+                        "FOREIGN KEY(conversation_id) REFERENCES llm_conversations(id) ON UPDATE NO ACTION ON DELETE CASCADE)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_llm_tool_calls_assistant_message_id " +
+                        "ON llm_tool_calls(assistant_message_id)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_llm_tool_calls_conversation_id " +
+                        "ON llm_tool_calls(conversation_id)"
+                )
+            }
+        }
+
     /** 创建 LLM Chat Room 数据库单例。 */
     @Provides
     @Singleton
@@ -64,7 +100,7 @@ object LlmChatDatabaseModule {
             context,
             LlmChatDatabase::class.java,
             DATABASE_NAME,
-        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build()
+        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build()
 
     /** 向业务层提供 Chat DAO 单例。 */
     @Provides

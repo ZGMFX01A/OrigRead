@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.outlined.Lightbulb
+import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
@@ -92,7 +93,10 @@ import me.ash.reader.llm.chat.data.LlmChatRole
 import me.ash.reader.llm.chat.data.LlmConversationEntity
 import me.ash.reader.llm.chat.data.LlmMessageEntity
 import me.ash.reader.llm.chat.data.LlmMessageStatus
+import me.ash.reader.llm.chat.data.LlmToolCallEntity
+import me.ash.reader.llm.chat.data.LlmToolCallStatus
 import me.ash.reader.llm.runtime.LlmReasoningEffort
+import me.ash.reader.llm.search.WebSearchMode
 import me.ash.reader.ui.page.home.reading.AiSummaryAccentIcon
 import me.ash.reader.ui.page.home.reading.ArticleAssistantContext
 
@@ -203,15 +207,27 @@ fun LlmArticleAssistantSheet(
                         verticalArrangement = Arrangement.spacedBy(18.dp),
                     ) {
                         items(uiState.messages, key = LlmMessageEntity::id) { message ->
-                            AssistantMessage(
-                                message = message,
-                                showReasoning = uiState.showReasoning,
-                                canRegenerate =
-                                    !uiState.isGenerating &&
-                                        message.id == lastAssistantId &&
-                                        uiState.messages.any { it.role == LlmChatRole.USER },
-                                onRegenerate = viewModel::regenerateLast,
-                            )
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                AssistantMessage(
+                                    message = message,
+                                    showReasoning = uiState.showReasoning,
+                                    canRegenerate =
+                                        !uiState.isGenerating &&
+                                            message.id == lastAssistantId &&
+                                            uiState.messages.any { it.role == LlmChatRole.USER },
+                                    onRegenerate = viewModel::regenerateLast,
+                                )
+                                uiState.toolCalls
+                                    .filter { it.assistantMessageId == message.id }
+                                    .forEach { call ->
+                                        ToolCallCard(
+                                            call = call,
+                                            interactionEnabled = !uiState.isGenerating,
+                                            onApprove = { viewModel.approveToolCall(call.id) },
+                                            onDeny = { viewModel.denyToolCall(call.id) },
+                                        )
+                                    }
+                            }
                         }
                         // 独立尾部锚点用于超长最后一条消息的一键到底与流式跟随。
                         item(key = "conversation-bottom-anchor") {
@@ -279,6 +295,7 @@ fun LlmArticleAssistantSheet(
                 uiState = uiState,
                 onInputChange = { input = it },
                 onOpenModelPicker = { modelPickerVisible = true },
+                onWebSearchModeChange = viewModel::setWebSearchMode,
                 onReasoningEffortChange = viewModel::setReasoningEffort,
                 onSend = {
                     val text = input.trim()
@@ -634,6 +651,100 @@ private fun AssistantMessage(
     }
 }
 
+/**
+ * Tool Call 状态卡片。
+ * Pending 时必须先展示目标 Tool 与参数，再允许用户批准；参数只做有界预览，避免大 JSON 撑满阅读助手。
+ */
+@Composable
+private fun ToolCallCard(
+    call: LlmToolCallEntity,
+    interactionEnabled: Boolean,
+    onApprove: () -> Unit,
+    onDeny: () -> Unit,
+) {
+    val toolName =
+        call.toolId
+            .takeUnless { it.startsWith("unresolved:") }
+            ?.substringAfterLast(':')
+            ?.takeIf(String::isNotBlank)
+            ?: call.apiName
+    val statusText =
+        when (call.status) {
+            LlmToolCallStatus.PENDING_APPROVAL -> stringResource(R.string.llm_tool_call_pending)
+            LlmToolCallStatus.RUNNING -> stringResource(R.string.llm_tool_call_running)
+            LlmToolCallStatus.COMPLETE -> stringResource(R.string.llm_tool_call_complete)
+            LlmToolCallStatus.DENIED -> stringResource(R.string.llm_tool_call_denied)
+            LlmToolCallStatus.ERROR -> stringResource(R.string.llm_tool_call_error)
+        }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color =
+            if (call.status == LlmToolCallStatus.PENDING_APPROVAL) {
+                MaterialTheme.colorScheme.secondaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerLow
+            },
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = toolName,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (call.status == LlmToolCallStatus.RUNNING) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                }
+                Text(
+                    text = statusText,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text(
+                text = call.argumentsJson,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis,
+            )
+            call.errorMessage?.takeIf(String::isNotBlank)?.let { error ->
+                Text(
+                    text = error,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            if (call.status == LlmToolCallStatus.PENDING_APPROVAL) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(onClick = onDeny, enabled = interactionEnabled) {
+                        Text(stringResource(R.string.llm_tool_call_deny))
+                    }
+                    TextButton(onClick = onApprove, enabled = interactionEnabled) {
+                        Text(stringResource(R.string.llm_tool_call_approve))
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun ReasoningBlock(
     reasoning: String,
@@ -774,10 +885,12 @@ private fun AssistantComposer(
     uiState: LlmChatUiState,
     onInputChange: (String) -> Unit,
     onOpenModelPicker: () -> Unit,
+    onWebSearchModeChange: (WebSearchMode) -> Unit,
     onReasoningEffortChange: (LlmReasoningEffort) -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
 ) {
+    var webSearchSheetVisible by remember { mutableStateOf(false) }
     var reasoningSheetVisible by remember { mutableStateOf(false) }
     val selectedProvider = uiState.providers.firstOrNull { it.id == uiState.selectedProviderId }
     val configured = uiState.selectedProviderId != null && uiState.selectedModel != null
@@ -818,6 +931,25 @@ private fun AssistantComposer(
                     },
                 )
                 Spacer(modifier = Modifier.weight(1f))
+                if (uiState.webSearchEnabled) {
+                    IconButton(
+                        onClick = { webSearchSheetVisible = true },
+                        enabled = !uiState.isGenerating,
+                        modifier = Modifier.size(36.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Public,
+                            contentDescription = stringResource(R.string.llm_web_search_mode_title),
+                            tint =
+                                if (uiState.webSearchMode == WebSearchMode.OFF) {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                } else {
+                                    MaterialTheme.colorScheme.primary
+                                },
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
                 IconButton(
                     onClick = { reasoningSheetVisible = true },
                     enabled = !uiState.isGenerating,
@@ -858,6 +990,14 @@ private fun AssistantComposer(
         }
     }
 
+    if (webSearchSheetVisible) {
+        WebSearchModeSheet(
+            currentMode = uiState.webSearchMode,
+            onDismiss = { webSearchSheetVisible = false },
+            onSelect = onWebSearchModeChange,
+        )
+    }
+
     if (reasoningSheetVisible) {
         ReasoningEffortSheet(
             currentEffort = uiState.reasoningEffort,
@@ -876,6 +1016,89 @@ private fun LlmReasoningEffort.displayName(): String =
         LlmReasoningEffort.HIGH -> "High"
         LlmReasoningEffort.MAXIMUM -> "Maximum"
     }
+
+/** Web Search 模式面板；FORCE 只武装下一条消息，不会变成永久搜索开关。 */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun WebSearchModeSheet(
+    currentMode: WebSearchMode,
+    onDismiss: () -> Unit,
+    onSelect: (WebSearchMode) -> Unit,
+) {
+    val options =
+        listOf(
+            WebSearchMode.OFF to
+                (R.string.llm_web_search_mode_off to R.string.llm_web_search_mode_off_desc),
+            WebSearchMode.AUTO to
+                (R.string.llm_web_search_mode_auto to R.string.llm_web_search_mode_auto_desc),
+            WebSearchMode.FORCE to
+                (R.string.llm_web_search_mode_force to R.string.llm_web_search_mode_force_desc),
+        )
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.llm_web_search_mode_title),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = stringResource(R.string.llm_web_search_mode_desc),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            options.forEach { (mode, labels) ->
+                val selected = currentMode == mode
+                Surface(
+                    onClick = {
+                        onSelect(mode)
+                        onDismiss()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    color =
+                        if (selected) MaterialTheme.colorScheme.secondaryContainer
+                        else MaterialTheme.colorScheme.surfaceContainerLow,
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Public,
+                            contentDescription = null,
+                            tint =
+                                if (selected) MaterialTheme.colorScheme.onSecondaryContainer
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(labels.first),
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            Text(
+                                text = stringResource(labels.second),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (selected) {
+                            Icon(Icons.Rounded.Check, contentDescription = null)
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.size(12.dp))
+        }
+    }
+}
 
 /** 对话内 Reasoning Effort 快速调节面板，使用移动端离散 Slider 表达强度档位。 */
 @OptIn(ExperimentalMaterial3Api::class)

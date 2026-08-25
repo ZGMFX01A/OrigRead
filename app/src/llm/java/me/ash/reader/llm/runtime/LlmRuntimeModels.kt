@@ -59,6 +59,7 @@ enum class LlmContextType {
     ARTICLE_TRANSLATION,
     SELECTED_TEXT,
     MANUAL,
+    WEB_SEARCH_RESULT,
     TOOL_RESULT,
 }
 

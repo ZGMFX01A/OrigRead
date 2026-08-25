@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import me.ash.reader.llm.runtime.LlmReasoningEffort
+import me.ash.reader.llm.search.WebSearchMode
 
 /** LLM edition 独有的执行偏好；与 Standard 的基础 AI 阅读设置分开持久化。 */
 data class LlmAdvancedSettings(
@@ -16,6 +17,8 @@ data class LlmAdvancedSettings(
     val showReasoning: Boolean = true,
     val contextMaxTokens: Int = LlmSettingsRepository.DEFAULT_CONTEXT_TOKENS,
     val skillsEnabled: Boolean = false,
+    val webSearchEnabled: Boolean = false,
+    val webSearchMode: WebSearchMode = WebSearchMode.AUTO,
     val mcpEnabled: Boolean = false,
 )
 
@@ -41,6 +44,12 @@ class LlmSettingsRepository @Inject constructor(
         update { it.copy(contextMaxTokens = normalizeContextTokens(value)) }
 
     fun setSkillsEnabled(value: Boolean) = update { it.copy(skillsEnabled = value) }
+
+    fun setWebSearchEnabled(value: Boolean) = update { it.copy(webSearchEnabled = value) }
+
+    /** FORCE 是 Chat 的一次性动作，不允许写成全局持久状态。 */
+    fun setWebSearchMode(value: WebSearchMode) =
+        update { it.copy(webSearchMode = value.takeUnless { it == WebSearchMode.FORCE } ?: WebSearchMode.AUTO) }
 
     fun setMcpEnabled(value: Boolean) = update { it.copy(mcpEnabled = value) }
 
@@ -69,6 +78,16 @@ class LlmSettingsRepository @Inject constructor(
                     preferences.getInt(KEY_CONTEXT_MAX_TOKENS, DEFAULT_CONTEXT_TOKENS)
                 ),
             skillsEnabled = preferences.getBoolean(KEY_SKILLS_ENABLED, false),
+            webSearchEnabled = preferences.getBoolean(KEY_WEB_SEARCH_ENABLED, false),
+            webSearchMode =
+                runCatching {
+                        WebSearchMode.valueOf(
+                            preferences.getString(KEY_WEB_SEARCH_MODE, null).orEmpty()
+                        )
+                    }
+                    .getOrDefault(WebSearchMode.AUTO)
+                    .takeUnless { it == WebSearchMode.FORCE }
+                    ?: WebSearchMode.AUTO,
             mcpEnabled = preferences.getBoolean(KEY_MCP_ENABLED, false),
         )
 
@@ -79,6 +98,12 @@ class LlmSettingsRepository @Inject constructor(
             .putBoolean(KEY_SHOW_REASONING, settings.showReasoning)
             .putInt(KEY_CONTEXT_MAX_TOKENS, settings.contextMaxTokens)
             .putBoolean(KEY_SKILLS_ENABLED, settings.skillsEnabled)
+            .putBoolean(KEY_WEB_SEARCH_ENABLED, settings.webSearchEnabled)
+            .putString(
+                KEY_WEB_SEARCH_MODE,
+                settings.webSearchMode.takeUnless { it == WebSearchMode.FORCE }?.name
+                    ?: WebSearchMode.AUTO.name,
+            )
             .putBoolean(KEY_MCP_ENABLED, settings.mcpEnabled)
             .remove(KEY_CONTEXT_MAX_CHARACTERS)
             .apply()
@@ -99,6 +124,8 @@ class LlmSettingsRepository @Inject constructor(
         private const val KEY_SHOW_REASONING = "show_reasoning"
         private const val KEY_CONTEXT_MAX_TOKENS = "context_max_tokens"
         private const val KEY_SKILLS_ENABLED = "skills_enabled"
+        private const val KEY_WEB_SEARCH_ENABLED = "web_search_enabled"
+        private const val KEY_WEB_SEARCH_MODE = "web_search_mode"
         private const val KEY_MCP_ENABLED = "mcp_enabled"
         // 2026-08-24 以前的实验版曾把 UTF-16 字符预算误显示成 Context；新版本不继承该语义。
         private const val KEY_CONTEXT_MAX_CHARACTERS = "context_max_characters"

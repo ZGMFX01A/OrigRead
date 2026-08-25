@@ -25,6 +25,13 @@ interface LlmChatDao {
     )
     fun observeMessages(conversationId: String): Flow<List<LlmMessageEntity>>
 
+    /** 观察当前会话 Tool Call，用于 Pending 审批卡片与历史恢复。 */
+    @Query(
+        "SELECT * FROM llm_tool_calls WHERE conversation_id = :conversationId " +
+            "ORDER BY created_at ASC, id ASC"
+    )
+    fun observeToolCalls(conversationId: String): Flow<List<LlmToolCallEntity>>
+
     /** 查询指定会话。 */
     @Query("SELECT * FROM llm_conversations WHERE id = :conversationId LIMIT 1")
     suspend fun getConversation(conversationId: String): LlmConversationEntity?
@@ -35,6 +42,13 @@ interface LlmChatDao {
             "ORDER BY created_at ASC, id ASC"
     )
     suspend fun getMessages(conversationId: String): List<LlmMessageEntity>
+
+    /** 一次性读取完整 Tool Call 历史，用于重建 assistant tool_calls / tool result。 */
+    @Query(
+        "SELECT * FROM llm_tool_calls WHERE conversation_id = :conversationId " +
+            "ORDER BY created_at ASC, id ASC"
+    )
+    suspend fun getToolCalls(conversationId: String): List<LlmToolCallEntity>
 
     /** 插入会话；UUID 冲突直接失败，禁止覆盖历史会话。 */
     @Insert(onConflict = OnConflictStrategy.ABORT)
@@ -56,6 +70,14 @@ interface LlmChatDao {
     @Update
     suspend fun updateMessage(message: LlmMessageEntity)
 
+    /** Provider 同一轮可能返回多个 Tool Call，批量落库。 */
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertToolCalls(toolCalls: List<LlmToolCallEntity>)
+
+    /** 更新单个 Tool Call 的审批/执行结果。 */
+    @Update
+    suspend fun updateToolCall(toolCall: LlmToolCallEntity)
+
     /** 删除指定消息。 */
     @Query("DELETE FROM llm_messages WHERE id = :messageId")
     suspend fun deleteMessage(messageId: String)
@@ -71,6 +93,18 @@ interface LlmChatDao {
     suspend fun recoverInterruptedMessages(
         streamingStatus: LlmMessageStatus,
         stoppedStatus: LlmMessageStatus,
+        updatedAt: Long,
+    ): Int
+
+    /** RUNNING 外部调用在进程重启后结果未知，转 ERROR 而不是自动重放。 */
+    @Query(
+        "UPDATE llm_tool_calls SET status = :errorStatus, error_message = :message, updated_at = :updatedAt " +
+            "WHERE status = :runningStatus"
+    )
+    suspend fun recoverInterruptedToolCalls(
+        runningStatus: LlmToolCallStatus,
+        errorStatus: LlmToolCallStatus,
+        message: String,
         updatedAt: Long,
     ): Int
 }

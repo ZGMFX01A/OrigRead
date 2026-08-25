@@ -45,6 +45,7 @@ class LlmAdvancedSettingsViewModel @Inject constructor(
     fun setShowReasoning(value: Boolean) = repository.setShowReasoning(value)
     fun setContextMaxTokens(value: Int) = repository.setContextMaxTokens(value)
     fun setSkillsEnabled(value: Boolean) = repository.setSkillsEnabled(value)
+    fun setWebSearchEnabled(value: Boolean) = repository.setWebSearchEnabled(value)
     fun setMcpEnabled(value: Boolean) = repository.setMcpEnabled(value)
 }
 
@@ -52,6 +53,7 @@ class LlmAdvancedSettingsViewModel @Inject constructor(
 @Composable
 fun LlmAdvancedSettingsSection(
     onOpenSkills: (() -> Unit)? = null,
+    onOpenWebSearch: (() -> Unit)? = null,
     onOpenMcp: (() -> Unit)? = null,
     viewModel: LlmAdvancedSettingsViewModel = hiltViewModel(),
 ) {
@@ -192,6 +194,22 @@ fun LlmAdvancedSettingsSection(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(stringResource(R.string.llm_skill_manage))
+                }
+            }
+
+            HorizontalDivider()
+            SettingsSwitchRow(
+                title = stringResource(R.string.llm_settings_web_search),
+                desc = stringResource(R.string.llm_settings_web_search_desc),
+                checked = settings.webSearchEnabled,
+                onCheckedChange = viewModel::setWebSearchEnabled,
+            )
+            if (settings.webSearchEnabled && onOpenWebSearch != null) {
+                FilledTonalButton(
+                    onClick = onOpenWebSearch,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(stringResource(R.string.llm_settings_web_search_manage))
                 }
             }
 

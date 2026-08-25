@@ -24,6 +24,9 @@ data class LlmToolDescriptor(
     val sourceId: String? = null,
     val risk: LlmToolRisk = LlmToolRisk.READ_ONLY,
     val enabled: Boolean = true,
+    /** Provider/MCP Tool 的 JSON Schema；后续标准 Function Calling 直接消费，不再二次猜参数。 */
+    val inputSchemaJson: String = "{\"type\":\"object\",\"properties\":{}}",
+    val outputSchemaJson: String? = null,
 ) {
     init {
         require(id.isNotBlank()) { "Tool id 不能为空" }

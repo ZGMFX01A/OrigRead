@@ -94,7 +94,7 @@ class LlmSkillFoundationTest {
     }
 
     @Test
-    fun `chat system prompt keeps article as data and skill as user selected method`() {
+    fun `chat system prompt keeps article as data and skill as activated method`() {
         val plan =
             LlmExecutionPlan(
                 providerId = "provider",
@@ -125,6 +125,41 @@ class LlmSkillFoundationTest {
         assertTrue(prompt.contains("evidence-reader"))
         assertTrue(prompt.contains("Check evidence"))
         assertTrue(prompt.contains("does not grant tool permissions"))
+    }
+
+    @Test
+    fun `chat system prompt requires attribution for web search reference data`() {
+        val plan =
+            LlmExecutionPlan(
+                providerId = "provider",
+                providerName = "Provider",
+                runtimeConfig =
+                    AiRuntimeConfig(
+                        endpoint = "https://example.com/v1",
+                        model = "model",
+                        apiKey = "",
+                    ),
+                capability = ModelCapability(),
+                reasoningParameter = null,
+                tools = emptyList(),
+                automaticToolCalling = false,
+                context =
+                    ComposedLlmContext(
+                        text =
+                            "[ORIGREAD_CONTEXT type=WEB_SEARCH_RESULT id=web:1 source=https://example.com/news]\n" +
+                                "Title: Fresh source\nlatest evidence\n[/ORIGREAD_CONTEXT]",
+                        includedIds = listOf("web:1"),
+                        omittedIds = emptyList(),
+                        truncated = false,
+                    ),
+                skillId = null,
+                skillInstructions = null,
+            )
+
+        val prompt = buildLlmChatSystemPrompt(plan).orEmpty()
+        assertTrue(prompt.contains("attribute web-derived factual claims"))
+        assertTrue(prompt.contains("include the source URL"))
+        assertTrue(prompt.contains("https://example.com/news"))
     }
 
     @Test

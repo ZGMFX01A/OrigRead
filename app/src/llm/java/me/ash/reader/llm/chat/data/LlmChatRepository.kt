@@ -18,6 +18,10 @@ class LlmChatRepository @Inject constructor(
     fun observeMessages(conversationId: String): Flow<List<LlmMessageEntity>> =
         dao.observeMessages(conversationId)
 
+    /** 观察指定会话 Tool Call 状态。 */
+    fun observeToolCalls(conversationId: String): Flow<List<LlmToolCallEntity>> =
+        dao.observeToolCalls(conversationId)
+
     /** 查询指定会话。 */
     suspend fun getConversation(conversationId: String): LlmConversationEntity? =
         dao.getConversation(conversationId)
@@ -25,6 +29,9 @@ class LlmChatRepository @Inject constructor(
     /** 一次性读取指定会话历史，用于构造下一轮模型请求。 */
     suspend fun getMessages(conversationId: String): List<LlmMessageEntity> =
         dao.getMessages(conversationId)
+
+    suspend fun getToolCalls(conversationId: String): List<LlmToolCallEntity> =
+        dao.getToolCalls(conversationId)
 
     /** 新建会话，并以首条用户文本生成本地标题。 */
     suspend fun createConversation(
@@ -145,18 +152,54 @@ class LlmChatRepository @Inject constructor(
         return updated
     }
 
+    /** 将同一 assistant response 中的 Tool Calls 一次落库。 */
+    suspend fun appendToolCalls(toolCalls: List<LlmToolCallEntity>) {
+        if (toolCalls.isEmpty()) return
+        dao.insertToolCalls(toolCalls)
+        touchConversation(toolCalls.first().conversationId)
+    }
+
+    /** 更新单个 Tool Call 的审批或执行结果。 */
+    suspend fun updateToolCall(
+        toolCall: LlmToolCallEntity,
+        status: LlmToolCallStatus = toolCall.status,
+        resultContent: String? = toolCall.resultContent,
+        errorMessage: String? = toolCall.errorMessage,
+    ): LlmToolCallEntity {
+        val updated =
+            toolCall.copy(
+                status = status,
+                resultContent = resultContent,
+                errorMessage = errorMessage,
+                updatedAt = System.currentTimeMillis(),
+            )
+        dao.updateToolCall(updated)
+        touchConversation(toolCall.conversationId)
+        return updated
+    }
+
     /** 删除指定消息，主要用于重新生成前移除旧 assistant 回复。 */
     suspend fun deleteMessage(messageId: String) {
         dao.deleteMessage(messageId)
     }
 
     /** 将上次进程退出时遗留的流式消息恢复为已停止状态。 */
-    suspend fun recoverInterruptedGenerations(): Int =
-        dao.recoverInterruptedMessages(
-            streamingStatus = LlmMessageStatus.STREAMING,
-            stoppedStatus = LlmMessageStatus.STOPPED,
-            updatedAt = System.currentTimeMillis(),
+    suspend fun recoverInterruptedGenerations(): Int {
+        val now = System.currentTimeMillis()
+        val messages =
+            dao.recoverInterruptedMessages(
+                streamingStatus = LlmMessageStatus.STREAMING,
+                stoppedStatus = LlmMessageStatus.STOPPED,
+                updatedAt = now,
+            )
+        dao.recoverInterruptedToolCalls(
+            runningStatus = LlmToolCallStatus.RUNNING,
+            errorStatus = LlmToolCallStatus.ERROR,
+            message = "Tool execution was interrupted before its result could be confirmed.",
+            updatedAt = now,
         )
+        return messages
+    }
 }
 
 /** 本地会话标题最大字符数，避免抽屉中出现超长标题。 */

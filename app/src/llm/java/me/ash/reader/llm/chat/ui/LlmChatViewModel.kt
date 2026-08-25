@@ -3,6 +3,7 @@ package me.ash.reader.llm.chat.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
@@ -25,16 +26,29 @@ import me.ash.reader.llm.chat.data.LlmChatRole
 import me.ash.reader.llm.chat.data.LlmConversationEntity
 import me.ash.reader.llm.chat.data.LlmMessageEntity
 import me.ash.reader.llm.chat.data.LlmMessageStatus
+import me.ash.reader.llm.chat.data.LlmToolCallEntity
+import me.ash.reader.llm.chat.data.LlmToolCallStatus
 import me.ash.reader.llm.chat.runtime.LlmChatRequestMessage
+import me.ash.reader.llm.chat.runtime.LlmChatRequestToolCall
+import me.ash.reader.llm.chat.runtime.LlmChatToolCallDelta
 import me.ash.reader.llm.chat.runtime.LlmChatTransport
+import me.ash.reader.llm.chat.runtime.resolveToolByApiName
+import me.ash.reader.llm.mcp.McpToolRegistry
 import me.ash.reader.llm.runtime.LlmContextItem
 import me.ash.reader.llm.runtime.LlmContextPolicy
 import me.ash.reader.llm.runtime.LlmContextType
 import me.ash.reader.llm.runtime.LlmExecutionProfile
 import me.ash.reader.llm.runtime.LlmReasoningEffort
 import me.ash.reader.llm.runtime.LlmRuntime
+import me.ash.reader.llm.runtime.LlmToolCall
+import me.ash.reader.llm.runtime.LlmToolResult
+import me.ash.reader.llm.runtime.LlmToolRuntime
+import me.ash.reader.llm.runtime.LlmToolSource
 import me.ash.reader.llm.runtime.ModelCapabilityOverride
 import me.ash.reader.llm.runtime.estimateLlmTokens
+import me.ash.reader.llm.search.WebSearchMode
+import me.ash.reader.llm.search.WebSearchRouter
+import me.ash.reader.llm.search.toContextItems
 import me.ash.reader.llm.settings.LlmSettingsRepository
 import me.ash.reader.llm.skill.LlmSkillRouter
 import me.ash.reader.ui.page.home.reading.ArticleAssistantContext
@@ -45,12 +59,15 @@ data class LlmChatUiState(
     val conversations: List<LlmConversationEntity> = emptyList(),
     val currentConversationId: String? = null,
     val messages: List<LlmMessageEntity> = emptyList(),
+    val toolCalls: List<LlmToolCallEntity> = emptyList(),
     val providers: List<AiProviderProfile> = emptyList(),
     val selectedProviderId: String? = null,
     val selectedModel: String? = null,
     val availableModels: List<String> = emptyList(),
     val showReasoning: Boolean = true,
     val reasoningEffort: LlmReasoningEffort = LlmReasoningEffort.AUTO,
+    val webSearchEnabled: Boolean = false,
+    val webSearchMode: WebSearchMode = WebSearchMode.AUTO,
     val isGenerating: Boolean = false,
     val transientError: String? = null,
 )
@@ -73,7 +90,10 @@ class LlmChatViewModel @Inject constructor(
     private val settingsRepository: AiSettingsRepository,
     private val llmSettingsRepository: LlmSettingsRepository,
     private val skillRouter: LlmSkillRouter,
+    private val webSearchRouter: WebSearchRouter,
     private val llmRuntime: LlmRuntime,
+    private val toolRuntime: LlmToolRuntime,
+    private val mcpToolRegistry: McpToolRegistry,
     private val transport: LlmChatTransport,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(LlmChatUiState())
@@ -82,15 +102,19 @@ class LlmChatViewModel @Inject constructor(
     private val selectedConversationId = MutableStateFlow<String?>(null)
     private val articleContext = MutableStateFlow<ArticleAssistantContext?>(null)
     private val runtimeSelection = MutableStateFlow(RuntimeSelection())
+    private var forceWebSearchNextRequest = false
     private var generationJob: Job? = null
     private var conversationSelectionInitialized = false
 
     init {
+        // Chat 不依赖用户先进入 MCP 设置页；重启后恢复已缓存且启用的 MCP Tool。
+        mcpToolRegistry.restoreCachedTools()
         recoverInterruptedGenerations()
         observeAiSettings()
         observeLlmSettings()
         observeConversations()
         observeMessages()
+        observeToolCalls()
     }
 
     /** 进程被系统杀死时无法执行 finally；重进 Chat 后把遗留 STREAMING 状态收口为 STOPPED。 */
@@ -125,10 +149,18 @@ class LlmChatViewModel @Inject constructor(
     private fun observeLlmSettings() {
         viewModelScope.launch {
             llmSettingsRepository.settings.collect { settings ->
+                if (!settings.webSearchEnabled) {
+                    // 总开关关闭时立即解除“一次性强制联网”，避免以后重新打开后意外消费一次搜索请求。
+                    forceWebSearchNextRequest = false
+                }
                 _uiState.update {
                     it.copy(
                         showReasoning = settings.showReasoning,
                         reasoningEffort = settings.reasoningEffort,
+                        webSearchEnabled = settings.webSearchEnabled,
+                        webSearchMode =
+                            if (settings.webSearchEnabled && forceWebSearchNextRequest) WebSearchMode.FORCE
+                            else settings.webSearchMode,
                     )
                 }
             }
@@ -195,6 +227,21 @@ class LlmChatViewModel @Inject constructor(
                 }
                 .collect { messages ->
                     _uiState.update { it.copy(messages = messages) }
+                }
+        }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    /** Tool Call 与消息分表持久化；切换会话时同步恢复审批/执行状态。 */
+    private fun observeToolCalls() {
+        viewModelScope.launch {
+            selectedConversationId
+                .flatMapLatest { conversationId ->
+                    if (conversationId == null) flowOf(emptyList())
+                    else repository.observeToolCalls(conversationId)
+                }
+                .collect { toolCalls ->
+                    _uiState.update { it.copy(toolCalls = toolCalls) }
                 }
         }
     }
@@ -301,6 +348,22 @@ class LlmChatViewModel @Inject constructor(
         llmSettingsRepository.setReasoningEffort(value)
     }
 
+    /**
+     * Chat 底栏切换联网策略。
+     * FORCE 只武装下一条请求，不写入全局设置；发送后自动恢复当前持久化的 AUTO/OFF。
+     */
+    fun setWebSearchMode(value: WebSearchMode) {
+        if (_uiState.value.isGenerating) return
+        if (value == WebSearchMode.FORCE) {
+            if (!_uiState.value.webSearchEnabled) return
+            forceWebSearchNextRequest = true
+            _uiState.update { it.copy(webSearchMode = WebSearchMode.FORCE) }
+        } else {
+            forceWebSearchNextRequest = false
+            llmSettingsRepository.setWebSearchMode(value)
+        }
+    }
+
     /** 将当前 Provider/Model 绑定到已创建会话；Skill 改为逐请求自动路由。 */
     private fun persistCurrentRuntimeSelection() {
         val conversationId = selectedConversationId.value ?: return
@@ -323,6 +386,10 @@ class LlmChatViewModel @Inject constructor(
         val text = rawText.trim()
         val currentArticle = articleContext.value ?: return
         if (text.isBlank() || hasGenerationInFlight()) return
+        if (_uiState.value.toolCalls.any { it.status == LlmToolCallStatus.PENDING_APPROVAL }) {
+            _uiState.update { it.copy(transientError = "请先处理当前待确认的 Tool Call") }
+            return
+        }
         startGenerationJob {
             val selection = runtimeSelection.value
             val conversationId =
@@ -402,11 +469,178 @@ class LlmChatViewModel @Inject constructor(
         _uiState.update { it.copy(transientError = null) }
     }
 
+    /** 用户明确允许敏感/写入 Tool 后才执行；执行结果完成后自动续接同一轮模型回复。 */
+    fun approveToolCall(toolCallId: String) {
+        if (hasGenerationInFlight()) return
+        val call = _uiState.value.toolCalls.firstOrNull { it.id == toolCallId } ?: return
+        if (call.status != LlmToolCallStatus.PENDING_APPROVAL) return
+        startGenerationJob {
+            executePersistedToolCall(call, confirmed = true)
+            resumeAfterResolvedToolCalls(call.conversationId)
+        }
+    }
+
+    /** 拒绝不会调用远端 Tool；拒绝结果仍回传模型，让模型可以解释限制或改用其他方式回答。 */
+    fun denyToolCall(toolCallId: String) {
+        if (hasGenerationInFlight()) return
+        val call = _uiState.value.toolCalls.firstOrNull { it.id == toolCallId } ?: return
+        if (call.status != LlmToolCallStatus.PENDING_APPROVAL) return
+        startGenerationJob {
+            repository.updateToolCall(
+                toolCall = call,
+                status = LlmToolCallStatus.DENIED,
+                resultContent = "Tool execution was denied by the user.",
+                errorMessage = null,
+            )
+            resumeAfterResolvedToolCalls(call.conversationId)
+        }
+    }
+
+    /** 所有同轮 Tool 都已落到终态后再继续请求模型，避免跳过另一个仍待审批的 Tool。 */
+    private suspend fun resumeAfterResolvedToolCalls(conversationId: String) {
+        val calls = repository.getToolCalls(conversationId)
+        if (calls.any { it.status == LlmToolCallStatus.PENDING_APPROVAL || it.status == LlmToolCallStatus.RUNNING }) {
+            return
+        }
+        val completedRounds = calls.map(LlmToolCallEntity::assistantMessageId).distinct().size
+        generateAssistant(
+            conversationId = conversationId,
+            allowWebSearch = false,
+            toolRound = completedRounds.coerceAtLeast(1),
+        )
+    }
+
+    /**
+     * 执行已经持久化的 Tool Call，并把结果转换为可恢复的终态。
+     * Runtime 仍会再次检查 enabledToolIds 与确认标记，UI 批准不能绕过执行层授权。
+     */
+    private suspend fun executePersistedToolCall(
+        call: LlmToolCallEntity,
+        confirmed: Boolean,
+    ): LlmToolCallEntity {
+        val running =
+            repository.updateToolCall(
+                toolCall = call,
+                status = LlmToolCallStatus.RUNNING,
+                resultContent = null,
+                errorMessage = null,
+            )
+        val result =
+            toolRuntime.execute(
+                call =
+                    LlmToolCall(
+                        id = running.providerCallId,
+                        toolId = running.toolId,
+                        argumentsJson = running.argumentsJson,
+                    ),
+                profile = LlmExecutionProfile(enabledToolIds = setOf(running.toolId)),
+                confirmed = confirmed,
+            )
+        return when (result) {
+            is LlmToolResult.Success ->
+                repository.updateToolCall(
+                    toolCall = running,
+                    status = LlmToolCallStatus.COMPLETE,
+                    resultContent = result.content,
+                    errorMessage = null,
+                )
+            is LlmToolResult.Failure ->
+                repository.updateToolCall(
+                    toolCall = running,
+                    status = LlmToolCallStatus.ERROR,
+                    resultContent = "Tool execution failed: ${result.message}",
+                    errorMessage = result.message,
+                )
+            is LlmToolResult.ConfirmationRequired ->
+                repository.updateToolCall(
+                    toolCall = running,
+                    status = LlmToolCallStatus.PENDING_APPROVAL,
+                    resultContent = null,
+                    errorMessage = null,
+                )
+        }
+    }
+
+    /**
+     * 从 Room 的消息 + Tool Call 两张表重建 OpenAI-compatible 历史拓扑。
+     * Tool result 不单独存成聊天气泡，避免污染用户可见消息；Provider 历史仍严格保持
+     * assistant(tool_calls) → tool(tool_call_id) 的结构。
+     */
+    private suspend fun buildRequestHistory(
+        conversationId: String,
+        excludedAssistantId: String,
+    ): List<LlmChatRequestMessage> {
+        val messages = repository.getMessages(conversationId)
+        val callsByAssistant = repository.getToolCalls(conversationId).groupBy(LlmToolCallEntity::assistantMessageId)
+        return buildList {
+            messages.forEach { message ->
+                if (message.id == excludedAssistantId || message.role == LlmChatRole.SYSTEM) return@forEach
+                if (message.status == LlmMessageStatus.ERROR) return@forEach
+                // TOOL 只属于传输拓扑；本地 UI/Room 不单独保存 Tool result 消息。
+                if (message.role == LlmChatRole.TOOL) return@forEach
+                val calls = callsByAssistant[message.id].orEmpty()
+                if (message.content.isBlank() && calls.isEmpty()) return@forEach
+
+                add(
+                    LlmChatRequestMessage(
+                        role = message.role,
+                        content = message.content,
+                        toolCalls =
+                            if (message.role == LlmChatRole.ASSISTANT) {
+                                calls.map { call ->
+                                    LlmChatRequestToolCall(
+                                        id = call.providerCallId,
+                                        name = call.apiName,
+                                        argumentsJson = call.argumentsJson,
+                                    )
+                                }
+                            } else {
+                                emptyList()
+                            },
+                    )
+                )
+
+                if (message.role == LlmChatRole.ASSISTANT) {
+                    calls.forEach { call ->
+                        val result =
+                            when (call.status) {
+                                LlmToolCallStatus.COMPLETE -> call.resultContent.orEmpty()
+                                LlmToolCallStatus.DENIED ->
+                                    call.resultContent ?: "Tool execution was denied by the user."
+                                LlmToolCallStatus.ERROR ->
+                                    call.resultContent
+                                        ?: "Tool execution failed: ${call.errorMessage.orEmpty()}"
+                                LlmToolCallStatus.PENDING_APPROVAL,
+                                LlmToolCallStatus.RUNNING -> null
+                            }
+                        result?.let { content ->
+                            add(
+                                LlmChatRequestMessage(
+                                    role = LlmChatRole.TOOL,
+                                    content = content,
+                                    toolCallId = call.providerCallId,
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /**
      * 将持久化历史转换为模型消息并消费 SSE 增量。
      * 中途取消保存 STOPPED，服务错误保存 ERROR，正常结束保存 COMPLETE。
      */
-    private suspend fun generateAssistant(conversationId: String) {
+    private suspend fun generateAssistant(
+        conversationId: String,
+        allowWebSearch: Boolean = true,
+        toolRound: Int = 0,
+    ) {
+        if (toolRound > MAX_AUTOMATIC_TOOL_ROUNDS) {
+            _uiState.update { it.copy(transientError = "Tool Calling 超过安全轮次限制") }
+            return
+        }
         var assistant =
             repository.appendMessage(
                 conversationId = conversationId,
@@ -421,6 +655,8 @@ class LlmChatViewModel @Inject constructor(
         var fallbackPromptTokens: Int? = null
         var providerPromptTokens: Int? = null
         var providerCompletionTokens: Int? = null
+        val toolCallParts = sortedMapOf<Int, MutableToolCallPart>()
+        var continueAfterTools = false
 
         fun durationMs(): Long? =
             requestStartedAtNanos?.let { startedAt ->
@@ -437,18 +673,7 @@ class LlmChatViewModel @Inject constructor(
             providerPromptTokens == null || providerCompletionTokens == null
 
         try {
-            val history =
-                repository
-                    .getMessages(conversationId)
-                    .filter { message ->
-                        message.id != assistant.id &&
-                            message.role != LlmChatRole.SYSTEM &&
-                            message.content.isNotBlank() &&
-                            message.status != LlmMessageStatus.ERROR
-                    }
-                    .map { message ->
-                        LlmChatRequestMessage(role = message.role, content = message.content)
-                    }
+            val history = buildRequestHistory(conversationId, assistant.id)
             val selection = runtimeSelection.value
             val currentArticle =
                 articleContext.value ?: error("当前文章上下文已失效，请重新打开阅读助手")
@@ -456,6 +681,33 @@ class LlmChatViewModel @Inject constructor(
             val latestUserInput =
                 history.lastOrNull { it.role == LlmChatRole.USER }?.content.orEmpty()
             val autoSkillId = skillRouter.resolve(latestUserInput)?.id
+            val effectiveWebSearchMode =
+                if (allowWebSearch && forceWebSearchNextRequest) WebSearchMode.FORCE
+                else if (allowWebSearch) advancedSettings.webSearchMode
+                else WebSearchMode.OFF
+            if (allowWebSearch && forceWebSearchNextRequest) {
+                // 一次性强制联网在请求开始时即消费；即使搜索失败也不能污染之后的消息。
+                forceWebSearchNextRequest = false
+                _uiState.update { it.copy(webSearchMode = advancedSettings.webSearchMode) }
+            }
+            val webSearch =
+                webSearchRouter.searchIfNeeded(
+                    enabled = allowWebSearch && advancedSettings.webSearchEnabled,
+                    mode = effectiveWebSearchMode,
+                    userInput = latestUserInput,
+                    articleTitle = currentArticle.title,
+                )
+            val contextItems =
+                buildArticleContextItems(currentArticle) + webSearch?.toContextItems().orEmpty()
+            val enabledToolIds =
+                if (advancedSettings.mcpEnabled) {
+                    toolRuntime.descriptors()
+                        .filter { it.source == LlmToolSource.MCP && it.enabled }
+                        .map { it.id }
+                        .toSet()
+                } else {
+                    emptySet()
+                }
             val plan =
                 llmRuntime.prepare(
                     profile =
@@ -463,6 +715,7 @@ class LlmChatViewModel @Inject constructor(
                             providerId = selection.providerId,
                             model = selection.model,
                             skillId = autoSkillId,
+                            enabledToolIds = enabledToolIds,
                             reasoningEffort = advancedSettings.reasoningEffort,
                             capabilityOverride =
                                 if (advancedSettings.streamResponses) {
@@ -475,7 +728,7 @@ class LlmChatViewModel @Inject constructor(
                                     maxTokens = advancedSettings.contextMaxTokens
                                 ),
                         ),
-                    contextItems = buildArticleContextItems(currentArticle),
+                    contextItems = contextItems,
                 )
 
             fallbackPromptTokens = transport.estimateRequestTokens(plan, history)
@@ -484,6 +737,7 @@ class LlmChatViewModel @Inject constructor(
             transport.stream(plan, history).collect { delta ->
                 content += delta.content
                 reasoning += delta.reasoning
+                mergeToolCallDeltas(toolCallParts, delta.toolCalls)
                 delta.promptTokens?.let { providerPromptTokens = it }
                 delta.completionTokens?.let { providerCompletionTokens = it }
                 val now = System.currentTimeMillis()
@@ -500,10 +754,10 @@ class LlmChatViewModel @Inject constructor(
                 }
             }
 
-            if (content.isBlank()) {
+            if (content.isBlank() && toolCallParts.isEmpty()) {
                 error("AI 服务没有返回可显示内容")
             }
-            repository.updateMessage(
+            assistant = repository.updateMessage(
                 message = assistant,
                 content = content,
                 reasoning = reasoning.ifBlank { null },
@@ -514,6 +768,50 @@ class LlmChatViewModel @Inject constructor(
                 durationMs = durationMs(),
                 tokenUsageEstimated = tokenUsageEstimated(),
             )
+
+            if (toolCallParts.isNotEmpty()) {
+                val now = System.currentTimeMillis()
+                val calls =
+                    toolCallParts.values.map { part ->
+                        val providerCallId = part.id?.takeIf(String::isNotBlank)
+                            ?: error("AI Tool Call 缺少 id")
+                        val apiName = part.name?.takeIf(String::isNotBlank)
+                            ?: error("AI Tool Call 缺少 function name")
+                        val descriptor = resolveToolByApiName(plan.tools, apiName)
+                        val arguments = part.arguments.toString().ifBlank { "{}" }
+                        // Function Calling 参数必须是 JSON Object；第三方兼容服务返回破损参数时禁止执行。
+                        runCatching { org.json.JSONObject(arguments) }
+                            .getOrElse { error("Tool $apiName 返回了无效 arguments JSON") }
+                        LlmToolCallEntity(
+                            id = UUID.randomUUID().toString(),
+                            conversationId = conversationId,
+                            assistantMessageId = assistant.id,
+                            providerCallId = providerCallId,
+                            toolId = descriptor?.id ?: "unresolved:$apiName",
+                            apiName = apiName,
+                            argumentsJson = arguments,
+                            status =
+                                when {
+                                    descriptor == null -> LlmToolCallStatus.ERROR
+                                    descriptor.requiresConfirmation -> LlmToolCallStatus.PENDING_APPROVAL
+                                    else -> LlmToolCallStatus.RUNNING
+                                },
+                            errorMessage = descriptor?.let { null } ?: "模型请求了当前未授权的 Tool：$apiName",
+                            createdAt = now,
+                            updatedAt = now,
+                        )
+                    }
+                repository.appendToolCalls(calls)
+
+                // 只读 Tool 可自动执行；敏感/写入 Tool 保持 Pending，等待用户明确批准。
+                calls.filter { it.status == LlmToolCallStatus.RUNNING }.forEach { call ->
+                    executePersistedToolCall(call, confirmed = false)
+                }
+                val refreshedCalls = repository.getToolCalls(conversationId)
+                val hasPending = refreshedCalls.any { it.status == LlmToolCallStatus.PENDING_APPROVAL }
+                val hasRunning = refreshedCalls.any { it.status == LlmToolCallStatus.RUNNING }
+                continueAfterTools = !hasPending && !hasRunning
+            }
         } catch (error: CancellationException) {
             // 取消发生时当前协程已经不可挂起，使用 NonCancellable 确保部分结果和 STOPPED 状态落库。
             withContext(NonCancellable) {
@@ -545,6 +843,14 @@ class LlmChatViewModel @Inject constructor(
                 tokenUsageEstimated = tokenUsageEstimated(),
             )
             _uiState.update { it.copy(transientError = message) }
+        }
+
+        if (continueAfterTools) {
+            generateAssistant(
+                conversationId = conversationId,
+                allowWebSearch = false,
+                toolRound = toolRound + 1,
+            )
         }
     }
 
@@ -588,6 +894,29 @@ class LlmChatViewModel @Inject constructor(
 
 /** 流式期间限制 Room 写入频率，避免每个 token 都触发一次持久化。 */
 private const val STREAM_PERSIST_INTERVAL_MS = 90L
+
+/** 单条用户请求最多允许的自动 Tool 往返轮数，防止模型与外部 Tool 进入无限循环。 */
+private const val MAX_AUTOMATIC_TOOL_ROUNDS = 8
+
+/** Streaming Tool Call 的可变聚合状态；Provider 会把 arguments 拆成多个增量 chunk。 */
+private data class MutableToolCallPart(
+    var id: String? = null,
+    var name: String? = null,
+    val arguments: StringBuilder = StringBuilder(),
+)
+
+/** 按 Provider index 合并 Tool Call 增量；id/name 只在非空 chunk 到达时更新。 */
+private fun mergeToolCallDeltas(
+    parts: MutableMap<Int, MutableToolCallPart>,
+    deltas: List<LlmChatToolCallDelta>,
+) {
+    deltas.forEach { delta ->
+        val part = parts.getOrPut(delta.index) { MutableToolCallPart() }
+        delta.id?.takeIf(String::isNotBlank)?.let { part.id = it }
+        delta.name?.takeIf(String::isNotBlank)?.let { part.name = it }
+        if (delta.argumentsDelta.isNotEmpty()) part.arguments.append(delta.argumentsDelta)
+    }
+}
 
 private fun AiProviderProfile?.orEmptyModels(): List<String> = this?.availableModels().orEmpty()
 

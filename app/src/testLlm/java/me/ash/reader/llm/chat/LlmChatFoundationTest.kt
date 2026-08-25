@@ -10,6 +10,7 @@ import me.ash.reader.infrastructure.ai.AiHttpClient
 import me.ash.reader.infrastructure.ai.AiRuntimeConfig
 import me.ash.reader.llm.chat.data.LlmChatRole
 import me.ash.reader.llm.chat.runtime.LlmChatRequestMessage
+import me.ash.reader.llm.chat.runtime.LlmChatRequestToolCall
 import me.ash.reader.llm.chat.runtime.LlmChatTransport
 import me.ash.reader.llm.chat.runtime.parseNonStreamingPayload
 import me.ash.reader.llm.chat.runtime.parseStreamPayload
@@ -19,6 +20,8 @@ import me.ash.reader.llm.runtime.ComposedLlmContext
 import me.ash.reader.llm.runtime.LlmContextType
 import me.ash.reader.llm.runtime.LlmExecutionPlan
 import me.ash.reader.llm.runtime.LlmReasoningEffort
+import me.ash.reader.llm.runtime.LlmToolDescriptor
+import me.ash.reader.llm.runtime.LlmToolSource
 import me.ash.reader.llm.runtime.ModelCapability
 import me.ash.reader.llm.runtime.ReasoningParameterStyle
 import me.ash.reader.ui.page.home.reading.ArticleAssistantContext
@@ -131,6 +134,102 @@ class LlmChatFoundationTest {
         assertEquals("visible reasoning", delta.reasoning)
         assertEquals(120, delta.promptTokens)
         assertEquals(80, delta.completionTokens)
+    }
+
+    @Test
+    fun `stream payload parses incremental tool call`() {
+        val delta =
+            parseStreamPayload(
+                """{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{\"q\":"}}]}}]}"""
+            )
+
+        assertEquals(1, delta?.toolCalls?.size)
+        assertEquals(0, delta?.toolCalls?.single()?.index)
+        assertEquals("call_1", delta?.toolCalls?.single()?.id)
+        assertEquals("lookup", delta?.toolCalls?.single()?.name)
+        assertEquals("{\"q\":", delta?.toolCalls?.single()?.argumentsDelta)
+    }
+
+    @Test
+    fun `non streaming response parses complete tool call`() {
+        val delta =
+            parseNonStreamingPayload(
+                """{"choices":[{"message":{"content":null,"tool_calls":[{"id":"call_2","type":"function","function":{"name":"search","arguments":"{\"query\":\"news\"}"}}]}}]}"""
+            )
+
+        assertEquals("", delta.content)
+        assertEquals("call_2", delta.toolCalls.single().id)
+        assertEquals("search", delta.toolCalls.single().name)
+        assertEquals("{\"query\":\"news\"}", delta.toolCalls.single().argumentsDelta)
+    }
+
+    @Test
+    fun `tool calling request sends function schema assistant call and tool result`() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "application/json")
+                .setBody("""{"choices":[{"message":{"content":"done"}}]}""")
+        )
+        server.start()
+        try {
+            val tool =
+                LlmToolDescriptor(
+                    id = "mcp:server:search",
+                    name = "search",
+                    description = "Search documents",
+                    source = LlmToolSource.MCP,
+                    sourceId = "server",
+                    inputSchemaJson = "{\"type\":\"object\",\"properties\":{\"q\":{\"type\":\"string\"}}}",
+                )
+            val plan =
+                LlmExecutionPlan(
+                    providerId = "test-provider",
+                    providerName = "Test",
+                    runtimeConfig = AiRuntimeConfig(server.url("/v1").toString(), "test-model", ""),
+                    capability = ModelCapability(supportsStreaming = false, supportsToolCalling = true),
+                    reasoningParameter = null,
+                    tools = listOf(tool),
+                    automaticToolCalling = true,
+                    context = ComposedLlmContext("", emptyList(), emptyList(), false),
+                    skillId = null,
+                )
+
+            LlmChatTransport(AiHttpClient())
+                .stream(
+                    plan,
+                    listOf(
+                        LlmChatRequestMessage(LlmChatRole.USER, "find it"),
+                        LlmChatRequestMessage(
+                            role = LlmChatRole.ASSISTANT,
+                            content = "",
+                            toolCalls =
+                                listOf(
+                                    LlmChatRequestToolCall(
+                                        id = "call_1",
+                                        name = "or_fake_search",
+                                        argumentsJson = "{\"q\":\"x\"}",
+                                    )
+                                ),
+                        ),
+                        LlmChatRequestMessage(
+                            role = LlmChatRole.TOOL,
+                            content = "result",
+                            toolCallId = "call_1",
+                        ),
+                    ),
+                )
+                .toList()
+
+            val body = server.takeRequest().body.readUtf8()
+            assertTrue(body.contains("\"tools\""))
+            assertTrue(body.contains("\"parameters\""))
+            assertTrue(body.contains("\"tool_calls\""))
+            assertTrue(body.contains("\"role\":\"tool\""))
+            assertTrue(body.contains("\"tool_call_id\":\"call_1\""))
+        } finally {
+            server.shutdown()
+        }
     }
 
     @Test
