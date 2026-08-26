@@ -153,6 +153,7 @@ data class LlmToolCallEntity(
         Index(value = ["assistant_message_id"]),
         Index(value = ["conversation_id"]),
         Index(value = ["assistant_message_id", "context_id"], unique = true),
+        Index(value = ["assistant_message_id", "citation_index"], unique = true),
     ],
 )
 data class LlmContextRefEntity(
@@ -175,6 +176,11 @@ data class LlmContextRefEntity(
     val priority: Int,
     @ColumnInfo(name = "included_in_prompt") val includedInPrompt: Boolean,
     @ColumnInfo(name = "truncated_in_prompt") val truncatedInPrompt: Boolean,
+    /**
+     * P6.6 请求级引用编号。只有本次请求真正可引用的来源才分配 1..N；被预算排除的候选保持 null。
+     * 编号与 assistant_message_id 一起冻结，历史回答中的 [R#] 不依赖未来 UI 排序重新计算。
+     */
+    @ColumnInfo(name = "citation_index") val citationIndex: Int? = null,
     @ColumnInfo(name = "created_at") val createdAt: Long,
 )
 

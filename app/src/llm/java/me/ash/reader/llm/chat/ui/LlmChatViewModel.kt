@@ -29,8 +29,7 @@ import me.ash.reader.llm.chat.data.LlmMessageEntity
 import me.ash.reader.llm.chat.data.LlmMessageStatus
 import me.ash.reader.llm.chat.data.LlmToolCallEntity
 import me.ash.reader.llm.chat.data.LlmToolCallStatus
-import me.ash.reader.llm.chat.data.buildContextRefEntities
-import me.ash.reader.llm.chat.data.buildToolResultContextRefEntities
+import me.ash.reader.llm.chat.data.buildRequestContextRefEntities
 import me.ash.reader.llm.chat.runtime.LlmChatRequestMessage
 import me.ash.reader.llm.chat.runtime.LlmChatRequestToolCall
 import me.ash.reader.llm.chat.runtime.LlmChatToolCallDelta
@@ -1002,19 +1001,14 @@ class LlmChatViewModel @Inject constructor(
             // 同一 assistant placeholder 若重新 prepare，则 Repository 事务替换旧快照，不留下半套来源。
             val contextRefCreatedAt = System.currentTimeMillis()
             val contextRefs =
-                buildContextRefEntities(
+                buildRequestContextRefEntities(
                     conversationId = conversationId,
                     assistantMessageId = assistant.id,
                     candidates = contextItems,
                     composed = plan.context,
+                    toolCalls = repository.getToolCalls(conversationId),
                     createdAt = contextRefCreatedAt,
-                ) +
-                    buildToolResultContextRefEntities(
-                        conversationId = conversationId,
-                        assistantMessageId = assistant.id,
-                        toolCalls = repository.getToolCalls(conversationId),
-                        createdAt = contextRefCreatedAt,
-                    )
+                )
             repository.replaceContextRefsForAssistant(
                 assistantMessageId = assistant.id,
                 contextRefs = contextRefs,

@@ -146,6 +146,22 @@ object LlmChatDatabaseModule {
             }
         }
 
+    /**
+     * v8 为请求级 ContextRef 增加稳定 citation_index。
+     *
+     * 旧历史没有生成过 [R#] 协议，因此统一保持 null；新请求由 Mapper 在真正发请求前冻结 1..N 映射。
+     */
+    private val MIGRATION_7_8 =
+        object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE llm_context_refs ADD COLUMN citation_index INTEGER")
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_llm_context_refs_assistant_message_id_citation_index " +
+                        "ON llm_context_refs(assistant_message_id, citation_index)"
+                )
+            }
+        }
+
     /** 创建 LLM Chat Room 数据库单例。 */
     @Provides
     @Singleton
@@ -161,6 +177,7 @@ object LlmChatDatabaseModule {
             MIGRATION_4_5,
             MIGRATION_5_6,
             MIGRATION_6_7,
+            MIGRATION_7_8,
         ).build()
 
     /** 向业务层提供 Chat DAO 单例。 */

@@ -18,7 +18,9 @@ import me.ash.reader.llm.chat.runtime.parseNonStreamingPayload
 import me.ash.reader.llm.chat.runtime.parseStreamPayload
 import me.ash.reader.llm.chat.data.deriveConversationTitle
 import me.ash.reader.llm.chat.data.buildContextRefEntities
+import me.ash.reader.llm.chat.data.buildRequestContextRefEntities
 import me.ash.reader.llm.chat.data.buildToolResultContextRefEntities
+import me.ash.reader.llm.chat.data.citationToken
 import me.ash.reader.llm.chat.data.LlmToolCallEntity
 import me.ash.reader.llm.chat.data.LlmToolCallStatus
 import me.ash.reader.llm.chat.ui.buildArticleContextItems
@@ -494,6 +496,115 @@ class LlmChatFoundationTest {
         assertTrue(ref.includedInPrompt)
         assertFalse(ref.truncatedInPrompt)
         assertEquals("mcp:deepwiki:read", ref.sourceId)
+    }
+
+    @Test
+    fun `request citation mapping follows included context then finalized tool results`() {
+        val selection =
+            LlmContextItem(
+                id = "selection",
+                type = LlmContextType.SELECTED_TEXT,
+                content = "selected",
+                priority = 160,
+            )
+        val article =
+            LlmContextItem(
+                id = "article",
+                type = LlmContextType.ARTICLE,
+                content = "A".repeat(300),
+                priority = 100,
+            )
+        val omitted =
+            LlmContextItem(
+                id = "omitted",
+                type = LlmContextType.MANUAL,
+                content = "manual material",
+                priority = 10,
+            )
+        val composed =
+            LlmContextComposer().compose(
+                items = listOf(article, omitted, selection),
+                policy = LlmContextPolicy(maxTokens = 90),
+            )
+        val toolCall =
+            LlmToolCallEntity(
+                id = "tool-call",
+                conversationId = "conversation",
+                assistantMessageId = "previous-assistant",
+                providerCallId = "provider-call",
+                toolId = "mcp:search",
+                apiName = "search",
+                argumentsJson = "{}",
+                status = LlmToolCallStatus.COMPLETE,
+                resultContent = "tool evidence",
+                createdAt = 100L,
+                updatedAt = 100L,
+            )
+
+        val refs =
+            buildRequestContextRefEntities(
+                conversationId = "conversation",
+                assistantMessageId = "assistant",
+                candidates = listOf(article, omitted, selection),
+                composed = composed,
+                toolCalls = listOf(toolCall),
+                createdAt = 123L,
+            )
+
+        val includedContextIds = composed.includedIds
+        includedContextIds.forEachIndexed { index, contextId ->
+            val ref = refs.single { it.contextId == contextId }
+            assertEquals(index + 1, ref.citationIndex)
+            assertEquals("[R${index + 1}]", ref.citationToken())
+        }
+        val toolRef = refs.single { it.contextId == "tool-result:tool-call" }
+        assertEquals(includedContextIds.size + 1, toolRef.citationIndex)
+        assertEquals("[R${includedContextIds.size + 1}]", toolRef.citationToken())
+        refs.filterNot { it.includedInPrompt }.forEach { ref ->
+            assertNull(ref.citationIndex)
+            assertNull(ref.citationToken())
+        }
+    }
+
+    @Test
+    fun `request citation mapping is isolated per assistant request`() {
+        val item =
+            LlmContextItem(
+                id = "article",
+                type = LlmContextType.ARTICLE,
+                content = "article body",
+                priority = 100,
+            )
+        val composed =
+            LlmContextComposer().compose(
+                items = listOf(item),
+                policy = LlmContextPolicy(maxTokens = 128),
+            )
+
+        val first =
+            buildRequestContextRefEntities(
+                conversationId = "conversation",
+                assistantMessageId = "assistant-1",
+                candidates = listOf(item),
+                composed = composed,
+                toolCalls = emptyList(),
+                createdAt = 1L,
+            ).single()
+        val second =
+            buildRequestContextRefEntities(
+                conversationId = "conversation",
+                assistantMessageId = "assistant-2",
+                candidates = listOf(item),
+                composed = composed,
+                toolCalls = emptyList(),
+                createdAt = 2L,
+            ).single()
+
+        assertEquals(1, first.citationIndex)
+        assertEquals(1, second.citationIndex)
+        assertEquals("[R1]", first.citationToken())
+        assertEquals("[R1]", second.citationToken())
+        assertFalse(first.id == second.id)
     }
 
     @Test

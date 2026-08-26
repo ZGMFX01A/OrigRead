@@ -43,6 +43,52 @@ internal fun buildContextRefEntities(
 }
 
 /**
+ * 冻结一次 Assistant 请求完整的 ContextRef 与 [R#] 映射。
+ *
+ * 引用顺序必须来自当次请求本身而不是 UI 临时排序：
+ * 1. 先按 ContextComposer 实际纳入 Prompt 的 includedIds 顺序编号；
+ * 2. 再按 Provider history 中已完成 Tool Result 的稳定顺序继续编号；
+ * 3. 被预算或策略排除的候选 ContextRef 保留历史快照，但 citationIndex 为 null。
+ */
+internal fun buildRequestContextRefEntities(
+    conversationId: String,
+    assistantMessageId: String,
+    candidates: List<LlmContextItem>,
+    composed: ComposedLlmContext,
+    toolCalls: List<LlmToolCallEntity>,
+    createdAt: Long = System.currentTimeMillis(),
+): List<LlmContextRefEntity> {
+    val contextRefs =
+        buildContextRefEntities(
+            conversationId = conversationId,
+            assistantMessageId = assistantMessageId,
+            candidates = candidates,
+            composed = composed,
+            createdAt = createdAt,
+        )
+    val toolResultRefs =
+        buildToolResultContextRefEntities(
+            conversationId = conversationId,
+            assistantMessageId = assistantMessageId,
+            toolCalls = toolCalls,
+            createdAt = createdAt,
+        )
+    val citationIndexByContextId =
+        (composed.includedIds + toolResultRefs.map(LlmContextRefEntity::contextId))
+            .distinct()
+            .mapIndexed { index, contextId -> contextId to (index + 1) }
+            .toMap()
+
+    return (contextRefs + toolResultRefs).map { ref ->
+        ref.copy(citationIndex = citationIndexByContextId[ref.contextId])
+    }
+}
+
+/** 将持久化编号渲染成模型/UI 共用的短引用 token；非法旧数据保守视为不可引用。 */
+internal fun LlmContextRefEntity.citationToken(): String? =
+    citationIndex?.takeIf { it > 0 }?.let { "[R$it]" }
+
+/**
  * 标准 Tool Calling 的 Tool Result 位于 Provider conversation history，而不是 ContextComposer wrapper 中；
  * 但它仍是本次 Assistant 请求实际看到的外部资料，因此必须作为 TOOL_RESULT ContextRef 一并冻结。
  */
