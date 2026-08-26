@@ -27,6 +27,11 @@ import me.ash.reader.llm.chat.data.citationToken
 import me.ash.reader.llm.chat.data.LlmToolCallEntity
 import me.ash.reader.llm.chat.data.LlmToolCallStatus
 import me.ash.reader.llm.chat.ui.buildArticleContextItems
+import me.ash.reader.llm.chat.ui.buildAdditionalArticleContextItems
+import me.ash.reader.llm.chat.ui.buildRequestArticleContextItems
+import me.ash.reader.llm.chat.ui.LlmArticleAttachment
+import me.ash.reader.llm.chat.ui.normalizedAdditionalArticleAttachments
+import me.ash.reader.llm.chat.ui.upsertAdditionalArticleAttachment
 import me.ash.reader.llm.chat.ui.buildRequestHistorySnapshot
 import me.ash.reader.llm.chat.ui.buildLlmCitationLink
 import me.ash.reader.llm.chat.ui.parseLlmCitationUri
@@ -57,6 +62,126 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LlmChatFoundationTest {
+    @Test
+    fun `multi article context reuses runtime items and keeps current article priority first`() {
+        val current =
+            ArticleAssistantContext(
+                articleId = "current",
+                title = "Current article",
+                link = "https://example.com/current",
+                originalContent = "current original",
+                summary = "current summary",
+                selectedText = "current selection",
+            )
+        val attachments =
+            listOf(
+                LlmArticleAttachment(
+                    articleId = "second",
+                    title = "Second article",
+                    link = "https://example.com/second",
+                    originalContent = "second original",
+                    summary = "second summary",
+                ),
+                LlmArticleAttachment(
+                    articleId = "third",
+                    title = "Third article",
+                    link = "https://example.com/third",
+                    originalContent = "third original",
+                ),
+            )
+
+        val items =
+            buildRequestArticleContextItems(
+                currentArticle = current,
+                attachments = attachments,
+                includeAdditionalArticles = true,
+            )
+
+        assertEquals(
+            listOf(
+                "article:current:selection",
+                "article:current:summary",
+                "article:current:original",
+                "article:second:summary",
+                "article:second:original",
+                "article:third:original",
+            ),
+            items.map { it.id },
+        )
+        assertEquals(
+            listOf(160, 130, 100, 95, 90, 90),
+            items.map { it.priority },
+        )
+        val composed = LlmContextComposer().compose(items, LlmContextPolicy(maxTokens = 4_096))
+        assertEquals(items.map { it.id }, composed.includedIds)
+        val refs =
+            buildRequestContextRefEntities(
+                conversationId = "conversation",
+                assistantMessageId = "assistant",
+                candidates = items,
+                composed = composed,
+                toolCalls = emptyList(),
+                createdAt = 1L,
+            )
+        assertEquals(
+            listOf("[R1]", "[R2]", "[R3]", "[R4]", "[R5]", "[R6]"),
+            refs.sortedBy { it.citationIndex }.mapNotNull { it.citationToken() },
+        )
+        assertEquals(
+            listOf(LlmContextType.ARTICLE_SUMMARY, LlmContextType.ARTICLE),
+            refs.filter { it.contextId.startsWith("article:second:") }.map { it.type },
+        )
+    }
+
+    @Test
+    fun `additional article normalization rejects current duplicate and blank snapshots`() {
+        val normalized =
+            normalizedAdditionalArticleAttachments(
+                currentArticleId = "current",
+                attachments =
+                    listOf(
+                        LlmArticleAttachment(" current ", "same", null, "body"),
+                        LlmArticleAttachment("second", " Second ", " https://example.com/2 ", " body 2 ", " summary 2 "),
+                        LlmArticleAttachment("second", "duplicate", null, "duplicate body"),
+                        LlmArticleAttachment("third", "blank", null, "   ", "   "),
+                    ),
+            )
+
+        assertEquals(1, normalized.size)
+        assertEquals("second", normalized.single().articleId)
+        assertEquals("Second", normalized.single().title)
+        assertEquals("https://example.com/2", normalized.single().link)
+        assertEquals("body 2", normalized.single().originalContent)
+        assertEquals("summary 2", normalized.single().summary)
+    }
+
+    @Test
+    fun `additional article upsert replaces in place and article analysis excludes attachments`() {
+        val existing =
+            listOf(
+                LlmArticleAttachment("second", "Old second", null, "old second"),
+                LlmArticleAttachment("third", "Third", null, "third body"),
+            )
+        val updated =
+            upsertAdditionalArticleAttachment(
+                currentArticleId = "current",
+                existing = existing,
+                attachment = LlmArticleAttachment("second", "New second", null, "new second"),
+            )
+        assertEquals(listOf("second", "third"), updated.map { it.articleId })
+        assertEquals("New second", updated.first().title)
+
+        val current = ArticleAssistantContext("current", "Current", null, "current body")
+        val analysisItems =
+            buildRequestArticleContextItems(
+                currentArticle = current,
+                attachments = updated,
+                includeAdditionalArticles = false,
+            )
+        assertEquals(listOf("article:current:original"), analysisItems.map { it.id })
+        assertTrue(buildAdditionalArticleContextItems("current", updated).isNotEmpty())
+    }
+
     @Test
     fun `citation ui links only accept request valid R tokens and strict internal uri`() {
         val validIndices = setOf(1, 3)

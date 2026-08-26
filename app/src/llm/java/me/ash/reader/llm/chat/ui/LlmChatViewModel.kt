@@ -68,6 +68,8 @@ import me.ash.reader.ui.page.home.reading.ArticleAssistantContext
 /** Chat 页面全部可观察状态；Provider/Model 继续复用现有 AI 设置，不另存密钥。 */
 data class LlmChatUiState(
     val articleTitle: String? = null,
+    /** P6.7 当前会话临时附加的相关文章；真正请求仍统一转换为 Runtime LlmContextItem。 */
+    val additionalArticleAttachments: List<LlmArticleAttachment> = emptyList(),
     val conversations: List<LlmConversationEntity> = emptyList(),
     val currentConversationId: String? = null,
     val messages: List<LlmMessageEntity> = emptyList(),
@@ -320,6 +322,7 @@ class LlmChatViewModel @Inject constructor(
             _uiState.update {
                 it.copy(
                     articleTitle = context.title,
+                    additionalArticleAttachments = emptyList(),
                     currentConversationId = null,
                     conversations = emptyList(),
                     messages = emptyList(),
@@ -423,6 +426,7 @@ class LlmChatViewModel @Inject constructor(
                 currentConversationId = null,
                 messages = emptyList(),
                 contextRefs = emptyList(),
+                additionalArticleAttachments = emptyList(),
                 transientError = null,
             )
         }
@@ -434,7 +438,50 @@ class LlmChatViewModel @Inject constructor(
         if (conversationId == selectedConversationId.value) return
         stopGeneration()
         conversationSelectionInitialized = true
+        // P6.7.1 附件尚未做会话级恢复；切换会话时主动清空，禁止把另一会话的文章静默带入请求。
+        _uiState.update { it.copy(additionalArticleAttachments = emptyList()) }
         viewModelScope.launch { selectConversationInternal(conversationId) }
+    }
+
+    /**
+     * 将一篇相关文章附加到当前阅读会话；P6.7.1 先提供请求链入口，选择器/UI 留给下一小点。
+     * 生成中或存在待确认 Tool Call 时不允许修改，保证同一请求及 Tool 续接轮次的 Context 集合稳定。
+     */
+    fun attachAdditionalArticle(attachment: LlmArticleAttachment) {
+        val currentArticleId = articleContext.value?.articleId ?: return
+        if (hasGenerationInFlight()) return
+        if (_uiState.value.toolCalls.any { it.status == LlmToolCallStatus.PENDING_APPROVAL }) return
+        _uiState.update { state ->
+            state.copy(
+                additionalArticleAttachments =
+                    upsertAdditionalArticleAttachment(
+                        currentArticleId = currentArticleId,
+                        existing = state.additionalArticleAttachments,
+                        attachment = attachment,
+                    )
+            )
+        }
+    }
+
+    /** 移除指定附加文章；当前主文章不在该列表中，因此不会被此操作影响。 */
+    fun removeAdditionalArticle(articleId: String) {
+        if (hasGenerationInFlight()) return
+        if (_uiState.value.toolCalls.any { it.status == LlmToolCallStatus.PENDING_APPROVAL }) return
+        val normalizedId = articleId.trim()
+        if (normalizedId.isBlank()) return
+        _uiState.update { state ->
+            state.copy(
+                additionalArticleAttachments =
+                    state.additionalArticleAttachments.filterNot { it.articleId == normalizedId }
+            )
+        }
+    }
+
+    /** 清空当前会话的全部附加文章；历史 Assistant 已冻结的 ContextRef 不受影响。 */
+    fun clearAdditionalArticles() {
+        if (hasGenerationInFlight()) return
+        if (_uiState.value.toolCalls.any { it.status == LlmToolCallStatus.PENDING_APPROVAL }) return
+        _uiState.update { it.copy(additionalArticleAttachments = emptyList()) }
     }
 
     /** 从数据库加载会话运行时选择；已被删除/禁用的 Provider 回退到当前默认配置。 */
@@ -987,7 +1034,12 @@ class LlmChatViewModel @Inject constructor(
                     articleTitle = currentArticle.title,
                 )
             val contextItems =
-                buildArticleContextItems(currentArticle) +
+                buildRequestArticleContextItems(
+                    currentArticle = currentArticle,
+                    attachments = _uiState.value.additionalArticleAttachments,
+                    // 一键 Article Analysis 语义仍是“分析当前文章”；多文章比较只进入普通 CHAT。
+                    includeAdditionalArticles = requestTask == LlmExecutionTask.CHAT,
+                ) +
                     _uiState.value.manualToolContexts.map(LlmManualToolContext::toContextItem) +
                     webSearch?.toContextItems().orEmpty()
             val enabledToolIds =
