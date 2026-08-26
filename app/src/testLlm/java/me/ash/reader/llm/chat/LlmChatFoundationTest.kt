@@ -28,6 +28,8 @@ import me.ash.reader.llm.chat.data.LlmToolCallEntity
 import me.ash.reader.llm.chat.data.LlmToolCallStatus
 import me.ash.reader.llm.chat.ui.buildArticleContextItems
 import me.ash.reader.llm.chat.ui.buildRequestHistorySnapshot
+import me.ash.reader.llm.chat.ui.buildLlmCitationLink
+import me.ash.reader.llm.chat.ui.parseLlmCitationUri
 import me.ash.reader.llm.chat.ui.resolveRequestSkillId
 import me.ash.reader.llm.chat.ui.shouldExposeManualToolFallback
 import me.ash.reader.llm.runtime.LlmCitationReference
@@ -55,6 +57,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LlmChatFoundationTest {
+    @Test
+    fun `citation ui links only accept request valid R tokens and strict internal uri`() {
+        val validIndices = setOf(1, 3)
+
+        assertEquals("origread-citation://1", buildLlmCitationLink("[R1]", validIndices))
+        assertEquals("origread-citation://3", buildLlmCitationLink("[R3]", validIndices))
+        assertNull(buildLlmCitationLink("[R2]", validIndices))
+        assertNull(buildLlmCitationLink("[R0]", validIndices))
+        assertNull(buildLlmCitationLink("R1", validIndices))
+        assertNull(buildLlmCitationLink("[r1]", validIndices))
+
+        assertEquals(1, parseLlmCitationUri("origread-citation://1"))
+        assertEquals(3, parseLlmCitationUri("origread-citation://3"))
+        assertNull(parseLlmCitationUri("origread-citation://0"))
+        assertNull(parseLlmCitationUri("origread-citation://3/extra"))
+        assertNull(parseLlmCitationUri("https://example.com/R1"))
+    }
+
     @Test
     fun `article analysis consumes fixed analysis skill instead of chat auto route`() {
         assertEquals(

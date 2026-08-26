@@ -97,6 +97,7 @@ import me.ash.reader.llm.chat.data.LlmMessageEntity
 import me.ash.reader.llm.chat.data.LlmMessageStatus
 import me.ash.reader.llm.chat.data.LlmToolCallEntity
 import me.ash.reader.llm.chat.data.LlmToolCallStatus
+import me.ash.reader.llm.chat.data.citationToken
 import me.ash.reader.llm.quickmessage.LlmQuickMessage
 import me.ash.reader.llm.quickmessage.LlmQuickMessageResolution
 import me.ash.reader.llm.runtime.LlmReasoningEffort
@@ -132,6 +133,7 @@ fun LlmArticleAssistantSheet(
     var modelPickerVisible by remember { mutableStateOf(false) }
     var manualToolSheetVisible by remember { mutableStateOf(false) }
     var contextSourcesAssistantId by remember { mutableStateOf<String?>(null) }
+    var contextSourcesCitationIndex by remember { mutableStateOf<Int?>(null) }
     var renameTarget by remember { mutableStateOf<LlmConversationEntity?>(null) }
     var deleteTarget by remember { mutableStateOf<LlmConversationEntity?>(null) }
     var autoFollow by remember(uiState.currentConversationId) { mutableStateOf(true) }
@@ -227,15 +229,23 @@ fun LlmArticleAssistantSheet(
                         verticalArrangement = Arrangement.spacedBy(18.dp),
                     ) {
                         items(uiState.messages, key = LlmMessageEntity::id) { message ->
+                            val messageContextRefs =
+                                uiState.contextRefs.filter { ref ->
+                                    ref.assistantMessageId == message.id
+                                }
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 AssistantMessage(
                                     message = message,
                                     showReasoning = uiState.showReasoning,
-                                    contextRefCount =
-                                        uiState.contextRefs.count { ref ->
-                                            ref.assistantMessageId == message.id
-                                        },
-                                    onShowContextSources = { contextSourcesAssistantId = message.id },
+                                    contextRefs = messageContextRefs,
+                                    onShowContextSources = {
+                                        contextSourcesCitationIndex = null
+                                        contextSourcesAssistantId = message.id
+                                    },
+                                    onCitationClick = { citationIndex ->
+                                        contextSourcesCitationIndex = citationIndex
+                                        contextSourcesAssistantId = message.id
+                                    },
                                     canRegenerate =
                                         !uiState.isGenerating &&
                                             message.id == lastAssistantId &&
@@ -366,7 +376,11 @@ fun LlmArticleAssistantSheet(
     contextSourcesAssistantId?.let { assistantMessageId ->
         ContextSourcesSheet(
             refs = uiState.contextRefs.filter { it.assistantMessageId == assistantMessageId },
-            onDismiss = { contextSourcesAssistantId = null },
+            selectedCitationIndex = contextSourcesCitationIndex,
+            onDismiss = {
+                contextSourcesAssistantId = null
+                contextSourcesCitationIndex = null
+            },
         )
     }
 
@@ -614,8 +628,9 @@ private fun ScrollJumpButton(
 private fun AssistantMessage(
     message: LlmMessageEntity,
     showReasoning: Boolean,
-    contextRefCount: Int,
+    contextRefs: List<LlmContextRefEntity>,
     onShowContextSources: () -> Unit,
+    onCitationClick: (Int) -> Unit,
     canRegenerate: Boolean,
     onRegenerate: () -> Unit,
 ) {
@@ -643,6 +658,10 @@ private fun AssistantMessage(
     }
 
     val clipboardManager = LocalClipboardManager.current
+    val validCitationIndices =
+        remember(contextRefs) {
+            contextRefs.mapNotNull { ref -> ref.citationIndex?.takeIf { it > 0 } }.toSet()
+        }
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = stringResource(R.string.llm_assistant_name),
@@ -659,7 +678,11 @@ private fun AssistantMessage(
             Spacer(Modifier.size(8.dp))
         }
         if (message.content.isNotBlank()) {
-            LlmRichMarkdown(markdown = message.content)
+            LlmRichMarkdown(
+                markdown = message.content,
+                validCitationIndices = validCitationIndices,
+                onCitationClick = onCitationClick,
+            )
         } else if (message.status == LlmMessageStatus.STREAMING) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -699,7 +722,7 @@ private fun AssistantMessage(
                         modifier = Modifier.size(18.dp),
                     )
                 }
-                if (contextRefCount > 0) {
+                if (contextRefs.isNotEmpty()) {
                     TextButton(
                         onClick = onShowContextSources,
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
@@ -711,7 +734,7 @@ private fun AssistantMessage(
                         )
                         Spacer(Modifier.width(4.dp))
                         Text(
-                            stringResource(R.string.llm_context_sources_count, contextRefCount),
+                            stringResource(R.string.llm_context_sources_count, contextRefs.size),
                             style = MaterialTheme.typography.labelMedium,
                         )
                     }
@@ -1281,13 +1304,20 @@ private fun QuickMessageSheet(
 @Composable
 private fun ContextSourcesSheet(
     refs: List<LlmContextRefEntity>,
+    selectedCitationIndex: Int? = null,
     onDismiss: () -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
     val orderedRefs =
-        remember(refs) {
-            refs.sortedWith(
-                compareByDescending<LlmContextRefEntity> { it.includedInPrompt }
+        remember(refs, selectedCitationIndex) {
+            val visibleRefs =
+                selectedCitationIndex?.let { index ->
+                    refs.filter { it.citationIndex == index }
+                } ?: refs
+            visibleRefs.sortedWith(
+                compareBy<LlmContextRefEntity> { it.citationIndex == null }
+                    .thenBy { it.citationIndex ?: Int.MAX_VALUE }
+                    .thenByDescending { it.includedInPrompt }
                     .thenByDescending { it.priority }
                     .thenBy { it.createdAt }
             )
@@ -1339,6 +1369,14 @@ private fun ContextSourcesSheet(
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
                                 )
+                                ref.citationToken()?.let { token ->
+                                    Text(
+                                        text = token,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
                                 Text(
                                     text = contextRefStatusLabel(ref),
                                     style = MaterialTheme.typography.labelMedium,

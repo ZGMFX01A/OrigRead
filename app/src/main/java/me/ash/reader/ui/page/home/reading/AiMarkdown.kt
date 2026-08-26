@@ -316,6 +316,11 @@ internal fun AiMarkdown(
     modifier: Modifier = Modifier,
     hideLeadingSummaryHeading: Boolean = false,
     specialBlockRenderer: (@Composable (AiMarkdownBlock) -> Boolean)? = null,
+    /**
+     * 可选的行内 token→URL 解析器。默认关闭，Standard/摘要渲染行为不变；
+     * LLM edition 可借此把 OrigRead 自己验证过的短引用 token 交给现有 LinkAnnotation 链处理。
+     */
+    inlineTokenLinkResolver: ((String) -> String?)? = null,
 ) {
     val blocks =
         remember(markdown, hideLeadingSummaryHeading) {
@@ -329,7 +334,7 @@ internal fun AiMarkdown(
             when (block) {
                 is AiMarkdownBlock.Heading -> {
                     Text(
-                        text = markdownInline(block.text),
+                        text = markdownInline(block.text, inlineTokenLinkResolver),
                         style =
                             when (block.level) {
                                 1 -> MaterialTheme.typography.titleLarge
@@ -342,7 +347,7 @@ internal fun AiMarkdown(
                 }
                 is AiMarkdownBlock.Paragraph ->
                     Text(
-                        text = markdownInline(block.text),
+                        text = markdownInline(block.text, inlineTokenLinkResolver),
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 is AiMarkdownBlock.Bullet ->
@@ -365,20 +370,20 @@ internal fun AiMarkdown(
                                 verticalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
                                 Text(
-                                    text = markdownInline(leadingBold.first),
+                                    text = markdownInline(leadingBold.first, inlineTokenLinkResolver),
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.SemiBold,
                                 )
                                 if (leadingBold.second.isNotBlank()) {
                                     Text(
-                                        text = markdownInline(leadingBold.second),
+                                        text = markdownInline(leadingBold.second, inlineTokenLinkResolver),
                                         style = MaterialTheme.typography.bodyMedium,
                                     )
                                 }
                             }
                         } else {
                             Text(
-                                text = markdownInline(block.text),
+                                text = markdownInline(block.text, inlineTokenLinkResolver),
                                 style = MaterialTheme.typography.bodyMedium,
                                 modifier = Modifier.weight(1f),
                             )
@@ -393,7 +398,7 @@ internal fun AiMarkdown(
                                     .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.55f))
                         )
                         Text(
-                            text = markdownInline(block.text),
+                            text = markdownInline(block.text, inlineTokenLinkResolver),
                             style = MaterialTheme.typography.bodyMedium,
                             fontStyle = FontStyle.Italic,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -401,7 +406,7 @@ internal fun AiMarkdown(
                         )
                     }
                 is AiMarkdownBlock.Code -> AiMarkdownCodeBlock(block)
-                is AiMarkdownBlock.Table -> AiMarkdownTable(block)
+                is AiMarkdownBlock.Table -> AiMarkdownTable(block, inlineTokenLinkResolver)
                 is AiMarkdownBlock.Math -> AiMarkdownMathFallback(block)
                 is AiMarkdownBlock.Mermaid -> AiMarkdownMermaidFallback(block)
                 AiMarkdownBlock.Divider -> HorizontalDivider()
@@ -512,7 +517,10 @@ private fun AiMarkdownMermaidFallback(block: AiMarkdownBlock.Mermaid) {
 }
 
 @Composable
-private fun AiMarkdownTable(table: AiMarkdownBlock.Table) {
+private fun AiMarkdownTable(
+    table: AiMarkdownBlock.Table,
+    inlineTokenLinkResolver: ((String) -> String?)?,
+) {
     val borderColor = MaterialTheme.colorScheme.outlineVariant
     val columnCount = table.headers.size.coerceAtLeast(1)
     val minimumColumnWidth = 132.dp
@@ -535,6 +543,7 @@ private fun AiMarkdownTable(table: AiMarkdownBlock.Table) {
                         tableWidth = tableWidth,
                         isHeader = true,
                         borderColor = borderColor,
+                        inlineTokenLinkResolver = inlineTokenLinkResolver,
                     )
                     table.rows.forEach { row ->
                         HorizontalDivider(color = borderColor)
@@ -543,6 +552,7 @@ private fun AiMarkdownTable(table: AiMarkdownBlock.Table) {
                             tableWidth = tableWidth,
                             isHeader = false,
                             borderColor = borderColor,
+                            inlineTokenLinkResolver = inlineTokenLinkResolver,
                         )
                     }
                 }
@@ -568,6 +578,7 @@ private fun AiMarkdownTableRow(
     tableWidth: androidx.compose.ui.unit.Dp,
     isHeader: Boolean,
     borderColor: Color,
+    inlineTokenLinkResolver: ((String) -> String?)?,
 ) {
     val cellWidth = tableWidth / cells.size.coerceAtLeast(1).toFloat()
     Row(modifier = Modifier.width(tableWidth).height(IntrinsicSize.Min)) {
@@ -587,7 +598,7 @@ private fun AiMarkdownTableRow(
                         .padding(horizontal = 10.dp, vertical = 8.dp),
             ) {
                 Text(
-                    text = markdownInline(cell),
+                    text = markdownInline(cell, inlineTokenLinkResolver),
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = if (isHeader) FontWeight.SemiBold else FontWeight.Normal,
                 )
@@ -606,14 +617,17 @@ internal fun List<AiMarkdownBlock>.withoutLeadingSummaryHeading(): List<AiMarkdo
 }
 
 @Composable
-private fun markdownInline(value: String): AnnotatedString {
+private fun markdownInline(
+    value: String,
+    inlineTokenLinkResolver: ((String) -> String?)?,
+): AnnotatedString {
     val primary = MaterialTheme.colorScheme.primary
     val codeBackground = MaterialTheme.colorScheme.surfaceVariant
-    return remember(value, primary, codeBackground) {
+    return remember(value, primary, codeBackground, inlineTokenLinkResolver) {
         buildAnnotatedString {
             val regex =
                 Regex(
-                    "(\\*\\*.+?\\*\\*|__.+?__|`[^`]+`|\\[[^]]+?]\\([^)]+?\\)|(?<!\\*)\\*[^*]+?\\*(?!\\*)|(?<!_)_[^_]+?_(?!_))"
+                    "(\\*\\*.+?\\*\\*|__.+?__|`[^`]+`|\\[[^]]+?]\\([^)]+?\\)|\\[R\\d+]|(?<!\\*)\\*[^*]+?\\*(?!\\*)|(?<!_)_[^_]+?_(?!_))"
                 )
             var cursor = 0
             regex.findAll(value).forEach { match ->
@@ -650,7 +664,19 @@ private fun markdownInline(value: String): AnnotatedString {
                             )
                             addLink(LinkAnnotation.Url(url), start, length)
                         } else {
+                            val resolvedUrl = inlineTokenLinkResolver?.invoke(token)
                             append(token)
+                            if (resolvedUrl != null) {
+                                addStyle(
+                                    SpanStyle(
+                                        color = primary,
+                                        textDecoration = TextDecoration.Underline,
+                                    ),
+                                    start,
+                                    length,
+                                )
+                                addLink(LinkAnnotation.Url(resolvedUrl), start, length)
+                            }
                         }
                     }
                     (token.startsWith("*") && token.endsWith("*")) ||
