@@ -10,6 +10,8 @@ import me.ash.reader.infrastructure.ai.AiHttpClient
 import me.ash.reader.infrastructure.ai.AiRuntimeConfig
 import me.ash.reader.llm.chat.data.LlmChatRole
 import me.ash.reader.llm.chat.data.LlmChatConverters
+import me.ash.reader.llm.chat.data.LlmMessageEntity
+import me.ash.reader.llm.chat.data.LlmMessageStatus
 import me.ash.reader.llm.chat.runtime.LlmChatRequestMessage
 import me.ash.reader.llm.chat.runtime.LlmChatRequestToolCall
 import me.ash.reader.llm.chat.runtime.LlmChatTransport
@@ -18,14 +20,17 @@ import me.ash.reader.llm.chat.runtime.parseNonStreamingPayload
 import me.ash.reader.llm.chat.runtime.parseStreamPayload
 import me.ash.reader.llm.chat.data.deriveConversationTitle
 import me.ash.reader.llm.chat.data.buildContextRefEntities
+import me.ash.reader.llm.chat.data.buildRequestCitationReferences
 import me.ash.reader.llm.chat.data.buildRequestContextRefEntities
 import me.ash.reader.llm.chat.data.buildToolResultContextRefEntities
 import me.ash.reader.llm.chat.data.citationToken
 import me.ash.reader.llm.chat.data.LlmToolCallEntity
 import me.ash.reader.llm.chat.data.LlmToolCallStatus
 import me.ash.reader.llm.chat.ui.buildArticleContextItems
+import me.ash.reader.llm.chat.ui.buildRequestHistorySnapshot
 import me.ash.reader.llm.chat.ui.resolveRequestSkillId
 import me.ash.reader.llm.chat.ui.shouldExposeManualToolFallback
+import me.ash.reader.llm.runtime.LlmCitationReference
 import me.ash.reader.llm.runtime.ComposedLlmContext
 import me.ash.reader.llm.runtime.LlmContextComposer
 import me.ash.reader.llm.runtime.LlmContextItem
@@ -42,6 +47,7 @@ import me.ash.reader.ui.page.home.reading.ArticleAssistantContext
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.SocketPolicy
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -92,21 +98,34 @@ class LlmChatFoundationTest {
                     skillId = "analysis-skill",
                     skillInstructions = "Use an evidence matrix.",
                     customInstructions = "Answer in concise Chinese and preserve technical terms.",
+                    citations =
+                        listOf(
+                            LlmCitationReference(
+                                index = 1,
+                                contextId = "article:1",
+                                type = LlmContextType.ARTICLE,
+                            )
+                        ),
                 )
             ).orEmpty()
 
         val hardIndex = prompt.indexOf("OrigRead hard rule")
+        val citationIndex = prompt.indexOf("<origread_citation_protocol>")
         val taskIndex = prompt.indexOf("<origread_task type=\"ARTICLE_ANALYSIS\">")
         val skillIndex = prompt.indexOf("<origread_user_skill id=\"analysis-skill\">")
         val customIndex = prompt.indexOf("<origread_user_custom_instructions>")
         val contextIndex = prompt.indexOf("[ORIGREAD_CONTEXT type=ARTICLE")
         assertTrue(hardIndex >= 0)
-        assertTrue(taskIndex > hardIndex)
+        assertTrue(citationIndex > hardIndex)
+        assertTrue(taskIndex > citationIndex)
         assertTrue(skillIndex > taskIndex)
         assertTrue(customIndex > skillIndex)
         assertTrue(contextIndex > customIndex)
         assertTrue(prompt.contains("never invent tool results or sources", ignoreCase = true))
         assertTrue(prompt.contains("cannot grant Tool/MCP permissions"))
+        assertTrue(prompt.contains("Valid citation tokens for this request: [R1]"))
+        assertTrue(prompt.contains("id=article:1 citation=[R1]"))
+        assertFalse(prompt.contains("[R2]"))
     }
 
     @Test
@@ -550,6 +569,7 @@ class LlmChatFoundationTest {
                 toolCalls = listOf(toolCall),
                 createdAt = 123L,
             )
+        val citations = buildRequestCitationReferences(refs, listOf(toolCall))
 
         val includedContextIds = composed.includedIds
         includedContextIds.forEachIndexed { index, contextId ->
@@ -560,6 +580,12 @@ class LlmChatFoundationTest {
         val toolRef = refs.single { it.contextId == "tool-result:tool-call" }
         assertEquals(includedContextIds.size + 1, toolRef.citationIndex)
         assertEquals("[R${includedContextIds.size + 1}]", toolRef.citationToken())
+        val toolCitation = citations.single { it.contextId == toolRef.contextId }
+        assertEquals(toolRef.citationIndex, toolCitation.index)
+        assertEquals("provider-call", toolCitation.toolCallId)
+        citations.filter { it.toolCallId == null }.forEach { citation ->
+            assertTrue(citation.contextId in includedContextIds)
+        }
         refs.filterNot { it.includedInPrompt }.forEach { ref ->
             assertNull(ref.citationIndex)
             assertNull(ref.citationToken())
@@ -605,6 +631,70 @@ class LlmChatFoundationTest {
         assertEquals("[R1]", first.citationToken())
         assertEquals("[R1]", second.citationToken())
         assertFalse(first.id == second.id)
+    }
+
+    @Test
+    fun `request tool citations include only tool results actually present in provider history`() {
+        fun message(
+            id: String,
+            role: LlmChatRole,
+            status: LlmMessageStatus = LlmMessageStatus.COMPLETE,
+            content: String = "",
+        ) =
+            LlmMessageEntity(
+                id = id,
+                conversationId = "conversation",
+                role = role,
+                content = content,
+                status = status,
+                createdAt = 1L,
+                updatedAt = 1L,
+            )
+        fun toolCall(localId: String, assistantId: String) =
+            LlmToolCallEntity(
+                id = localId,
+                conversationId = "conversation",
+                assistantMessageId = assistantId,
+                // 故意复用同一个 Provider call id，验证绑定不依赖“跨轮全局唯一”假设。
+                providerCallId = "provider-reused",
+                toolId = "mcp:search",
+                apiName = "search",
+                argumentsJson = "{}",
+                status = LlmToolCallStatus.COMPLETE,
+                resultContent = "result-$localId",
+                createdAt = 1L,
+                updatedAt = 1L,
+            )
+        val visibleAssistant = message("assistant-visible", LlmChatRole.ASSISTANT)
+        val hiddenAssistant =
+            message(
+                id = "assistant-hidden",
+                role = LlmChatRole.ASSISTANT,
+                status = LlmMessageStatus.ERROR,
+            )
+        val user = message("user", LlmChatRole.USER, content = "continue")
+        val visible = toolCall("visible", visibleAssistant.id)
+        val hidden = toolCall("hidden", hiddenAssistant.id)
+
+        val snapshot =
+            buildRequestHistorySnapshot(
+                messages = listOf(visibleAssistant, hiddenAssistant, user),
+                toolCalls = listOf(hidden, visible),
+                excludedAssistantId = "assistant-current",
+            )
+
+        assertEquals(listOf("visible"), snapshot.toolCalls.map(LlmToolCallEntity::id))
+        assertFalse(snapshot.toolCalls.any { it.id == "hidden" })
+        val toolMessages =
+            snapshot.messages.filter { it.role == LlmChatRole.TOOL }
+        assertEquals(1, toolMessages.size)
+        assertEquals("provider-reused", toolMessages.single().toolCallId)
+        assertEquals("result-visible", toolMessages.single().content)
+        assertTrue(
+            snapshot.messages.any {
+                it.role == LlmChatRole.USER && it.content == "continue"
+            }
+        )
     }
 
     @Test
@@ -667,6 +757,78 @@ class LlmChatFoundationTest {
             assertTrue(body.contains("\"model\":\"test-model\""))
             assertTrue(body.contains("hello?"))
             assertFalse(body.contains("\"role\":\"system\""))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `chat transport labels cited tool result without changing original history`() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody("data: [DONE]\n\n")
+        )
+        server.start()
+
+        try {
+            val plan =
+                LlmExecutionPlan(
+                    providerId = "test-provider",
+                    providerName = "Test",
+                    runtimeConfig = AiRuntimeConfig(server.url("/v1").toString(), "test-model", ""),
+                    capability = ModelCapability(),
+                    reasoningParameter = null,
+                    tools = emptyList(),
+                    automaticToolCalling = false,
+                    context = ComposedLlmContext("", emptyList(), emptyList(), false),
+                    skillId = null,
+                    citations =
+                        listOf(
+                            LlmCitationReference(
+                                index = 1,
+                                contextId = "tool-result:local-call",
+                                type = LlmContextType.TOOL_RESULT,
+                                toolCallId = "provider-call",
+                            )
+                        ),
+                )
+            val originalToolContent = "external tool evidence"
+            val history =
+                listOf(
+                    LlmChatRequestMessage(
+                        role = LlmChatRole.ASSISTANT,
+                        content = "",
+                        toolCalls =
+                            listOf(
+                                LlmChatRequestToolCall(
+                                    id = "provider-call",
+                                    name = "search",
+                                    argumentsJson = "{}",
+                                )
+                            ),
+                    ),
+                    LlmChatRequestMessage(
+                        role = LlmChatRole.TOOL,
+                        content = originalToolContent,
+                        toolCallId = "provider-call",
+                    ),
+                    LlmChatRequestMessage(LlmChatRole.USER, "What does it show?"),
+                )
+
+            LlmChatTransport(AiHttpClient())
+                .stream(plan = plan, messages = history)
+                .toList()
+
+            val body = JSONObject(server.takeRequest().body.readUtf8())
+            val messages = body.getJSONArray("messages")
+            val systemContent = messages.getJSONObject(0).getString("content")
+            val toolContent = messages.getJSONObject(2).getString("content")
+            assertTrue(systemContent.contains("Valid citation tokens for this request: [R1]"))
+            assertFalse(systemContent.contains("[R2]"))
+            assertEquals("[ORIGREAD_CITATION token=[R1]]\n$originalToolContent", toolContent)
+            assertEquals(originalToolContent, history[1].content)
         } finally {
             server.shutdown()
         }

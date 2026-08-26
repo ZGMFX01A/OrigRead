@@ -2,6 +2,7 @@ package me.ash.reader.llm.chat.data
 
 import java.security.MessageDigest
 import java.util.UUID
+import me.ash.reader.llm.runtime.LlmCitationReference
 import me.ash.reader.llm.runtime.ComposedLlmContext
 import me.ash.reader.llm.runtime.LlmContextItem
 
@@ -87,6 +88,33 @@ internal fun buildRequestContextRefEntities(
 /** 将持久化编号渲染成模型/UI 共用的短引用 token；非法旧数据保守视为不可引用。 */
 internal fun LlmContextRefEntity.citationToken(): String? =
     citationIndex?.takeIf { it > 0 }?.let { "[R$it]" }
+
+/**
+ * 将已经冻结并持久化的 ContextRef 转成 Transport 只读引用元数据。
+ *
+ * Provider Tool Result 使用 providerCallId 与结构化 tool history 对齐；普通 Context 只依赖 OrigRead 内部 contextId。
+ * 外部标题、URL、正文等数据不进入该结构，避免被提升到 system 协议层。
+ */
+internal fun buildRequestCitationReferences(
+    contextRefs: List<LlmContextRefEntity>,
+    toolCalls: List<LlmToolCallEntity>,
+): List<LlmCitationReference> {
+    val toolCallIdByContextId =
+        toolCalls.associate { call ->
+            "tool-result:${call.id}" to call.providerCallId
+        }
+    return contextRefs
+        .mapNotNull { ref ->
+            val index = ref.citationIndex?.takeIf { it > 0 } ?: return@mapNotNull null
+            LlmCitationReference(
+                index = index,
+                contextId = ref.contextId,
+                type = ref.type,
+                toolCallId = toolCallIdByContextId[ref.contextId],
+            )
+        }
+        .sortedBy(LlmCitationReference::index)
+}
 
 /**
  * 标准 Tool Calling 的 Tool Result 位于 Provider conversation history，而不是 ContextComposer wrapper 中；

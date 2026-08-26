@@ -29,6 +29,7 @@ import me.ash.reader.llm.chat.data.LlmMessageEntity
 import me.ash.reader.llm.chat.data.LlmMessageStatus
 import me.ash.reader.llm.chat.data.LlmToolCallEntity
 import me.ash.reader.llm.chat.data.LlmToolCallStatus
+import me.ash.reader.llm.chat.data.buildRequestCitationReferences
 import me.ash.reader.llm.chat.data.buildRequestContextRefEntities
 import me.ash.reader.llm.chat.runtime.LlmChatRequestMessage
 import me.ash.reader.llm.chat.runtime.LlmChatRequestToolCall
@@ -115,6 +116,83 @@ data class LlmPendingManualTool(
     val descriptor: LlmToolDescriptor,
     val argumentsJson: String,
 )
+
+/** 单次 Provider 请求历史及其中真实可见的本地 ToolCall，二者必须来自同一次构建。 */
+internal data class LlmRequestHistorySnapshot(
+    val messages: List<LlmChatRequestMessage>,
+    val toolCalls: List<LlmToolCallEntity>,
+)
+
+/**
+ * 从持久化消息与 ToolCall 构建一次 Provider 请求快照。
+ * ERROR assistant、当前待生成 placeholder 与其他不可发送消息被过滤时，其 Tool Result 也必须同步排除。
+ */
+internal fun buildRequestHistorySnapshot(
+    messages: List<LlmMessageEntity>,
+    toolCalls: List<LlmToolCallEntity>,
+    excludedAssistantId: String,
+): LlmRequestHistorySnapshot {
+    val callsByAssistant = toolCalls.groupBy(LlmToolCallEntity::assistantMessageId)
+    val visibleToolCalls = mutableListOf<LlmToolCallEntity>()
+    val requestMessages = buildList {
+        messages.forEach { message ->
+            if (message.id == excludedAssistantId || message.role == LlmChatRole.SYSTEM) return@forEach
+            if (message.status == LlmMessageStatus.ERROR) return@forEach
+            // TOOL 只属于传输拓扑；本地 UI/Room 不单独保存 Tool result 消息。
+            if (message.role == LlmChatRole.TOOL) return@forEach
+            val calls = callsByAssistant[message.id].orEmpty()
+            if (message.content.isBlank() && calls.isEmpty()) return@forEach
+
+            add(
+                LlmChatRequestMessage(
+                    role = message.role,
+                    content = message.content,
+                    toolCalls =
+                        if (message.role == LlmChatRole.ASSISTANT) {
+                            calls.map { call ->
+                                LlmChatRequestToolCall(
+                                    id = call.providerCallId,
+                                    name = call.apiName,
+                                    argumentsJson = call.argumentsJson,
+                                )
+                            }
+                        } else {
+                            emptyList()
+                        },
+                )
+            )
+
+            if (message.role == LlmChatRole.ASSISTANT) {
+                calls.forEach { call ->
+                    val result =
+                        when (call.status) {
+                            LlmToolCallStatus.COMPLETE -> call.resultContent.orEmpty()
+                            LlmToolCallStatus.DENIED ->
+                                call.resultContent ?: "Tool execution was denied by the user."
+                            LlmToolCallStatus.ERROR ->
+                                call.resultContent ?: "Tool execution failed: ${call.errorMessage.orEmpty()}"
+                            LlmToolCallStatus.PENDING_APPROVAL,
+                            LlmToolCallStatus.RUNNING -> null
+                        }
+                    result?.let { content ->
+                        visibleToolCalls += call
+                        add(
+                            LlmChatRequestMessage(
+                                role = LlmChatRole.TOOL,
+                                content = content,
+                                toolCallId = call.providerCallId,
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+    return LlmRequestHistorySnapshot(
+        messages = requestMessages,
+        toolCalls = visibleToolCalls,
+    )
+}
 
 /** 当前会话的运行时选择，只保存 Provider/Model 标识，不持有 API Key。 */
 private data class RuntimeSelection(
@@ -808,64 +886,12 @@ class LlmChatViewModel @Inject constructor(
     private suspend fun buildRequestHistory(
         conversationId: String,
         excludedAssistantId: String,
-    ): List<LlmChatRequestMessage> {
-        val messages = repository.getMessages(conversationId)
-        val callsByAssistant = repository.getToolCalls(conversationId).groupBy(LlmToolCallEntity::assistantMessageId)
-        return buildList {
-            messages.forEach { message ->
-                if (message.id == excludedAssistantId || message.role == LlmChatRole.SYSTEM) return@forEach
-                if (message.status == LlmMessageStatus.ERROR) return@forEach
-                // TOOL 只属于传输拓扑；本地 UI/Room 不单独保存 Tool result 消息。
-                if (message.role == LlmChatRole.TOOL) return@forEach
-                val calls = callsByAssistant[message.id].orEmpty()
-                if (message.content.isBlank() && calls.isEmpty()) return@forEach
-
-                add(
-                    LlmChatRequestMessage(
-                        role = message.role,
-                        content = message.content,
-                        toolCalls =
-                            if (message.role == LlmChatRole.ASSISTANT) {
-                                calls.map { call ->
-                                    LlmChatRequestToolCall(
-                                        id = call.providerCallId,
-                                        name = call.apiName,
-                                        argumentsJson = call.argumentsJson,
-                                    )
-                                }
-                            } else {
-                                emptyList()
-                            },
-                    )
-                )
-
-                if (message.role == LlmChatRole.ASSISTANT) {
-                    calls.forEach { call ->
-                        val result =
-                            when (call.status) {
-                                LlmToolCallStatus.COMPLETE -> call.resultContent.orEmpty()
-                                LlmToolCallStatus.DENIED ->
-                                    call.resultContent ?: "Tool execution was denied by the user."
-                                LlmToolCallStatus.ERROR ->
-                                    call.resultContent
-                                        ?: "Tool execution failed: ${call.errorMessage.orEmpty()}"
-                                LlmToolCallStatus.PENDING_APPROVAL,
-                                LlmToolCallStatus.RUNNING -> null
-                            }
-                        result?.let { content ->
-                            add(
-                                LlmChatRequestMessage(
-                                    role = LlmChatRole.TOOL,
-                                    content = content,
-                                    toolCallId = call.providerCallId,
-                                )
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
+    ): LlmRequestHistorySnapshot =
+        buildRequestHistorySnapshot(
+            messages = repository.getMessages(conversationId),
+            toolCalls = repository.getToolCalls(conversationId),
+            excludedAssistantId = excludedAssistantId,
+        )
 
     /**
      * 将持久化历史转换为模型消息并消费 SSE 增量。
@@ -912,7 +938,8 @@ class LlmChatViewModel @Inject constructor(
             providerPromptTokens == null || providerCompletionTokens == null
 
         try {
-            val history = buildRequestHistory(conversationId, assistant.id)
+            val historySnapshot = buildRequestHistory(conversationId, assistant.id)
+            val history = historySnapshot.messages
             val selection = runtimeSelection.value
             val currentArticle =
                 articleContext.value ?: error("当前文章上下文已失效，请重新打开阅读助手")
@@ -1000,24 +1027,30 @@ class LlmChatViewModel @Inject constructor(
             // P6 ContextRef 必须在真正发请求前冻结。即使后续网络失败，错误消息也能解释当次请求准备使用了哪些来源；
             // 同一 assistant placeholder 若重新 prepare，则 Repository 事务替换旧快照，不留下半套来源。
             val contextRefCreatedAt = System.currentTimeMillis()
+            val requestToolCalls = historySnapshot.toolCalls
             val contextRefs =
                 buildRequestContextRefEntities(
                     conversationId = conversationId,
                     assistantMessageId = assistant.id,
                     candidates = contextItems,
                     composed = plan.context,
-                    toolCalls = repository.getToolCalls(conversationId),
+                    toolCalls = requestToolCalls,
                     createdAt = contextRefCreatedAt,
                 )
             repository.replaceContextRefsForAssistant(
                 assistantMessageId = assistant.id,
                 contextRefs = contextRefs,
             )
+            // 引用协议只能消费已经冻结的 ContextRef；Runtime 不提前猜编号，Provider 也无权创建新的 [R#]。
+            val requestPlan =
+                plan.copy(
+                    citations = buildRequestCitationReferences(contextRefs, requestToolCalls),
+                )
 
-            fallbackPromptTokens = transport.estimateRequestTokens(plan, history)
+            fallbackPromptTokens = transport.estimateRequestTokens(requestPlan, history)
             requestStartedAtNanos = System.nanoTime()
 
-            transport.stream(plan, history).collect { delta ->
+            transport.stream(requestPlan, history).collect { delta ->
                 content += delta.content
                 reasoning += delta.reasoning
                 mergeToolCallDeltas(toolCallParts, delta.toolCalls)

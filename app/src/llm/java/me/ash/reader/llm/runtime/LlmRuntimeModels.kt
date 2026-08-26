@@ -109,6 +109,19 @@ data class LlmRenderedContextItem(
     val truncated: Boolean,
 )
 
+/**
+ * 单次请求的只读引用元数据。
+ *
+ * index/contextId 由 OrigRead 自己生成；toolCallId 仅用于把历史 Tool Result 与已冻结的 [R#] 对齐，
+ * 不参与 Tool 权限、调用许可或执行策略判断。
+ */
+data class LlmCitationReference(
+    val index: Int,
+    val contextId: String,
+    val type: LlmContextType,
+    val toolCallId: String? = null,
+)
+
 data class LlmExecutionProfile(
     val task: LlmExecutionTask = LlmExecutionTask.CHAT,
     val providerId: String? = null,
@@ -136,4 +149,6 @@ data class LlmExecutionPlan(
     val skillInstructions: String? = null,
     /** 用户长期回答偏好；固定低于任务/Skill、高于外部 Context Data。 */
     val customInstructions: String? = null,
+    /** P6.6 请求级引用映射；由 Chat 在 ContextRef 冻结后注入，不由 Runtime/Provider 推断。 */
+    val citations: List<LlmCitationReference> = emptyList(),
 )
