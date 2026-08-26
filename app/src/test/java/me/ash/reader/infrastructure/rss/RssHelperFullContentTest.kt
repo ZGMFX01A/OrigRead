@@ -1,6 +1,7 @@
 package me.ash.reader.infrastructure.rss
 
 import android.content.Context
+import java.nio.charset.Charset
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import me.ash.reader.infrastructure.content.ContentExtractionService
@@ -13,10 +14,13 @@ import me.ash.reader.infrastructure.content.FullContentFailureReason
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okio.Buffer
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
@@ -46,6 +50,36 @@ class RssHelperFullContentTest {
 
                 assertEquals("<p>static result</p>", result)
                 verify(dynamicArticleContentService, never()).extract(any(), any(), any(), any(), any())
+            } finally {
+                server.shutdown()
+            }
+        }
+    }
+
+    @Test
+    fun `正文 HTTP 未声明 charset 时可按 meta charset 解码 GBK`() {
+        runBlocking {
+            val sourceHtml =
+                """<html><head><meta charset="gbk"></head><body><article><p>吾爱破解中文正文</p></article></body></html>"""
+            val server = MockWebServer().apply {
+                enqueue(
+                    MockResponse()
+                        .setHeader("Content-Type", "text/html")
+                        .setBody(Buffer().write(sourceHtml.toByteArray(Charset.forName("GB18030"))))
+                )
+                start()
+            }
+            val url = server.url("/article").toString()
+            try {
+                whenever(contentExtractionService.extract(any(), any(), any()))
+                    .thenReturn(extracted("<p>decoded result</p>"))
+
+                val result = helper().parseFullContent(url, "title")
+                val htmlCaptor = argumentCaptor<String>()
+
+                verify(contentExtractionService).extract(htmlCaptor.capture(), eq(url), eq("title"))
+                assertTrue(htmlCaptor.firstValue.contains("吾爱破解中文正文"))
+                assertEquals("<p>decoded result</p>", result)
             } finally {
                 server.shutdown()
             }

@@ -326,18 +326,22 @@ constructor(
                             val syncFetch = localSourceService.fetchForSync(currentFeed, preDate)
                             if (syncFetch.notModified) return@withPermit
                             val fetchedFeed = syncFetch.feedWithArticle
+                            // 来源抓取阶段可能完成 RSSHub URL 恢复，或把旧版误存的空 Website
+                            // 原地恢复成 RSS。后续清理/入库/通知必须使用本轮实际生效的 Feed，
+                            // 不能继续依赖刷新前的 currentFeed 快照。
+                            val effectiveFeed = fetchedFeed.feed
 
                             val archivedArticles =
                                 feedDao
-                                    .queryArchivedArticles(currentFeed.id)
+                                    .queryArchivedArticles(effectiveFeed.id)
                                     .map { it.link }
                                     .toSet()
-                            if (currentFeed.sourceType == SourceType.WEBSITE) {
+                            if (effectiveFeed.sourceType == SourceType.WEBSITE) {
                                 val existingArticles =
-                                    articleDao.queryAllByFeedId(accountId, currentFeed.id)
+                                    articleDao.queryAllByFeedId(accountId, effectiveFeed.id)
                                 val obsoleteArticleIds =
                                     websiteHelper.findObsoleteArticleIds(
-                                        feed = currentFeed,
+                                        feed = effectiveFeed,
                                         existingArticles = existingArticles,
                                         fetchedArticles = fetchedFeed.articles,
                                     )
@@ -355,25 +359,25 @@ constructor(
                             articleFilterEngine.recordMatches(filterMatches)
 
                             val newArticles =
-                                if (currentFeed.sourceType == SourceType.JSON) {
+                                if (effectiveFeed.sourceType == SourceType.JSON) {
                                     updateJsonArticlesAndInsertNew(
-                                        feed = currentFeed,
+                                        feed = effectiveFeed,
                                         fetchedArticles = fetchedArticles,
                                     )
-                                } else if (currentFeed.sourceType == SourceType.WEBSITE) {
+                                } else if (effectiveFeed.sourceType == SourceType.WEBSITE) {
                                     updateWebsiteArticlesAndInsertNew(
-                                        feed = currentFeed,
+                                        feed = effectiveFeed,
                                         fetchedArticles = fetchedArticles,
                                     )
                                 } else {
                                     articleDao.insertListIfNotExist(
                                         articles = fetchedArticles,
-                                        feed = currentFeed,
+                                        feed = effectiveFeed,
                                     )
                                 }
-                            if (currentFeed.isNotification && newArticles.isNotEmpty()) {
+                            if (effectiveFeed.isNotification && newArticles.isNotEmpty()) {
                                 notificationHelper.notify(
-                                    fetchedFeed.copy(articles = newArticles, feed = currentFeed)
+                                    fetchedFeed.copy(articles = newArticles, feed = effectiveFeed)
                                 )
                             }
                         }

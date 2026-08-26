@@ -12,8 +12,8 @@ import com.rometools.rome.io.SyndFeedInput
 import com.rometools.rome.io.XmlReader
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.ByteArrayInputStream
+import java.io.InputStream
 import java.net.URI
-import java.nio.charset.Charset
 import java.util.*
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineDispatcher
@@ -33,6 +33,8 @@ import me.ash.reader.infrastructure.content.FullContentException
 import me.ash.reader.infrastructure.content.FullContentFailureClassifier
 import me.ash.reader.infrastructure.content.FullContentFailureReason
 import me.ash.reader.infrastructure.html.Readability
+import me.ash.reader.infrastructure.net.HttpTextDecoder
+import me.ash.reader.infrastructure.net.HttpTextKind
 import me.ash.reader.ui.ext.decodeHTML
 import me.ash.reader.ui.ext.extractDomain
 import me.ash.reader.ui.ext.isFuture
@@ -112,7 +114,12 @@ constructor(
                     // 输入普通网页时按浏览器页面请求，避免站点因 OrigRead UA 直接返回 418/403；
                     // 真正的 RSS/XML 候选仍继续使用普通 Feed 请求身份。
                     val pageResponse = websitePageResponse(okHttpClient, inputUrl)
-                    val html = pageResponse.body.string()
+                    val html =
+                        HttpTextDecoder.decode(
+                            bytes = pageResponse.body.bytes(),
+                            contentType = pageResponse.header("Content-Type"),
+                            kind = HttpTextKind.HTML,
+                        )
                     val document = Jsoup.parse(html, inputUrl)
                     val candidates =
                         buildList {
@@ -165,16 +172,12 @@ constructor(
         client: OkHttpClient = okHttpClient,
     ): ParsedFeedResponse {
         response(client, feedUrl).use { response ->
-            val contentType = response.header("Content-Type")
-            val httpContentType =
-                contentType?.let {
-                    if (it.contains("charset=", ignoreCase = true)) it
-                    else "$it; charset=UTF-8"
-                } ?: "text/xml; charset=UTF-8"
             val bytes = response.body.bytes()
             val feed =
-                SyndFeedInput()
-                    .build(XmlReader(ByteArrayInputStream(bytes), httpContentType))
+                parseSyndFeed(
+                    inputStream = ByteArrayInputStream(bytes),
+                    contentType = response.header("Content-Type"),
+                )
                     .also {
                         require(it.title?.isNotBlank() == true || it.entries.isNotEmpty()) {
                             "Feed 内容为空或格式无效：$feedUrl"
@@ -251,39 +254,12 @@ constructor(
             try {
                 val response = articleResponse(okHttpClient, link)
                 if (response.commonIsSuccessful) {
-                    val responseBody = response.body
-                    val charset = responseBody.contentType()?.charset()
                     val content =
-                        responseBody.source().use {
-                            if (charset != null) {
-                                return@use it.readString(charset)
-                            }
-
-                            val peekContent = it.peek().readString(Charsets.UTF_8)
-
-                            val charsetFromMeta =
-                                runCatching {
-                                        val element =
-                                            Jsoup.parse(peekContent, link)
-                                                .selectFirst("meta[http-equiv=content-type]")
-                                        return@runCatching if (element == null) Charsets.UTF_8
-                                        else {
-                                            element
-                                                .attr("content")
-                                                .substringAfter("charset=")
-                                                .removeSurrounding("\"")
-                                                .lowercase()
-                                                .let { Charset.forName(it) }
-                                        }
-                                    }
-                                    .getOrDefault(Charsets.UTF_8)
-
-                            if (charsetFromMeta == Charsets.UTF_8) {
-                                peekContent
-                            } else {
-                                it.readString(charsetFromMeta)
-                            }
-                        }
+                        HttpTextDecoder.decode(
+                            bytes = response.body.bytes(),
+                            contentType = response.header("Content-Type"),
+                            kind = HttpTextKind.HTML,
+                        )
 
                     val staticContent = contentExtractionService.extract(content, link, title)
                     if (staticContent != null) return@withContext staticContent.html
@@ -403,19 +379,14 @@ constructor(
                     throw IOException("RSS request failed with HTTP ${response.code}")
                 }
 
-                val contentType = response.header("Content-Type")
-                val httpContentType =
-                    contentType?.let {
-                        if (it.contains("charset=", ignoreCase = true)) it
-                        else "$it; charset=UTF-8"
-                    } ?: "text/xml; charset=UTF-8"
-
                 val entries =
                     withContext(ioDispatcher) {
                         response.body.byteStream().use { inputStream ->
-                            SyndFeedInput()
-                                .apply { isPreserveWireFeed = true }
-                                .build(XmlReader(inputStream, httpContentType))
+                            parseSyndFeed(
+                                inputStream = inputStream,
+                                contentType = response.header("Content-Type"),
+                                preserveWireFeed = true,
+                            )
                                 .entries
                                 .asSequence()
                                 .takeWhile { latestLink == null || latestLink != it.link }
@@ -665,3 +636,25 @@ constructor(
         const val MAX_RSS_CPU_WORKERS = 4
     }
 }
+
+/**
+ * ROME Feed 解析统一入口。
+ *
+ * HTTP 明确声明 charset 时尊重响应头；若响应头没有 charset，则不要人为补 UTF-8，
+ * 交给 XmlReader 从 BOM / XML declaration 中识别实际编码。这样既兼容 GBK Feed，
+ * 又保留大 RSS 刷新时的流式解析能力。
+ */
+internal fun parseSyndFeed(
+    inputStream: InputStream,
+    contentType: String?,
+    preserveWireFeed: Boolean = false,
+): SyndFeed =
+    SyndFeedInput()
+        .apply { isPreserveWireFeed = preserveWireFeed }
+        .build(
+            if (contentType?.contains("charset=", ignoreCase = true) == true) {
+                XmlReader(inputStream, contentType)
+            } else {
+                XmlReader(inputStream)
+            }
+        )

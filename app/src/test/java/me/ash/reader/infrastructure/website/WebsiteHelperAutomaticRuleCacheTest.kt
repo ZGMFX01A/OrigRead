@@ -2,6 +2,7 @@ package me.ash.reader.infrastructure.website
 
 import android.content.Context
 import java.nio.file.Files
+import java.nio.charset.Charset
 import java.util.Date
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -11,6 +12,7 @@ import me.ash.reader.infrastructure.content.ArticleWebSessionManager
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okio.Buffer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -68,6 +70,17 @@ class WebsiteHelperAutomaticRuleCacheTest {
         assertEquals(5, inspected.entries.mapNotNull { it.link }.distinct().size)
         assertNotNull(inspected.entries.first().publishedDate)
         assertEquals(TEST_BROWSER_USER_AGENT, request.getHeader("User-Agent"))
+    }
+
+    @Test
+    fun `static website inspection honors GBK charset from HTTP response`() = runBlocking {
+        server.enqueue(gbkHtmlResponse(sample("website-samples/url-clusters.html")))
+
+        val inspected = helper.inspect(feed.url, FETCHED_AT)
+
+        assertEquals("Example News", inspected.title)
+        assertEquals(5, inspected.entries.size)
+        assertEquals("原读完成正文提取能力升级", inspected.entries.first().title)
     }
 
     @Test
@@ -172,6 +185,12 @@ class WebsiteHelperAutomaticRuleCacheTest {
             .setResponseCode(200)
             .setHeader("Content-Type", "text/html; charset=utf-8")
             .setBody(body)
+
+    private fun gbkHtmlResponse(body: String) =
+        MockResponse()
+            .setResponseCode(200)
+            .setHeader("Content-Type", "text/html; charset=gbk")
+            .setBody(Buffer().write(body.toByteArray(Charset.forName("GB18030"))))
 
     private fun sample(path: String): String =
         requireNotNull(javaClass.classLoader?.getResource(path)) { "Missing test resource: $path" }

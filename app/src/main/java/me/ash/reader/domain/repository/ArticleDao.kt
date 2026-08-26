@@ -418,6 +418,16 @@ interface ArticleDao {
     )
     suspend fun queryAllByFeedId(accountId: Int, feedId: String): List<Article>
 
+    /** 来源类型兼容恢复只需要判断是否已有历史文章，避免为此加载整份文章列表。 */
+    @Query(
+        """
+        SELECT COUNT(1) FROM article
+        WHERE accountId = :accountId
+        AND feedId = :feedId
+        """
+    )
+    suspend fun countByFeedId(accountId: Int, feedId: String): Int
+
     @Query("DELETE FROM article WHERE id IN (:articleIds)")
     suspend fun deleteByIds(articleIds: List<String>)
 

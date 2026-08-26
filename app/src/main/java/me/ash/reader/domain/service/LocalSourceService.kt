@@ -5,6 +5,8 @@ import javax.inject.Inject
 import me.ash.reader.domain.model.feed.Feed
 import me.ash.reader.domain.model.feed.FeedWithArticle
 import me.ash.reader.domain.model.feed.SourceType
+import me.ash.reader.domain.model.feed.normalizeRssReadingMode
+import me.ash.reader.domain.repository.ArticleDao
 import me.ash.reader.domain.repository.FeedDao
 import me.ash.reader.infrastructure.json.JsonSourceHelper
 import me.ash.reader.infrastructure.rss.RssHelper
@@ -13,12 +15,14 @@ import me.ash.reader.infrastructure.rss.RssHttpCacheDao
 import me.ash.reader.infrastructure.rsshub.RssHubResolver
 import me.ash.reader.infrastructure.rsshub.RssHubSubscriptionRepository
 import me.ash.reader.infrastructure.website.WebsiteHelper
+import kotlinx.coroutines.CancellationException
 
 /**
  * 本地资讯来源同步入口，根据来源类型分派具体抓取逻辑。
  */
 class LocalSourceService @Inject constructor(
     private val feedDao: FeedDao,
+    private val articleDao: ArticleDao,
     private val rssHelper: RssHelper,
     private val rssHttpCacheDao: RssHttpCacheDao,
     private val websiteHelper: WebsiteHelper,
@@ -38,14 +42,14 @@ class LocalSourceService @Inject constructor(
     suspend fun fetch(feed: Feed, preDate: Date = Date()): FeedWithArticle =
         when (feed.sourceType) {
             SourceType.RSS -> fetchRss(feed, preDate)
-            SourceType.WEBSITE -> fetchWebsite(feed, preDate)
+            SourceType.WEBSITE -> fetchWebsiteWithRssRecovery(feed, preDate)
             SourceType.JSON -> jsonSourceHelper.fetch(feed, preDate)
         }
 
     suspend fun fetchForSync(feed: Feed, preDate: Date = Date()): SyncFetchResult =
         when (feed.sourceType) {
             SourceType.RSS -> fetchRssForSync(feed, preDate)
-            SourceType.WEBSITE -> SyncFetchResult(fetchWebsite(feed, preDate))
+            SourceType.WEBSITE -> SyncFetchResult(fetchWebsiteWithRssRecovery(feed, preDate))
             SourceType.JSON -> SyncFetchResult(jsonSourceHelper.fetch(feed, preDate))
         }
 
@@ -154,6 +158,55 @@ class LocalSourceService @Inject constructor(
         val articles = websiteHelper.fetchArticles(feed, preDate)
         return FeedWithArticle(
             feed = feed.copy(isNotification = feed.isNotification && articles.isNotEmpty()),
+            articles = articles,
+        )
+    }
+
+    /**
+     * 兼容旧版把真实 RSS/Atom URL 错存成 Website 的空来源。
+     *
+     * 正常 Website 先按原逻辑刷新；只有刷新失败且该来源当前 0 篇文章时，才对同一 URL
+     * 做一次 direct RSS 解析。解析出非空结构化 Feed 后原地改为 RSS，已有文章的网站绝不改类型。
+     */
+    private suspend fun fetchWebsiteWithRssRecovery(feed: Feed, preDate: Date): FeedWithArticle =
+        try {
+            fetchWebsite(feed, preDate)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (websiteError: Exception) {
+            recoverMisclassifiedWebsiteRss(feed, preDate) ?: throw websiteError
+        }
+
+    private suspend fun recoverMisclassifiedWebsiteRss(feed: Feed, preDate: Date): FeedWithArticle? {
+        if (articleDao.countByFeedId(feed.accountId, feed.id) > 0) return null
+
+        val discovered =
+            try {
+                rssHelper.parseFeedDirect(feedUrl = feed.url, iconSourceUrl = "")
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                return null
+            }
+        if (discovered.entries.isNullOrEmpty()) return null
+
+        val recoveredFeed =
+            feed.copy(
+                name = discovered.title?.takeIf { it.isNotBlank() } ?: feed.name,
+                icon = discovered.icon?.url ?: feed.icon,
+                sourceType = SourceType.RSS,
+            ).normalizeRssReadingMode()
+        val articles =
+            rssHelper.buildArticlesFromSyndEntries(
+                feed = recoveredFeed,
+                accountId = feed.accountId,
+                entries = discovered.entries,
+                preDate = preDate,
+            )
+
+        feedDao.update(recoveredFeed)
+        return FeedWithArticle(
+            feed = recoveredFeed.copy(isNotification = feed.isNotification && articles.isNotEmpty()),
             articles = articles,
         )
     }

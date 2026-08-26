@@ -16,8 +16,11 @@ import me.ash.reader.domain.model.feed.Feed
 import me.ash.reader.domain.model.feed.SourceType
 import me.ash.reader.infrastructure.content.ArticleWebSessionManager
 import me.ash.reader.infrastructure.di.IODispatcher
+import me.ash.reader.infrastructure.net.HttpTextDecoder
+import me.ash.reader.infrastructure.net.HttpTextKind
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import org.jsoup.Jsoup
 
 /** 无人工规则的网站超过该 HTML 字符数时不再执行自动 DOM 识别。 */
@@ -45,7 +48,7 @@ class WebsiteHelper @Inject constructor(
         val request = websiteRequest(url)
         okHttpClient.newCall(request).execute().use { response ->
             check(response.isSuccessful) { "网站请求失败：HTTP ${response.code}" }
-            val html = response.body.string()
+            val html = decodeHtmlResponse(response)
             buildInspectableFeed(
                 sourceUrl = url,
                 documentBaseUrl = response.request.url.toString(),
@@ -104,7 +107,7 @@ class WebsiteHelper @Inject constructor(
             val request = websiteRequest(feed.url)
             okHttpClient.newCall(request).execute().use { response ->
                 check(response.isSuccessful) { "网站请求失败：HTTP ${response.code}" }
-                val html = response.body.string()
+                val html = decodeHtmlResponse(response)
                 ensureAutomaticParsingAllowed(feed, html)
                 val document = Jsoup.parse(html, feed.url)
                 buildCandidateBatch(
@@ -167,7 +170,7 @@ class WebsiteHelper @Inject constructor(
                 val request = websiteRequest(feed.url)
                 okHttpClient.newCall(request).execute().use { response ->
                     check(response.isSuccessful) { "网站请求失败：HTTP ${response.code}" }
-                    val html = response.body.string()
+                    val html = decodeHtmlResponse(response)
                     ensureAutomaticParsingAllowed(feed, html)
                     parseAndRecordSelection(
                         feed = feed,
@@ -286,7 +289,7 @@ class WebsiteHelper @Inject constructor(
         val request = websiteRequest(url)
         okHttpClient.newCall(request).execute().use { response ->
             check(response.isSuccessful) { "网站请求失败：HTTP ${response.code}" }
-            val document = Jsoup.parse(response.body.string(), url)
+            val document = Jsoup.parse(decodeHtmlResponse(response), url)
             selectBestCandidate(
                 document = document,
                 feed = Feed(
@@ -317,6 +320,14 @@ class WebsiteHelper @Inject constructor(
             )
             .header("Upgrade-Insecure-Requests", "1")
             .build()
+
+    /** 静态网页统一按 HTTP charset / HTML meta / BOM 解码，避免非 UTF-8 站点乱码。 */
+    private fun decodeHtmlResponse(response: Response): String =
+        HttpTextDecoder.decode(
+            bytes = response.body.bytes(),
+            contentType = response.header("Content-Type"),
+            kind = HttpTextKind.HTML,
+        )
 
     /** 对同一页面执行全部匹配规则，并选择通过健康检查且得分最高的结果。 */
     private fun selectBestCandidate(
