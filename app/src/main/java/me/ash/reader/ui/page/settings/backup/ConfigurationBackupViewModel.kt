@@ -1,5 +1,6 @@
 package me.ash.reader.ui.page.settings.backup
 
+import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -16,6 +17,7 @@ import me.ash.reader.infrastructure.backup.ConfigurationBackupSummary
 import me.ash.reader.infrastructure.backup.ConfigurationRestoreResult
 import me.ash.reader.infrastructure.di.IODispatcher
 import me.ash.reader.infrastructure.di.MainDispatcher
+import me.ash.reader.infrastructure.editionsync.EditionSyncTransferManager
 
 data class ConfigurationBackupUiState(
     val isWorking: Boolean = false,
@@ -26,11 +28,34 @@ data class ConfigurationBackupUiState(
 @HiltViewModel
 class ConfigurationBackupViewModel @Inject constructor(
     private val backupService: ConfigurationBackupService,
+    private val editionSyncTransferManager: EditionSyncTransferManager,
     @IODispatcher private val ioDispatcher: CoroutineDispatcher,
     @MainDispatcher private val mainDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(ConfigurationBackupUiState())
     val uiState: StateFlow<ConfigurationBackupUiState> = _uiState.asStateFlow()
+
+    /**
+     * 创建发送给另一 Edition 的一次性加密同步 Intent。
+     * 快照、配置与凭据收集都在 IO dispatcher 执行，Intent 仅在全部数据准备成功后交回 UI 启动。
+     */
+    fun createEditionSyncIntent(
+        includeSecrets: Boolean,
+        callback: (Result<Intent>) -> Unit,
+    ) {
+        if (_uiState.value.isWorking) return
+        _uiState.update { it.copy(isWorking = true) }
+        viewModelScope.launch(ioDispatcher) {
+            val result =
+                runCatching {
+                    editionSyncTransferManager.createPeerTransferIntent(includeSecrets = includeSecrets)
+                }
+            withContext(mainDispatcher) {
+                _uiState.update { it.copy(isWorking = false) }
+                callback(result)
+            }
+        }
+    }
 
     /** 生成备份内容。密码只作为本次调用参数使用，不进入 ViewModel 状态。 */
     fun exportBackup(

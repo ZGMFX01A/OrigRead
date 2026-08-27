@@ -23,6 +23,16 @@ private const val ARTICLE_LINK_QUERY_CHUNK_SIZE = 800
 @Dao
 interface ArticleDao {
 
+    /** Edition 同机同步需要按当前账户导出完整文章快照；只返回 Article 本体，不加载 Feed 关系。 */
+    @Query(
+        """
+        SELECT * FROM article
+        WHERE accountId = :accountId
+        ORDER BY date ASC, id ASC
+        """
+    )
+    suspend fun queryAllByAccountId(accountId: Int): List<Article>
+
     @Query(
         """
         UPDATE article SET isStarred = :isStarred 

@@ -11,6 +11,11 @@
     <queries>
         <package android:name="md.obsidian" />
         <package android:name="notion.id" />
+        <!-- P7：同设备 Standard / LLM 互相发现；Google Play flavor 使用独立 applicationId 后缀。 -->
+        <package android:name="me.ash.reader" />
+        <package android:name="me.ash.reader.llm" />
+        <package android:name="me.ash.reader.google.play" />
+        <package android:name="me.ash.reader.llm.google.play" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
 
@@ -96,6 +101,13 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
+        <!-- 只由另一 Edition 通过显式 Component 启动；Activity 内再次校验包名、URI authority 与签名。 -->
+        <activity
+            android:name=".infrastructure.editionsync.EditionSyncImportActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:noHistory="true"
+            android:theme="@style/Theme.Reader" />
         <activity
             android:name=".infrastructure.android.CrashReportActivity"
             android:exported="false"

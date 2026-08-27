@@ -32,16 +32,20 @@ sealed class KeepArchivedPreference(
         }
 
     companion object {
+        // Getter 避免首次直接访问某个保留周期子类时，父类初始化捕获尚未就绪的 object INSTANCE。
+        val default: KeepArchivedPreference
+            get() = For1Month
 
-        val default = For1Month
-        val values = listOf(
-            Always,
-            For1Day,
-            For2Days,
-            For3Days,
-            For1Week,
-            For2Weeks,
-            For1Month,
-        )
+        val values: List<KeepArchivedPreference>
+            get() =
+                listOf(
+                    Always,
+                    For1Day,
+                    For2Days,
+                    For3Days,
+                    For1Week,
+                    For2Weeks,
+                    For1Month,
+                )
     }
 }

@@ -18,6 +18,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Restore
+import androidx.compose.material.icons.outlined.SyncAlt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -39,7 +40,9 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import me.ash.reader.BuildConfig
 import me.ash.reader.R
+import me.ash.reader.infrastructure.editionsync.EditionSyncContract
 import me.ash.reader.ui.component.base.Banner
 import me.ash.reader.ui.component.base.DisplayText
 import me.ash.reader.ui.component.base.FeedbackIconButton
@@ -59,6 +62,16 @@ fun ConfigurationBackupPage(
     var includeSecrets by remember { mutableStateOf(false) }
     var exportPassword by remember { mutableStateOf("") }
     var restorePassword by remember { mutableStateOf("") }
+
+    val editionSyncLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val message =
+                result.data?.getStringExtra(EditionSyncContract.EXTRA_RESULT_MESSAGE)
+                    ?.takeIf(String::isNotBlank)
+            if (message != null) {
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            }
+        }
 
     val exportLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(MimeType.JSON)) { uri ->
@@ -134,6 +147,37 @@ fun ConfigurationBackupPage(
                         desc = stringResource(R.string.configuration_backup_scope_desc),
                     )
                 }
+                item {
+                    val targetName =
+                        if (BuildConfig.EDITION == "llm") {
+                            stringResource(R.string.edition_sync_standard_name)
+                        } else {
+                            stringResource(R.string.edition_sync_llm_name)
+                        }
+                    SettingItem(
+                        enabled = !state.isWorking,
+                        title = stringResource(R.string.edition_sync_send_title, targetName),
+                        desc = stringResource(R.string.edition_sync_send_desc),
+                        icon = Icons.Outlined.SyncAlt,
+                        onClick = {
+                            viewModel.createEditionSyncIntent(includeSecrets = includeSecrets) { result ->
+                                result.fold(
+                                    onSuccess = editionSyncLauncher::launch,
+                                    onFailure = { error ->
+                                        Toast.makeText(
+                                            context,
+                                            error.message ?: context.getString(R.string.edition_sync_failed),
+                                            Toast.LENGTH_LONG,
+                                        ).show()
+                                    },
+                                )
+                            }
+                        },
+                    ) {
+                        if (state.isWorking) CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                    }
+                }
+                item { Spacer(modifier = Modifier.height(12.dp)) }
                 item {
                     SettingItem(
                         title = stringResource(R.string.configuration_backup_include_secrets),

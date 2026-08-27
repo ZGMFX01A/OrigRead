@@ -22,9 +22,12 @@ sealed class SyncOnlyWhenChargingPreference(
         }
 
     companion object {
+        // Getter 避免首次直接访问 On/Off 子类时，父类初始化把尚未就绪的 object INSTANCE 固化为 null。
+        val default: SyncOnlyWhenChargingPreference
+            get() = Off
 
-        val default = Off
-        val values = listOf(On, Off)
+        val values: List<SyncOnlyWhenChargingPreference>
+            get() = listOf(On, Off)
     }
 }
 

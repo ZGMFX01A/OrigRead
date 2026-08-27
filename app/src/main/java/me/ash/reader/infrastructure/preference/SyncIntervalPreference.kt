@@ -43,18 +43,22 @@ sealed class SyncIntervalPreference(
         PeriodicWorkRequestBuilder<SyncWorker>(value, TimeUnit.MINUTES)
 
     companion object {
+        // 不使用引用嵌套 object 的 backing field，避免 JVM 首次从 Every30Minutes 等子类进入时固化未初始化的 null。
+        val default: SyncIntervalPreference
+            get() = Every30Minutes
 
-        val default = Every30Minutes
-        val values = listOf(
-            Manually,
-            Every15Minutes,
-            Every30Minutes,
-            Every1Hour,
-            Every2Hours,
-            Every3Hours,
-            Every6Hours,
-            Every12Hours,
-            Every1Day,
-        )
+        val values: List<SyncIntervalPreference>
+            get() =
+                listOf(
+                    Manually,
+                    Every15Minutes,
+                    Every30Minutes,
+                    Every1Hour,
+                    Every2Hours,
+                    Every3Hours,
+                    Every6Hours,
+                    Every12Hours,
+                    Every1Day,
+                )
     }
 }
