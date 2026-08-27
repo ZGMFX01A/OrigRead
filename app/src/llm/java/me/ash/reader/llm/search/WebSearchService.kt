@@ -18,6 +18,7 @@ class WebSearchService @Inject constructor(
     perplexity: PerplexityWebSearchProvider,
     linkup: LinkupWebSearchProvider,
     firecrawl: FirecrawlWebSearchProvider,
+    keenable: KeenableWebSearchProvider,
     searxng: SearxngWebSearchProvider,
 ) {
     private val adapters: Map<WebSearchProviderKind, WebSearchProviderAdapter> =
@@ -28,6 +29,7 @@ class WebSearchService @Inject constructor(
                 perplexity,
                 linkup,
                 firecrawl,
+                keenable,
                 searxng,
             )
             .associateBy(WebSearchProviderAdapter::kind)

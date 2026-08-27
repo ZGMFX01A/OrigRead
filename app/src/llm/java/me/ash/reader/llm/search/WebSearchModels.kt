@@ -21,6 +21,7 @@ enum class WebSearchProviderKind(
     val defaultEndpoint: String,
     val backendKind: WebSearchBackendKind,
     val requiresApiKey: Boolean = true,
+    val supportsApiKey: Boolean = true,
 ) {
     EXA("Exa", "https://api.exa.ai/search", WebSearchBackendKind.RAW_SEARCH),
     TAVILY("Tavily", "https://api.tavily.com/search", WebSearchBackendKind.RAW_SEARCH),
@@ -40,11 +41,19 @@ enum class WebSearchProviderKind(
         "https://api.firecrawl.dev/v2/search",
         WebSearchBackendKind.RAW_SEARCH,
     ),
+    KEENABLE(
+        "Keenable",
+        "https://api.keenable.ai/v1/search/public",
+        WebSearchBackendKind.RAW_SEARCH,
+        requiresApiKey = false,
+        supportsApiKey = true,
+    ),
     SEARXNG(
         "SearXNG",
         "",
         WebSearchBackendKind.RAW_SEARCH,
         requiresApiKey = false,
+        supportsApiKey = false,
     ),
 }
 

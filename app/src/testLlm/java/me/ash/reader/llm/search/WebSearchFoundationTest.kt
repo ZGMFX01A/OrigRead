@@ -253,6 +253,107 @@ class WebSearchFoundationTest {
     }
 
     @Test
+    fun `keenable keyless adapter uses app title and normalized request body`() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(200)
+                    .setHeader("Content-Type", "application/json")
+                    .setBody("""{"query":"android","results":[]}""")
+            )
+            val provider = KeenableWebSearchProvider(AiHttpClient(), Dispatchers.IO)
+            provider.search(
+                profile =
+                    WebSearchProviderProfile(
+                        id = "keenable-public",
+                        kind = WebSearchProviderKind.KEENABLE,
+                        endpoint = server.url("/v1/search/public").toString(),
+                    ),
+                apiKey = "",
+                request = WebSearchRequest(query = "android web search", maxResults = 4),
+            )
+
+            val recorded = server.takeRequest()
+            assertEquals("OrigRead", recorded.getHeader("X-Keenable-Title"))
+            assertEquals(null, recorded.getHeader("X-API-Key"))
+            val json = JSONObject(recorded.body.readUtf8())
+            assertEquals("android web search", json.getString("query"))
+            assertEquals(4, json.getInt("max_results"))
+            assertFalse(WebSearchProviderKind.KEENABLE.requiresApiKey)
+            assertTrue(WebSearchProviderKind.KEENABLE.supportsApiKey)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `keenable keyed adapter sends api key and normalizes response`() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(200)
+                    .setHeader("Content-Type", "application/json")
+                    .setBody(
+                        """
+                        {
+                          "query": "android",
+                          "results": [{
+                            "title": "Keenable result",
+                            "url": "https://example.com/keenable",
+                            "description": "short description",
+                            "snippet": "longer search snippet",
+                            "published_at": "2026-08-27T10:00:00Z"
+                          }]
+                        }
+                        """.trimIndent()
+                    )
+            )
+            val provider = KeenableWebSearchProvider(AiHttpClient(), Dispatchers.IO)
+            val response =
+                provider.search(
+                    profile =
+                        WebSearchProviderProfile(
+                            id = "keenable-keyed",
+                            kind = WebSearchProviderKind.KEENABLE,
+                            endpoint = server.url("/v1/search").toString(),
+                        ),
+                    apiKey = "keen-secret",
+                    request = WebSearchRequest(query = "android", maxResults = 5),
+                )
+
+            val recorded = server.takeRequest()
+            assertEquals("keen-secret", recorded.getHeader("X-API-Key"))
+            assertEquals(null, recorded.getHeader("X-Keenable-Title"))
+            assertEquals("Keenable result", response.results.single().title)
+            assertEquals("longer search snippet", response.results.single().snippet)
+            assertEquals("2026-08-27T10:00:00Z", response.results.single().publishedAt)
+            assertEquals("example.com", response.results.single().source)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `keenable official endpoint switches between public and keyed variants`() {
+        assertEquals(
+            "https://api.keenable.ai/v1/search/public",
+            resolveKeenableEndpoint("https://api.keenable.ai/v1/search", hasApiKey = false),
+        )
+        assertEquals(
+            "https://api.keenable.ai/v1/search",
+            resolveKeenableEndpoint("https://api.keenable.ai/v1/search/public", hasApiKey = true),
+        )
+        assertEquals(
+            "https://search.example.com/custom",
+            resolveKeenableEndpoint("https://search.example.com/custom", hasApiKey = true),
+        )
+    }
+
+    @Test
     fun `searxng adapter needs no api key and requests json format`() = runBlocking {
         val server = MockWebServer()
         server.start()

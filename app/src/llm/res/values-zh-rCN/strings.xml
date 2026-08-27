@@ -213,6 +213,7 @@
     <string name="llm_web_search_delete">删除搜索服务</string>
     <string name="llm_web_search_provider_type">搜索服务</string>
     <string name="llm_web_search_self_hosted_endpoint">自托管 /search Endpoint</string>
+    <string name="llm_web_search_api_key_optional">API Key 可选。未填写时 Keenable 使用公共端点；保存 Key 后自动切换到认证端点。</string>
     <string name="llm_web_search_no_api_key_required">标准 SearXNG API 不需要 API Key。</string>
     <string name="llm_web_search_test">测活</string>
     <string name="llm_web_search_testing">正在测试搜索服务…</string>

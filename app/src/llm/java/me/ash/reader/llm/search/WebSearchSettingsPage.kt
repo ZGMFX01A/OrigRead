@@ -380,7 +380,7 @@ private fun SearchProviderCard(
                 singleLine = true,
                 label = { Text(stringResource(R.string.llm_web_search_endpoint)) },
             )
-            if (provider.kind.requiresApiKey) {
+            if (provider.kind.supportsApiKey) {
                 OutlinedTextField(
                     value = keyDraft,
                     onValueChange = onKeyChange,
@@ -390,6 +390,13 @@ private fun SearchProviderCard(
                     placeholder = { if (hasApiKey) Text("••••••••") },
                     visualTransformation = PasswordVisualTransformation(),
                 )
+                if (!provider.kind.requiresApiKey) {
+                    Text(
+                        text = stringResource(R.string.llm_web_search_api_key_optional),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             } else {
                 Text(
                     text = stringResource(R.string.llm_web_search_no_api_key_required),
@@ -463,7 +470,7 @@ private fun SearchProviderCard(
                             Text(stringResource(R.string.llm_web_search_set_default))
                         }
                     }
-                    if (provider.kind.requiresApiKey) {
+                    if (provider.kind.supportsApiKey) {
                         TextButton(onClick = onSaveKey) {
                             Text(stringResource(R.string.llm_web_search_save_key))
                         }
