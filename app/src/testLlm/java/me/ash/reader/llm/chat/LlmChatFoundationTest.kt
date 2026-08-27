@@ -53,6 +53,7 @@ import me.ash.reader.llm.runtime.LlmToolDescriptor
 import me.ash.reader.llm.runtime.LlmToolSource
 import me.ash.reader.llm.runtime.ModelCapability
 import me.ash.reader.llm.runtime.ReasoningParameterStyle
+import me.ash.reader.llm.runtime.estimateLlmTokens
 import me.ash.reader.ui.page.home.reading.ArticleAssistantContext
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -65,6 +66,162 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LlmChatFoundationTest {
+    @Test
+    fun `p6 combined context budget keeps explicit and current article evidence ahead of attachments`() {
+        val current =
+            ArticleAssistantContext(
+                articleId = "current",
+                title = "Current",
+                link = "https://example.com/current",
+                originalContent = "current original evidence",
+                summary = "current summary evidence",
+                translatedTitle = "Current translated",
+                translatedContent = "current translated evidence",
+                selectedText = "explicit selected evidence",
+            )
+        val attachments =
+            listOf(
+                LlmArticleAttachment(
+                    articleId = "second",
+                    title = "Second",
+                    link = "https://example.com/second",
+                    originalContent = "second original evidence",
+                    summary = "second summary evidence",
+                )
+            )
+        val webSearch =
+            LlmContextItem(
+                id = "web-search:test:1",
+                type = LlmContextType.WEB_SEARCH_RESULT,
+                title = "Fresh evidence",
+                sourceId = "https://example.com/web",
+                content = "fresh web evidence",
+                priority = 110,
+            )
+        val candidates =
+            buildRequestArticleContextItems(
+                currentArticle = current,
+                attachments = attachments,
+                includeAdditionalArticles = true,
+            ) + webSearch
+        val expectedIncluded =
+            listOf(
+                "article:current:selection",
+                "article:current:summary",
+                "article:current:translation",
+                "web-search:test:1",
+                "article:current:original",
+            )
+        val composer = LlmContextComposer()
+        val core =
+            composer.compose(
+                items = candidates.filter { it.id in expectedIncluded },
+                policy = LlmContextPolicy(maxTokens = 4_096),
+            )
+        val composed =
+            composer.compose(
+                items = candidates,
+                // 用刚好容纳高优先级核心来源的预算验证低优先级附加文章不会挤掉当前文章正文。
+                policy = LlmContextPolicy(maxTokens = estimateLlmTokens(core.text)),
+            )
+
+        assertEquals(expectedIncluded, composed.includedIds)
+        assertEquals(
+            listOf("article:second:summary", "article:second:original"),
+            composed.omittedIds,
+        )
+
+        val refs =
+            buildRequestContextRefEntities(
+                conversationId = "conversation",
+                assistantMessageId = "assistant",
+                candidates = candidates,
+                composed = composed,
+                toolCalls = emptyList(),
+                createdAt = 1L,
+            )
+        assertEquals(
+            listOf("[R1]", "[R2]", "[R3]", "[R4]", "[R5]"),
+            refs.sortedBy { it.citationIndex ?: Int.MAX_VALUE }.mapNotNull { it.citationToken() },
+        )
+        refs.filter { it.contextId.startsWith("article:second:") }.forEach { ref ->
+            assertFalse(ref.includedInPrompt)
+            assertNull(ref.citationIndex)
+            assertNull(ref.citationToken())
+        }
+    }
+
+    @Test
+    fun `p6 frozen request refs survive later summary and attachment changes`() {
+        val composer = LlmContextComposer()
+        val firstCandidates =
+            buildRequestArticleContextItems(
+                currentArticle =
+                    ArticleAssistantContext(
+                        articleId = "current",
+                        title = "Current",
+                        link = "https://example.com/current",
+                        originalContent = "stable original",
+                        summary = "old summary",
+                    ),
+                attachments =
+                    listOf(
+                        LlmArticleAttachment(
+                            articleId = "second",
+                            title = "Second",
+                            link = "https://example.com/second",
+                            originalContent = "old second snapshot",
+                        )
+                    ),
+                includeAdditionalArticles = true,
+            )
+        val firstComposed = composer.compose(firstCandidates, LlmContextPolicy(maxTokens = 4_096))
+        val firstRefs =
+            buildRequestContextRefEntities(
+                conversationId = "conversation",
+                assistantMessageId = "assistant-old",
+                candidates = firstCandidates,
+                composed = firstComposed,
+                toolCalls = emptyList(),
+                createdAt = 1L,
+            )
+
+        val secondCandidates =
+            buildRequestArticleContextItems(
+                currentArticle =
+                    ArticleAssistantContext(
+                        articleId = "current",
+                        title = "Current",
+                        link = "https://example.com/current",
+                        originalContent = "stable original",
+                        summary = "new summary",
+                    ),
+                attachments = emptyList(),
+                includeAdditionalArticles = true,
+            )
+        val secondComposed = composer.compose(secondCandidates, LlmContextPolicy(maxTokens = 4_096))
+        val secondRefs =
+            buildRequestContextRefEntities(
+                conversationId = "conversation",
+                assistantMessageId = "assistant-new",
+                candidates = secondCandidates,
+                composed = secondComposed,
+                toolCalls = emptyList(),
+                createdAt = 2L,
+            )
+
+        val oldSummary = firstRefs.single { it.contextId == "article:current:summary" }
+        val oldAttachment = firstRefs.single { it.contextId == "article:second:original" }
+        val newSummary = secondRefs.single { it.contextId == "article:current:summary" }
+        assertEquals("old summary", oldSummary.contentSnapshot)
+        assertEquals("old second snapshot", oldAttachment.contentSnapshot)
+        assertEquals("new summary", newSummary.contentSnapshot)
+        assertTrue(secondRefs.none { it.contextId.startsWith("article:second:") })
+        assertFalse(oldSummary.id == newSummary.id)
+        assertEquals("[R1]", oldSummary.citationToken())
+        assertEquals("[R1]", newSummary.citationToken())
+    }
+
     @Test
     fun `multi article context reuses runtime items and keeps current article priority first`() {
         val current =

@@ -377,6 +377,7 @@ class LlmChatViewModel @Inject constructor(
                             )
                         }
                     } else if (selectedId != null && conversations.none { it.id == selectedId }) {
+                        clearConversationScopedTransientContext()
                         selectConversationInternal(
                             conversations.firstOrNull()?.id,
                             nextConversationSelectionRevision(),
@@ -436,6 +437,7 @@ class LlmChatViewModel @Inject constructor(
         if (articleContext.value == null) return
         stopGeneration()
         nextConversationSelectionRevision()
+        clearConversationScopedTransientContext()
         conversationSelectionInitialized = true
         selectedConversationId.value = null
         val settings = settingsRepository.current()
@@ -450,7 +452,6 @@ class LlmChatViewModel @Inject constructor(
                 currentConversationId = null,
                 messages = emptyList(),
                 contextRefs = emptyList(),
-                additionalArticleAttachments = emptyList(),
                 transientError = null,
             )
         }
@@ -463,9 +464,25 @@ class LlmChatViewModel @Inject constructor(
         stopGeneration()
         conversationSelectionInitialized = true
         val selectionRevision = nextConversationSelectionRevision()
-        // 先清空旧附件避免异步 Room 恢复完成前短暂把另一会话的文章显示/带入当前状态。
-        _uiState.update { it.copy(additionalArticleAttachments = emptyList()) }
+        clearConversationScopedTransientContext()
         viewModelScope.launch { selectConversationInternal(conversationId, selectionRevision) }
+    }
+
+    /**
+     * 清空不具备跨会话持久身份的临时 Context。
+     *
+     * 多文章附件会在目标历史会话中从 Room 重新恢复；手动 Tool Context 只是当前会话内存附件，不能静默继承。
+     */
+    private fun clearConversationScopedTransientContext() {
+        manualToolJob?.cancel(CancellationException("会话已切换"))
+        _uiState.update {
+            it.copy(
+                additionalArticleAttachments = emptyList(),
+                manualToolContexts = emptyList(),
+                pendingManualTool = null,
+                manualToolRunning = false,
+            )
+        }
     }
 
     /**
@@ -875,7 +892,11 @@ class LlmChatViewModel @Inject constructor(
 
     /** 删除指定会话；若正在生成该会话，先终止网络请求。 */
     fun deleteConversation(conversationId: String) {
-        if (conversationId == selectedConversationId.value) stopGeneration()
+        if (conversationId == selectedConversationId.value) {
+            stopGeneration()
+            nextConversationSelectionRevision()
+            clearConversationScopedTransientContext()
+        }
         viewModelScope.launch { repository.deleteConversation(conversationId) }
     }
 
@@ -942,6 +963,7 @@ class LlmChatViewModel @Inject constructor(
     ) {
         if (manualToolJob?.isCompleted == false) return
         val articleId = articleContext.value?.articleId ?: return
+        val selectionRevision = conversationSelectionRevision
         val job =
             viewModelScope.launch(start = CoroutineStart.LAZY) {
                 _uiState.update { it.copy(manualToolRunning = true, transientError = null) }
@@ -957,8 +979,13 @@ class LlmChatViewModel @Inject constructor(
                             profile = LlmExecutionProfile(enabledToolIds = setOf(request.descriptor.id)),
                             confirmed = confirmed,
                         )
-                    // 切文章期间即使远端已经完成，也不允许把旧文章 Tool Result 附到新文章。
-                    if (articleContext.value?.articleId != articleId) return@launch
+                    // 切文章/会话期间即使远端已经完成，也不允许把旧请求的 Tool Result 附到新上下文。
+                    if (
+                        articleContext.value?.articleId != articleId ||
+                            conversationSelectionRevision != selectionRevision
+                    ) {
+                        return@launch
+                    }
                     when (result) {
                         is LlmToolResult.Success -> {
                             val context =

@@ -133,6 +133,26 @@ fun ReadingPage(
     var showReadingShareFirstUse by remember { mutableStateOf(false) }
     var showReadingShareConfig by remember { mutableStateOf(false) }
 
+    /**
+     * 打开文章助手时显式确定本次 Selection 生命周期。
+     * 普通 Ask / 深度分析必须清掉旧选区，只有本次真正由正文选区触发时才携带 selectedText。
+     */
+    fun openArticleAssistant(
+        selectedText: String? = null,
+        analyzeArticle: Boolean = false,
+    ) {
+        selectedTextForAssistant = selectedText?.trim()?.takeIf(String::isNotBlank)
+        articleAnalysisRequested = analyzeArticle
+        showArticleAssistant = true
+    }
+
+    /** 关闭助手即结束本次临时 Selection，防止同一文章稍后从普通入口重开时静默复用旧选区。 */
+    fun dismissArticleAssistant() {
+        showArticleAssistant = false
+        articleAnalysisRequested = false
+        selectedTextForAssistant = null
+    }
+
     var currentImageData by remember { mutableStateOf(ImageData()) }
 
     val isShowToolBar =
@@ -549,7 +569,7 @@ fun ReadingPage(
                                                 onRegenerate = { showAiSummaryOptions = true },
                                                 onAskArticle =
                                                     if (isLlmEdition) {
-                                                        { showArticleAssistant = true }
+                                                        { openArticleAssistant() }
                                                     } else {
                                                         null
                                                     },
@@ -637,8 +657,7 @@ fun ReadingPage(
                                                 onSelectedTextAction =
                                                     if (isLlmEdition) {
                                                         { selectedText ->
-                                                            selectedTextForAssistant = selectedText
-                                                            showArticleAssistant = true
+                                                            openArticleAssistant(selectedText = selectedText)
                                                         }
                                                     } else {
                                                         null
@@ -703,8 +722,7 @@ fun ReadingPage(
             articleAssistantContext != null &&
                 readingRenderer == ReadingRendererPreference.NativeComponent,
         onSelectedText = { selectedText ->
-            selectedTextForAssistant = selectedText
-            showArticleAssistant = true
+            openArticleAssistant(selectedText = selectedText)
         },
     )
     EditionArticleAssistantSheet(
@@ -712,7 +730,7 @@ fun ReadingPage(
         context = articleAssistantContext,
         articleAnalysisRequested = articleAnalysisRequested,
         onArticleAnalysisConsumed = { articleAnalysisRequested = false },
-        onDismiss = { showArticleAssistant = false },
+        onDismiss = ::dismissArticleAssistant,
     )
     if (showFullScreenImageViewer) {
 
@@ -745,7 +763,7 @@ fun ReadingPage(
                 if (isLlmEdition) {
                     {
                         showAiSummaryOptions = false
-                        showArticleAssistant = true
+                        openArticleAssistant()
                     }
                 } else {
                     null
@@ -754,8 +772,7 @@ fun ReadingPage(
                 if (isLlmEdition) {
                     {
                         showAiSummaryOptions = false
-                        articleAnalysisRequested = true
-                        showArticleAssistant = true
+                        openArticleAssistant(analyzeArticle = true)
                     }
                 } else {
                     null
