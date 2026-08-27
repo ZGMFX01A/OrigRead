@@ -56,6 +56,38 @@ data class LlmConversationEntity(
     @ColumnInfo(name = "updated_at") val updatedAt: Long,
 )
 
+/**
+ * P6.7.2 会话级附加文章快照。
+ *
+ * 附件属于“当前会话未来请求要继续携带的活动 Context”，与已经冻结在历史 Assistant 消息上的
+ * [LlmContextRefEntity] 含义不同，因此单独持久化。这里直接保存正文快照，确保原文章稍后被清理、
+ * 订阅刷新或正文变化时，用户重新进入该会话仍能继续使用当时明确附加的文章。
+ */
+@Entity(
+    tableName = "llm_conversation_articles",
+    primaryKeys = ["conversation_id", "article_id"],
+    foreignKeys = [
+        ForeignKey(
+            entity = LlmConversationEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["conversation_id"],
+            onDelete = ForeignKey.CASCADE,
+        )
+    ],
+    indices = [Index(value = ["conversation_id"])],
+)
+data class LlmConversationArticleEntity(
+    @ColumnInfo(name = "conversation_id") val conversationId: String,
+    @ColumnInfo(name = "article_id") val articleId: String,
+    val title: String,
+    val link: String? = null,
+    @ColumnInfo(name = "original_content") val originalContent: String,
+    val summary: String? = null,
+    /** 用户附加顺序；Runtime 会利用稳定顺序保证同优先级 Context 与后续 [R#] 编号可预测。 */
+    val position: Int,
+    @ColumnInfo(name = "created_at") val createdAt: Long,
+)
+
 /** 单条 Chat 消息；删除会话时通过外键级联删除。 */
 @Entity(
     tableName = "llm_messages",

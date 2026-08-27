@@ -1,5 +1,6 @@
 package me.ash.reader.llm.chat.ui
 
+import me.ash.reader.llm.chat.data.LlmConversationArticleEntity
 import me.ash.reader.llm.runtime.LlmContextItem
 import me.ash.reader.llm.runtime.LlmContextType
 import me.ash.reader.ui.page.home.reading.ArticleAssistantContext
@@ -17,6 +18,33 @@ data class LlmArticleAttachment(
     val originalContent: String,
     val summary: String? = null,
 )
+
+/** 将 Room 中保存的活动附件快照恢复为 Runtime/UI 共用的文章附件。 */
+internal fun LlmConversationArticleEntity.toArticleAttachment(): LlmArticleAttachment =
+    LlmArticleAttachment(
+        articleId = articleId,
+        title = title,
+        link = link,
+        originalContent = originalContent,
+        summary = summary,
+    )
+
+/** 将活动附件转换为会话级 Room 快照；position 由当前 UI 顺序唯一决定。 */
+internal fun LlmArticleAttachment.toConversationArticleEntity(
+    conversationId: String,
+    position: Int,
+    createdAt: Long,
+): LlmConversationArticleEntity =
+    LlmConversationArticleEntity(
+        conversationId = conversationId,
+        articleId = articleId,
+        title = title,
+        link = link,
+        originalContent = originalContent,
+        summary = summary,
+        position = position,
+        createdAt = createdAt,
+    )
 
 /**
  * 将附加文章转换为现有 ARTICLE / ARTICLE_SUMMARY Context。

@@ -16,11 +16,15 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import me.ash.reader.infrastructure.ai.AiProviderProfile
 import me.ash.reader.infrastructure.ai.AiSettingsRepository
 import me.ash.reader.infrastructure.ai.availableModels
 import me.ash.reader.infrastructure.ai.resolvedDefaultModel
+import me.ash.reader.llm.chat.data.LlmArticleCandidate
+import me.ash.reader.llm.chat.data.LlmArticleCandidateRepository
 import me.ash.reader.llm.chat.data.LlmChatRepository
 import me.ash.reader.llm.chat.data.LlmChatRole
 import me.ash.reader.llm.chat.data.LlmContextRefEntity
@@ -68,8 +72,11 @@ import me.ash.reader.ui.page.home.reading.ArticleAssistantContext
 /** Chat 页面全部可观察状态；Provider/Model 继续复用现有 AI 设置，不另存密钥。 */
 data class LlmChatUiState(
     val articleTitle: String? = null,
-    /** P6.7 当前会话临时附加的相关文章；真正请求仍统一转换为 Runtime LlmContextItem。 */
+    /** P6.7 当前会话持久化的相关文章；真正请求仍统一转换为 Runtime LlmContextItem。 */
     val additionalArticleAttachments: List<LlmArticleAttachment> = emptyList(),
+    val articleCandidates: List<LlmArticleCandidate> = emptyList(),
+    val articleCandidatesLoading: Boolean = false,
+    val articleCandidatesLoadFailed: Boolean = false,
     val conversations: List<LlmConversationEntity> = emptyList(),
     val currentConversationId: String? = null,
     val messages: List<LlmMessageEntity> = emptyList(),
@@ -211,6 +218,7 @@ private data class RuntimeSelection(
  */
 class LlmChatViewModel @Inject constructor(
     private val repository: LlmChatRepository,
+    private val articleCandidateRepository: LlmArticleCandidateRepository,
     private val settingsRepository: AiSettingsRepository,
     private val llmSettingsRepository: LlmSettingsRepository,
     private val quickMessageRepository: LlmQuickMessageRepository,
@@ -231,7 +239,11 @@ class LlmChatViewModel @Inject constructor(
     private var forceWebSearchNextRequest = false
     private var generationJob: Job? = null
     private var manualToolJob: Job? = null
+    private var articleCandidateJob: Job? = null
     private var conversationSelectionInitialized = false
+    /** 会话/文章边界修订号；异步候选加载必须命中同一修订号，禁止旧点击串入新会话。 */
+    private var conversationSelectionRevision = 0L
+    private val attachmentPersistenceMutex = Mutex()
 
     init {
         // Chat 不依赖用户先进入 MCP 设置页；重启后恢复已缓存且启用的 MCP Tool。
@@ -317,12 +329,17 @@ class LlmChatViewModel @Inject constructor(
         if (articleChanged) {
             stopGeneration()
             manualToolJob?.cancel(CancellationException("文章已切换"))
+            articleCandidateJob?.cancel(CancellationException("文章已切换"))
+            nextConversationSelectionRevision()
             conversationSelectionInitialized = false
             selectedConversationId.value = null
             _uiState.update {
                 it.copy(
                     articleTitle = context.title,
                     additionalArticleAttachments = emptyList(),
+                    articleCandidates = emptyList(),
+                    articleCandidatesLoading = false,
+                    articleCandidatesLoadFailed = false,
                     currentConversationId = null,
                     conversations = emptyList(),
                     messages = emptyList(),
@@ -354,10 +371,16 @@ class LlmChatViewModel @Inject constructor(
                     if (!conversationSelectionInitialized) {
                         conversationSelectionInitialized = true
                         if (selectedId == null && conversations.isNotEmpty()) {
-                            selectConversationInternal(conversations.first().id)
+                            selectConversationInternal(
+                                conversations.first().id,
+                                nextConversationSelectionRevision(),
+                            )
                         }
                     } else if (selectedId != null && conversations.none { it.id == selectedId }) {
-                        selectConversationInternal(conversations.firstOrNull()?.id)
+                        selectConversationInternal(
+                            conversations.firstOrNull()?.id,
+                            nextConversationSelectionRevision(),
+                        )
                     }
                 }
         }
@@ -412,6 +435,7 @@ class LlmChatViewModel @Inject constructor(
     fun newConversation() {
         if (articleContext.value == null) return
         stopGeneration()
+        nextConversationSelectionRevision()
         conversationSelectionInitialized = true
         selectedConversationId.value = null
         val settings = settingsRepository.current()
@@ -438,27 +462,55 @@ class LlmChatViewModel @Inject constructor(
         if (conversationId == selectedConversationId.value) return
         stopGeneration()
         conversationSelectionInitialized = true
-        // P6.7.1 附件尚未做会话级恢复；切换会话时主动清空，禁止把另一会话的文章静默带入请求。
+        val selectionRevision = nextConversationSelectionRevision()
+        // 先清空旧附件避免异步 Room 恢复完成前短暂把另一会话的文章显示/带入当前状态。
         _uiState.update { it.copy(additionalArticleAttachments = emptyList()) }
-        viewModelScope.launch { selectConversationInternal(conversationId) }
+        viewModelScope.launch { selectConversationInternal(conversationId, selectionRevision) }
     }
 
     /**
-     * 将一篇相关文章附加到当前阅读会话；P6.7.1 先提供请求链入口，选择器/UI 留给下一小点。
+     * 将一篇相关文章附加到当前阅读会话，并在已创建会话中立即持久化。
      * 生成中或存在待确认 Tool Call 时不允许修改，保证同一请求及 Tool 续接轮次的 Context 集合稳定。
      */
     fun attachAdditionalArticle(attachment: LlmArticleAttachment) {
         val currentArticleId = articleContext.value?.articleId ?: return
         if (hasGenerationInFlight()) return
         if (_uiState.value.toolCalls.any { it.status == LlmToolCallStatus.PENDING_APPROVAL }) return
-        _uiState.update { state ->
-            state.copy(
-                additionalArticleAttachments =
-                    upsertAdditionalArticleAttachment(
-                        currentArticleId = currentArticleId,
-                        existing = state.additionalArticleAttachments,
-                        attachment = attachment,
-                    )
+        val current = _uiState.value.additionalArticleAttachments
+        val next =
+            upsertAdditionalArticleAttachment(
+                currentArticleId = currentArticleId,
+                existing = current,
+                attachment = attachment,
+            )
+        if (next == current) return
+        _uiState.update { it.copy(additionalArticleAttachments = next) }
+        persistAdditionalArticlesAsync()
+    }
+
+    /** 从本地 Reader 候选附加文章；只有用户明确点击后才单独读取正文并进入 Chat Context。 */
+    fun attachArticleCandidate(candidate: LlmArticleCandidate) {
+        val currentArticleId = articleContext.value?.articleId ?: return
+        val selectionRevision = conversationSelectionRevision
+        if (hasGenerationInFlight()) return
+        if (_uiState.value.toolCalls.any { it.status == LlmToolCallStatus.PENDING_APPROVAL }) return
+        viewModelScope.launch {
+            val snapshot = articleCandidateRepository.loadArticleSnapshot(candidate.articleId) ?: return@launch
+            if (
+                articleContext.value?.articleId != currentArticleId ||
+                    conversationSelectionRevision != selectionRevision ||
+                    hasGenerationInFlight()
+            ) {
+                return@launch
+            }
+            if (_uiState.value.toolCalls.any { it.status == LlmToolCallStatus.PENDING_APPROVAL }) return@launch
+            attachAdditionalArticle(
+                LlmArticleAttachment(
+                    articleId = snapshot.articleId,
+                    title = snapshot.title,
+                    link = snapshot.link,
+                    originalContent = snapshot.originalContent,
+                )
             )
         }
     }
@@ -469,26 +521,129 @@ class LlmChatViewModel @Inject constructor(
         if (_uiState.value.toolCalls.any { it.status == LlmToolCallStatus.PENDING_APPROVAL }) return
         val normalizedId = articleId.trim()
         if (normalizedId.isBlank()) return
-        _uiState.update { state ->
-            state.copy(
-                additionalArticleAttachments =
-                    state.additionalArticleAttachments.filterNot { it.articleId == normalizedId }
-            )
-        }
+        val current = _uiState.value.additionalArticleAttachments
+        val next = current.filterNot { it.articleId == normalizedId }
+        if (next == current) return
+        _uiState.update { it.copy(additionalArticleAttachments = next) }
+        persistAdditionalArticlesAsync()
     }
 
     /** 清空当前会话的全部附加文章；历史 Assistant 已冻结的 ContextRef 不受影响。 */
     fun clearAdditionalArticles() {
         if (hasGenerationInFlight()) return
         if (_uiState.value.toolCalls.any { it.status == LlmToolCallStatus.PENDING_APPROVAL }) return
+        if (_uiState.value.additionalArticleAttachments.isEmpty()) return
         _uiState.update { it.copy(additionalArticleAttachments = emptyList()) }
+        persistAdditionalArticlesAsync()
+    }
+
+    /**
+     * 加载多文章选择器候选。空查询返回“最近文章”（发布时间倒序）；非空查询只搜索标题。
+     * 新搜索会取消旧查询，避免用户快速输入时较慢的旧结果覆盖较新的关键字结果。
+     */
+    fun loadArticleCandidates(query: String = "") {
+        val currentArticleId = articleContext.value?.articleId ?: return
+        val normalizedQuery = query.trim()
+        articleCandidateJob?.cancel()
+        _uiState.update {
+            it.copy(
+                articleCandidatesLoading = true,
+                articleCandidatesLoadFailed = false,
+            )
+        }
+        articleCandidateJob =
+            viewModelScope.launch {
+                try {
+                    val candidates =
+                        if (normalizedQuery.isBlank()) {
+                            articleCandidateRepository.recentArticles(currentArticleId)
+                        } else {
+                            articleCandidateRepository.searchArticles(currentArticleId, normalizedQuery)
+                        }
+                    if (articleContext.value?.articleId != currentArticleId) return@launch
+                    _uiState.update {
+                        it.copy(
+                            articleCandidates = candidates,
+                            articleCandidatesLoading = false,
+                            articleCandidatesLoadFailed = false,
+                        )
+                    }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    if (articleContext.value?.articleId == currentArticleId) {
+                        _uiState.update {
+                            it.copy(
+                                articleCandidates = emptyList(),
+                                articleCandidatesLoading = false,
+                                articleCandidatesLoadFailed = true,
+                            )
+                        }
+                    }
+                }
+            }
+    }
+
+    /**
+     * 已创建会话中的附件变更立即持久化；每次真正写入前都读取最新 UI 集合，避免快速增删时旧协程覆盖新状态。
+     */
+    private fun persistAdditionalArticlesAsync() {
+        val conversationId = selectedConversationId.value ?: return
+        viewModelScope.launch {
+            attachmentPersistenceMutex.withLock {
+                if (selectedConversationId.value != conversationId) return@withLock
+                persistAdditionalArticlesNow(
+                    conversationId = conversationId,
+                    attachments = _uiState.value.additionalArticleAttachments,
+                )
+            }
+        }
+    }
+
+    /** 将当前活动附件完整替换到 Room；历史消息的 ContextRef 不参与此操作。 */
+    private suspend fun persistAdditionalArticlesNow(
+        conversationId: String,
+        attachments: List<LlmArticleAttachment>,
+    ) {
+        val currentArticleId = articleContext.value?.articleId ?: return
+        val normalized = normalizedAdditionalArticleAttachments(currentArticleId, attachments)
+        val now = System.currentTimeMillis()
+        repository.replaceConversationArticles(
+            conversationId = conversationId,
+            articles =
+                normalized.mapIndexed { index, attachment ->
+                    attachment.toConversationArticleEntity(
+                        conversationId = conversationId,
+                        position = index,
+                        createdAt = now,
+                    )
+                },
+        )
+    }
+
+    /** 推进会话边界修订号，用于废弃切换前启动的异步候选加载/会话恢复。 */
+    private fun nextConversationSelectionRevision(): Long {
+        conversationSelectionRevision += 1
+        return conversationSelectionRevision
     }
 
     /** 从数据库加载会话运行时选择；已被删除/禁用的 Provider 回退到当前默认配置。 */
-    private suspend fun selectConversationInternal(conversationId: String?) {
+    private suspend fun selectConversationInternal(
+        conversationId: String?,
+        selectionRevision: Long,
+    ) {
         val conversation = conversationId?.let { repository.getConversation(it) }
         val currentArticleId = articleContext.value?.articleId
         if (conversation != null && conversation.articleId != currentArticleId) return
+        val restoredAttachments =
+            conversation
+                ?.let { repository.getConversationArticles(it.id) }
+                .orEmpty()
+                .map { it.toArticleAttachment() }
+                .let { attachments ->
+                    currentArticleId?.let { normalizedAdditionalArticleAttachments(it, attachments) }.orEmpty()
+                }
+        if (conversationSelectionRevision != selectionRevision) return
         selectedConversationId.value = conversationId
         val settings = settingsRepository.current()
         val enabledProviders = settings.providers.filter(AiProviderProfile::enabled)
@@ -504,6 +659,7 @@ class LlmChatViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 currentConversationId = conversationId,
+                additionalArticleAttachments = restoredAttachments,
                 transientError = null,
             )
         }
@@ -659,6 +815,14 @@ class LlmChatViewModel @Inject constructor(
                             selectedConversationId.value = createdId
                             _uiState.update { it.copy(currentConversationId = createdId) }
                         }
+
+            // 首条消息创建会话后立刻冻结当前活动附件集合；已有会话则同步兜底最新内存状态。
+            attachmentPersistenceMutex.withLock {
+                persistAdditionalArticlesNow(
+                    conversationId = conversationId,
+                    attachments = _uiState.value.additionalArticleAttachments,
+                )
+            }
 
             repository.updateConversationRuntime(
                 conversationId = conversationId,

@@ -10,6 +10,7 @@ import me.ash.reader.infrastructure.ai.AiHttpClient
 import me.ash.reader.infrastructure.ai.AiRuntimeConfig
 import me.ash.reader.llm.chat.data.LlmChatRole
 import me.ash.reader.llm.chat.data.LlmChatConverters
+import me.ash.reader.llm.chat.data.LlmConversationArticleEntity
 import me.ash.reader.llm.chat.data.LlmMessageEntity
 import me.ash.reader.llm.chat.data.LlmMessageStatus
 import me.ash.reader.llm.chat.runtime.LlmChatRequestMessage
@@ -31,6 +32,8 @@ import me.ash.reader.llm.chat.ui.buildAdditionalArticleContextItems
 import me.ash.reader.llm.chat.ui.buildRequestArticleContextItems
 import me.ash.reader.llm.chat.ui.LlmArticleAttachment
 import me.ash.reader.llm.chat.ui.normalizedAdditionalArticleAttachments
+import me.ash.reader.llm.chat.ui.toArticleAttachment
+import me.ash.reader.llm.chat.ui.toConversationArticleEntity
 import me.ash.reader.llm.chat.ui.upsertAdditionalArticleAttachment
 import me.ash.reader.llm.chat.ui.buildRequestHistorySnapshot
 import me.ash.reader.llm.chat.ui.buildLlmCitationLink
@@ -180,6 +183,40 @@ class LlmChatFoundationTest {
             )
         assertEquals(listOf("article:current:original"), analysisItems.map { it.id })
         assertTrue(buildAdditionalArticleContextItems("current", updated).isNotEmpty())
+    }
+
+    @Test
+    fun `conversation article snapshots round trip without changing attachment order`() {
+        val attachments =
+            listOf(
+                LlmArticleAttachment(
+                    articleId = "second",
+                    title = "Second",
+                    link = "https://example.com/2",
+                    originalContent = "second body",
+                    summary = "second summary",
+                ),
+                LlmArticleAttachment(
+                    articleId = "third",
+                    title = "Third",
+                    link = null,
+                    originalContent = "third body",
+                ),
+            )
+
+        val entities: List<LlmConversationArticleEntity> =
+            attachments.mapIndexed { index, attachment ->
+                attachment.toConversationArticleEntity(
+                    conversationId = "conversation",
+                    position = index,
+                    createdAt = 1234L,
+                )
+            }
+        val restored = entities.sortedBy { it.position }.map { it.toArticleAttachment() }
+
+        assertEquals(listOf(0, 1), entities.map { it.position })
+        assertEquals(listOf("second", "third"), restored.map { it.articleId })
+        assertEquals(attachments, restored)
     }
 
     @Test

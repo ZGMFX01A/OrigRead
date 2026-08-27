@@ -32,6 +32,15 @@
     <string name="llm_article_assistant_empty_title">围绕这篇文章提问</string>
     <string name="llm_article_assistant_empty_desc">助手会基于“%1$s”以及原读当前可用的阅读上下文回答，不是脱离文章的通用聊天。</string>
     <string name="llm_article_input_hint">询问这篇文章…</string>
+    <string name="llm_related_articles_add">添加相关文章</string>
+    <string name="llm_related_articles_title">添加相关文章</string>
+    <string name="llm_related_articles_search_hint">搜索文章标题</string>
+    <string name="llm_related_articles_recent">最近文章</string>
+    <string name="llm_related_articles_results">搜索结果</string>
+    <string name="llm_related_articles_empty">暂无可添加文章</string>
+    <string name="llm_related_articles_load_failed">加载文章失败</string>
+    <string name="llm_related_article_attached">已附加</string>
+    <string name="llm_related_article_remove">移除文章</string>
     <string name="llm_assistant_name">OrigRead AI</string>
     <string name="llm_suggestion_summarize">核心观点</string>
     <string name="llm_suggestion_explain">解释难点</string>

@@ -86,10 +86,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import me.ash.reader.R
 import me.ash.reader.infrastructure.ai.availableModels
+import me.ash.reader.llm.chat.data.LlmArticleCandidate
 import me.ash.reader.llm.chat.data.LlmChatRole
 import me.ash.reader.llm.chat.data.LlmContextRefEntity
 import me.ash.reader.llm.chat.data.LlmConversationEntity
@@ -335,6 +337,9 @@ fun LlmArticleAssistantSheet(
                     manualToolSheetVisible = true
                 },
                 onRemoveManualToolContext = viewModel::removeManualToolContext,
+                onLoadArticleCandidates = viewModel::loadArticleCandidates,
+                onAttachArticleCandidate = viewModel::attachArticleCandidate,
+                onRemoveAdditionalArticle = viewModel::removeAdditionalArticle,
                 onWebSearchModeChange = viewModel::setWebSearchMode,
                 onReasoningEffortChange = viewModel::setReasoningEffort,
                 onQuickMessage = viewModel::sendQuickMessage,
@@ -990,6 +995,9 @@ private fun AssistantComposer(
     onOpenModelPicker: () -> Unit,
     onOpenManualTool: () -> Unit,
     onRemoveManualToolContext: (String) -> Unit,
+    onLoadArticleCandidates: (String) -> Unit,
+    onAttachArticleCandidate: (LlmArticleCandidate) -> Unit,
+    onRemoveAdditionalArticle: (String) -> Unit,
     onWebSearchModeChange: (WebSearchMode) -> Unit,
     onReasoningEffortChange: (LlmReasoningEffort) -> Unit,
     onQuickMessage: (LlmQuickMessage) -> LlmQuickMessageResolution,
@@ -999,8 +1007,12 @@ private fun AssistantComposer(
     var webSearchSheetVisible by remember { mutableStateOf(false) }
     var reasoningSheetVisible by remember { mutableStateOf(false) }
     var quickMessageSheetVisible by remember { mutableStateOf(false) }
+    var relatedArticleSheetVisible by remember { mutableStateOf(false) }
     val selectedProvider = uiState.providers.firstOrNull { it.id == uiState.selectedProviderId }
     val configured = uiState.selectedProviderId != null && uiState.selectedModel != null
+    val canModifyAdditionalArticles =
+        !uiState.isGenerating &&
+            uiState.toolCalls.none { it.status == LlmToolCallStatus.PENDING_APPROVAL }
 
     Surface(color = MaterialTheme.colorScheme.surface) {
         Column(
@@ -1011,6 +1023,45 @@ private fun AssistantComposer(
                     .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            if (uiState.additionalArticleAttachments.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    uiState.additionalArticleAttachments.forEach { attachment ->
+                        AssistChip(
+                            onClick = { },
+                            label = {
+                                Text(
+                                    text = attachment.title.ifBlank { attachment.articleId },
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Rounded.Check,
+                                    contentDescription = stringResource(R.string.llm_related_article_attached),
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            },
+                            trailingIcon = {
+                                IconButton(
+                                    onClick = { onRemoveAdditionalArticle(attachment.articleId) },
+                                    enabled = canModifyAdditionalArticles,
+                                    modifier = Modifier.size(24.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Delete,
+                                        contentDescription = stringResource(R.string.llm_related_article_remove),
+                                        modifier = Modifier.size(14.dp),
+                                    )
+                                }
+                            },
+                        )
+                    }
+                }
+            }
             if (uiState.manualToolContexts.isNotEmpty()) {
                 Row(
                     modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -1077,6 +1128,17 @@ private fun AssistantComposer(
                     },
                 )
                 Spacer(modifier = Modifier.weight(1f))
+                IconButton(
+                    onClick = { relatedArticleSheetVisible = true },
+                    enabled = canModifyAdditionalArticles,
+                    modifier = Modifier.size(36.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Add,
+                        contentDescription = stringResource(R.string.llm_related_articles_add),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
                 if (uiState.quickMessages.isNotEmpty()) {
                     IconButton(
                         onClick = { quickMessageSheetVisible = true },
@@ -1188,6 +1250,169 @@ private fun AssistantComposer(
             onDismiss = { quickMessageSheetVisible = false },
             onSelect = onQuickMessage,
         )
+    }
+
+    if (relatedArticleSheetVisible) {
+        RelatedArticlePickerSheet(
+            uiState = uiState,
+            canModify = canModifyAdditionalArticles,
+            onDismiss = { relatedArticleSheetVisible = false },
+            onLoadCandidates = onLoadArticleCandidates,
+            onAttach = onAttachArticleCandidate,
+        )
+    }
+}
+
+/**
+ * 多文章 Context 的显式选择器。
+ *
+ * 空搜索展示“最近文章”（项目没有真实打开时间记录，因此不宣称是最近阅读）；输入关键字后只搜索标题。
+ * 候选正文不会因为打开此面板就进入模型，只有用户点击具体文章后才转换成活动附件。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RelatedArticlePickerSheet(
+    uiState: LlmChatUiState,
+    canModify: Boolean,
+    onDismiss: () -> Unit,
+    onLoadCandidates: (String) -> Unit,
+    onAttach: (LlmArticleCandidate) -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var query by rememberSaveable { mutableStateOf("") }
+    val attachedIds = remember(uiState.additionalArticleAttachments) {
+        uiState.additionalArticleAttachments.mapTo(hashSetOf()) { it.articleId }
+    }
+
+    LaunchedEffect(query) {
+        if (query.isNotBlank()) delay(250)
+        onLoadCandidates(query)
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+    ) {
+        Column(
+            modifier =
+                Modifier.fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 18.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.llm_related_articles_title),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = canModify,
+                singleLine = true,
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Rounded.Search,
+                        contentDescription = null,
+                    )
+                },
+                placeholder = { Text(stringResource(R.string.llm_related_articles_search_hint)) },
+            )
+            Text(
+                text =
+                    stringResource(
+                        if (query.isBlank()) R.string.llm_related_articles_recent
+                        else R.string.llm_related_articles_results
+                    ),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            when {
+                uiState.articleCandidatesLoading -> {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                    }
+                }
+
+                uiState.articleCandidatesLoadFailed -> {
+                    Text(
+                        text = stringResource(R.string.llm_related_articles_load_failed),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+
+                uiState.articleCandidates.isEmpty() -> {
+                    Text(
+                        text = stringResource(R.string.llm_related_articles_empty),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                else -> {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().fillMaxHeight(0.62f),
+                    ) {
+                        items(
+                            items = uiState.articleCandidates,
+                            key = { it.articleId },
+                        ) { candidate ->
+                            val attached = candidate.articleId in attachedIds
+                            Row(
+                                modifier =
+                                    Modifier.fillMaxWidth()
+                                        .clickable(enabled = canModify && !attached) {
+                                            onAttach(candidate)
+                                        }
+                                        .padding(vertical = 12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                                ) {
+                                    Text(
+                                        text = candidate.title,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        text = candidate.feedName,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                Icon(
+                                    imageVector = if (attached) Icons.Rounded.Check else Icons.Rounded.Add,
+                                    contentDescription =
+                                        stringResource(
+                                            if (attached) R.string.llm_related_article_attached
+                                            else R.string.llm_related_articles_add
+                                        ),
+                                    tint =
+                                        if (attached) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                            HorizontalDivider()
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

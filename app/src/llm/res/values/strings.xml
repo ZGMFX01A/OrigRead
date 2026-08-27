@@ -32,6 +32,15 @@
     <string name="llm_article_assistant_empty_title">Ask about this article</string>
     <string name="llm_article_assistant_empty_desc">The assistant will answer using “%1$s” and the reading context currently available in OrigRead.</string>
     <string name="llm_article_input_hint">Ask about this article…</string>
+    <string name="llm_related_articles_add">Add related articles</string>
+    <string name="llm_related_articles_title">Add related articles</string>
+    <string name="llm_related_articles_search_hint">Search article titles</string>
+    <string name="llm_related_articles_recent">Recent articles</string>
+    <string name="llm_related_articles_results">Search results</string>
+    <string name="llm_related_articles_empty">No available articles</string>
+    <string name="llm_related_articles_load_failed">Couldn’t load articles</string>
+    <string name="llm_related_article_attached">Attached</string>
+    <string name="llm_related_article_remove">Remove article</string>
     <string name="llm_assistant_name">OrigRead AI</string>
     <string name="llm_suggestion_summarize">Key ideas</string>
     <string name="llm_suggestion_explain">Explain it</string>

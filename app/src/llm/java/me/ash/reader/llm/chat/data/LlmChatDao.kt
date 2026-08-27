@@ -65,6 +65,13 @@ interface LlmChatDao {
     )
     suspend fun getContextRefsForAssistant(assistantMessageId: String): List<LlmContextRefEntity>
 
+    /** 按用户附加顺序恢复当前会话仍处于活动状态的相关文章。 */
+    @Query(
+        "SELECT * FROM llm_conversation_articles WHERE conversation_id = :conversationId " +
+            "ORDER BY position ASC, created_at ASC, article_id ASC"
+    )
+    suspend fun getConversationArticles(conversationId: String): List<LlmConversationArticleEntity>
+
     /** 插入会话；UUID 冲突直接失败，禁止覆盖历史会话。 */
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertConversation(conversation: LlmConversationEntity)
@@ -92,6 +99,23 @@ interface LlmChatDao {
     /** 一次请求的 ContextRef 批量落库；由 replaceContextRefsForAssistant 保证先清旧记录。 */
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertContextRefs(contextRefs: List<LlmContextRefEntity>)
+
+    /** 同一会话每篇文章只保留一个活动快照；replace 前会由事务统一删除旧集合。 */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertConversationArticles(articles: List<LlmConversationArticleEntity>)
+
+    @Query("DELETE FROM llm_conversation_articles WHERE conversation_id = :conversationId")
+    suspend fun deleteConversationArticles(conversationId: String)
+
+    /** 一次性替换整个活动附件集合，避免崩溃后恢复出旧/新附件混合状态。 */
+    @Transaction
+    suspend fun replaceConversationArticles(
+        conversationId: String,
+        articles: List<LlmConversationArticleEntity>,
+    ) {
+        deleteConversationArticles(conversationId)
+        if (articles.isNotEmpty()) insertConversationArticles(articles)
+    }
 
     @Query("DELETE FROM llm_context_refs WHERE assistant_message_id = :assistantMessageId")
     suspend fun deleteContextRefsForAssistant(assistantMessageId: String)

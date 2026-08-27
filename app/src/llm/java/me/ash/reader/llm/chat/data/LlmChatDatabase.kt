@@ -7,11 +7,12 @@ import androidx.room.TypeConverters
 @Database(
     entities = [
         LlmConversationEntity::class,
+        LlmConversationArticleEntity::class,
         LlmMessageEntity::class,
         LlmToolCallEntity::class,
         LlmContextRefEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 @TypeConverters(LlmChatConverters::class)

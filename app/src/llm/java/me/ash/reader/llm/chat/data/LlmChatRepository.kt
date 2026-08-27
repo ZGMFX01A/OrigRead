@@ -41,6 +41,18 @@ class LlmChatRepository @Inject constructor(
     suspend fun getContextRefsForAssistant(assistantMessageId: String): List<LlmContextRefEntity> =
         dao.getContextRefsForAssistant(assistantMessageId)
 
+    /** 恢复会话级活动文章附件；历史请求自己的 ContextRef 仍由消息级快照独立恢复。 */
+    suspend fun getConversationArticles(conversationId: String): List<LlmConversationArticleEntity> =
+        dao.getConversationArticles(conversationId)
+
+    /** 原子保存会话当前的活动文章附件集合。 */
+    suspend fun replaceConversationArticles(
+        conversationId: String,
+        articles: List<LlmConversationArticleEntity>,
+    ) {
+        dao.replaceConversationArticles(conversationId, articles)
+    }
+
     /** 新建会话，并以首条用户文本生成本地标题。 */
     suspend fun createConversation(
         providerId: String?,

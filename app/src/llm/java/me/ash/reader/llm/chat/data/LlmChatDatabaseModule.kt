@@ -162,6 +162,36 @@ object LlmChatDatabaseModule {
             }
         }
 
+    /**
+     * v9 增加会话级附加文章快照。
+     *
+     * 它只表示“下一轮请求仍应携带哪些文章”；历史 Assistant 已经使用的来源继续由 ContextRef 冻结，
+     * 两者不能合并，否则删除活动附件会错误抹掉历史引用依据。
+     */
+    private val MIGRATION_8_9 =
+        object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS llm_conversation_articles (" +
+                        "conversation_id TEXT NOT NULL, " +
+                        "article_id TEXT NOT NULL, " +
+                        "title TEXT NOT NULL, " +
+                        "link TEXT, " +
+                        "original_content TEXT NOT NULL, " +
+                        "summary TEXT, " +
+                        "position INTEGER NOT NULL, " +
+                        "created_at INTEGER NOT NULL, " +
+                        "PRIMARY KEY(conversation_id, article_id), " +
+                        "FOREIGN KEY(conversation_id) REFERENCES llm_conversations(id) " +
+                        "ON UPDATE NO ACTION ON DELETE CASCADE)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_llm_conversation_articles_conversation_id " +
+                        "ON llm_conversation_articles(conversation_id)"
+                )
+            }
+        }
+
     /** 创建 LLM Chat Room 数据库单例。 */
     @Provides
     @Singleton
@@ -178,6 +208,7 @@ object LlmChatDatabaseModule {
             MIGRATION_5_6,
             MIGRATION_6_7,
             MIGRATION_7_8,
+            MIGRATION_8_9,
         ).build()
 
     /** 向业务层提供 Chat DAO 单例。 */
