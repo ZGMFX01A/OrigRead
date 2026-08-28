@@ -50,6 +50,8 @@ data class LlmChatDelta(
     val toolCalls: List<LlmChatToolCallDelta> = emptyList(),
     val promptTokens: Int? = null,
     val completionTokens: Int? = null,
+    /** 已由当前协议 Transport 映射后的统一终止原因；上层不接触 Provider 原始字段。 */
+    val finishReason: LlmFinishReason? = null,
 )
 
 @Singleton
@@ -98,12 +100,13 @@ class LlmChatTransport @Inject constructor(
 
                                 while (!call.isCanceled()) {
                                     val line = source.readUtf8Line() ?: break
-                                    if (line.startsWith("data:")) {
+                                    val ssePayload = extractSseDataPayload(line)
+                                    if (ssePayload != null) {
                                         if (!sawSseData) {
                                             AiPerfTracer.mark(activePerfTrace, "first_sse_event")
                                         }
                                         sawSseData = true
-                                        val payload = line.removePrefix("data:").trim()
+                                        val payload = ssePayload
                                         if (payload == "[DONE]") break
                                         parseStreamPayload(payload)?.let { delta ->
                                             if (!sawReasoning && delta.reasoning.isNotEmpty()) {
@@ -119,7 +122,8 @@ class LlmChatTransport @Inject constructor(
                                                     delta.reasoning.isNotEmpty() ||
                                                     delta.toolCalls.isNotEmpty() ||
                                                     delta.promptTokens != null ||
-                                                    delta.completionTokens != null
+                                                    delta.completionTokens != null ||
+                                                    delta.finishReason != null
                                             ) {
                                                 if (trySend(delta).isFailure) return
                                             }
@@ -142,7 +146,8 @@ class LlmChatTransport @Inject constructor(
                                             result.reasoning.isNotEmpty() ||
                                             result.toolCalls.isNotEmpty() ||
                                             result.promptTokens != null ||
-                                            result.completionTokens != null
+                                            result.completionTokens != null ||
+                                            result.finishReason != null
                                     ) {
                                         if (trySend(result).isFailure) return
                                     }
@@ -503,6 +508,15 @@ internal fun buildLlmChatSystemPrompt(
     }
 }
 
+/**
+ * SSE 识别只依据实际 wire body 的 `data:` 行，不依赖 HTTP Content-Type。
+ * 部分 OpenAI-compatible 网关会错误返回 text/plain，但 body 仍是标准 SSE；这种响应必须继续流式解析。
+ */
+internal fun extractSseDataPayload(line: String): String? =
+    line.takeIf { it.startsWith("data:") }
+        ?.removePrefix("data:")
+        ?.trim()
+
 internal fun parseStreamPayload(payload: String): LlmChatDelta? {
     if (payload.isBlank()) return null
     val root =
@@ -523,7 +537,12 @@ internal fun parseStreamPayload(payload: String): LlmChatDelta? {
                     completionTokens = completionTokens,
                 )
             }
-    val delta = first.optJSONObject("delta") ?: first.optJSONObject("message") ?: return null
+    val finishReason = parseOpenAiCompatibleFinishReason(first.opt("finish_reason"))
+    // OpenAI-compatible 流最后一个 choice 允许只有 finish_reason、delta 为空；不能把这一块丢掉。
+    val delta =
+        first.optJSONObject("delta")
+            ?: first.optJSONObject("message")
+            ?: if (finishReason != null) JSONObject() else return null
     val result = LlmChatDelta(
         content = parseChatContent(delta.opt("content")),
         reasoning =
@@ -532,13 +551,15 @@ internal fun parseStreamPayload(payload: String): LlmChatDelta? {
         toolCalls = parseToolCallDeltas(delta.optJSONArray("tool_calls")),
         promptTokens = usage?.first,
         completionTokens = usage?.second,
+        finishReason = finishReason,
     )
     return result.takeIf {
         it.content.isNotEmpty() ||
             it.reasoning.isNotEmpty() ||
             it.toolCalls.isNotEmpty() ||
             it.promptTokens != null ||
-            it.completionTokens != null
+            it.completionTokens != null ||
+            it.finishReason != null
     }
 }
 
@@ -565,7 +586,37 @@ internal fun parseNonStreamingPayload(payload: String): LlmChatDelta {
         toolCalls = parseToolCallDeltas(message.optJSONArray("tool_calls")),
         promptTokens = usage?.first,
         completionTokens = usage?.second,
+        finishReason = parseOpenAiCompatibleFinishReason(first.opt("finish_reason")),
     )
+}
+
+/**
+ * OpenAI-compatible `finish_reason` → OrigRead 统一终止语义。
+ *
+ * 只处理协议值，不读取 endpoint、Provider 名称或 model id。`function_call` 是 OpenAI 的旧协议值，按
+ * `tool_calls` 兼容；未知值保留为 Other，供诊断与后续 Adapter 扩展。
+ */
+internal fun parseOpenAiCompatibleFinishReason(rawValue: Any?): LlmFinishReason? {
+    val rawReason =
+        when (rawValue) {
+            null,
+            JSONObject.NULL -> null
+            else -> rawValue.toString()
+        }
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
+            ?.take(MAX_FINISH_REASON_LENGTH)
+            ?: return null
+
+    return when (rawReason.lowercase()) {
+        "stop" -> LlmFinishReason.Stop
+        "length" -> LlmFinishReason.Length
+        "tool_calls", "function_call" -> LlmFinishReason.ToolCalls
+        "content_filter" -> LlmFinishReason.ContentFilter
+        "error" -> LlmFinishReason.Error
+        "cancelled", "canceled" -> LlmFinishReason.Cancelled
+        else -> LlmFinishReason.Other(rawReason)
+    }
 }
 
 /**
@@ -663,3 +714,4 @@ private fun extractErrorDetail(body: String): String {
 }
 
 private const val MESSAGE_OVERHEAD_TOKENS = 4
+private const val MAX_FINISH_REASON_LENGTH = 64

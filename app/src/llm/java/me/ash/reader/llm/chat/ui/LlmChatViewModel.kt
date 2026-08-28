@@ -41,6 +41,9 @@ import me.ash.reader.llm.chat.runtime.LlmChatRequestMessage
 import me.ash.reader.llm.chat.runtime.LlmChatRequestToolCall
 import me.ash.reader.llm.chat.runtime.LlmChatToolCallDelta
 import me.ash.reader.llm.chat.runtime.LlmChatTransport
+import me.ash.reader.llm.chat.runtime.LlmFinishReason
+import me.ash.reader.llm.chat.runtime.LlmGenerationTerminalDecision
+import me.ash.reader.llm.chat.runtime.resolveLlmGenerationTerminalDecision
 import me.ash.reader.llm.chat.runtime.resolveToolByApiName
 import me.ash.reader.llm.mcp.McpToolRegistry
 import me.ash.reader.llm.quickmessage.LlmQuickMessage
@@ -1213,6 +1216,7 @@ class LlmChatViewModel @Inject constructor(
         var fallbackPromptTokens: Int? = null
         var providerPromptTokens: Int? = null
         var providerCompletionTokens: Int? = null
+        var finishReason: LlmFinishReason? = null
         val toolCallParts = sortedMapOf<Int, MutableToolCallPart>()
         var continueAfterTools = false
 
@@ -1437,6 +1441,7 @@ class LlmChatViewModel @Inject constructor(
                 )
                 delta.promptTokens?.let { providerPromptTokens = it }
                 delta.completionTokens?.let { providerCompletionTokens = it }
+                delta.finishReason?.let { finishReason = it }
                 val now = System.currentTimeMillis()
                 val hasVisibleText = content.isNotEmpty() || reasoning.isNotEmpty()
                 if (hasVisibleText && now - lastUiPublishAt >= STREAM_UI_UPDATE_INTERVAL_MS) {
@@ -1478,8 +1483,17 @@ class LlmChatViewModel @Inject constructor(
                 }
             }
 
-            if (content.isBlank() && toolCallParts.isEmpty()) {
-                error("AI 服务没有返回可显示内容")
+            val terminalDecision =
+                resolveLlmGenerationTerminalDecision(
+                    hasContent = content.isNotBlank(),
+                    hasReasoning = reasoning.isNotBlank(),
+                    hasToolCalls = toolCallParts.isNotEmpty(),
+                    finishReason = finishReason,
+                )
+            when (terminalDecision) {
+                LlmGenerationTerminalDecision.Complete,
+                LlmGenerationTerminalDecision.ContinueWithTools -> Unit
+                is LlmGenerationTerminalDecision.Error -> error(terminalDecision.userMessage)
             }
             // 把不足一个 UI interval 的尾部增量先补到内存层，再执行最终 Room 落盘。
             if (content.isNotEmpty() || reasoning.isNotEmpty()) {
@@ -1515,9 +1529,10 @@ class LlmChatViewModel @Inject constructor(
                 status = LlmMessageStatus.COMPLETE.name,
                 contentChars = content.length,
                 reasoningChars = reasoning.length,
+                finishReason = finishReason,
             )
 
-            if (toolCallParts.isNotEmpty()) {
+            if (terminalDecision == LlmGenerationTerminalDecision.ContinueWithTools) {
                 val now = System.currentTimeMillis()
                 val calls =
                     toolCallParts.values.map { part ->
@@ -1581,6 +1596,7 @@ class LlmChatViewModel @Inject constructor(
                     status = LlmMessageStatus.STOPPED.name,
                     contentChars = content.length,
                     reasoningChars = reasoning.length,
+                    finishReason = finishReason ?: LlmFinishReason.Cancelled,
                 )
             }
             throw error
@@ -1605,6 +1621,7 @@ class LlmChatViewModel @Inject constructor(
                 status = LlmMessageStatus.ERROR.name,
                 contentChars = content.length,
                 reasoningChars = reasoning.length,
+                finishReason = finishReason ?: LlmFinishReason.Error,
             )
             _uiState.update { it.copy(transientError = message) }
         }

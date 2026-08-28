@@ -4,6 +4,8 @@ import java.util.LinkedHashMap
 import me.ash.reader.BuildConfig
 import me.ash.reader.infrastructure.ai.AiPerfTrace
 import me.ash.reader.infrastructure.ai.AiPerfTracer
+import me.ash.reader.llm.chat.runtime.LlmFinishReason
+import me.ash.reader.llm.chat.runtime.diagnosticValue
 
 /**
  * R7 Chat 本地热路径性能追踪。
@@ -172,12 +174,14 @@ internal object LlmChatPerfTracker {
         status: String,
         contentChars: Int,
         reasoningChars: Int,
+        finishReason: LlmFinishReason? = null,
     ) {
         val state = states[assistantMessageId] ?: return
         AiPerfTracer.mark(
             state.trace,
             "request_pipeline_complete",
             "status" to status,
+            "finishReason" to finishReason?.diagnosticValue(),
             "contentChars" to contentChars.coerceAtLeast(0),
             "reasoningChars" to reasoningChars.coerceAtLeast(0),
             "deltaCount" to state.deltaCount,

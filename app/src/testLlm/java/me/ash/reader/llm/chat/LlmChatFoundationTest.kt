@@ -6,6 +6,7 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import me.ash.reader.infrastructure.ai.AiException
 import me.ash.reader.infrastructure.ai.AiHttpClient
 import me.ash.reader.infrastructure.ai.AiRuntimeConfig
 import me.ash.reader.llm.chat.data.LlmChatRole
@@ -16,10 +17,15 @@ import me.ash.reader.llm.chat.data.LlmMessageStatus
 import me.ash.reader.llm.chat.runtime.LlmChatRequestMessage
 import me.ash.reader.llm.chat.runtime.LlmChatRequestToolCall
 import me.ash.reader.llm.chat.runtime.LlmChatTransport
+import me.ash.reader.llm.chat.runtime.LlmFinishReason
+import me.ash.reader.llm.chat.runtime.LlmGenerationTerminalDecision
 import me.ash.reader.llm.chat.runtime.buildLlmChatSystemPrompt
+import me.ash.reader.llm.chat.runtime.extractSseDataPayload
 import me.ash.reader.llm.chat.runtime.parseNonStreamingPayload
+import me.ash.reader.llm.chat.runtime.parseOpenAiCompatibleFinishReason
 import me.ash.reader.llm.chat.runtime.parseStreamPayload
 import me.ash.reader.llm.chat.runtime.renderLlmChatMessageContent
+import me.ash.reader.llm.chat.runtime.resolveLlmGenerationTerminalDecision
 import me.ash.reader.llm.chat.data.deriveConversationTitle
 import me.ash.reader.llm.chat.data.buildContextRefEntities
 import me.ash.reader.llm.chat.data.buildRequestCitationReferences
@@ -973,6 +979,33 @@ class LlmChatFoundationTest {
     }
 
     @Test
+    fun `sse wire parser recognizes data lines without content type metadata`() {
+        val payload =
+            extractSseDataPayload(
+                "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}"
+            )
+
+        assertEquals(
+            "{\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}",
+            payload,
+        )
+        assertNull(extractSseDataPayload("{\"choices\":[]}"))
+    }
+
+    @Test
+    fun `stream error payload is surfaced as protocol exception`() {
+        val error =
+            runCatching {
+                parseStreamPayload(
+                    """{"error":{"message":"provider stream failed"}}"""
+                )
+            }.exceptionOrNull()
+
+        assertTrue(error is AiException)
+        assertTrue(error?.message?.contains("provider stream failed") == true)
+    }
+
+    @Test
     fun `stream payload keeps explicit reasoning separate from answer`() {
         val delta =
             parseStreamPayload(
@@ -981,6 +1014,109 @@ class LlmChatFoundationTest {
 
         assertEquals("answer", delta?.content)
         assertEquals("reason", delta?.reasoning)
+    }
+
+    @Test
+    fun `openai compatible finish reasons map to unified protocol`() {
+        assertEquals(LlmFinishReason.Stop, parseOpenAiCompatibleFinishReason("stop"))
+        assertEquals(LlmFinishReason.Length, parseOpenAiCompatibleFinishReason("length"))
+        assertEquals(LlmFinishReason.ToolCalls, parseOpenAiCompatibleFinishReason("tool_calls"))
+        assertEquals(LlmFinishReason.ToolCalls, parseOpenAiCompatibleFinishReason("function_call"))
+        assertEquals(LlmFinishReason.ContentFilter, parseOpenAiCompatibleFinishReason("content_filter"))
+        assertEquals(LlmFinishReason.Error, parseOpenAiCompatibleFinishReason("error"))
+        assertEquals(LlmFinishReason.Cancelled, parseOpenAiCompatibleFinishReason("cancelled"))
+        assertEquals(LlmFinishReason.Other("vendor_terminal"), parseOpenAiCompatibleFinishReason("vendor_terminal"))
+        assertNull(parseOpenAiCompatibleFinishReason(null))
+    }
+
+    @Test
+    fun `stream payload preserves finish only chunk as unified terminal event`() {
+        val delta =
+            parseStreamPayload(
+                """{"choices":[{"delta":{},"finish_reason":"length"}]}"""
+            )
+
+        assertEquals(LlmFinishReason.Length, delta?.finishReason)
+        assertEquals("", delta?.content)
+        assertEquals("", delta?.reasoning)
+    }
+
+    @Test
+    fun `terminal policy continues structured tool calls without provider special cases`() {
+        val decision =
+            resolveLlmGenerationTerminalDecision(
+                hasContent = false,
+                hasReasoning = false,
+                hasToolCalls = true,
+                finishReason = LlmFinishReason.ToolCalls,
+            )
+
+        assertEquals(LlmGenerationTerminalDecision.ContinueWithTools, decision)
+    }
+
+    @Test
+    fun `terminal policy rejects declared tool finish without actual tool call`() {
+        val decision =
+            resolveLlmGenerationTerminalDecision(
+                hasContent = false,
+                hasReasoning = false,
+                hasToolCalls = false,
+                finishReason = LlmFinishReason.ToolCalls,
+            )
+
+        assertTrue(decision is LlmGenerationTerminalDecision.Error)
+    }
+
+    @Test
+    fun `terminal policy marks length limited partial answer as error`() {
+        val decision =
+            resolveLlmGenerationTerminalDecision(
+                hasContent = true,
+                hasReasoning = true,
+                hasToolCalls = false,
+                finishReason = LlmFinishReason.Length,
+            )
+
+        assertTrue(decision is LlmGenerationTerminalDecision.Error)
+    }
+
+    @Test
+    fun `terminal policy rejects content filter even when provider emitted partial text`() {
+        val decision =
+            resolveLlmGenerationTerminalDecision(
+                hasContent = true,
+                hasReasoning = false,
+                hasToolCalls = false,
+                finishReason = LlmFinishReason.ContentFilter,
+            )
+
+        assertTrue(decision is LlmGenerationTerminalDecision.Error)
+    }
+
+    @Test
+    fun `terminal policy rejects reasoning only response even after normal stop`() {
+        val decision =
+            resolveLlmGenerationTerminalDecision(
+                hasContent = false,
+                hasReasoning = true,
+                hasToolCalls = false,
+                finishReason = LlmFinishReason.Stop,
+            )
+
+        assertTrue(decision is LlmGenerationTerminalDecision.Error)
+    }
+
+    @Test
+    fun `terminal policy accepts content for unknown compatible finish reason`() {
+        val decision =
+            resolveLlmGenerationTerminalDecision(
+                hasContent = true,
+                hasReasoning = false,
+                hasToolCalls = false,
+                finishReason = LlmFinishReason.Other("gateway_done"),
+            )
+
+        assertEquals(LlmGenerationTerminalDecision.Complete, decision)
     }
 
     @Test
