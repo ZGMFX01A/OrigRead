@@ -44,6 +44,7 @@ fun SettingItem(
     enabled: Boolean = true,
     title: String,
     desc: String? = null,
+    descMaxLines: Int = 1,
     icon: ImageVector? = null,
     iconPainter: Painter? = null,
     separatedActions: Boolean = false,
@@ -94,7 +95,7 @@ fun SettingItem(
                     Text(
                         text = it,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
+                        maxLines = descMaxLines,
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }

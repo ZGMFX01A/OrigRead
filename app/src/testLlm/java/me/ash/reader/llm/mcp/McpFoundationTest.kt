@@ -342,7 +342,7 @@ class McpFoundationTest {
         val payload = buildDynamicClientRegistrationPayload(redirectUri)
         val grantTypes = payload.getJSONArray("grant_types")
 
-        assertEquals("OrigRead LLM", payload.getString("client_name"))
+        assertEquals("OrigRead X", payload.getString("client_name"))
         assertEquals("native", payload.getString("application_type"))
         assertEquals("none", payload.getString("token_endpoint_auth_method"))
         assertEquals(redirectUri, payload.getJSONArray("redirect_uris").getString(0))

@@ -158,6 +158,7 @@ fun ConfigurationBackupPage(
                         enabled = !state.isWorking,
                         title = stringResource(R.string.edition_sync_send_title, targetName),
                         desc = stringResource(R.string.edition_sync_send_desc),
+                        descMaxLines = Int.MAX_VALUE,
                         icon = Icons.Outlined.SyncAlt,
                         onClick = {
                             viewModel.createEditionSyncIntent { result ->

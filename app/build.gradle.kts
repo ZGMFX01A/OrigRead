@@ -116,7 +116,7 @@ android {
     }
     applicationVariants.all {
         val edition = productFlavors.firstOrNull { it.dimension == "edition" }?.name ?: "standard"
-        val artifactName = if (edition == "llm") "OrigRead-LLM" else "OrigRead"
+        val artifactName = if (edition == "llm") "OrigRead-X" else "OrigRead"
         outputs.all {
             (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFileName =
                 if (releaseVersion != null) {

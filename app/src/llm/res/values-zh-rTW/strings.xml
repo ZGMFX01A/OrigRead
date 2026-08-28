@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">OrigRead LLM</string>
+    <string name="app_name">原讀 X</string>
     <string name="llm_chat_title">AI 對話</string>
     <string name="llm_chat_history">對話紀錄</string>
     <string name="llm_chat_new">新增對話</string>

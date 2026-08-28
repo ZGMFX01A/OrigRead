@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">OrigRead LLM</string>
+    <string name="app_name">OrigRead X</string>
     <string name="llm_chat_title">AI Chat</string>
     <string name="llm_chat_history">Chat history</string>
     <string name="llm_chat_new">New chat</string>

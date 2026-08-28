@@ -477,7 +477,7 @@ private fun requireSecureOAuthEndpoint(raw: String, fieldName: String): String {
  */
 internal fun buildDynamicClientRegistrationPayload(redirectUri: String): JSONObject =
     JSONObject()
-        .put("client_name", "OrigRead LLM")
+        .put("client_name", "OrigRead X")
         .put("application_type", "native")
         .put("redirect_uris", JSONArray().put(redirectUri))
         .put(

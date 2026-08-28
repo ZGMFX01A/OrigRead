@@ -23,14 +23,14 @@ class LatestReleaseAssetSelectorTest {
     }
 
     @Test
-    fun `standard 与 llm 只选择各自安装包`() {
+    fun `standard 与 X 只选择各自安装包`() {
         val release =
             LatestRelease(
                 assets =
                     listOf(
                         AssetsItem(
-                            name = "OrigRead-LLM-v1.2.0.apk",
-                            browser_download_url = "https://example.com/llm.apk",
+                            name = "OrigRead-X-v1.2.0.apk",
+                            browser_download_url = "https://example.com/x.apk",
                         ),
                         AssetsItem(
                             name = "OrigRead-v1.2.0.apk",
@@ -44,7 +44,26 @@ class LatestReleaseAssetSelectorTest {
             release.preferredApkAsset(llmEdition = false)?.browser_download_url,
         )
         assertEquals(
-            "https://example.com/llm.apk",
+            "https://example.com/x.apk",
+            release.preferredApkAsset(llmEdition = true)?.browser_download_url,
+        )
+    }
+
+    @Test
+    fun `X 更新选择器兼容旧 LLM 安装包命名`() {
+        val release =
+            LatestRelease(
+                assets =
+                    listOf(
+                        AssetsItem(
+                            name = "OrigRead-LLM-v1.1.0.apk",
+                            browser_download_url = "https://example.com/legacy-llm.apk",
+                        ),
+                    ),
+            )
+
+        assertEquals(
+            "https://example.com/legacy-llm.apk",
             release.preferredApkAsset(llmEdition = true)?.browser_download_url,
         )
     }

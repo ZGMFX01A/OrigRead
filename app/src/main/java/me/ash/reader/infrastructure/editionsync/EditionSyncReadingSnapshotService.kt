@@ -18,6 +18,7 @@ import me.ash.reader.infrastructure.db.AndroidDatabase
 import me.ash.reader.ui.ext.dollarLast
 import me.ash.reader.ui.ext.getDefaultGroupId
 import me.ash.reader.ui.ext.spacerDollar
+import timber.log.Timber
 
 /**
  * Standard / LLM 共同阅读主库的可移植快照服务。
@@ -69,10 +70,34 @@ class EditionSyncReadingSnapshotService @Inject constructor(
         val accountId = accountService.getCurrentAccountId()
         val account = requireNotNull(accountDao.queryById(accountId)) { "当前账户不存在" }
         val defaultGroupId = accountId.getDefaultGroupId()
-        val groups = groupDao.queryAll(accountId)
-        val feeds = feedDao.queryAll(accountId)
+        val groups = groupDao.queryAll(accountId).toMutableList()
+        if (groups.none { it.id == defaultGroupId }) {
+            // 极少数旧开发版数据可能缺失默认组。同步发送端先修复本机完整性，
+            // 接收端 validate() 仍保持严格校验，不接受真正破损的外部 Bundle。
+            accountService.getDefaultGroup().also { defaultGroup ->
+                groupDao.insert(defaultGroup)
+                groups += defaultGroup
+            }
+        }
+        val originalFeeds = feedDao.queryAll(accountId)
         val articles = articleDao.queryAllByAccountId(accountId)
         val groupById = groups.associateBy(Group::id)
+        val normalizedFeeds = normalizeLegacyFeedGroups(originalFeeds, groupById, defaultGroupId)
+        if (normalizedFeeds.repairedGroupIds.isNotEmpty()) {
+            normalizedFeeds.repairedGroupIds.forEach { orphanGroupId ->
+                feedDao.updateTargetGroupIdByGroupId(
+                    accountId = accountId,
+                    groupId = orphanGroupId,
+                    targetGroupId = defaultGroupId,
+                )
+            }
+            // 只记录修复数量，不记录 Feed 名称、URL 或其他用户内容。
+            Timber.tag("EditionSync").i(
+                "Repaired %d orphan feed group reference(s) before export",
+                normalizedFeeds.repairedFeedCount,
+            )
+        }
+        val feeds = normalizedFeeds.feeds
 
         val archived =
             feeds.flatMap { feed ->
@@ -104,14 +129,13 @@ class EditionSyncReadingSnapshotService @Inject constructor(
                 },
             feeds =
                 feeds.map { feed ->
-                    val sourceGroup = groupById[feed.groupId]
                     EditionSyncFeedSnapshot(
                         key = portableKey(feed.id),
                         name = feed.name,
                         icon = feed.icon,
                         url = feed.url,
                         groupKey = portableKey(feed.groupId),
-                        groupIsDefault = sourceGroup?.id == defaultGroupId,
+                        groupIsDefault = feed.groupId == defaultGroupId,
                         isNotification = feed.isNotification,
                         isFullContent = feed.isFullContent,
                         isBrowser = feed.isBrowser,
@@ -315,4 +339,40 @@ class EditionSyncReadingSnapshotService @Inject constructor(
 
     /** 去掉数据库主键中的本机 accountId 前缀，保留远端 ID / UUID 业务部分。 */
     private fun portableKey(id: String): String = id.dollarLast().also { require(it.isNotBlank()) { "同步 ID 为空" } }
+}
+
+/** 发送端修复旧数据库孤儿 Group 后的 Feed 归一化结果。 */
+internal data class EditionSyncFeedGroupNormalization(
+    val feeds: List<Feed>,
+    val repairedGroupIds: Set<String>,
+    val repairedFeedCount: Int,
+)
+
+/**
+ * 将本机旧数据中指向不存在 Group 的 Feed 安全归回默认组。
+ *
+ * 这里只处理发送端已经存在的历史遗留数据；正常 Group 映射完全保持不变，接收端完整性校验不会放宽。
+ */
+internal fun normalizeLegacyFeedGroups(
+    feeds: List<Feed>,
+    groupById: Map<String, Group>,
+    defaultGroupId: String,
+): EditionSyncFeedGroupNormalization {
+    val repairedGroupIds = linkedSetOf<String>()
+    var repairedFeedCount = 0
+    val normalized =
+        feeds.map { feed ->
+            if (feed.groupId == defaultGroupId || groupById.containsKey(feed.groupId)) {
+                feed
+            } else {
+                repairedGroupIds += feed.groupId
+                repairedFeedCount++
+                feed.copy(groupId = defaultGroupId)
+            }
+        }
+    return EditionSyncFeedGroupNormalization(
+        feeds = normalized,
+        repairedGroupIds = repairedGroupIds,
+        repairedFeedCount = repairedFeedCount,
+    )
 }

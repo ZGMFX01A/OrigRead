@@ -655,8 +655,8 @@
     <string name="edition_sync_confirm">同步</string>
     <string name="edition_sync_success">同步完成：%1$d 個訂閱，%2$d 篇文章</string>
     <string name="edition_sync_failed">版本間同步失敗</string>
-    <string name="edition_sync_standard_name">普通版</string>
-    <string name="edition_sync_llm_name">LLM 版</string>
+    <string name="edition_sync_standard_name">原讀</string>
+    <string name="edition_sync_llm_name">原讀 X</string>
     <string name="edition_sync_send_title">同步到%1$s</string>
     <string name="edition_sync_send_desc">將雙方共有的設定，以及目前帳戶的訂閱、文章、已讀、星標和稍後讀狀態同步到另一已安裝版本；目標版本獨有的資料會保留。AI/翻譯 API Key 會自動一併遷移。</string>
     <string name="configuration_backup_desc">備份與還原訂閱、規則、閱讀偏好、翻譯與 AI 設定</string>

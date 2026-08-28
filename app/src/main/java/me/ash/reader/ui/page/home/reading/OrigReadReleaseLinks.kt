@@ -32,6 +32,6 @@ internal fun String?.toOrigReadReleaseLinks(llmEdition: Boolean = false): OrigRe
         releasePageUrl = releasePageUrl,
         apkDownloadUrl =
             "$ORIGREAD_RELEASE_DOWNLOAD_PREFIX$tag/" +
-                if (llmEdition) "OrigRead-LLM-$tag.apk" else "OrigRead-$tag.apk",
+                if (llmEdition) "OrigRead-X-$tag.apk" else "OrigRead-$tag.apk",
     )
 }

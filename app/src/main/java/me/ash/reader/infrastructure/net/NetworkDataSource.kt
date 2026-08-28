@@ -162,9 +162,12 @@ internal fun LatestRelease.preferredApkAsset(llmEdition: Boolean = false): Asset
             val normalizedName = name.lowercase()
             val matchesEdition =
                 if (llmEdition) {
-                    normalizedName.startsWith("origread-llm-")
+                    // 新品牌使用 OrigRead-X；兼容旧 Release 的 OrigRead-LLM 资产，避免升级链断裂。
+                    normalizedName.startsWith("origread-x-") ||
+                        normalizedName.startsWith("origread-llm-")
                 } else {
                     normalizedName.startsWith("origread-") &&
+                        !normalizedName.startsWith("origread-x-") &&
                         !normalizedName.startsWith("origread-llm-")
                 }
             url.isNotBlank() &&

@@ -68,7 +68,7 @@ class UpdateViewModel @Inject constructor(
                         url = url,
                         filename =
                             if (isLlmEdition) {
-                                "OrigRead-LLM-$version.apk"
+                                "OrigRead-X-$version.apk"
                             } else {
                                 "OrigRead-$version.apk"
                             },
