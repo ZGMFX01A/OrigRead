@@ -1,6 +1,7 @@
 package me.ash.reader.llm.search
 
 import java.util.UUID
+import me.ash.reader.infrastructure.ai.AiPerfTrace
 
 /** Web Search 后端的产品语义类型。 */
 enum class WebSearchBackendKind {
@@ -81,10 +82,20 @@ data class WebSearchRequest(
     val query: String,
     val maxResults: Int = 5,
     val includeContent: Boolean = false,
+    /**
+     * Dedicated Search 的整次 HTTP Call 预算。
+     *
+     * Search 当前位于 Chat 首次模型请求之前，因此不能沿用 AI 生成链 150 秒的长超时；AUTO/FORCE
+     * 由 Router 按交互语义覆盖，设置页测活等独立调用使用这里的保守默认值。
+     */
+    val timeoutMillis: Long = DEFAULT_WEB_SEARCH_TIMEOUT_MILLIS,
+    /** P0 性能追踪句柄；仅携带非敏感 trace id/起始时间，不包含 Query 或凭据。 */
+    val perfTrace: AiPerfTrace? = null,
 ) {
     init {
         require(query.isNotBlank()) { "Search query 不能为空" }
         require(maxResults in 1..20) { "maxResults 必须在 1..20" }
+        require(timeoutMillis in 250L..60_000L) { "Search timeoutMillis 必须在 250..60000" }
     }
 }
 
@@ -121,4 +132,6 @@ data class WebSearchHealthCheckResult(
 
 /** Web Search 层对上游暴露的稳定异常。 */
 class WebSearchException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)
+
+internal const val DEFAULT_WEB_SEARCH_TIMEOUT_MILLIS = 12_000L
 

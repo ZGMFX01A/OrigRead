@@ -32,7 +32,8 @@ class PerplexityWebSearchProvider @Inject constructor(
                 JSONObject()
                     .put("query", request.query.trim())
                     .put("max_results", request.maxResults)
-                    .put("max_tokens_per_page", if (request.includeContent) 4096 else 768)
+                    // 交互式 grounding 只需要短 snippet，使用较小的每页 token 预算；需要正文上下文时再恢复 4096。
+                    .put("max_tokens_per_page", if (request.includeContent) 4096 else 512)
             val httpRequest =
                 Request.Builder()
                     .url(profile.endpoint)
@@ -40,7 +41,7 @@ class PerplexityWebSearchProvider @Inject constructor(
                     .header("Accept", "application/json")
                     .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
                     .build()
-            httpClient.client.newCall(httpRequest).execute().use { response ->
+            httpClient.newWebSearchCall(httpRequest, request).execute().use { response ->
                 val payload = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
                     throw WebSearchException("Perplexity 搜索失败：HTTP ${response.code}")

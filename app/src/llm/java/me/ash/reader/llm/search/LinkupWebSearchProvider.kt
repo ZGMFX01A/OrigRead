@@ -40,7 +40,7 @@ class LinkupWebSearchProvider @Inject constructor(
                     .header("Accept", "application/json")
                     .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
                     .build()
-            httpClient.client.newCall(httpRequest).execute().use { response ->
+            httpClient.newWebSearchCall(httpRequest, request).execute().use { response ->
                 val payload = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
                     throw WebSearchException("Linkup 搜索失败：HTTP ${response.code}")

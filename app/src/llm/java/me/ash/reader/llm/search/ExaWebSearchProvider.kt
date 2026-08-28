@@ -5,6 +5,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import me.ash.reader.infrastructure.ai.AiHttpClient
+import me.ash.reader.infrastructure.ai.AiPerfTracer
 import me.ash.reader.infrastructure.di.IODispatcher
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
@@ -30,7 +31,8 @@ class ExaWebSearchProvider @Inject constructor(
             val body =
                 JSONObject()
                     .put("query", request.query.trim())
-                    .put("type", "auto")
+                    // Exa 官方将 instant 定位为 chat/voice/autocomplete 的最低延迟模式；全文检索仍保留 auto。
+                    .put("type", if (request.includeContent) "auto" else "instant")
                     .put("numResults", request.maxResults)
                     .put(
                         "contents",
@@ -45,8 +47,16 @@ class ExaWebSearchProvider @Inject constructor(
                     .header("Accept", "application/json")
                     .post(body.toString().toRequestBody(EXA_JSON_MEDIA_TYPE))
                     .build()
-            httpClient.client.newCall(httpRequest).execute().use { response ->
+            httpClient.newWebSearchCall(httpRequest, request).execute().use { response ->
                 val payload = response.body?.string().orEmpty()
+                request.perfTrace?.let { trace ->
+                    AiPerfTracer.mark(
+                        trace,
+                        "search_response_read_complete",
+                        "providerKind" to kind.name,
+                        "responseChars" to payload.length,
+                    )
+                }
                 if (!response.isSuccessful) {
                     throw WebSearchException(
                         "Exa 搜索失败：HTTP ${response.code}${exaErrorSuffix(payload)}"

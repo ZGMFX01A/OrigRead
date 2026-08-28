@@ -31,7 +31,8 @@ class BraveWebSearchProvider @Inject constructor(
                     .addQueryParameter("q", request.query.trim())
                     .addQueryParameter("count", request.maxResults.toString())
                     .addQueryParameter("text_decorations", "false")
-                    .addQueryParameter("extra_snippets", "true")
+                    // 普通 Chat grounding 使用主 description 即可；全文/扩展上下文模式才请求额外摘录。
+                    .addQueryParameter("extra_snippets", request.includeContent.toString())
                     .build()
             val httpRequest =
                 Request.Builder()
@@ -40,7 +41,7 @@ class BraveWebSearchProvider @Inject constructor(
                     .header("Accept", "application/json")
                     .get()
                     .build()
-            httpClient.client.newCall(httpRequest).execute().use { response ->
+            httpClient.newWebSearchCall(httpRequest, request).execute().use { response ->
                 val payload = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
                     throw WebSearchException("Brave 搜索失败：HTTP ${response.code}")

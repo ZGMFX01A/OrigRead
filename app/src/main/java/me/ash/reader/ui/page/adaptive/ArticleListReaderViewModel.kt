@@ -47,10 +47,12 @@ import me.ash.reader.infrastructure.android.AndroidImageDownloader
 import me.ash.reader.infrastructure.android.TextToSpeechManager
 import me.ash.reader.infrastructure.ai.AiSettingsRepository
 import me.ash.reader.infrastructure.ai.AiException
+import me.ash.reader.infrastructure.ai.AiPerfTracer
 import me.ash.reader.infrastructure.ai.AiSummaryDocument
 import me.ash.reader.infrastructure.ai.AiSummaryLength
 import me.ash.reader.infrastructure.ai.AiSummaryProgressStage
 import me.ash.reader.infrastructure.ai.AiSummaryService
+import me.ash.reader.infrastructure.ai.AiSummaryStreamUpdate
 import me.ash.reader.infrastructure.ai.resolvedDefaultModel
 import me.ash.reader.infrastructure.content.ArticleWebSessionManager
 import me.ash.reader.infrastructure.content.ContentExtractionService
@@ -670,11 +672,21 @@ constructor(
         }
         val selectedModel = modelOverride?.trim().takeUnless { it.isNullOrBlank() }
             ?: selectedProvider.resolvedDefaultModel().orEmpty()
+        val perfTrace = AiPerfTracer.start("summary")
+        AiPerfTracer.mark(
+            perfTrace,
+            "ui_request_ready",
+            "articleChars" to content.length,
+            "providerId" to selectedProvider.id,
+            "model" to selectedModel,
+        )
         aiSummaryJob?.cancel()
         aiSummaryProgressJob?.cancel()
         val requestSerial = ++aiSummaryRequestSerial
         aiSummaryJob =
             viewModelScope.launch {
+                var firstStreamingFeedbackVisible = false
+                AiPerfTracer.mark(perfTrace, "summary_job_started")
                 _aiSummaryUiState.update {
                     it.copy(
                         isLoading = true,
@@ -685,6 +697,8 @@ constructor(
                         activeProviderId = selectedProvider.id,
                         activeProviderName = selectedProvider.name,
                         activeModel = selectedModel,
+                        streamingSummaryPreview = "",
+                        streamingReasoningPreview = "",
                     )
                 }
                 startAiSummaryProgressTicker(articleId)
@@ -706,6 +720,29 @@ constructor(
                                     _aiSummaryUiState.update { it.copy(progressStage = stage) }
                                 }
                             },
+                            onStreamUpdate = { update: AiSummaryStreamUpdate ->
+                                if (
+                                    requestSerial == aiSummaryRequestSerial &&
+                                        _readerState.value.articleId == articleId
+                                ) {
+                                    _aiSummaryUiState.update {
+                                        it.copy(
+                                            streamingSummaryPreview = update.summaryPreview,
+                                            streamingReasoningPreview = update.reasoningPreview,
+                                        )
+                                    }
+                                    if (!firstStreamingFeedbackVisible && update.hasVisibleContent) {
+                                        firstStreamingFeedbackVisible = true
+                                        AiPerfTracer.mark(
+                                            perfTrace,
+                                            "ui_first_stream_visible",
+                                            "hasReasoning" to update.reasoningPreview.isNotBlank(),
+                                            "hasContent" to update.summaryPreview.isNotBlank(),
+                                        )
+                                    }
+                                }
+                            },
+                            perfTrace = perfTrace,
                         )
                     // 文章切换、停止任务或新请求启动后，旧结果不得覆盖当前页面。
                     if (
@@ -719,8 +756,15 @@ constructor(
                                 activeProviderName = document.providerName,
                                 activeModel = document.model,
                                 errorMessage = null,
+                                streamingSummaryPreview = "",
+                                streamingReasoningPreview = "",
                             )
                         }
+                        AiPerfTracer.mark(
+                            perfTrace,
+                            "ui_result_visible",
+                            "summaryChars" to document.summary.length,
+                        )
                     }
                 } catch (error: CancellationException) {
                     // 用户停止、文章切换或 ViewModel 清理都属于正常取消，不提示失败。
@@ -751,6 +795,8 @@ constructor(
                                 it.copy(
                                     isLoading = false,
                                     progressStage = null,
+                                    streamingSummaryPreview = "",
+                                    streamingReasoningPreview = "",
                                 )
                             }
                         }
@@ -774,6 +820,8 @@ constructor(
                 progressStage = null,
                 elapsedSeconds = 0,
                 errorMessage = null,
+                streamingSummaryPreview = "",
+                streamingReasoningPreview = "",
             )
         }
     }
@@ -869,6 +917,10 @@ data class ReaderAiSummaryUiState(
     val activeProviderId: String? = null,
     val activeProviderName: String? = null,
     val activeModel: String? = null,
+    /** 仅生成期间展示；最终完成后由 document.summary 替换。 */
+    val streamingSummaryPreview: String = "",
+    /** 仅展示模型 API 明确返回的 reasoning_content 预览，不持久化 UI 中间状态。 */
+    val streamingReasoningPreview: String = "",
 )
 
 data class ReaderTranslationUiState(

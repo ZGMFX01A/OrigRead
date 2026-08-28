@@ -5,6 +5,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import me.ash.reader.infrastructure.ai.AiHttpClient
+import me.ash.reader.infrastructure.ai.AiPerfTracer
 import me.ash.reader.infrastructure.di.IODispatcher
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
@@ -41,8 +42,16 @@ class TavilyWebSearchProvider @Inject constructor(
                     .header("Accept", "application/json")
                     .post(body.toString().toRequestBody(TAVILY_JSON_MEDIA_TYPE))
                     .build()
-            httpClient.client.newCall(httpRequest).execute().use { response ->
+            httpClient.newWebSearchCall(httpRequest, request).execute().use { response ->
                 val payload = response.body?.string().orEmpty()
+                request.perfTrace?.let { trace ->
+                    AiPerfTracer.mark(
+                        trace,
+                        "search_response_read_complete",
+                        "providerKind" to kind.name,
+                        "responseChars" to payload.length,
+                    )
+                }
                 if (!response.isSuccessful) {
                     throw WebSearchException(
                         "Tavily 搜索失败：HTTP ${response.code}${tavilyErrorSuffix(payload)}"

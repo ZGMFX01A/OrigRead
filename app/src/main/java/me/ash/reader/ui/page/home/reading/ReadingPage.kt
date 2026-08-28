@@ -565,6 +565,10 @@ fun ReadingPage(
                                                 activeProviderName =
                                                     aiSummaryState.activeProviderName,
                                                 activeModel = aiSummaryState.activeModel,
+                                                streamingSummaryPreview =
+                                                    aiSummaryState.streamingSummaryPreview,
+                                                streamingReasoningPreview =
+                                                    aiSummaryState.streamingReasoningPreview,
                                                 onClose = viewModel::dismissAiSummary,
                                                 onRegenerate = { showAiSummaryOptions = true },
                                                 onAskArticle =

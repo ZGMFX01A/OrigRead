@@ -14,6 +14,9 @@ import kotlinx.coroutines.flow.callbackFlow
 import me.ash.reader.infrastructure.ai.AiErrorCode
 import me.ash.reader.infrastructure.ai.AiException
 import me.ash.reader.infrastructure.ai.AiHttpClient
+import me.ash.reader.infrastructure.ai.AiPerfRequestTag
+import me.ash.reader.infrastructure.ai.AiPerfTrace
+import me.ash.reader.infrastructure.ai.AiPerfTracer
 import me.ash.reader.infrastructure.ai.resolveChatCompletionsEndpoint
 import me.ash.reader.llm.chat.data.LlmChatRole
 import me.ash.reader.llm.runtime.LlmCitationReference
@@ -63,7 +66,8 @@ class LlmChatTransport @Inject constructor(
         messages: List<LlmChatRequestMessage>,
     ): Flow<LlmChatDelta> =
         callbackFlow {
-            val request = buildRequest(plan, messages)
+            val perfTrace = AiPerfTracer.start("llm-chat")
+            val request = buildRequest(plan, messages, perfTrace)
             val call = httpClient.client.newCall(request)
             call.enqueue(
                 object : Callback {
@@ -87,14 +91,27 @@ class LlmChatTransport @Inject constructor(
                                         )
                                 var sawSseData = false
                                 val fallbackBody = StringBuilder()
+                                var sawReasoning = false
+                                var sawContent = false
 
                                 while (!call.isCanceled()) {
                                     val line = source.readUtf8Line() ?: break
                                     if (line.startsWith("data:")) {
+                                        if (!sawSseData) {
+                                            AiPerfTracer.mark(perfTrace, "first_sse_event")
+                                        }
                                         sawSseData = true
                                         val payload = line.removePrefix("data:").trim()
                                         if (payload == "[DONE]") break
                                         parseStreamPayload(payload)?.let { delta ->
+                                            if (!sawReasoning && delta.reasoning.isNotEmpty()) {
+                                                sawReasoning = true
+                                                AiPerfTracer.mark(perfTrace, "first_reasoning_delta")
+                                            }
+                                            if (!sawContent && delta.content.isNotEmpty()) {
+                                                sawContent = true
+                                                AiPerfTracer.mark(perfTrace, "first_content_delta")
+                                            }
                                             if (
                                                 delta.content.isNotEmpty() ||
                                                     delta.reasoning.isNotEmpty() ||
@@ -112,6 +129,11 @@ class LlmChatTransport @Inject constructor(
                                 }
 
                                 if (!call.isCanceled() && !sawSseData && fallbackBody.isNotBlank()) {
+                                    AiPerfTracer.mark(
+                                        perfTrace,
+                                        "non_streaming_fallback",
+                                        "responseChars" to fallbackBody.length,
+                                    )
                                     val result = parseNonStreamingPayload(fallbackBody.toString())
                                     if (
                                         result.content.isNotEmpty() ||
@@ -123,7 +145,10 @@ class LlmChatTransport @Inject constructor(
                                         if (trySend(result).isFailure) return
                                     }
                                 }
-                                if (!call.isCanceled()) close()
+                                if (!call.isCanceled()) {
+                                    AiPerfTracer.mark(perfTrace, "stream_complete")
+                                    close()
+                                }
                             } catch (error: AiException) {
                                 close(error)
                             } catch (error: Throwable) {
@@ -173,6 +198,7 @@ class LlmChatTransport @Inject constructor(
     private fun buildRequest(
         plan: LlmExecutionPlan,
         history: List<LlmChatRequestMessage>,
+        perfTrace: AiPerfTrace,
     ): Request {
         val messages = JSONArray()
         // P3 的普通 Chat 不需要强制 system 消息；部分推理模型对 system role 有额外限制。
@@ -273,6 +299,14 @@ class LlmChatTransport @Inject constructor(
             body.put("tools", tools)
         }
 
+        val bodyJson = body.toString()
+        AiPerfTracer.mark(
+            perfTrace,
+            "request_json_built",
+            "requestChars" to bodyJson.length,
+            "estimatedPromptTokens" to estimateRequestTokens(plan, history),
+            "stream" to plan.capability.supportsStreaming,
+        )
         val requestBuilder =
             Request.Builder()
                 .url(resolveChatCompletionsEndpoint(plan.runtimeConfig.endpoint))
@@ -284,7 +318,8 @@ class LlmChatTransport @Inject constructor(
                         "application/json"
                     },
                 )
-                .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .post(bodyJson.toRequestBody(JSON_MEDIA_TYPE))
+                .tag(AiPerfRequestTag::class.java, AiPerfRequestTag(perfTrace))
         if (plan.runtimeConfig.apiKey.isNotBlank()) {
             requestBuilder.header("Authorization", "Bearer ${plan.runtimeConfig.apiKey}")
         }

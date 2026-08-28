@@ -14,6 +14,7 @@ class AiHttpClient @Inject constructor() {
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(120, TimeUnit.SECONDS)
             .callTimeout(150, TimeUnit.SECONDS)
+            .eventListenerFactory { AiPerfEventListener() }
             .addNetworkInterceptor(UserAgentInterceptor)
             .build()
 }

@@ -2,6 +2,7 @@ package me.ash.reader.llm.search
 
 import javax.inject.Inject
 import javax.inject.Singleton
+import me.ash.reader.infrastructure.ai.AiPerfTracer
 import me.ash.reader.llm.runtime.LlmContextItem
 import me.ash.reader.llm.runtime.LlmContextType
 
@@ -24,10 +25,19 @@ class WebSearchRouter @Inject constructor(
         articleTitle: String?,
     ): WebSearchResponse? {
         if (!enabled || mode == WebSearchMode.OFF) return null
+        val perfTrace = AiPerfTracer.start("web-search")
         val required = mode == WebSearchMode.FORCE
-        if (!required && !shouldAutoSearch(userInput)) return null
+        val autoTriggered = required || shouldAutoSearch(userInput)
+        AiPerfTracer.mark(
+            perfTrace,
+            "search_decision_complete",
+            "mode" to mode.name,
+            "triggered" to autoTriggered,
+        )
+        if (!autoTriggered) return null
 
         if (repository.configuredProviders().isEmpty()) {
+            AiPerfTracer.mark(perfTrace, "search_no_provider", "required" to required)
             if (required) throw WebSearchException("尚未配置可用的 Web Search Provider")
             return null
         }
@@ -37,12 +47,39 @@ class WebSearchRouter @Inject constructor(
                 query = buildSearchQuery(articleTitle, userInput),
                 maxResults = DEFAULT_CHAT_SEARCH_RESULTS,
                 includeContent = false,
+                // AUTO 优先保证 Chat 可用性；FORCE 是用户明确联网，允许更长等待后再暴露失败。
+                timeoutMillis =
+                    if (required) FORCE_SEARCH_TIMEOUT_MILLIS else AUTO_SEARCH_TIMEOUT_MILLIS,
+                perfTrace = perfTrace,
             )
+        AiPerfTracer.mark(
+            perfTrace,
+            "search_budget_resolved",
+            "timeoutMs" to request.timeoutMillis,
+            "required" to required,
+        )
         return if (required) {
-            service.search(request)
+            try {
+                service.search(request)
+            } catch (error: Throwable) {
+                AiPerfTracer.mark(
+                    perfTrace,
+                    "force_search_failed",
+                    "error" to error.javaClass.simpleName,
+                )
+                throw error
+            }
         } else {
             // AUTO 搜索失败时继续使用文章上下文回答；FORCE 才把搜索失败暴露为本轮错误。
-            runCatching { service.search(request) }.getOrNull()
+            runCatching { service.search(request) }
+                .onFailure { error ->
+                    AiPerfTracer.mark(
+                        perfTrace,
+                        "auto_search_failed_fallback",
+                        "error" to error.javaClass.simpleName,
+                    )
+                }
+                .getOrNull()
         }
     }
 }
@@ -125,6 +162,8 @@ private val AUTO_SEARCH_MARKERS =
 
 private const val DEFAULT_CHAT_SEARCH_RESULTS = 5
 private const val MAX_SEARCH_QUERY_LENGTH = 500
+private const val AUTO_SEARCH_TIMEOUT_MILLIS = 3_000L
+private const val FORCE_SEARCH_TIMEOUT_MILLIS = 12_000L
 // 搜索资料是阅读辅助：排在摘要(130)/当前译文(120)之后、长原文(100)之前。
 private const val SEARCH_CONTEXT_PRIORITY = 110
 

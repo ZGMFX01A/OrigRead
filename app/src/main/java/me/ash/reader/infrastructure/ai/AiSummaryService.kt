@@ -9,6 +9,38 @@ import me.ash.reader.infrastructure.di.IODispatcher
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 
+private const val SUMMARY_STREAM_UI_INTERVAL_NANOS = 80_000_000L
+private const val SUMMARY_STREAM_REASONING_PREVIEW_CHARS = 1600
+private const val SUMMARY_STREAM_CONTENT_PREVIEW_CHARS = 2200
+
+/** 阅读页生成期间可直接展示的流式预览；最终摘要仍以完整响应解析结果为准。 */
+data class AiSummaryStreamUpdate(
+    val summaryPreview: String = "",
+    val reasoningPreview: String = "",
+) {
+    val hasVisibleContent: Boolean
+        get() = summaryPreview.isNotBlank() || reasoningPreview.isNotBlank()
+}
+
+/**
+ * 摘要协议要求首行携带不可见 metadata 注释；注释未闭合前不能把半截协议文本展示给用户。
+ * 若兼容模型没有遵循 metadata 约定而直接输出正文，则保留原文本作为实时预览。
+ */
+internal fun extractAiSummaryStreamPreview(rawContent: String): String {
+    val trimmed = rawContent.trimStart()
+    if (trimmed.isBlank()) return ""
+
+    val commentEnd = trimmed.indexOf("-->")
+    if (trimmed.startsWith("<!--")) {
+        if (commentEnd < 0) return ""
+        return trimmed.substring(commentEnd + 3).trimStart()
+    }
+
+    // SSE 可能把 `<!--` 拆成多个极短 chunk；确认不是 metadata 前先暂缓显示。
+    if (trimmed.length <= 4 && "<!--".startsWith(trimmed)) return ""
+    return trimmed
+}
+
 @Singleton
 class AiSummaryService @Inject constructor(
     private val settingsRepository: AiSettingsRepository,
@@ -51,8 +83,12 @@ class AiSummaryService @Inject constructor(
         modelOverride: String? = null,
         lengthOverride: AiSummaryLength? = null,
         onProgress: (AiSummaryProgressStage) -> Unit = {},
+        onStreamUpdate: (AiSummaryStreamUpdate) -> Unit = {},
+        perfTrace: AiPerfTrace? = null,
     ): AiSummaryDocument =
         withContext(ioDispatcher) {
+            val trace = perfTrace ?: AiPerfTracer.start("summary")
+            AiPerfTracer.mark(trace, "service_io_enter")
             val settings = requireEnabledSettings()
             val profile =
                 providerId?.let { id -> settings.providers.firstOrNull { it.id == id } }
@@ -66,6 +102,14 @@ class AiSummaryService @Inject constructor(
                 throw AiException(AiErrorCode.NOT_CONFIGURED, "请先配置所选 AI 服务的地址和模型")
             }
             val length = lengthOverride ?: settings.summaryLength
+            AiPerfTracer.mark(
+                trace,
+                "settings_resolved",
+                "providerId" to profile.id,
+                "model" to model,
+                "length" to length.name,
+                "sourceChars" to content.length,
+            )
             val promptCustomization =
                 promptCustomizer.customize(
                     task = AiTaskType.SUMMARY,
@@ -84,9 +128,17 @@ class AiSummaryService @Inject constructor(
                         length = length,
                         promptVariant = promptCustomization.cacheVariant,
                     )
-                    ?.let { return@withContext it }
+                    ?.let {
+                        AiPerfTracer.mark(trace, "cache_hit")
+                        return@withContext it
+                    }
             }
             val articleSource = prepareArticleForSummary(content)
+            AiPerfTracer.mark(
+                trace,
+                "article_prepared",
+                "preparedChars" to articleSource.length,
+            )
             if (articleSource.isBlank()) {
                 throw AiException(AiErrorCode.INVALID_REQUEST, "当前文章没有可用于摘要的正文")
             }
@@ -116,23 +168,66 @@ class AiSummaryService @Inject constructor(
                 return@withContext document
             }
             onProgress(AiSummaryProgressStage.GENERATING)
+            val userPrompt =
+                buildAiSummaryUserPrompt(
+                    title = title,
+                    content = articleSource,
+                    length = length,
+                )
+            AiPerfTracer.mark(
+                trace,
+                "prompt_built",
+                "systemChars" to promptCustomization.systemPrompt.length,
+                "userChars" to userPrompt.length,
+            )
+            val streamedContent = StringBuilder()
+            val streamedReasoning = StringBuilder()
+            var lastStreamUiUpdateNanos = 0L
             val result =
-                provider.completeDetailedCancellable(
+                provider.streamDetailedCancellable(
                     systemPrompt = promptCustomization.systemPrompt,
-                    userPrompt =
-                        buildAiSummaryUserPrompt(
-                            title = title,
-                            content = articleSource,
-                            length = length,
-                        ),
+                    userPrompt = userPrompt,
                     config =
                         settingsRepository.runtimeConfig(
                             providerId = profile.id,
                             modelOverride = model,
                         ),
+                    perfTrace = trace,
+                    onDelta = { delta ->
+                        streamedContent.append(delta.content)
+                        streamedReasoning.append(delta.reasoning)
+
+                        // 首个服务端增量立即交给 UI；后续约 80ms 节流，避免 reasoning 高频分片
+                        // 触发 Compose 持续重排。Provider 内仍完整累积最终结果，因此这里只限制预览频率。
+                        val now = System.nanoTime()
+                        if (
+                            lastStreamUiUpdateNanos == 0L ||
+                                now - lastStreamUiUpdateNanos >= SUMMARY_STREAM_UI_INTERVAL_NANOS
+                        ) {
+                            val update =
+                                AiSummaryStreamUpdate(
+                                    summaryPreview =
+                                        extractAiSummaryStreamPreview(streamedContent.toString())
+                                            .takeLast(SUMMARY_STREAM_CONTENT_PREVIEW_CHARS),
+                                    reasoningPreview =
+                                        streamedReasoning.toString()
+                                            .takeLast(SUMMARY_STREAM_REASONING_PREVIEW_CHARS),
+                                )
+                            if (update.hasVisibleContent) {
+                                onStreamUpdate(update)
+                                lastStreamUiUpdateNanos = now
+                            }
+                        }
+                    },
                 )
             onProgress(AiSummaryProgressStage.FINALIZING)
             val decision = parseAiSummaryModelOutput(result.content)
+            AiPerfTracer.mark(
+                trace,
+                "summary_model_output_parsed",
+                "shouldSummarize" to decision.shouldSummarize,
+                "summaryChars" to decision.summary.length,
+            )
             val document =
                 AiSummaryDocument(
                     articleId = articleId,
@@ -157,6 +252,7 @@ class AiSummaryService @Inject constructor(
                 document,
                 promptVariant = promptCustomization.cacheVariant,
             )
+            AiPerfTracer.mark(trace, "cache_write_complete")
             document
         }
 

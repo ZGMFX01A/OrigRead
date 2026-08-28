@@ -60,6 +60,8 @@ internal fun AiSummaryPanel(
     elapsedSeconds: Int,
     activeProviderName: String?,
     activeModel: String?,
+    streamingSummaryPreview: String,
+    streamingReasoningPreview: String,
     onClose: () -> Unit,
     onRegenerate: () -> Unit,
     /** LLM edition 可提供文章级追问入口；Standard 传 null 时摘要 UI 完全保持原样。 */
@@ -229,6 +231,50 @@ internal fun AiSummaryPanel(
                                 }
                             } else {
                                 AiMarkdown(document.summary, hideLeadingSummaryHeading = true)
+                            }
+                        }
+                    }
+                } else if (
+                    streamingSummaryPreview.isNotBlank() || streamingReasoningPreview.isNotBlank()
+                ) {
+                    // 真流式摘要阶段只渲染轻量 Text，避免每个 SSE delta 都触发 Markdown 全量重解析。
+                    // 最终响应完成后仍由 AiMarkdown 渲染规范化后的 document.summary。
+                    SelectionContainer(modifier = Modifier.weight(1f)) {
+                        Column(
+                            modifier =
+                                Modifier.fillMaxWidth()
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(horizontal = 18.dp, vertical = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            if (streamingReasoningPreview.isNotBlank()) {
+                                Surface(
+                                    shape = MaterialTheme.shapes.medium,
+                                    color = MaterialTheme.colorScheme.surfaceContainer,
+                                    tonalElevation = 0.dp,
+                                ) {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.ai_reasoning),
+                                            style = MaterialTheme.typography.labelLarge,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                        Text(
+                                            text = streamingReasoningPreview,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
+                            if (streamingSummaryPreview.isNotBlank()) {
+                                Text(
+                                    text = streamingSummaryPreview,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
                             }
                         }
                     }

@@ -26,6 +26,12 @@ data class AiCompletionResult(
     val reasoning: String? = null,
 )
 
+/** OpenAI-compatible SSE 的单个增量；只包含服务端明确返回给客户端的字段。 */
+data class AiCompletionDelta(
+    val content: String = "",
+    val reasoning: String = "",
+)
+
 /**
  * 兼容部分推理模型把思考过程包在 `<think>...</think>` 中返回的格式。
  * 仅拆分模型实际返回文本，不推断、不补写任何隐藏思维链。
@@ -116,20 +122,64 @@ class OpenAiCompatibleProvider @Inject constructor(
         systemPrompt: String,
         userPrompt: String,
         config: AiRuntimeConfig,
+        perfTrace: AiPerfTrace? = null,
     ): AiCompletionResult {
-        val responseText = executeCancellable(buildCompletionRequest(systemPrompt, userPrompt, config))
-        return parseCompletionResponse(responseText)
+        val trace = perfTrace ?: AiPerfTracer.start("ai-completion")
+        val responseText =
+            executeCancellable(
+                buildCompletionRequest(
+                    systemPrompt = systemPrompt,
+                    userPrompt = userPrompt,
+                    config = config,
+                    perfTrace = trace,
+                )
+            )
+        val result = parseCompletionResponse(responseText)
+        AiPerfTracer.mark(
+            trace,
+            "completion_parse_complete",
+            "contentChars" to result.content.length,
+            "reasoningChars" to result.reasoning.orEmpty().length,
+        )
+        return result
+    }
+
+    /**
+     * 阅读页摘要专用的真流式 Chat Completions。
+     *
+     * 不依赖响应 Content-Type，而是直接消费 OpenAI-compatible `data:` SSE；若兼容服务忽略
+     * `stream=true` 并返回完整 JSON，则回退到现有完整响应解析。Coroutine 取消时会取消底层 Call。
+     */
+    suspend fun streamDetailedCancellable(
+        systemPrompt: String,
+        userPrompt: String,
+        config: AiRuntimeConfig,
+        perfTrace: AiPerfTrace? = null,
+        onDelta: (AiCompletionDelta) -> Unit,
+    ): AiCompletionResult {
+        val trace = perfTrace ?: AiPerfTracer.start("ai-completion-stream")
+        val request =
+            buildCompletionRequest(
+                systemPrompt = systemPrompt,
+                userPrompt = userPrompt,
+                config = config,
+                perfTrace = trace,
+                stream = true,
+            )
+        return executeStreamingCancellable(request, trace, onDelta)
     }
 
     private fun buildCompletionRequest(
         systemPrompt: String,
         userPrompt: String,
         config: AiRuntimeConfig,
+        perfTrace: AiPerfTrace? = null,
+        stream: Boolean = false,
     ): Request {
-        val body =
+        val bodyJson =
             JSONObject()
                 .put("model", config.model)
-                .put("stream", false)
+                .put("stream", stream)
                 .put("temperature", 0.2)
                 .put(
                     "messages",
@@ -138,13 +188,29 @@ class OpenAiCompatibleProvider @Inject constructor(
                         .put(JSONObject().put("role", "user").put("content", userPrompt)),
                 )
                 .toString()
-                .toRequestBody(JSON_MEDIA_TYPE)
+        perfTrace?.let { trace ->
+            AiPerfTracer.mark(
+                trace,
+                "request_json_built",
+                "requestChars" to bodyJson.length,
+                "systemChars" to systemPrompt.length,
+                "userChars" to userPrompt.length,
+                "stream" to stream,
+            )
+        }
+        val body = bodyJson.toRequestBody(JSON_MEDIA_TYPE)
 
         val requestBuilder =
             Request.Builder()
                 .url(resolveChatCompletionsEndpoint(config.endpoint))
-                .header("Accept", "application/json")
+                .header(
+                    "Accept",
+                    if (stream) "text/event-stream, application/json" else "application/json",
+                )
                 .post(body)
+        perfTrace?.let { trace ->
+            requestBuilder.tag(AiPerfRequestTag::class.java, AiPerfRequestTag(trace))
+        }
         if (config.apiKey.isNotBlank()) {
             requestBuilder.header("Authorization", "Bearer ${config.apiKey}")
         }
@@ -273,9 +339,192 @@ class OpenAiCompatibleProvider @Inject constructor(
             )
         }
 
+    /** 真正消费 SSE 的可取消请求；最终仍返回完整结果，供既有摘要解析和缓存链复用。 */
+    private suspend fun executeStreamingCancellable(
+        request: Request,
+        perfTrace: AiPerfTrace,
+        onDelta: (AiCompletionDelta) -> Unit,
+    ): AiCompletionResult =
+        suspendCancellableCoroutine { continuation ->
+            val call = httpClient.client.newCall(request)
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(
+                object : Callback {
+                    override fun onFailure(call: Call, e: java.io.IOException) {
+                        if (!continuation.isActive) return
+                        continuation.resumeWith(Result.failure(classifyNetworkError(e)))
+                    }
+
+                    override fun onResponse(call: Call, response: Response) {
+                        if (!continuation.isActive) {
+                            response.close()
+                            return
+                        }
+                        val parsed = runCatching { readStreamingResponse(call, response, perfTrace, onDelta) }
+                        if (!continuation.isActive) return
+                        continuation.resumeWith(
+                            parsed.fold(
+                                onSuccess = { Result.success(it) },
+                                onFailure = { error ->
+                                    Result.failure(
+                                        if (error is AiException) error else classifyNetworkError(error)
+                                    )
+                                },
+                            )
+                        )
+                    }
+                }
+            )
+        }
+
+    /**
+     * 顺序读取 OpenAI-compatible SSE；`data:` 之外的行只在尚未看到 SSE 时作为完整 JSON 回退缓冲。
+     * 这样既兼容标准 `text/event-stream`，也兼容部分中转错误标成 `text/plain` 的流。
+     */
+    private fun readStreamingResponse(
+        call: Call,
+        response: Response,
+        perfTrace: AiPerfTrace,
+        onDelta: (AiCompletionDelta) -> Unit,
+    ): AiCompletionResult =
+        response.use { httpResponse ->
+            ensureStreamingResponseSuccessful(httpResponse)
+            val source =
+                httpResponse.body?.source()
+                    ?: throw AiException(AiErrorCode.INVALID_RESPONSE, "AI 服务返回了空响应")
+            val content = StringBuilder()
+            val reasoning = StringBuilder()
+            val fallbackBody = StringBuilder()
+            var sawSseData = false
+            var sawReasoning = false
+            var sawContent = false
+
+            while (!call.isCanceled()) {
+                val line = source.readUtf8Line() ?: break
+                if (line.startsWith("data:")) {
+                    if (!sawSseData) {
+                        sawSseData = true
+                        AiPerfTracer.mark(perfTrace, "first_sse_event")
+                    }
+                    val payload = line.removePrefix("data:").trim()
+                    if (payload.isBlank()) continue
+                    if (payload == "[DONE]") break
+                    val delta = parseCompletionStreamPayload(payload) ?: continue
+                    if (delta.reasoning.isNotEmpty()) {
+                        reasoning.append(delta.reasoning)
+                        if (!sawReasoning) {
+                            sawReasoning = true
+                            AiPerfTracer.mark(perfTrace, "first_reasoning_delta")
+                        }
+                    }
+                    if (delta.content.isNotEmpty()) {
+                        content.append(delta.content)
+                        if (!sawContent) {
+                            sawContent = true
+                            AiPerfTracer.mark(perfTrace, "first_content_delta")
+                        }
+                    }
+                    if (delta.content.isNotEmpty() || delta.reasoning.isNotEmpty()) {
+                        onDelta(delta)
+                    }
+                } else if (!sawSseData && line.isNotBlank()) {
+                    if (fallbackBody.isNotEmpty()) fallbackBody.append('\n')
+                    fallbackBody.append(line)
+                }
+            }
+
+            if (call.isCanceled()) {
+                throw java.io.IOException("AI 请求已取消")
+            }
+
+            val completion =
+                if (!sawSseData) {
+                    AiPerfTracer.mark(
+                        perfTrace,
+                        "non_streaming_fallback",
+                        "responseChars" to fallbackBody.length,
+                    )
+                    parseCompletionResponse(fallbackBody.toString()).also { parsed ->
+                        onDelta(
+                            AiCompletionDelta(
+                                content = parsed.content,
+                                reasoning = parsed.reasoning.orEmpty(),
+                            )
+                        )
+                    }
+                } else {
+                    splitThinkContent(
+                        content = content.toString(),
+                        explicitReasoning = reasoning.toString().takeIf(String::isNotBlank),
+                    ).also { parsed ->
+                        if (parsed.content.isBlank()) {
+                            throw AiException(AiErrorCode.INVALID_RESPONSE, "AI 服务返回了空内容")
+                        }
+                    }
+                }
+            AiPerfTracer.mark(
+                perfTrace,
+                "stream_complete",
+                "contentChars" to completion.content.length,
+                "reasoningChars" to completion.reasoning.orEmpty().length,
+            )
+            completion
+        }
+
+    /** 解析 Chat Completions 的单个 SSE `data:` JSON。 */
+    private fun parseCompletionStreamPayload(payload: String): AiCompletionDelta? {
+        val root =
+            runCatching { JSONObject(payload) }
+                .getOrElse {
+                    throw AiException(AiErrorCode.INVALID_RESPONSE, "AI 流式响应不是有效 JSON", it)
+                }
+        root.optJSONObject("error")?.let { error ->
+            throw AiException(
+                AiErrorCode.INVALID_RESPONSE,
+                error.optString("message").ifBlank { "AI 服务返回错误" },
+            )
+        }
+        val first = root.optJSONArray("choices")?.optJSONObject(0) ?: return null
+        val delta = first.optJSONObject("delta") ?: first.optJSONObject("message") ?: return null
+        return AiCompletionDelta(
+            content = parseContent(delta.opt("content")),
+            reasoning =
+                parseContent(delta.opt("reasoning_content"))
+                    .ifBlank { parseContent(delta.opt("reasoning")) },
+        ).takeIf { it.content.isNotEmpty() || it.reasoning.isNotEmpty() }
+    }
+
+    /** Streaming 请求非 2xx 时沿用现有错误分类，并保留服务端错误正文中的 message。 */
+    private fun ensureStreamingResponseSuccessful(response: Response) {
+        if (response.isSuccessful) return
+        val body = response.body?.string().orEmpty()
+        val detail = extractErrorDetail(body)
+        val message =
+            "HTTP ${response.code}" +
+                detail.takeIf(String::isNotBlank)?.let { value -> ": $value" }.orEmpty()
+        val code =
+            when (response.code) {
+                400, 404, 405, 422 -> AiErrorCode.INVALID_REQUEST
+                401, 403 -> AiErrorCode.AUTHENTICATION
+                429 -> AiErrorCode.RATE_LIMIT
+                in 500..599 -> AiErrorCode.SERVICE_UNAVAILABLE
+                else -> AiErrorCode.NETWORK
+            }
+        throw AiException(code, message)
+    }
+
     private fun readResponse(response: Response): String {
         response.use {
+            val perfTrace = it.request.tag(AiPerfRequestTag::class.java)?.trace
+            perfTrace?.let { trace -> AiPerfTracer.mark(trace, "response_read_start") }
             val body = it.body?.string().orEmpty()
+            perfTrace?.let { trace ->
+                AiPerfTracer.mark(
+                    trace,
+                    "response_read_complete",
+                    "responseChars" to body.length,
+                )
+            }
             if (!it.isSuccessful) {
                 val detail = extractErrorDetail(body)
                 val message = "HTTP ${it.code}" + detail.takeIf(String::isNotBlank)?.let { value -> ": $value" }.orEmpty()

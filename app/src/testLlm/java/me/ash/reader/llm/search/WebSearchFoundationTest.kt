@@ -1,5 +1,6 @@
 package me.ash.reader.llm.search
 
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import me.ash.reader.infrastructure.ai.AiHttpClient
@@ -94,6 +95,7 @@ class WebSearchFoundationTest {
             val json = JSONObject(recorded.body.readUtf8())
             assertEquals("latest android news", json.getString("query"))
             assertEquals(7, json.getInt("numResults"))
+            assertEquals("instant", json.getString("type"))
             assertTrue(json.getJSONObject("contents").getBoolean("highlights"))
         } finally {
             server.shutdown()
@@ -166,6 +168,7 @@ class WebSearchFoundationTest {
             assertEquals("brave-secret", recorded.getHeader("X-Subscription-Token"))
             assertEquals("android compose", recorded.requestUrl?.queryParameter("q"))
             assertEquals("6", recorded.requestUrl?.queryParameter("count"))
+            assertEquals("false", recorded.requestUrl?.queryParameter("extra_snippets"))
         } finally {
             server.shutdown()
         }
@@ -199,6 +202,67 @@ class WebSearchFoundationTest {
             val json = JSONObject(recorded.body.readUtf8())
             assertEquals("current android version", json.getString("query"))
             assertEquals(5, json.getInt("max_results"))
+            assertEquals(512, json.getInt("max_tokens_per_page"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `web search call overrides long ai client timeout`() {
+        val httpClient = AiHttpClient()
+        val httpRequest =
+            okhttp3.Request.Builder()
+                .url("https://example.com/search")
+                .build()
+        val searchRequest =
+            WebSearchRequest(
+                query = "latest android news",
+                timeoutMillis = 3_000L,
+            )
+
+        val call = httpClient.newWebSearchCall(httpRequest, searchRequest)
+
+        assertEquals(TimeUnit.MILLISECONDS.toNanos(3_000L), call.timeout().timeoutNanos())
+    }
+
+    @Test
+    fun `web search call aborts delayed provider at request budget`() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(200)
+                    .setHeadersDelay(2, TimeUnit.SECONDS)
+                    .setHeader("Content-Type", "application/json")
+                    .setBody("""{"results":[]}""")
+            )
+            val provider = ExaWebSearchProvider(AiHttpClient(), Dispatchers.IO)
+            val startedAt = System.nanoTime()
+
+            val failure =
+                runCatching {
+                    provider.search(
+                        profile =
+                            WebSearchProviderProfile(
+                                id = "exa-timeout",
+                                kind = WebSearchProviderKind.EXA,
+                                endpoint = server.url("/search").toString(),
+                            ),
+                        apiKey = "exa-secret",
+                        request =
+                            WebSearchRequest(
+                                query = "latest android news",
+                                timeoutMillis = 400L,
+                            ),
+                    )
+                }.exceptionOrNull()
+            val elapsedMillis =
+                TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
+
+            assertTrue("延迟请求应被 Dedicated Search timeout 中止", failure != null)
+            assertTrue("实际耗时不应等满服务端 2 秒，elapsed=$elapsedMillis ms", elapsedMillis < 1_500L)
         } finally {
             server.shutdown()
         }

@@ -31,7 +31,7 @@ class SearxngWebSearchProvider @Inject constructor(
                     .addQueryParameter("format", "json")
                     .build()
             val httpRequest = Request.Builder().url(url).header("Accept", "application/json").get().build()
-            httpClient.client.newCall(httpRequest).execute().use { response ->
+            httpClient.newWebSearchCall(httpRequest, request).execute().use { response ->
                 val payload = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
                     throw WebSearchException("SearXNG 搜索失败：HTTP ${response.code}")

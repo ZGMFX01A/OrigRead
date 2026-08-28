@@ -2,6 +2,7 @@ package me.ash.reader.llm.search
 
 import javax.inject.Inject
 import javax.inject.Singleton
+import me.ash.reader.infrastructure.ai.AiPerfTracer
 
 /**
  * Dedicated Search 的统一执行入口。
@@ -40,11 +41,30 @@ class WebSearchService @Inject constructor(
     ): WebSearchResponse {
         val profile = configuredProfile(providerId)
         val adapter = adapterFor(profile)
-        return adapter.search(
-            profile = profile,
-            apiKey = repository.getApiKey(profile.id),
-            request = request,
-        )
+        request.perfTrace?.let { trace ->
+            AiPerfTracer.mark(
+                trace,
+                "search_provider_selected",
+                "providerId" to profile.id,
+                "providerKind" to profile.kind.name,
+                "maxResults" to request.maxResults,
+            )
+        }
+        val response =
+            adapter.search(
+                profile = profile,
+                apiKey = repository.getApiKey(profile.id),
+                request = request,
+            )
+        request.perfTrace?.let { trace ->
+            AiPerfTracer.mark(
+                trace,
+                "search_complete",
+                "providerKind" to profile.kind.name,
+                "resultCount" to response.results.size,
+            )
+        }
+        return response
     }
 
     /**
