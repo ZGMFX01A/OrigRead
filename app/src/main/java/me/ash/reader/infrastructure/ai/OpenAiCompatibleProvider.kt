@@ -19,6 +19,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+private const val DEFAULT_COMPLETION_TEMPERATURE = 0.2
 
 /** OpenAI Compatible 一次文本生成的结构化结果。reasoning 只保存供应商明确返回给客户端的内容。 */
 data class AiCompletionResult(
@@ -109,8 +110,17 @@ class OpenAiCompatibleProvider @Inject constructor(
         systemPrompt: String,
         userPrompt: String,
         config: AiRuntimeConfig,
+        temperature: Double = DEFAULT_COMPLETION_TEMPERATURE,
     ): AiCompletionResult {
-        val responseText = execute(buildCompletionRequest(systemPrompt, userPrompt, config))
+        val responseText =
+            execute(
+                buildCompletionRequest(
+                    systemPrompt = systemPrompt,
+                    userPrompt = userPrompt,
+                    config = config,
+                    temperature = temperature,
+                )
+            )
         return parseCompletionResponse(responseText)
     }
 
@@ -122,6 +132,7 @@ class OpenAiCompatibleProvider @Inject constructor(
         systemPrompt: String,
         userPrompt: String,
         config: AiRuntimeConfig,
+        temperature: Double = DEFAULT_COMPLETION_TEMPERATURE,
         perfTrace: AiPerfTrace? = null,
     ): AiCompletionResult {
         val trace = perfTrace ?: AiPerfTracer.start("ai-completion")
@@ -131,6 +142,7 @@ class OpenAiCompatibleProvider @Inject constructor(
                     systemPrompt = systemPrompt,
                     userPrompt = userPrompt,
                     config = config,
+                    temperature = temperature,
                     perfTrace = trace,
                 )
             )
@@ -154,6 +166,7 @@ class OpenAiCompatibleProvider @Inject constructor(
         systemPrompt: String,
         userPrompt: String,
         config: AiRuntimeConfig,
+        temperature: Double = DEFAULT_COMPLETION_TEMPERATURE,
         perfTrace: AiPerfTrace? = null,
         onDelta: (AiCompletionDelta) -> Unit,
     ): AiCompletionResult {
@@ -163,6 +176,7 @@ class OpenAiCompatibleProvider @Inject constructor(
                 systemPrompt = systemPrompt,
                 userPrompt = userPrompt,
                 config = config,
+                temperature = temperature,
                 perfTrace = trace,
                 stream = true,
             )
@@ -173,6 +187,7 @@ class OpenAiCompatibleProvider @Inject constructor(
         systemPrompt: String,
         userPrompt: String,
         config: AiRuntimeConfig,
+        temperature: Double = DEFAULT_COMPLETION_TEMPERATURE,
         perfTrace: AiPerfTrace? = null,
         stream: Boolean = false,
     ): Request {
@@ -180,7 +195,7 @@ class OpenAiCompatibleProvider @Inject constructor(
             JSONObject()
                 .put("model", config.model)
                 .put("stream", stream)
-                .put("temperature", 0.2)
+                .put("temperature", temperature)
                 .put(
                     "messages",
                     JSONArray()

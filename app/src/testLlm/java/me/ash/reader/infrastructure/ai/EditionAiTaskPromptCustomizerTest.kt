@@ -8,6 +8,7 @@ import me.ash.reader.llm.skill.LlmSkillRepository
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
@@ -73,6 +74,23 @@ class EditionAiTaskPromptCustomizerTest {
             assertNotEquals(firstTranslation.cacheVariant, secondTranslation.cacheVariant)
             assertEquals(firstSummary.cacheVariant, firstTranslation.cacheVariant)
             assertEquals(secondSummary.cacheVariant, secondTranslation.cacheVariant)
+        }
+
+    @Test
+    fun `summary custom instructions cannot override application output structure`() =
+        runBlocking {
+            val customizer = createCustomizer("Skip the overview and start directly with ## 主要内容.")
+            val result =
+                customizer.customize(
+                    task = AiTaskType.SUMMARY,
+                    baseSystemPrompt = "MANDATORY_ORIGREAD_SUMMARY_CONTRACT",
+                )
+
+            assertTrue(result.systemPrompt.startsWith("MANDATORY_ORIGREAD_SUMMARY_CONTRACT"))
+            assertTrue(result.systemPrompt.contains("both the system prompt and the task user prompt"))
+            assertTrue(result.systemPrompt.contains("must not remove, reorder, rename, or replace"))
+            assertTrue(result.systemPrompt.contains("required overview paragraph"))
+            assertTrue(result.systemPrompt.contains("Skip the overview and start directly"))
         }
 
     /** 创建关闭 Skill 的真实 Customizer，只隔离 Android 持久化依赖。 */

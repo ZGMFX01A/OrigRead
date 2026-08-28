@@ -164,7 +164,29 @@ class OpenAiCompatibleProviderTest {
         val body = JSONObject(request.body.readUtf8())
         assertEquals("test-model", body.getString("model"))
         assertEquals(false, body.getBoolean("stream"))
+        assertEquals(0.2, body.getDouble("temperature"), 0.0)
         assertEquals("system", body.getJSONArray("messages").getJSONObject(0).getString("content"))
+    }
+
+    @Test
+    fun `allows deterministic temperature for structured completion task`() {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"choices":[{"message":{"role":"assistant","content":"结构化摘要"}}]}"""
+            )
+        )
+
+        val result =
+            provider.completeDetailed(
+                systemPrompt = "summary-system",
+                userPrompt = "summary-user",
+                config = AiRuntimeConfig(server.url("/v1").toString(), "summary-model", ""),
+                temperature = 0.0,
+            )
+
+        assertEquals("结构化摘要", result.content)
+        val body = JSONObject(server.takeRequest().body.readUtf8())
+        assertEquals(0.0, body.getDouble("temperature"), 0.0)
     }
 
     @Test

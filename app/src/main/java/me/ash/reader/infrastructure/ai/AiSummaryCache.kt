@@ -155,8 +155,8 @@ class AiSummaryCache @Inject constructor(
             .joinToString("") { "%02x".format(it) }
 
     companion object {
-        // v7 引入跨语言等效长度、表格输入预算和 v1 元数据协议，旧摘要需安全失效。
-        private const val CACHE_VERSION = "7"
+        // v8 引入 P4 的 STANDARD 固定骨架与摘要低温度采样，避免旧缓存继续展示不一致结构。
+        private const val CACHE_VERSION = "8"
     }
 }
 
