@@ -2,6 +2,8 @@ package me.ash.reader.llm.runtime
 
 import javax.inject.Inject
 import javax.inject.Singleton
+import me.ash.reader.infrastructure.ai.AiPerfTrace
+import me.ash.reader.infrastructure.ai.AiPerfTracer
 import me.ash.reader.llm.skill.LlmSkillRepository
 
 /**
@@ -21,6 +23,7 @@ class LlmRuntime @Inject constructor(
     fun prepare(
         profile: LlmExecutionProfile,
         contextItems: List<LlmContextItem> = emptyList(),
+        perfTrace: AiPerfTrace? = null,
     ): LlmExecutionPlan {
         val provider = providerAdapter.resolveProvider(profile.providerId)
         val model = providerAdapter.resolveModel(provider, profile.model)
@@ -37,7 +40,19 @@ class LlmRuntime @Inject constructor(
                 requested = profile.reasoningEffort,
             )
         val tools = toolRuntime.resolveAllowed(profile.enabledToolIds)
+        val contextComposeStartedAt = System.nanoTime()
         val context = contextComposer.compose(contextItems, profile.contextPolicy)
+        perfTrace?.let { trace ->
+            AiPerfTracer.mark(
+                trace,
+                "context_compose_complete",
+                "durationMs" to ((System.nanoTime() - contextComposeStartedAt) / 1_000_000L).coerceAtLeast(0L),
+                "candidateCount" to contextItems.size,
+                "includedCount" to context.includedIds.size,
+                "omittedCount" to context.omittedIds.size,
+                "truncated" to context.truncated,
+            )
+        }
         val skill = skillRepository.activeSkill(profile.skillId)
 
         return LlmExecutionPlan(

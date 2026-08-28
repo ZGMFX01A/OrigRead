@@ -1155,6 +1155,7 @@ class LlmChatViewModel @Inject constructor(
                 content = "",
                 status = LlmMessageStatus.STREAMING,
             )
+        val perfTrace = LlmChatPerfTracker.start(assistant.id, toolRound)
         var content = ""
         var reasoning = ""
         var lastPersistAt = 0L
@@ -1180,6 +1181,7 @@ class LlmChatViewModel @Inject constructor(
             providerPromptTokens == null || providerCompletionTokens == null
 
         try {
+            val requestPrepareStartedAtNanos = System.nanoTime()
             val historySnapshot = buildRequestHistory(conversationId, assistant.id)
             val history = historySnapshot.messages
             val selection = runtimeSelection.value
@@ -1228,6 +1230,19 @@ class LlmChatViewModel @Inject constructor(
                     mode = effectiveWebSearchMode,
                     userInput = latestUserInput,
                 )
+            LlmChatPerfTracker.mark(
+                assistant.id,
+                "request_prepare_complete",
+                "durationMs" to
+                    ((System.nanoTime() - requestPrepareStartedAtNanos) / 1_000_000L)
+                        .coerceAtLeast(0L),
+                "task" to requestTask.name,
+                "historyMessages" to history.size,
+                "historyToolCalls" to historySnapshot.toolCalls.size,
+                "additionalArticles" to _uiState.value.additionalArticleAttachments.size,
+                "searchMode" to effectiveWebSearchMode.name,
+                "searchTriggered" to webSearchDecision.triggered,
+            )
             // 在真正执行网络请求前先落 TRIGGERED，UI 因此能即时显示“正在联网搜索”而不是一直停在泛化的“正在生成”。
             assistant =
                 repository.updateMessage(
@@ -1236,6 +1251,7 @@ class LlmChatViewModel @Inject constructor(
                     webSearchProviderName = null,
                     webSearchErrorMessage = null,
                 )
+            val searchStartedAtNanos = System.nanoTime()
             val webSearchRoute =
                 webSearchRouter.searchIfNeeded(
                     enabled = webSearchEnabled,
@@ -1243,6 +1259,15 @@ class LlmChatViewModel @Inject constructor(
                     userInput = latestUserInput,
                     articleTitle = currentArticle.title,
                 )
+            LlmChatPerfTracker.mark(
+                assistant.id,
+                "search_stage_complete",
+                "durationMs" to
+                    ((System.nanoTime() - searchStartedAtNanos) / 1_000_000L)
+                        .coerceAtLeast(0L),
+                "status" to webSearchRoute.status.name,
+                "requiredFailure" to webSearchRoute.requiredFailure,
+            )
             assistant =
                 repository.updateMessage(
                     message = assistant,
@@ -1274,6 +1299,7 @@ class LlmChatViewModel @Inject constructor(
                 } else {
                     emptySet()
                 }
+            val runtimePrepareStartedAtNanos = System.nanoTime()
             val plan =
                 llmRuntime.prepare(
                     profile =
@@ -1297,7 +1323,19 @@ class LlmChatViewModel @Inject constructor(
                                 ),
                         ),
                     contextItems = contextItems,
+                    perfTrace = perfTrace,
                 )
+            LlmChatPerfTracker.mark(
+                assistant.id,
+                "runtime_prepare_complete",
+                "durationMs" to
+                    ((System.nanoTime() - runtimePrepareStartedAtNanos) / 1_000_000L)
+                        .coerceAtLeast(0L),
+                "contextCandidates" to contextItems.size,
+                "contextIncluded" to plan.context.includedIds.size,
+                "contextTruncated" to plan.context.truncated,
+                "toolCount" to plan.tools.size,
+            )
 
             // P6 ContextRef 必须在真正发请求前冻结。即使后续网络失败，错误消息也能解释当次请求准备使用了哪些来源；
             // 同一 assistant placeholder 若重新 prepare，则 Repository 事务替换旧快照，不留下半套来源。
@@ -1329,12 +1367,24 @@ class LlmChatViewModel @Inject constructor(
                 )
 
             fallbackPromptTokens = transport.estimateRequestTokens(requestPlan, history)
+            LlmChatPerfTracker.mark(
+                assistant.id,
+                "request_ready_for_transport",
+                "estimatedPromptTokens" to fallbackPromptTokens,
+                "contextRefCount" to contextRefs.size,
+            )
             requestStartedAtNanos = System.nanoTime()
 
-            transport.stream(requestPlan, history).collect { delta ->
+            transport.stream(requestPlan, history, perfTrace = perfTrace).collect { delta ->
                 content += delta.content
                 reasoning += delta.reasoning
                 mergeToolCallDeltas(toolCallParts, delta.toolCalls)
+                LlmChatPerfTracker.recordTransportDelta(
+                    assistantMessageId = assistant.id,
+                    contentChars = delta.content.length,
+                    reasoningChars = delta.reasoning.length,
+                    toolCallCount = delta.toolCalls.size,
+                )
                 delta.promptTokens?.let { providerPromptTokens = it }
                 delta.completionTokens?.let { providerCompletionTokens = it }
                 val now = System.currentTimeMillis()
@@ -1347,6 +1397,11 @@ class LlmChatViewModel @Inject constructor(
                             status = LlmMessageStatus.STREAMING,
                             errorMessage = null,
                         )
+                    LlmChatPerfTracker.recordRoomPersist(
+                        assistantMessageId = assistant.id,
+                        contentChars = content.length,
+                        reasoningChars = reasoning.length,
+                    )
                     lastPersistAt = now
                 }
             }
@@ -1364,6 +1419,12 @@ class LlmChatViewModel @Inject constructor(
                 completionTokens = completionTokens(),
                 durationMs = durationMs(),
                 tokenUsageEstimated = tokenUsageEstimated(),
+            )
+            LlmChatPerfTracker.finish(
+                assistantMessageId = assistant.id,
+                status = LlmMessageStatus.COMPLETE.name,
+                contentChars = content.length,
+                reasoningChars = reasoning.length,
             )
 
             if (toolCallParts.isNotEmpty()) {
@@ -1423,6 +1484,12 @@ class LlmChatViewModel @Inject constructor(
                     durationMs = durationMs(),
                     tokenUsageEstimated = tokenUsageEstimated(),
                 )
+                LlmChatPerfTracker.finish(
+                    assistantMessageId = assistant.id,
+                    status = LlmMessageStatus.STOPPED.name,
+                    contentChars = content.length,
+                    reasoningChars = reasoning.length,
+                )
             }
             throw error
         } catch (error: Throwable) {
@@ -1438,6 +1505,12 @@ class LlmChatViewModel @Inject constructor(
                 completionTokens = completionTokens(),
                 durationMs = durationMs(),
                 tokenUsageEstimated = tokenUsageEstimated(),
+            )
+            LlmChatPerfTracker.finish(
+                assistantMessageId = assistant.id,
+                status = LlmMessageStatus.ERROR.name,
+                contentChars = content.length,
+                reasoningChars = reasoning.length,
             )
             _uiState.update { it.copy(transientError = message) }
         }

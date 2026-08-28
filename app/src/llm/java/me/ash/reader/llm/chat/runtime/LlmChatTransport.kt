@@ -65,10 +65,11 @@ class LlmChatTransport @Inject constructor(
     fun stream(
         plan: LlmExecutionPlan,
         messages: List<LlmChatRequestMessage>,
+        perfTrace: AiPerfTrace? = null,
     ): Flow<LlmChatDelta> =
         callbackFlow {
-            val perfTrace = AiPerfTracer.start("llm-chat")
-            val request = buildRequest(plan, messages, perfTrace)
+            val activePerfTrace = perfTrace ?: AiPerfTracer.start("llm-chat")
+            val request = buildRequest(plan, messages, activePerfTrace)
             val call = httpClient.client.newCall(request)
             call.enqueue(
                 object : Callback {
@@ -99,7 +100,7 @@ class LlmChatTransport @Inject constructor(
                                     val line = source.readUtf8Line() ?: break
                                     if (line.startsWith("data:")) {
                                         if (!sawSseData) {
-                                            AiPerfTracer.mark(perfTrace, "first_sse_event")
+                                            AiPerfTracer.mark(activePerfTrace, "first_sse_event")
                                         }
                                         sawSseData = true
                                         val payload = line.removePrefix("data:").trim()
@@ -107,11 +108,11 @@ class LlmChatTransport @Inject constructor(
                                         parseStreamPayload(payload)?.let { delta ->
                                             if (!sawReasoning && delta.reasoning.isNotEmpty()) {
                                                 sawReasoning = true
-                                                AiPerfTracer.mark(perfTrace, "first_reasoning_delta")
+                                                AiPerfTracer.mark(activePerfTrace, "first_reasoning_delta")
                                             }
                                             if (!sawContent && delta.content.isNotEmpty()) {
                                                 sawContent = true
-                                                AiPerfTracer.mark(perfTrace, "first_content_delta")
+                                                AiPerfTracer.mark(activePerfTrace, "first_content_delta")
                                             }
                                             if (
                                                 delta.content.isNotEmpty() ||
@@ -131,7 +132,7 @@ class LlmChatTransport @Inject constructor(
 
                                 if (!call.isCanceled() && !sawSseData && fallbackBody.isNotBlank()) {
                                     AiPerfTracer.mark(
-                                        perfTrace,
+                                        activePerfTrace,
                                         "non_streaming_fallback",
                                         "responseChars" to fallbackBody.length,
                                     )
@@ -147,7 +148,7 @@ class LlmChatTransport @Inject constructor(
                                     }
                                 }
                                 if (!call.isCanceled()) {
-                                    AiPerfTracer.mark(perfTrace, "stream_complete")
+                                    AiPerfTracer.mark(activePerfTrace, "stream_complete")
                                     close()
                                 }
                             } catch (error: AiException) {

@@ -165,6 +165,7 @@ fun LlmArticleAssistantSheet(
         autoFollow,
     ) {
         if (autoFollow && uiState.messages.isNotEmpty()) {
+            uiState.messages.lastOrNull()?.id?.let(LlmChatPerfTracker::recordAutoFollowScroll)
             // 最后一条消息后放一个稳定锚点；滚到锚点才能保证超长单条回答真正到“尾”，
             // 而不是只把最后一条消息的顶部滚进视口。
             listState.scrollToItem(uiState.messages.size)
@@ -666,6 +667,17 @@ private fun AssistantMessage(
         remember(message.reasoning) {
             message.reasoning?.let { reasoning -> stripDisabledLlmCitationTokens(reasoning) }
         }
+    val hasVisibleModelText =
+        displayContent.isNotBlank() || (showReasoning && !displayReasoning.isNullOrBlank())
+    LaunchedEffect(message.id, hasVisibleModelText) {
+        if (hasVisibleModelText) {
+            LlmChatPerfTracker.recordFirstVisible(
+                assistantMessageId = message.id,
+                contentChars = displayContent.length,
+                reasoningChars = if (showReasoning) displayReasoning?.length ?: 0 else 0,
+            )
+        }
+    }
     val showWebSearchStatus =
         when (message.webSearchStatus) {
             // TRIGGERED 表示搜索仍处于前置阶段；请求已经 ERROR/STOPPED 后不能留下永久旋转的“搜索中”。
@@ -697,6 +709,7 @@ private fun AssistantMessage(
         if (displayContent.isNotBlank()) {
             LlmRichMarkdown(
                 markdown = displayContent,
+                perfMessageId = message.id,
             )
         } else if (
             message.status == LlmMessageStatus.STREAMING &&
@@ -967,6 +980,7 @@ private fun ReasoningBlock(
                 LlmRichMarkdown(
                     markdown = reasoning,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    perfMessageId = stateKey,
                 )
             }
         }

@@ -41,6 +41,7 @@ internal fun LlmRichMarkdown(
     validCitationIndices: Set<Int> = emptySet(),
     onCitationClick: (Int) -> Unit = {},
     citationFeatureEnabled: Boolean = LLM_EVIDENCE_CITATION_ENABLED,
+    perfMessageId: String? = null,
 ) {
     val parentUriHandler = LocalUriHandler.current
     val citationUriHandler =
@@ -68,6 +69,15 @@ internal fun LlmRichMarkdown(
                     validCitationIndices = validCitationIndices,
                     citationFeatureEnabled = citationFeatureEnabled,
                 )
+            },
+            onParseMeasured = { markdownChars, durationNanos ->
+                perfMessageId?.let { messageId ->
+                    LlmChatPerfTracker.recordMarkdownParse(
+                        assistantMessageId = messageId,
+                        markdownChars = markdownChars,
+                        durationNanos = durationNanos,
+                    )
+                }
             },
             specialBlockRenderer = { block ->
                 when (block) {

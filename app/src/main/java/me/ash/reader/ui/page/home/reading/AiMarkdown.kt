@@ -27,7 +27,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -346,12 +348,21 @@ internal fun AiMarkdown(
      * LLM edition 可借此把 OrigRead 自己验证过的短引用 token 交给现有 LinkAnnotation 链处理。
      */
     inlineTokenLinkResolver: ((String) -> String?)? = null,
+    /** 可选 Debug 性能回调；只上报输入字符数与 parse 耗时，不暴露 Markdown 正文。 */
+    onParseMeasured: ((markdownChars: Int, durationNanos: Long) -> Unit)? = null,
 ) {
-    val blocks =
+    val parseResult =
         remember(markdown, hideLeadingSummaryHeading) {
+            val startedAt = System.nanoTime()
             val parsed = parseAiMarkdown(markdown)
-            if (hideLeadingSummaryHeading) parsed.withoutLeadingSummaryHeading() else parsed
+            val blocks = if (hideLeadingSummaryHeading) parsed.withoutLeadingSummaryHeading() else parsed
+            blocks to (System.nanoTime() - startedAt).coerceAtLeast(0L)
         }
+    val onParseMeasuredState = rememberUpdatedState(onParseMeasured)
+    LaunchedEffect(markdown, hideLeadingSummaryHeading) {
+        onParseMeasuredState.value?.invoke(markdown.length, parseResult.second)
+    }
+    val blocks = parseResult.first
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         blocks.forEach { block ->
             // LLM edition 可只接管 Math/Mermaid 等重型块；普通摘要继续走轻量原生渲染。
