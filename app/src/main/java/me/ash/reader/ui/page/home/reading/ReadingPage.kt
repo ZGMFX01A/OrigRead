@@ -594,49 +594,54 @@ fun ReadingPage(
                                     val showSummaryPanel =
                                         aiSummaryState.showPanel &&
                                             (summaryDocument != null || aiSummaryState.isLoading)
-                                    Column(modifier = Modifier.fillMaxSize()) {
-                                        if (showSummaryPanel) {
-                                            // TopBar 是覆盖式布局，摘要面板从 TopBar 下方开始占据独立空间。
-                                            Spacer(
-                                                modifier =
-                                                    Modifier.height(
-                                                        paddings.calculateTopPadding() + 64.dp
-                                                    )
-                                            )
-                                            AiSummaryPanel(
-                                                document = summaryDocument,
-                                                isLoading = aiSummaryState.isLoading,
-                                                progressStage = aiSummaryState.progressStage,
-                                                elapsedSeconds = aiSummaryState.elapsedSeconds,
-                                                activeProviderName =
-                                                    aiSummaryState.activeProviderName,
-                                                activeModel = aiSummaryState.activeModel,
-                                                streamingSummaryPreview =
-                                                    aiSummaryState.streamingSummaryPreview,
-                                                streamingReasoningPreview =
-                                                    aiSummaryState.streamingReasoningPreview,
-                                                onClose = viewModel::dismissAiSummary,
-                                                onRegenerate = { showAiSummaryOptions = true },
-                                                onAskArticle =
-                                                    if (isLlmEdition) {
-                                                        { openArticleAssistant() }
-                                                    } else {
-                                                        null
-                                                    },
-                                                onStop = viewModel::stopAiSummary,
-                                                modifier =
-                                                    Modifier.fillMaxWidth()
-                                                        .padding(
-                                                            start = 10.dp,
-                                                            top = 6.dp,
-                                                            end = 10.dp,
-                                                        ),
-                                            )
-                                            // 轻量卡片已经通过背景、细边框和 Accent Bar 区分，间距无需再刻意拉大。
-                                            Spacer(modifier = Modifier.height(10.dp))
-                                        }
+                                    StableSummaryReadingLayout(
+                                        modifier = Modifier.fillMaxSize(),
+                                        summaryTopOffset = paddings.calculateTopPadding() + 64.dp,
+                                        summaryContent =
+                                            if (showSummaryPanel) {
+                                                {
+                                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                                        AiSummaryPanel(
+                                                            document = summaryDocument,
+                                                            isLoading = aiSummaryState.isLoading,
+                                                            progressStage = aiSummaryState.progressStage,
+                                                            elapsedSeconds = aiSummaryState.elapsedSeconds,
+                                                            activeProviderName =
+                                                                aiSummaryState.activeProviderName,
+                                                            activeModel = aiSummaryState.activeModel,
+                                                            streamingSummaryPreview =
+                                                                aiSummaryState.streamingSummaryPreview,
+                                                            streamingReasoningPreview =
+                                                                aiSummaryState.streamingReasoningPreview,
+                                                            onClose = viewModel::dismissAiSummary,
+                                                            onRegenerate = {
+                                                                showAiSummaryOptions = true
+                                                            },
+                                                            onAskArticle =
+                                                                if (isLlmEdition) {
+                                                                    { openArticleAssistant() }
+                                                                } else {
+                                                                    null
+                                                                },
+                                                            onStop = viewModel::stopAiSummary,
+                                                            modifier =
+                                                                Modifier.fillMaxWidth()
+                                                                    .padding(
+                                                                        start = 10.dp,
+                                                                        top = 6.dp,
+                                                                        end = 10.dp,
+                                                                    ),
+                                                        )
+                                                        // 摘要与正文之间保留现有视觉间距；整段高度只转成正文顶部滚动占位，不挤压 viewport。
+                                                        Spacer(modifier = Modifier.height(10.dp))
+                                                    }
+                                                }
+                                            } else {
+                                                null
+                                            },
+                                    ) { summaryReservedHeight ->
                                         Box(
-                                            modifier = Modifier.fillMaxWidth().weight(1f),
+                                            modifier = Modifier.fillMaxSize(),
                                             contentAlignment = Alignment.Center,
                                         ) {
                                             Content(
@@ -650,11 +655,9 @@ fun ReadingPage(
                                                         enabled = isPullToSwitchArticleEnabled,
                                                     ),
                                                 contentPadding = paddings,
-                                                topBarSpacerHeight =
-                                                    if (showSummaryPanel) 0.dp else 64.dp,
-                                                topContentPadding =
-                                                    if (showSummaryPanel) 0.dp
-                                                    else paddings.calculateTopPadding(),
+                                                // 摘要高度进入滚动内容本身，不再通过压缩 Content viewport 预留空间。
+                                                topBarSpacerHeight = 64.dp + summaryReservedHeight,
+                                                topContentPadding = paddings.calculateTopPadding(),
                                                 content =
                                                     if (translationState.showTranslation) {
                                                         visibleTranslation?.translatedContent
