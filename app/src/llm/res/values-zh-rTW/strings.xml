@@ -208,6 +208,8 @@
     <string name="llm_web_search_default">預設</string>
     <string name="llm_web_search_set_default">設為預設</string>
     <string name="llm_web_search_api_key">API Key</string>
+    <string name="llm_web_search_show_key">顯示 API Key</string>
+    <string name="llm_web_search_hide_key">隱藏 API Key</string>
     <string name="llm_web_search_endpoint">Endpoint</string>
     <string name="llm_web_search_save_key">儲存 Key</string>
     <string name="llm_web_search_key_saved">API Key 已儲存</string>

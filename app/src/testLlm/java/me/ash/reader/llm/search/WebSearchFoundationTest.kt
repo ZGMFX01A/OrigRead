@@ -523,6 +523,14 @@ class WebSearchFoundationTest {
     }
 
     @Test
+    fun `web search secret mask keeps exact secret length`() {
+        assertEquals("", webSearchSecretMask(0))
+        assertEquals("•••", webSearchSecretMask(3))
+        assertEquals(128, webSearchSecretMask(128).length)
+        assertEquals("", webSearchSecretMask(-1))
+    }
+
+    @Test
     fun `web search reference context preserves source url`() {
         val context =
             WebSearchResponse(

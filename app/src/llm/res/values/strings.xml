@@ -207,6 +207,8 @@
     <string name="llm_web_search_default">Default</string>
     <string name="llm_web_search_set_default">Set as default</string>
     <string name="llm_web_search_api_key">API Key</string>
+    <string name="llm_web_search_show_key">Show API Key</string>
+    <string name="llm_web_search_hide_key">Hide API Key</string>
     <string name="llm_web_search_endpoint">Endpoint</string>
     <string name="llm_web_search_save_key">Save Key</string>
     <string name="llm_web_search_key_saved">API Key saved</string>

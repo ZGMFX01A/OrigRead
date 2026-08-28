@@ -44,6 +44,7 @@ class WebSearchRepository @Inject constructor(
         val state = current()
         if (state.providers.none { it.id == providerId }) return
         secretStore.remove(secretKey(providerId))
+        preferences.edit().remove(secretLengthKey(providerId)).apply()
         update { current ->
             val remaining = current.providers.filterNot { it.id == providerId }
             current.copy(
@@ -87,12 +88,43 @@ class WebSearchRepository @Inject constructor(
         update { it.copy(defaultProviderId = profile.id) }
     }
 
-    fun setApiKey(providerId: String, value: String) =
-        secretStore.put(secretKey(providerId), value.trim())
+    /**
+     * 保存 Web Search API Key，并单独记录可公开展示的长度元数据。
+     *
+     * Secret 本体仍只进入 [SecureSecretStore]。长度用于设置页生成真实长度遮罩，避免为了画遮罩而在每次
+     * Compose 重组时读取 Secret。
+     */
+    fun setApiKey(providerId: String, value: String) {
+        val normalized = value.trim()
+        if (normalized.isBlank()) {
+            secretStore.remove(secretKey(providerId))
+            preferences.edit().remove(secretLengthKey(providerId)).apply()
+            return
+        }
+        secretStore.put(secretKey(providerId), normalized)
+        preferences.edit().putInt(secretLengthKey(providerId), normalized.length).apply()
+    }
 
     fun getApiKey(providerId: String): String = secretStore.get(secretKey(providerId))
 
     fun hasApiKey(providerId: String): Boolean = getApiKey(providerId).isNotBlank()
+
+    /**
+     * 返回设置页遮罩所需的真实 Secret 长度，不返回 Secret 本体。
+     *
+     * 旧版没有保存长度元数据，因此仅在首次迁移时读取一次旧 Secret 并回填长度；新保存的 Key 后续只读
+     * SharedPreferences 中的长度，不会因为 UI 重组反复解密 Secret。
+     */
+    fun apiKeyLength(providerId: String): Int {
+        val metadataKey = secretLengthKey(providerId)
+        if (preferences.contains(metadataKey)) {
+            return preferences.getInt(metadataKey, 0).coerceAtLeast(0)
+        }
+        val legacyLength = getApiKey(providerId).length
+        // 0 也要回填，避免无 Key Provider 在后续设置变更时重复访问 SecretStore。
+        preferences.edit().putInt(metadataKey, legacyLength).apply()
+        return legacyLength
+    }
 
     /** Provider 完成配置条件由其鉴权能力决定；SearXNG 等自托管服务允许无 Key。 */
     fun isConfigured(providerId: String): Boolean {
@@ -191,6 +223,8 @@ class WebSearchRepository @Inject constructor(
     }
 
     private fun secretKey(providerId: String): String = "llm_web_search_api_key:$providerId"
+
+    private fun secretLengthKey(providerId: String): String = "llm_web_search_api_key_length:$providerId"
 
     companion object {
         private const val PREFERENCES_NAME = "origread_llm_web_search"

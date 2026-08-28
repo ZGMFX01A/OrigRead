@@ -14,6 +14,8 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -38,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -56,6 +59,7 @@ import me.ash.reader.ui.component.base.OrigReadSwitch
 
 data class WebSearchSettingsUiState(
     val settings: WebSearchSettings = WebSearchSettings(),
+    val keyLengths: Map<String, Int> = emptyMap(),
     val keyDrafts: Map<String, String> = emptyMap(),
     val keySavedProviderId: String? = null,
     val healthChecks: Map<String, WebSearchHealthUiState> = emptyMap(),
@@ -75,13 +79,25 @@ class WebSearchSettingsViewModel @Inject constructor(
     private val repository: WebSearchRepository,
     private val searchService: WebSearchService,
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(WebSearchSettingsUiState(settings = repository.current()))
+    private val initialSettings = repository.current()
+    private val _uiState =
+        MutableStateFlow(
+            WebSearchSettingsUiState(
+                settings = initialSettings,
+                keyLengths = resolveKeyLengths(initialSettings),
+            )
+        )
     val uiState = _uiState.asStateFlow()
 
     init {
         viewModelScope.launch {
             repository.settings.collect { settings ->
-                _uiState.update { state -> state.copy(settings = settings) }
+                _uiState.update { state ->
+                    state.copy(
+                        settings = settings,
+                        keyLengths = resolveKeyLengths(settings),
+                    )
+                }
             }
         }
     }
@@ -94,6 +110,7 @@ class WebSearchSettingsViewModel @Inject constructor(
         repository.removeProvider(providerId)
         _uiState.update {
             it.copy(
+                keyLengths = it.keyLengths - providerId,
                 keyDrafts = it.keyDrafts - providerId,
                 healthChecks = it.healthChecks - providerId,
             )
@@ -129,13 +146,15 @@ class WebSearchSettingsViewModel @Inject constructor(
         repository.setApiKey(providerId, draft)
         _uiState.update {
             it.copy(
+                keyLengths = it.keyLengths + (providerId to draft.length),
                 keyDrafts = it.keyDrafts + (providerId to ""),
                 keySavedProviderId = providerId,
             )
         }
     }
 
-    fun hasApiKey(providerId: String): Boolean = repository.hasApiKey(providerId)
+    /** 仅响应用户主动点击“显示”时读取 Secret；调用方必须只保存在短生命周期 UI 状态中。 */
+    fun revealApiKey(providerId: String): String = repository.getApiKey(providerId)
 
     /** 使用当前已保存配置执行一次真实最小搜索。 */
     fun testProvider(providerId: String) {
@@ -185,6 +204,13 @@ class WebSearchSettingsViewModel @Inject constructor(
             state.copy(healthChecks = state.healthChecks - providerId)
         }
     }
+
+    /**
+     * UI 只持有 Secret 长度，不持有已保存 Secret 本体。
+     * 旧数据首次进入设置页时允许 Repository 做一次长度回填；之后 Compose 重组只读取此 Map。
+     */
+    private fun resolveKeyLengths(settings: WebSearchSettings): Map<String, Int> =
+        settings.providers.associate { provider -> provider.id to repository.apiKeyLength(provider.id) }
 }
 
 /** P5-A Web Search 独立管理页；普通用户无需进入 MCP 即可配置 Dedicated Search。 */
@@ -197,20 +223,34 @@ fun WebSearchSettingsPage(
     val uiState by viewModel.uiState.collectAsState()
     var addProviderVisible by remember { mutableStateOf(false) }
     var pendingDeleteId by remember { mutableStateOf<String?>(null) }
+    // Secret 只存在于当前页面的非 saveable 临时状态；切换 Provider、隐藏或离开页面即丢弃。
+    var revealedProviderId by remember { mutableStateOf<String?>(null) }
+    var revealedSecret by remember { mutableStateOf<String?>(null) }
+
+    fun clearReveal() {
+        revealedProviderId = null
+        revealedSecret = null
+    }
 
     OrigReadScaffold(
         navigationIcon = {
             FeedbackIconButton(
                 imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                 contentDescription = stringResource(R.string.back),
-                onClick = onBack,
+                onClick = {
+                    clearReveal()
+                    onBack()
+                },
             )
         },
         actions = {
             FeedbackIconButton(
                 imageVector = Icons.Outlined.Add,
                 contentDescription = stringResource(R.string.llm_web_search_add),
-                onClick = { addProviderVisible = true },
+                onClick = {
+                    clearReveal()
+                    addProviderVisible = true
+                },
             )
         },
         content = {
@@ -231,7 +271,12 @@ fun WebSearchSettingsPage(
                                 text = stringResource(R.string.llm_web_search_empty),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            FilledTonalButton(onClick = { addProviderVisible = true }) {
+                            FilledTonalButton(
+                                onClick = {
+                                    clearReveal()
+                                    addProviderVisible = true
+                                }
+                            ) {
                                 Icon(Icons.Outlined.Add, contentDescription = null)
                                 Spacer(Modifier.size(8.dp))
                                 Text(stringResource(R.string.llm_web_search_add))
@@ -244,17 +289,47 @@ fun WebSearchSettingsPage(
                             SearchProviderCard(
                                 provider = provider,
                                 isDefault = provider.id == uiState.settings.defaultProviderId,
-                                hasApiKey = viewModel.hasApiKey(provider.id),
+                                keyLength = uiState.keyLengths[provider.id] ?: 0,
                                 keyDraft = uiState.keyDrafts[provider.id].orEmpty(),
                                 keySaved = uiState.keySavedProviderId == provider.id,
+                                isKeyRevealed = revealedProviderId == provider.id,
+                                revealedSecret =
+                                    revealedSecret.takeIf { revealedProviderId == provider.id },
                                 health = uiState.healthChecks[provider.id],
                                 onEnabledChange = { viewModel.setProviderEnabled(provider.id, it) },
                                 onEndpointChange = { viewModel.setProviderEndpoint(provider.id, it) },
-                                onKeyChange = { viewModel.setKeyDraft(provider.id, it) },
-                                onSaveKey = { viewModel.saveKey(provider.id) },
+                                onKeyChange = {
+                                    if (revealedProviderId == provider.id) revealedSecret = null
+                                    viewModel.setKeyDraft(provider.id, it)
+                                },
+                                onToggleKeyReveal = {
+                                    if (revealedProviderId == provider.id) {
+                                        clearReveal()
+                                    } else {
+                                        clearReveal()
+                                        revealedProviderId = provider.id
+                                        // 新 draft 可直接切换可见性；只有空 draft + 已保存 Key 才读取 SecretStore。
+                                        revealedSecret =
+                                            if (uiState.keyDrafts[provider.id].isNullOrBlank()) {
+                                                viewModel.revealApiKey(provider.id)
+                                            } else {
+                                                null
+                                            }
+                                    }
+                                },
+                                onSaveKey = {
+                                    clearReveal()
+                                    viewModel.saveKey(provider.id)
+                                },
                                 onTest = { viewModel.testProvider(provider.id) },
-                                onSetDefault = { viewModel.setDefaultProvider(provider.id) },
-                                onDelete = { pendingDeleteId = provider.id },
+                                onSetDefault = {
+                                    clearReveal()
+                                    viewModel.setDefaultProvider(provider.id)
+                                },
+                                onDelete = {
+                                    clearReveal()
+                                    pendingDeleteId = provider.id
+                                },
                             )
                         }
                     }
@@ -334,18 +409,28 @@ fun WebSearchSettingsPage(
 private fun SearchProviderCard(
     provider: WebSearchProviderProfile,
     isDefault: Boolean,
-    hasApiKey: Boolean,
+    keyLength: Int,
     keyDraft: String,
     keySaved: Boolean,
+    isKeyRevealed: Boolean,
+    revealedSecret: String?,
     health: WebSearchHealthUiState?,
     onEnabledChange: (Boolean) -> Unit,
     onEndpointChange: (String) -> Unit,
     onKeyChange: (String) -> Unit,
+    onToggleKeyReveal: () -> Unit,
     onSaveKey: () -> Unit,
     onTest: () -> Unit,
     onSetDefault: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    val hasApiKey = keyLength > 0
+    val displayKey =
+        when {
+            keyDraft.isNotEmpty() -> keyDraft
+            isKeyRevealed -> revealedSecret.orEmpty()
+            else -> ""
+        }
     OutlinedCard(modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth()) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -382,13 +467,44 @@ private fun SearchProviderCard(
             )
             if (provider.kind.supportsApiKey) {
                 OutlinedTextField(
-                    value = keyDraft,
+                    value = displayKey,
                     onValueChange = onKeyChange,
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     label = { Text(stringResource(R.string.llm_web_search_api_key)) },
-                    placeholder = { if (hasApiKey) Text("••••••••") },
-                    visualTransformation = PasswordVisualTransformation(),
+                    placeholder = {
+                        if (hasApiKey && !isKeyRevealed) {
+                            Text(webSearchSecretMask(keyLength))
+                        }
+                    },
+                    visualTransformation =
+                        if (isKeyRevealed) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
+                        },
+                    trailingIcon = {
+                        if (hasApiKey || keyDraft.isNotEmpty()) {
+                            IconButton(onClick = onToggleKeyReveal) {
+                                Icon(
+                                    imageVector =
+                                        if (isKeyRevealed) {
+                                            Icons.Outlined.VisibilityOff
+                                        } else {
+                                            Icons.Outlined.Visibility
+                                        },
+                                    contentDescription =
+                                        stringResource(
+                                            if (isKeyRevealed) {
+                                                R.string.llm_web_search_hide_key
+                                            } else {
+                                                R.string.llm_web_search_show_key
+                                            }
+                                        ),
+                                )
+                            }
+                        }
+                    },
                 )
                 if (!provider.kind.requiresApiKey) {
                     Text(
@@ -480,4 +596,8 @@ private fun SearchProviderCard(
         }
     }
 }
+
+/** 只根据长度生成遮罩，不接受 Secret 文本，避免辅助函数意外把 Key 带入日志或异常。 */
+internal fun webSearchSecretMask(secretLength: Int): String =
+    "•".repeat(secretLength.coerceAtLeast(0))
 
