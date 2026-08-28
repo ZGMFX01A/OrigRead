@@ -5,6 +5,7 @@ import java.util.UUID
 import me.ash.reader.llm.runtime.LlmCitationReference
 import me.ash.reader.llm.runtime.ComposedLlmContext
 import me.ash.reader.llm.runtime.LlmContextItem
+import me.ash.reader.llm.runtime.LlmContextType
 
 /**
  * 将一次 Runtime prepare 的候选 Context 与最终预算结果冻结为请求级 ContextRef。
@@ -31,6 +32,7 @@ internal fun buildContextRefEntities(
             type = item.type,
             title = item.title?.trim()?.takeIf(String::isNotBlank),
             sourceId = item.sourceId?.trim()?.takeIf(String::isNotBlank),
+            articleId = item.internalArticleId?.trim()?.takeIf(String::isNotBlank),
             sourceUrl = item.sourceId?.asHttpSourceUrlOrNull(),
             contentSnapshot = snapshot,
             promptContentSnapshot = rendered?.content,
@@ -74,8 +76,21 @@ internal fun buildRequestContextRefEntities(
             toolCalls = toolCalls,
             createdAt = createdAt,
         )
+    val candidateById = candidates.associateBy(LlmContextItem::id)
+    val citationEligibleContextIds =
+        composed.includedIds.filter { contextId ->
+            candidateById[contextId]?.isCitationEligibleEvidence() == true
+        }
+    val citationEligibleToolContextIds =
+        toolCalls.mapNotNull { call ->
+            if (call.status == LlmToolCallStatus.COMPLETE && !call.resultContent.isNullOrBlank()) {
+                "tool-result:${call.id}"
+            } else {
+                null
+            }
+        }
     val citationIndexByContextId =
-        (composed.includedIds + toolResultRefs.map(LlmContextRefEntity::contextId))
+        (citationEligibleContextIds + citationEligibleToolContextIds)
             .distinct()
             .mapIndexed { index, contextId -> contextId to (index + 1) }
             .toMap()
@@ -146,6 +161,7 @@ internal fun buildToolResultContextRefEntities(
             type = me.ash.reader.llm.runtime.LlmContextType.TOOL_RESULT,
             title = call.apiName,
             sourceId = call.toolId,
+            articleId = null,
             sourceUrl = null,
             contentSnapshot = content,
             promptContentSnapshot = content,
@@ -155,6 +171,21 @@ internal fun buildToolResultContextRefEntities(
             truncatedInPrompt = false,
             createdAt = createdAt,
         )
+    }
+
+/**
+ * Citation 只指向用户可以回到原始来源核验的证据。
+ * 摘要/译文仍是有效推理辅助 Context，但不再获得 [R#]；MANUAL 没有稳定外部来源，也不参与引用编号。
+ */
+private fun LlmContextItem.isCitationEligibleEvidence(): Boolean =
+    when (type) {
+        LlmContextType.ARTICLE,
+        LlmContextType.SELECTED_TEXT,
+        LlmContextType.WEB_SEARCH_RESULT -> true
+        LlmContextType.ARTICLE_SUMMARY,
+        LlmContextType.ARTICLE_TRANSLATION,
+        LlmContextType.MANUAL,
+        LlmContextType.TOOL_RESULT -> false
     }
 
 /** ContextRef 只把真正可打开的 HTTP(S) 来源暴露为 URL；MCP sourceId 等内部标识仍只保存在 sourceId。 */

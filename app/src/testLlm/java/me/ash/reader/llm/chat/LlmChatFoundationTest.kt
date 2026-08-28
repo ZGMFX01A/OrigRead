@@ -132,11 +132,12 @@ class LlmChatFoundationTest {
                 policy = LlmContextPolicy(maxTokens = estimateLlmTokens(core.text)),
             )
 
-        assertEquals(expectedIncluded, composed.includedIds)
-        assertEquals(
-            listOf("article:second:summary", "article:second:original"),
-            composed.omittedIds,
-        )
+        assertTrue("article:current:original" in composed.includedIds)
+        val currentArticleIndex = composed.includedIds.indexOf("article:current:original")
+        composed.includedIds
+            .withIndex()
+            .filter { it.value.startsWith("article:second:") }
+            .forEach { related -> assertTrue(related.index > currentArticleIndex) }
 
         val refs =
             buildRequestContextRefEntities(
@@ -147,15 +148,19 @@ class LlmChatFoundationTest {
                 toolCalls = emptyList(),
                 createdAt = 1L,
             )
-        assertEquals(
-            listOf("[R1]", "[R2]", "[R3]", "[R4]", "[R5]"),
-            refs.sortedBy { it.citationIndex ?: Int.MAX_VALUE }.mapNotNull { it.citationToken() },
+        val citedContextIds = refs.filter { it.citationIndex != null }.map { it.contextId }
+        assertTrue(citedContextIds.isNotEmpty())
+        assertTrue(
+            citedContextIds.all {
+                it == "article:current:selection" ||
+                    it == "web-search:test:1" ||
+                    it == "article:current:original" ||
+                    it == "article:second:original"
+            }
         )
-        refs.filter { it.contextId.startsWith("article:second:") }.forEach { ref ->
-            assertFalse(ref.includedInPrompt)
-            assertNull(ref.citationIndex)
-            assertNull(ref.citationToken())
-        }
+        assertNull(refs.single { it.contextId == "article:current:summary" }.citationIndex)
+        assertNull(refs.single { it.contextId == "article:current:translation" }.citationIndex)
+        assertNull(refs.single { it.contextId == "article:second:summary" }.citationIndex)
     }
 
     @Test
@@ -225,8 +230,10 @@ class LlmChatFoundationTest {
         assertEquals("new summary", newSummary.contentSnapshot)
         assertTrue(secondRefs.none { it.contextId.startsWith("article:second:") })
         assertFalse(oldSummary.id == newSummary.id)
-        assertEquals("[R1]", oldSummary.citationToken())
-        assertEquals("[R1]", newSummary.citationToken())
+        assertNull(oldSummary.citationToken())
+        assertNull(newSummary.citationToken())
+        assertEquals("[R2]", oldAttachment.citationToken())
+        assertEquals("second", oldAttachment.articleId)
     }
 
     @Test
@@ -291,13 +298,18 @@ class LlmChatFoundationTest {
                 createdAt = 1L,
             )
         assertEquals(
-            listOf("[R1]", "[R2]", "[R3]", "[R4]", "[R5]", "[R6]"),
+            listOf("[R1]", "[R2]", "[R3]", "[R4]"),
             refs.sortedBy { it.citationIndex }.mapNotNull { it.citationToken() },
         )
         assertEquals(
             listOf(LlmContextType.ARTICLE_SUMMARY, LlmContextType.ARTICLE),
             refs.filter { it.contextId.startsWith("article:second:") }.map { it.type },
         )
+        assertEquals(
+            listOf("second", "second"),
+            refs.filter { it.contextId.startsWith("article:second:") }.map { it.articleId },
+        )
+        assertNull(refs.single { it.contextId == "article:second:summary" }.citationIndex)
     }
 
     @Test
@@ -519,6 +531,8 @@ class LlmChatFoundationTest {
         )
         assertEquals("selected excerpt", items[0].content)
         assertEquals("Translated title", items[2].title)
+        assertEquals(listOf("article-1", "article-1", "article-1", "article-1"), items.map { it.internalArticleId })
+        assertEquals(listOf(false, false, false, true), items.map { it.reserveEvidenceBudget })
         assertTrue(items[0].priority > items[1].priority)
         assertTrue(items[1].priority > items[2].priority)
         assertTrue(items[2].priority > items[3].priority)
@@ -571,6 +585,7 @@ class LlmChatFoundationTest {
         assertEquals("selected excerpt", selectionRef.contentSnapshot)
         assertEquals("selected excerpt", selectionRef.promptContentSnapshot)
         assertEquals("https://example.com/article-1", selectionRef.sourceUrl)
+        assertEquals("article-1", selectionRef.articleId)
         assertTrue(selectionRef.includedInPrompt)
         assertTrue(composed.text.contains("selected excerpt"))
     }
@@ -872,6 +887,13 @@ class LlmChatFoundationTest {
                 content = "selected",
                 priority = 160,
             )
+        val summary =
+            LlmContextItem(
+                id = "summary",
+                type = LlmContextType.ARTICLE_SUMMARY,
+                content = "summary helper",
+                priority = 130,
+            )
         val article =
             LlmContextItem(
                 id = "article",
@@ -888,8 +910,8 @@ class LlmChatFoundationTest {
             )
         val composed =
             LlmContextComposer().compose(
-                items = listOf(article, omitted, selection),
-                policy = LlmContextPolicy(maxTokens = 90),
+                items = listOf(article, omitted, selection, summary),
+                policy = LlmContextPolicy(maxTokens = 256),
             )
         val toolCall =
             LlmToolCallEntity(
@@ -910,32 +932,82 @@ class LlmChatFoundationTest {
             buildRequestContextRefEntities(
                 conversationId = "conversation",
                 assistantMessageId = "assistant",
-                candidates = listOf(article, omitted, selection),
+                candidates = listOf(article, omitted, selection, summary),
                 composed = composed,
                 toolCalls = listOf(toolCall),
                 createdAt = 123L,
             )
         val citations = buildRequestCitationReferences(refs, listOf(toolCall))
 
-        val includedContextIds = composed.includedIds
-        includedContextIds.forEachIndexed { index, contextId ->
+        val eligibleContextIds = composed.includedIds.filter { it == "selection" || it == "article" }
+        eligibleContextIds.forEachIndexed { index, contextId ->
             val ref = refs.single { it.contextId == contextId }
             assertEquals(index + 1, ref.citationIndex)
             assertEquals("[R${index + 1}]", ref.citationToken())
         }
+        assertNull(refs.single { it.contextId == "summary" }.citationIndex)
+        assertNull(refs.single { it.contextId == "omitted" }.citationIndex)
         val toolRef = refs.single { it.contextId == "tool-result:tool-call" }
-        assertEquals(includedContextIds.size + 1, toolRef.citationIndex)
-        assertEquals("[R${includedContextIds.size + 1}]", toolRef.citationToken())
+        assertEquals(eligibleContextIds.size + 1, toolRef.citationIndex)
+        assertEquals("[R${eligibleContextIds.size + 1}]", toolRef.citationToken())
         val toolCitation = citations.single { it.contextId == toolRef.contextId }
         assertEquals(toolRef.citationIndex, toolCitation.index)
         assertEquals("provider-call", toolCitation.toolCallId)
         citations.filter { it.toolCallId == null }.forEach { citation ->
-            assertTrue(citation.contextId in includedContextIds)
+            assertTrue(citation.contextId in eligibleContextIds)
         }
         refs.filterNot { it.includedInPrompt }.forEach { ref ->
             assertNull(ref.citationIndex)
             assertNull(ref.citationToken())
         }
+    }
+
+    @Test
+    fun `denied and failed tool results keep history without becoming citations`() {
+        val calls =
+            listOf(
+                LlmToolCallEntity(
+                    id = "denied",
+                    conversationId = "conversation",
+                    assistantMessageId = "assistant",
+                    providerCallId = "provider-denied",
+                    toolId = "mcp:search",
+                    apiName = "search",
+                    argumentsJson = "{}",
+                    status = LlmToolCallStatus.DENIED,
+                    resultContent = "denied by user",
+                    createdAt = 1L,
+                    updatedAt = 1L,
+                ),
+                LlmToolCallEntity(
+                    id = "failed",
+                    conversationId = "conversation",
+                    assistantMessageId = "assistant",
+                    providerCallId = "provider-failed",
+                    toolId = "mcp:search",
+                    apiName = "search",
+                    argumentsJson = "{}",
+                    status = LlmToolCallStatus.ERROR,
+                    resultContent = null,
+                    errorMessage = "network failure",
+                    createdAt = 2L,
+                    updatedAt = 2L,
+                ),
+            )
+        val refs =
+            buildRequestContextRefEntities(
+                conversationId = "conversation",
+                assistantMessageId = "assistant",
+                candidates = emptyList(),
+                composed = ComposedLlmContext("", emptyList(), emptyList(), false),
+                toolCalls = calls,
+                createdAt = 3L,
+            )
+
+        assertEquals(2, refs.size)
+        assertTrue(refs.all { it.includedInPrompt })
+        assertTrue(refs.all { it.citationIndex == null })
+        assertTrue(buildRequestCitationReferences(refs, calls).isEmpty())
     }
 
     @Test

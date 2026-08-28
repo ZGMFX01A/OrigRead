@@ -783,6 +783,13 @@ fun ReadingPage(
         context = articleAssistantContext,
         articleAnalysisRequested = articleAnalysisRequested,
         onArticleAnalysisConsumed = { articleAnalysisRequested = false },
+        onOpenArticle = { articleId ->
+            dismissArticleAssistant()
+            if (articleId != readerState.articleId) {
+                // ContextRef 只保存稳定 articleId，不依赖当时列表位置；-1 会让阅读页按 ID 从当前列表/数据库恢复。
+                onLoadArticle(articleId, -1)
+            }
+        },
         onDismiss = ::dismissArticleAssistant,
     )
     if (showFullScreenImageViewer) {

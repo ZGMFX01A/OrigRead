@@ -161,9 +161,11 @@
     <string name="llm_context_omitted">未纳入</string>
     <string name="llm_context_source">来源：%1$s</string>
     <string name="llm_context_open_source">打开来源</string>
+    <string name="llm_context_open_article">在原读中打开</string>
     <string name="llm_context_type_article">当前文章</string>
-    <string name="llm_context_type_summary">文章摘要</string>
-    <string name="llm_context_type_translation">文章译文</string>
+    <string name="llm_context_type_related_article">相关文章</string>
+    <string name="llm_context_type_summary">AI 摘要（辅助上下文）</string>
+    <string name="llm_context_type_translation">译文（辅助上下文）</string>
     <string name="llm_context_type_selection">选中文字</string>
     <string name="llm_context_type_manual">附加上下文</string>
     <string name="llm_context_type_web_search">网络搜索</string>

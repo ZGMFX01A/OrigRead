@@ -10,6 +10,7 @@ internal fun EditionArticleAssistantSheet(
     context: ArticleAssistantContext?,
     articleAnalysisRequested: Boolean,
     onArticleAnalysisConsumed: () -> Unit,
+    onOpenArticle: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     if (!visible || context == null) return
@@ -17,6 +18,7 @@ internal fun EditionArticleAssistantSheet(
         articleContext = context,
         articleAnalysisRequested = articleAnalysisRequested,
         onArticleAnalysisConsumed = onArticleAnalysisConsumed,
+        onOpenArticle = onOpenArticle,
         onDismiss = onDismiss,
     )
 }

@@ -1557,8 +1557,8 @@ private fun mergeToolCallDeltas(
 private fun AiProviderProfile?.orEmptyModels(): List<String> = this?.availableModels().orEmpty()
 
 /**
- * 当前选区、译文与摘要属于用户正在看的高相关派生内容，优先于长原文进入有限 Context；
- * 原文仍作为基础事实来源参与剩余预算，P2 ContextComposer 负责安全截断。
+ * 当前选区、译文与摘要属于用户正在看的高相关派生内容，仍可优先帮助模型快速理解；
+ * 但当前文章原文会声明 evidence reserve，ContextComposer 必须为其保留最低可核验正文片段。
  */
 internal fun buildArticleContextItems(context: ArticleAssistantContext): List<LlmContextItem> =
     buildList {
@@ -1569,6 +1569,7 @@ internal fun buildArticleContextItems(context: ArticleAssistantContext): List<Ll
                     type = LlmContextType.SELECTED_TEXT,
                     title = context.title,
                     sourceId = context.link,
+                    internalArticleId = context.articleId,
                     content = selection,
                     // 用户刚刚显式选中的正文与当前问题相关度最高，必须优先于摘要/译文/整篇正文进入预算。
                     priority = 160,
@@ -1582,6 +1583,7 @@ internal fun buildArticleContextItems(context: ArticleAssistantContext): List<Ll
                     type = LlmContextType.ARTICLE_SUMMARY,
                     title = context.title,
                     sourceId = context.link,
+                    internalArticleId = context.articleId,
                     content = summary,
                     priority = 130,
                 )
@@ -1594,6 +1596,7 @@ internal fun buildArticleContextItems(context: ArticleAssistantContext): List<Ll
                     type = LlmContextType.ARTICLE_TRANSLATION,
                     title = context.translatedTitle ?: context.title,
                     sourceId = context.link,
+                    internalArticleId = context.articleId,
                     content = translation,
                     priority = 120,
                 )
@@ -1606,7 +1609,9 @@ internal fun buildArticleContextItems(context: ArticleAssistantContext): List<Ll
                     type = LlmContextType.ARTICLE,
                     title = context.title,
                     sourceId = context.link,
+                    internalArticleId = context.articleId,
                     content = original,
+                    reserveEvidenceBudget = true,
                     priority = 100,
                 )
             )

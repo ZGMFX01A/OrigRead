@@ -192,6 +192,17 @@ object LlmChatDatabaseModule {
             }
         }
 
+    /**
+     * v10 为历史 ContextRef 增加 OrigRead 内部 article_id。
+     * 旧历史保持 null；新请求会冻结当前文章/相关文章 ID，从而允许来源在应用内打开。
+     */
+    private val MIGRATION_9_10 =
+        object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE llm_context_refs ADD COLUMN article_id TEXT")
+            }
+        }
+
     /** 创建 LLM Chat Room 数据库单例。 */
     @Provides
     @Singleton
@@ -209,6 +220,7 @@ object LlmChatDatabaseModule {
             MIGRATION_6_7,
             MIGRATION_7_8,
             MIGRATION_8_9,
+            MIGRATION_9_10,
         ).build()
 
     /** 向业务层提供 Chat DAO 单例。 */

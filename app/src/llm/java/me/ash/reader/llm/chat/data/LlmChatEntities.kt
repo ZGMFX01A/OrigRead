@@ -198,6 +198,8 @@ data class LlmContextRefEntity(
     val title: String? = null,
     /** 原始来源标识：URL、MCP Server ID 等均原样保留。 */
     @ColumnInfo(name = "source_id") val sourceId: String? = null,
+    /** OrigRead 内部文章 ID；用于当前文章/相关文章来源在应用内导航，外部来源保持 null。 */
+    @ColumnInfo(name = "article_id") val articleId: String? = null,
     /** 只有来源本身是可打开 HTTP(S) 地址时才写入，避免把 MCP Server ID 伪装成 URL。 */
     @ColumnInfo(name = "source_url") val sourceUrl: String? = null,
     /** 生成当时的完整来源快照；后续正文/摘要/搜索结果变化不会覆盖历史依据。 */

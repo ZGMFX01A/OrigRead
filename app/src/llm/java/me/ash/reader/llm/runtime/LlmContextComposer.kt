@@ -41,7 +41,8 @@ class LlmContextComposer @Inject constructor() {
         var usedTokens = 0
         var truncated = false
 
-        for ((_, item) in accepted) {
+        for ((acceptedIndex, indexedItem) in accepted.withIndex()) {
+            val item = indexedItem.value
             val separator = if (builder.isEmpty()) "" else "\n\n"
             val separatorTokens = estimateLlmTokens(separator)
             val remaining = policy.maxTokens - usedTokens - separatorTokens
@@ -51,7 +52,20 @@ class LlmContextComposer @Inject constructor() {
                 continue
             }
 
-            val block = renderBlock(item, remaining)
+            // 摘要/译文等高优先级辅助 Context 不能吃掉后续关键证据的保底预算。
+            // 当前 item 若本身是 evidence，则可以使用保底预算；这里只扣除“后续” evidence reserve。
+            val futureEvidenceReserve =
+                accepted.drop(acceptedIndex + 1)
+                    .sumOf { acceptedItem ->
+                        if (acceptedItem.value.reserveEvidenceBudget) {
+                            evidenceReserveTokens(policy.maxTokens)
+                        } else {
+                            0
+                        }
+                    }
+                    .coerceAtMost(remaining)
+            val availableForItem = (remaining - futureEvidenceReserve).coerceAtLeast(0)
+            val block = renderBlock(item, availableForItem)
             if (block == null) {
                 omitted += item.id
                 truncated = true
@@ -95,6 +109,13 @@ class LlmContextComposer @Inject constructor() {
             renderedItems = renderedItems,
         )
     }
+
+    /**
+     * Evidence reserve 随总预算增长但设置上下限：小窗口至少保留约 256 tokens，
+     * 4K 左右约 512 tokens，超大窗口最多 2K，避免原文反过来吞掉全部辅助 Context。
+     */
+    private fun evidenceReserveTokens(maxTokens: Int): Int =
+        (maxTokens / 8).coerceIn(MIN_EVIDENCE_RESERVE_TOKENS, MAX_EVIDENCE_RESERVE_TOKENS)
 
     private data class RenderedBlock(
         val text: String,
@@ -167,6 +188,9 @@ class LlmContextComposer @Inject constructor() {
         return substring(0, index)
     }
 }
+
+private const val MIN_EVIDENCE_RESERVE_TOKENS = 256
+private const val MAX_EVIDENCE_RESERVE_TOKENS = 2_048
 
 /**
  * OpenAI-Compatible 服务可能使用不同 tokenizer，因此这里只提供稳定、偏保守的跨语言近似值。

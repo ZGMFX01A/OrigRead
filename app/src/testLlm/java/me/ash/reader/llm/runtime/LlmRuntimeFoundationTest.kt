@@ -105,6 +105,41 @@ class LlmRuntimeFoundationTest {
     }
 
     @Test
+    fun `context composer preserves reserved article evidence after higher priority summary`() {
+        val summary =
+            LlmContextItem(
+                id = "summary",
+                type = LlmContextType.ARTICLE_SUMMARY,
+                content = "S".repeat(20_000),
+                priority = 130,
+            )
+        val article =
+            LlmContextItem(
+                id = "article",
+                type = LlmContextType.ARTICLE,
+                content = "A".repeat(20_000),
+                reserveEvidenceBudget = true,
+                priority = 100,
+            )
+        val composer = LlmContextComposer()
+
+        listOf(1_000, 4_000, 128_000).forEach { budget ->
+            val result =
+                composer.compose(
+                    items = listOf(summary, article),
+                    policy = LlmContextPolicy(maxTokens = budget),
+                )
+
+            assertTrue("article evidence must survive budget=$budget", "article" in result.includedIds)
+            assertTrue(
+                "article evidence must contain prompt text for budget=$budget",
+                result.renderedItems.single { it.id == "article" }.content.isNotBlank(),
+            )
+            assertTrue(composer.estimateTokens(result.text) <= budget)
+        }
+    }
+
+    @Test
     fun `context composer omits item when budget cannot preserve context wrapper`() {
         val result =
             LlmContextComposer().compose(

@@ -50,7 +50,8 @@ internal fun LlmArticleAttachment.toConversationArticleEntity(
  * 将附加文章转换为现有 ARTICLE / ARTICLE_SUMMARY Context。
  *
  * 当前文章永远由 [buildArticleContextItems] 提供主 Context，因此这里会主动排除同 articleId，
- * 防止产生重复 Context ID。附加文章摘要优先于正文，但二者都低于当前文章正文优先级 100。
+ * 防止产生重复 Context ID。附加文章摘要仍可辅助理解，但 Citation 只会指向其原始正文；
+ * 附加文章不占用当前文章专属的 evidence reserve。
  */
 internal fun buildAdditionalArticleContextItems(
     currentArticleId: String,
@@ -65,6 +66,7 @@ internal fun buildAdditionalArticleContextItems(
                         type = LlmContextType.ARTICLE_SUMMARY,
                         title = attachment.title,
                         sourceId = attachment.link,
+                        internalArticleId = attachment.articleId,
                         content = summary,
                         priority = 95,
                     )
@@ -77,6 +79,7 @@ internal fun buildAdditionalArticleContextItems(
                         type = LlmContextType.ARTICLE,
                         title = attachment.title,
                         sourceId = attachment.link,
+                        internalArticleId = attachment.articleId,
                         content = original,
                         priority = 90,
                     )

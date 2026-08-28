@@ -125,6 +125,7 @@ fun LlmArticleAssistantSheet(
     articleContext: ArticleAssistantContext,
     articleAnalysisRequested: Boolean = false,
     onArticleAnalysisConsumed: () -> Unit = {},
+    onOpenArticle: (String) -> Unit = {},
     onDismiss: () -> Unit,
     viewModel: LlmChatViewModel = hiltViewModel(),
 ) {
@@ -383,6 +384,8 @@ fun LlmArticleAssistantSheet(
         ContextSourcesSheet(
             refs = uiState.contextRefs.filter { it.assistantMessageId == assistantMessageId },
             selectedCitationIndex = contextSourcesCitationIndex,
+            currentArticleId = articleContext.articleId,
+            onOpenArticle = onOpenArticle,
             onDismiss = {
                 contextSourcesAssistantId = null
                 contextSourcesCitationIndex = null
@@ -1535,6 +1538,8 @@ private fun QuickMessageSheet(
 private fun ContextSourcesSheet(
     refs: List<LlmContextRefEntity>,
     selectedCitationIndex: Int? = null,
+    currentArticleId: String,
+    onOpenArticle: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
@@ -1593,7 +1598,7 @@ private fun ContextSourcesSheet(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
                                 Text(
-                                    text = ref.title ?: contextTypeLabel(ref.type),
+                                    text = ref.title ?: contextTypeLabel(ref, currentArticleId),
                                     modifier = Modifier.weight(1f),
                                     style = MaterialTheme.typography.titleSmall,
                                     maxLines = 2,
@@ -1616,7 +1621,7 @@ private fun ContextSourcesSheet(
                                 )
                             }
                             Text(
-                                text = contextTypeLabel(ref.type),
+                                text = contextTypeLabel(ref, currentArticleId),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -1641,7 +1646,17 @@ private fun ContextSourcesSheet(
                                     style = MaterialTheme.typography.bodySmall,
                                 )
                             }
-                            ref.sourceUrl?.let { sourceUrl ->
+                            ref.articleId?.takeIf(String::isNotBlank)?.let { articleId ->
+                                TextButton(
+                                    onClick = {
+                                        onDismiss()
+                                        onOpenArticle(articleId)
+                                    },
+                                    modifier = Modifier.align(Alignment.End),
+                                ) {
+                                    Text(stringResource(R.string.llm_context_open_article))
+                                }
+                            } ?: ref.sourceUrl?.let { sourceUrl ->
                                 TextButton(
                                     onClick = { runCatching { uriHandler.openUri(sourceUrl) } },
                                     modifier = Modifier.align(Alignment.End),
@@ -1666,10 +1681,18 @@ private fun contextRefStatusLabel(ref: LlmContextRefEntity): String =
     }
 
 @Composable
-private fun contextTypeLabel(type: LlmContextType): String =
+private fun contextTypeLabel(
+    ref: LlmContextRefEntity,
+    currentArticleId: String,
+): String =
     stringResource(
-        when (type) {
-            LlmContextType.ARTICLE -> R.string.llm_context_type_article
+        when (ref.type) {
+            LlmContextType.ARTICLE ->
+                if (ref.articleId != null && ref.articleId != currentArticleId) {
+                    R.string.llm_context_type_related_article
+                } else {
+                    R.string.llm_context_type_article
+                }
             LlmContextType.ARTICLE_SUMMARY -> R.string.llm_context_type_summary
             LlmContextType.ARTICLE_TRANSLATION -> R.string.llm_context_type_translation
             LlmContextType.SELECTED_TEXT -> R.string.llm_context_type_selection

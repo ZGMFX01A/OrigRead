@@ -161,9 +161,11 @@
     <string name="llm_context_omitted">Excluded</string>
     <string name="llm_context_source">Source: %1$s</string>
     <string name="llm_context_open_source">Open source</string>
-    <string name="llm_context_type_article">Article</string>
-    <string name="llm_context_type_summary">Article summary</string>
-    <string name="llm_context_type_translation">Article translation</string>
+    <string name="llm_context_open_article">Open in OrigRead</string>
+    <string name="llm_context_type_article">Current article</string>
+    <string name="llm_context_type_related_article">Related article</string>
+    <string name="llm_context_type_summary">AI summary (supporting context)</string>
+    <string name="llm_context_type_translation">Translation (supporting context)</string>
     <string name="llm_context_type_selection">Selected text</string>
     <string name="llm_context_type_manual">Attached context</string>
     <string name="llm_context_type_web_search">Web search</string>

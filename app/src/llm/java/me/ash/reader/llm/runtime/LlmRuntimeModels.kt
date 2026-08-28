@@ -75,6 +75,10 @@ data class LlmContextItem(
     val content: String,
     val title: String? = null,
     val sourceId: String? = null,
+    /** OrigRead 内部文章 ID；只用于文章派生 Context 的应用内导航。 */
+    val internalArticleId: String? = null,
+    /** 关键原始证据可要求 Composer 为其预留最低预算，避免被摘要/译文等辅助 Context 完全挤出。 */
+    val reserveEvidenceBudget: Boolean = false,
     val priority: Int = 0,
 ) {
     init {

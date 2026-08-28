@@ -9,6 +9,7 @@ internal fun EditionArticleAssistantSheet(
     context: ArticleAssistantContext?,
     articleAnalysisRequested: Boolean,
     onArticleAnalysisConsumed: () -> Unit,
+    onOpenArticle: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     // Standard 版本刻意不渲染 LLM UI。
