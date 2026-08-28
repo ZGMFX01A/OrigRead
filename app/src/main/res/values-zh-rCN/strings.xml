@@ -760,7 +760,7 @@
     <string name="edition_sync_standard_name">普通版</string>
     <string name="edition_sync_llm_name">LLM 版</string>
     <string name="edition_sync_send_title">同步到%1$s</string>
-    <string name="edition_sync_send_desc">将双方共有的配置，以及当前账户的订阅、文章、已读、星标和稍后读状态同步到另一已安装版本；目标版本独有的数据会保留。只有开启“包含 API Key”时才会迁移 AI/翻译 API Key。</string>
+    <string name="edition_sync_send_desc">将双方共有的配置，以及当前账户的订阅、文章、已读、星标和稍后读状态同步到另一已安装版本；目标版本独有的数据会保留。AI/翻译 API Key 会自动一并迁移。</string>
     <string name="configuration_backup_desc">备份与恢复订阅、规则、阅读偏好、翻译与 AI 设置</string>
     <string name="configuration_backup_scope_title">可迁移配置范围</string>
     <string name="configuration_backup_scope_desc">包含订阅与分组、解析与过滤规则、RSSHub、应用偏好及翻译/AI 服务配置；不包含文章、阅读状态、已生成摘要/译文和缓存。</string>

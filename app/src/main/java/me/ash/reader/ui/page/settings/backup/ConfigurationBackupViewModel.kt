@@ -37,18 +37,16 @@ class ConfigurationBackupViewModel @Inject constructor(
 
     /**
      * 创建发送给另一 Edition 的一次性加密同步 Intent。
+     * 公共 AI/翻译凭据固定包含在 Edition Sync 中；普通配置备份的 Secret 开关不影响同机直传。
      * 快照、配置与凭据收集都在 IO dispatcher 执行，Intent 仅在全部数据准备成功后交回 UI 启动。
      */
-    fun createEditionSyncIntent(
-        includeSecrets: Boolean,
-        callback: (Result<Intent>) -> Unit,
-    ) {
+    fun createEditionSyncIntent(callback: (Result<Intent>) -> Unit) {
         if (_uiState.value.isWorking) return
         _uiState.update { it.copy(isWorking = true) }
         viewModelScope.launch(ioDispatcher) {
             val result =
                 runCatching {
-                    editionSyncTransferManager.createPeerTransferIntent(includeSecrets = includeSecrets)
+                    editionSyncTransferManager.createPeerTransferIntent()
                 }
             withContext(mainDispatcher) {
                 _uiState.update { it.copy(isWorking = false) }

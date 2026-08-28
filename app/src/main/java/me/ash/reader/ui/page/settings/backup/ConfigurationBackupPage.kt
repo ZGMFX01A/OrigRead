@@ -160,7 +160,7 @@ fun ConfigurationBackupPage(
                         desc = stringResource(R.string.edition_sync_send_desc),
                         icon = Icons.Outlined.SyncAlt,
                         onClick = {
-                            viewModel.createEditionSyncIntent(includeSecrets = includeSecrets) { result ->
+                            viewModel.createEditionSyncIntent { result ->
                                 result.fold(
                                     onSuccess = editionSyncLauncher::launch,
                                     onFailure = { error ->

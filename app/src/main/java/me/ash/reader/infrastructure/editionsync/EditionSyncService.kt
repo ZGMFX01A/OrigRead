@@ -40,11 +40,12 @@ class EditionSyncService @Inject constructor(
      * ConfigurationBackupService 继续负责规则/偏好/AI/翻译以及 API Key；随机密码只封装在外层同步 Bundle 内，
      * Bundle 随后还会由 [EditionSyncCrypto] 作为整体加密，因此临时文件不会出现明文 Secret。
      */
-    suspend fun exportBundle(includeSecrets: Boolean = false): String {
+    suspend fun exportBundle(): String {
         val backupPassword = randomTransferPassword()
         val configuration =
             configurationBackupService.exportBackup(
-                includeSecrets = includeSecrets,
+                // Edition Sync 仅面向同签名的另一 Edition，公共 AI/翻译凭据属于同步范围。
+                includeSecrets = true,
                 password = backupPassword,
             )
         val reading = readingSnapshotService.exportCurrentAccount()

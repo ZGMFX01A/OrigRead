@@ -189,7 +189,8 @@ class AiSettingsRepository @Inject constructor(
         apiKeys: Map<String, String> = emptyMap(),
         replaceSecrets: Boolean = false,
     ) {
-        val previousProviderIds = current().providers.map(AiProviderProfile::id)
+        val previousProviders = current().providers
+        val previousProviderIds = previousProviders.map(AiProviderProfile::id)
         val normalized = normalizeSettings(settings)
         if (replaceSecrets) {
             (previousProviderIds + normalized.providers.map(AiProviderProfile::id))
@@ -198,6 +199,21 @@ class AiSettingsRepository @Inject constructor(
             secretStore.remove(LEGACY_SECRET_API_KEY)
             normalized.providers.forEach { provider ->
                 apiKeys[provider.id]?.takeIf(String::isNotBlank)?.let { secretStore.put(secretKey(provider.id), it) }
+            }
+        } else {
+            // Standard / LLM 两个 Edition 可能各自独立创建过同一服务，导致 providerId 不同。
+            // 无凭据同步时若直接替换 Provider 列表，旧 Key 会仍留在旧 providerId 下，但新配置无法再读取，
+            // 用户看到的表现就是“同步后 Key 丢失”。这里只对 Endpoint 一一对应且无歧义的服务迁移本机 Key；
+            // 同 Endpoint 存在多个候选时保持原状，避免把不同账号的凭据错误复制给另一服务。
+            findProviderSecretMigrations(
+                previousProviders = previousProviders,
+                incomingProviders = normalized.providers,
+                hasSecret = { providerId -> hasApiKey(providerId) },
+            ).forEach { migration ->
+                val value = getApiKey(migration.fromProviderId)
+                if (value.isNotBlank()) {
+                    secretStore.put(secretKey(migration.toProviderId), value)
+                }
             }
         }
         preferences.edit().clear().apply()
@@ -403,6 +419,46 @@ class AiSettingsRepository @Inject constructor(
         private const val MAX_PROVIDER_NAME_LENGTH = 40
     }
 }
+
+/** 无凭据配置恢复时需要执行的本机 AI Key providerId 迁移。 */
+internal data class AiProviderSecretMigration(
+    val fromProviderId: String,
+    val toProviderId: String,
+)
+
+/**
+ * 根据唯一 Endpoint 关系识别 providerId 变化后的 Secret 迁移。
+ *
+ * 只接受来源与目标都一一对应的情况；任一侧同 Endpoint 出现多个 Provider 都视为歧义，不自动迁移。
+ */
+internal fun findProviderSecretMigrations(
+    previousProviders: List<AiProviderProfile>,
+    incomingProviders: List<AiProviderProfile>,
+    hasSecret: (String) -> Boolean,
+): List<AiProviderSecretMigration> {
+    val previousWithSecretByEndpoint =
+        previousProviders
+            .filter { hasSecret(it.id) }
+            .groupBy { providerSecretEndpointKey(it.endpoint) }
+    val incomingCountByEndpoint = incomingProviders.groupingBy { providerSecretEndpointKey(it.endpoint) }.eachCount()
+
+    return incomingProviders.mapNotNull { incoming ->
+        if (hasSecret(incoming.id)) return@mapNotNull null
+        val endpointKey = providerSecretEndpointKey(incoming.endpoint)
+        if (endpointKey.isBlank() || incomingCountByEndpoint[endpointKey] != 1) return@mapNotNull null
+        val candidates = previousWithSecretByEndpoint[endpointKey].orEmpty()
+        val previous = candidates.singleOrNull() ?: return@mapNotNull null
+        if (previous.id == incoming.id) return@mapNotNull null
+        AiProviderSecretMigration(
+            fromProviderId = previous.id,
+            toProviderId = incoming.id,
+        )
+    }
+}
+
+/** Endpoint 仅用于本机 Secret 迁移匹配，不参与网络请求地址规范化。 */
+private fun providerSecretEndpointKey(endpoint: String): String =
+    endpoint.trim().trimEnd('/').lowercase()
 
 /**
  * 模型 ID 本质上是单个标识符，不应该包含空白符。

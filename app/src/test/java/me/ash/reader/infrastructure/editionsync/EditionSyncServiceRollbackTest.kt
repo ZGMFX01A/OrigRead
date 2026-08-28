@@ -27,6 +27,30 @@ import org.mockito.kotlin.whenever
 class EditionSyncServiceRollbackTest {
 
     @Test
+    fun `export bundle always includes shared secrets`() {
+        runBlocking {
+            val configurationBackupService = mock<ConfigurationBackupService>()
+            val readingSnapshotService = mock<EditionSyncReadingSnapshotService>()
+            val accountResolver = mock<EditionSyncAccountResolver>()
+            val service =
+                EditionSyncService(
+                    configurationBackupService = configurationBackupService,
+                    readingSnapshotService = readingSnapshotService,
+                    accountResolver = accountResolver,
+                )
+            val reading = readingSnapshot(accountName = "Source")
+
+            whenever(configurationBackupService.exportBackup(eq(true), any())).thenReturn("config-with-secrets")
+            whenever(readingSnapshotService.exportCurrentAccount()).thenReturn(reading)
+
+            service.exportBundle()
+
+            verify(configurationBackupService).exportBackup(eq(true), any())
+            verify(readingSnapshotService).validate(reading)
+        }
+    }
+
+    @Test
     fun `restore failure after configuration mutation restores previous account snapshot`() {
         runBlocking {
             val configurationBackupService = mock<ConfigurationBackupService>()

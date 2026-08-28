@@ -17,15 +17,15 @@ class EditionSyncTransferManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val editionSyncService: EditionSyncService,
 ) {
-    /** 生成完整快照、加密并构造显式目标 Activity Intent；API Key 仅在用户明确开启时进入快照。 */
-    suspend fun createPeerTransferIntent(includeSecrets: Boolean): Intent {
+    /** 生成完整快照、加密并构造显式目标 Activity Intent；公共 AI/翻译 API Key 固定随 Edition Sync 迁移。 */
+    suspend fun createPeerTransferIntent(): Intent {
         val peerPackage = EditionSyncContract.peerPackageName()
         requireTrustedPeer(peerPackage)
         cleanupOldTransfers()
 
         val encrypted =
             EditionSyncCrypto.encrypt(
-                editionSyncService.exportBundle(includeSecrets = includeSecrets).toByteArray(Charsets.UTF_8)
+                editionSyncService.exportBundle().toByteArray(Charsets.UTF_8)
             )
         val directory = File(context.cacheDir, EditionSyncContract.TEMP_DIRECTORY).apply { mkdirs() }
         val file = File(directory, "${UUID.randomUUID()}${EditionSyncContract.TEMP_FILE_SUFFIX}")

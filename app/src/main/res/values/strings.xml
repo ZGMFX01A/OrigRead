@@ -794,7 +794,7 @@
     <string name="edition_sync_standard_name">Standard edition</string>
     <string name="edition_sync_llm_name">LLM edition</string>
     <string name="edition_sync_send_title">Sync to %1$s</string>
-    <string name="edition_sync_send_desc">Send shared settings and the current account’s subscriptions, articles, read/starred/read-later state to the other installed edition. Data that exists only in the target edition is kept. AI and translation API keys are included only when Include API keys is enabled.</string>
+    <string name="edition_sync_send_desc">Send shared settings and the current account’s subscriptions, articles, read/starred/read-later state to the other installed edition. Data that exists only in the target edition is kept. AI and translation API keys are included automatically.</string>
     <string name="configuration_backup_desc">Export subscriptions, rules, reading preferences, translation and AI settings</string>
     <string name="configuration_backup_scope_title">Portable configuration backup</string>
     <string name="configuration_backup_scope_desc">Includes the current account’s subscriptions and groups, source rules, filters, RSSHub settings, app preferences, translation providers and AI providers. Articles, read/starred state, generated summaries, translations and caches are not included.</string>
