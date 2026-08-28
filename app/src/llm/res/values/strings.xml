@@ -230,4 +230,8 @@
     <string name="llm_web_search_mode_auto_desc">Search only when the request clearly asks for current or online information.</string>
     <string name="llm_web_search_mode_force">Search next message</string>
     <string name="llm_web_search_mode_force_desc">Force web search for the next message only, then return to the default mode.</string>
+    <string name="llm_web_search_request_running">Searching the web…</string>
+    <string name="llm_web_search_request_success">Web search complete</string>
+    <string name="llm_web_search_request_success_provider">Web search complete · %1$s</string>
+    <string name="llm_web_search_request_failed_fallback">Web search failed; using the available article context.</string>
 </resources>

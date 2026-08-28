@@ -61,10 +61,12 @@ android {
         // 发布包仅面向主流 64 位 ARM 设备，避免将 ML Kit 的多套大型原生库重复打入 APK。
         ndk { abiFilters += "arm64-v8a" }
 
-        room { schemaDirectory("$projectDir/schemas") }
-
         ksp { arg("room.incremental", "true") }
     }
+
+    // Room Gradle Plugin 要求 schemaDirectory 配置在 android 层；这样 KSP/compile task 才会把 schema
+    // 作为正式 input/output 跟踪并稳定导出。KSP 可直接写入该目录，后续 copyRoomSchemas 无额外来源时允许 NO-SOURCE。
+    room { schemaDirectory("$projectDir/schemas") }
 
     flavorDimensions.addAll(listOf("edition", "channel"))
     productFlavors {

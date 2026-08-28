@@ -204,6 +204,21 @@ object LlmChatDatabaseModule {
             }
         }
 
+    /**
+     * v11 为 Assistant 消息增加 Dedicated Search 请求状态。
+     *
+     * 三个字段全部 nullable，旧历史不推断是否曾联网；只有新请求才明确记录 NOT_NEEDED/TRIGGERED/SUCCESS/
+     * FAILED_FALLBACK，避免把“没有历史数据”误显示成搜索失败或成功。
+     */
+    private val MIGRATION_10_11 =
+        object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE llm_messages ADD COLUMN web_search_status TEXT")
+                db.execSQL("ALTER TABLE llm_messages ADD COLUMN web_search_provider_name TEXT")
+                db.execSQL("ALTER TABLE llm_messages ADD COLUMN web_search_error_message TEXT")
+            }
+        }
+
     /** 创建 LLM Chat Room 数据库单例。 */
     @Provides
     @Singleton
@@ -222,6 +237,7 @@ object LlmChatDatabaseModule {
             MIGRATION_7_8,
             MIGRATION_8_9,
             MIGRATION_9_10,
+            MIGRATION_10_11,
         ).build()
 
     /** 向业务层提供 Chat DAO 单例。 */

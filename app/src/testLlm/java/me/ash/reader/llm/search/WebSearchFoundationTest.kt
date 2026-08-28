@@ -1,5 +1,6 @@
 package me.ash.reader.llm.search
 
+import java.io.InterruptedIOException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -474,8 +475,91 @@ class WebSearchFoundationTest {
     @Test
     fun `auto search is conservative and recognizes explicit freshness intent`() {
         assertTrue(shouldAutoSearch("这件事后来有什么最新进展？"))
+        assertTrue(shouldAutoSearch("我要知道当前最新的消息"))
         assertTrue(shouldAutoSearch("look up the latest release"))
         assertFalse(shouldAutoSearch("解释一下这篇文章里的虚拟线程"))
+    }
+
+    @Test
+    fun `search decision exposes not needed triggered and force semantics`() {
+        assertEquals(
+            WebSearchRequestStatus.TRIGGERED,
+            resolveWebSearchDecision(true, WebSearchMode.AUTO, "我要知道当前最新的消息").status,
+        )
+        assertEquals(
+            WebSearchRequestStatus.NOT_NEEDED,
+            resolveWebSearchDecision(true, WebSearchMode.AUTO, "总结这篇文章").status,
+        )
+        val force = resolveWebSearchDecision(true, WebSearchMode.FORCE, "总结这篇文章")
+        assertEquals(WebSearchRequestStatus.TRIGGERED, force.status)
+        assertTrue(force.required)
+        assertEquals(
+            WebSearchRequestStatus.NOT_NEEDED,
+            resolveWebSearchDecision(false, WebSearchMode.FORCE, "查一下最新消息").status,
+        )
+    }
+
+    @Test
+    fun `auto search failure falls back while force returns required failure`() {
+        val auto =
+            buildWebSearchFailureResult(
+                required = false,
+                providerName = "Exa",
+                error = InterruptedIOException("timeout"),
+            )
+        assertEquals(WebSearchRequestStatus.FAILED_FALLBACK, auto.status)
+        assertFalse(auto.requiredFailure)
+        assertEquals("Exa 搜索超时", auto.errorMessage)
+
+        val force =
+            buildWebSearchFailureResult(
+                required = true,
+                providerName = "Exa",
+                error = InterruptedIOException("timeout"),
+            )
+        assertEquals(WebSearchRequestStatus.TRIGGERED, force.status)
+        assertTrue(force.requiredFailure)
+        assertEquals("Exa 搜索超时", force.errorMessage)
+    }
+
+    @Test
+    fun `search success exposes provider and response`() {
+        val response =
+            WebSearchResponse(
+                providerId = "exa",
+                providerName = "Exa",
+                backendKind = WebSearchBackendKind.RAW_SEARCH,
+                results = emptyList(),
+            )
+        val result = buildWebSearchSuccessResult(response)
+        assertEquals(WebSearchRequestStatus.SUCCESS, result.status)
+        assertEquals("Exa", result.providerName)
+        assertEquals(response, result.response)
+        assertFalse(result.requiredFailure)
+    }
+
+    @Test
+    fun `configured provider selection skips unfinished default provider`() {
+        val unfinishedDefault =
+            WebSearchProviderProfile(id = "exa", kind = WebSearchProviderKind.EXA)
+        val fallback =
+            WebSearchProviderProfile(id = "tavily", kind = WebSearchProviderKind.TAVILY)
+        // configuredProviders 已排除 unfinishedDefault；即便 default id 仍指向它，也必须回退到 Tavily。
+        assertEquals(
+            fallback,
+            selectConfiguredSearchProvider(
+                configuredProviders = listOf(fallback),
+                defaultProviderId = unfinishedDefault.id,
+            ),
+        )
+        assertEquals(
+            fallback,
+            selectConfiguredSearchProvider(
+                configuredProviders = listOf(fallback),
+                defaultProviderId = fallback.id,
+            ),
+        )
+        assertEquals(null, selectConfiguredSearchProvider(emptyList(), unfinishedDefault.id))
     }
 
     @Test

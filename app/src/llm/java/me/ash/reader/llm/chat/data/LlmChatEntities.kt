@@ -8,6 +8,7 @@ import androidx.room.PrimaryKey
 import androidx.room.TypeConverter
 import me.ash.reader.llm.runtime.LlmContextType
 import me.ash.reader.llm.runtime.LlmExecutionTask
+import me.ash.reader.llm.search.WebSearchRequestStatus
 
 /** Chat 消息角色；传输层会显式映射到 OpenAI-Compatible role。 */
 enum class LlmChatRole {
@@ -111,6 +112,12 @@ data class LlmMessageEntity(
     val reasoning: String? = null,
     val status: LlmMessageStatus = LlmMessageStatus.COMPLETE,
     @ColumnInfo(name = "error_message") val errorMessage: String? = null,
+    /** 本轮 Dedicated Search 状态；仅 Assistant 请求使用，旧历史与普通消息保持 null。 */
+    @ColumnInfo(name = "web_search_status") val webSearchStatus: WebSearchRequestStatus? = null,
+    /** 实际执行 Dedicated Search 的 Provider 名称；未触发或尚未选定时保持 null。 */
+    @ColumnInfo(name = "web_search_provider_name") val webSearchProviderName: String? = null,
+    /** 搜索失败的冻结诊断；AUTO UI 使用本地化软降级文案，FORCE 可据此暴露明确错误。 */
+    @ColumnInfo(name = "web_search_error_message") val webSearchErrorMessage: String? = null,
     @ColumnInfo(name = "prompt_tokens") val promptTokens: Int? = null,
     @ColumnInfo(name = "completion_tokens") val completionTokens: Int? = null,
     @ColumnInfo(name = "duration_ms") val durationMs: Long? = null,
@@ -264,4 +271,13 @@ class LlmChatConverters {
     @TypeConverter
     fun stringToExecutionTask(value: String?): LlmExecutionTask? =
         value?.let { encoded -> runCatching { LlmExecutionTask.valueOf(encoded) }.getOrNull() }
+
+    /** Dedicated Search 请求状态按稳定枚举名称保存；普通/旧消息允许 null。 */
+    @TypeConverter
+    fun webSearchStatusToString(value: WebSearchRequestStatus?): String? = value?.name
+
+    /** 未知未来 Search 状态保守丢弃，避免旧版本把新语义误显示成成功。 */
+    @TypeConverter
+    fun stringToWebSearchStatus(value: String?): WebSearchRequestStatus? =
+        value?.let { encoded -> runCatching { WebSearchRequestStatus.valueOf(encoded) }.getOrNull() }
 }

@@ -108,6 +108,7 @@ import me.ash.reader.llm.runtime.LlmReasoningEffort
 import me.ash.reader.llm.runtime.LlmContextType
 import me.ash.reader.llm.runtime.LlmToolDescriptor
 import me.ash.reader.llm.search.WebSearchMode
+import me.ash.reader.llm.search.WebSearchRequestStatus
 import me.ash.reader.ui.page.home.reading.AiSummaryAccentIcon
 import me.ash.reader.ui.page.home.reading.ArticleAssistantContext
 
@@ -665,6 +666,15 @@ private fun AssistantMessage(
         remember(message.reasoning) {
             message.reasoning?.let { reasoning -> stripDisabledLlmCitationTokens(reasoning) }
         }
+    val showWebSearchStatus =
+        when (message.webSearchStatus) {
+            // TRIGGERED 表示搜索仍处于前置阶段；请求已经 ERROR/STOPPED 后不能留下永久旋转的“搜索中”。
+            WebSearchRequestStatus.TRIGGERED -> message.status == LlmMessageStatus.STREAMING
+            WebSearchRequestStatus.SUCCESS,
+            WebSearchRequestStatus.FAILED_FALLBACK -> true
+            WebSearchRequestStatus.NOT_NEEDED,
+            null -> false
+        }
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = stringResource(R.string.llm_assistant_name),
@@ -673,6 +683,10 @@ private fun AssistantMessage(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.size(6.dp))
+        if (showWebSearchStatus) {
+            WebSearchRequestStatusRow(message)
+            Spacer(Modifier.size(8.dp))
+        }
         if (showReasoning && !displayReasoning.isNullOrBlank()) {
             ReasoningBlock(
                 reasoning = displayReasoning,
@@ -684,7 +698,10 @@ private fun AssistantMessage(
             LlmRichMarkdown(
                 markdown = displayContent,
             )
-        } else if (message.status == LlmMessageStatus.STREAMING) {
+        } else if (
+            message.status == LlmMessageStatus.STREAMING &&
+                message.webSearchStatus != WebSearchRequestStatus.TRIGGERED
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                 Spacer(Modifier.width(8.dp))
@@ -752,6 +769,54 @@ private fun AssistantMessage(
             }
             MessageUsageRow(message)
         }
+    }
+}
+
+/** 单次 Assistant 的 Dedicated Search 状态；只展示真正触发的请求，NOT_NEEDED 不占 Chat 空间。 */
+@Composable
+private fun WebSearchRequestStatusRow(message: LlmMessageEntity) {
+    val status = message.webSearchStatus ?: return
+    val text =
+        when (status) {
+            WebSearchRequestStatus.TRIGGERED -> stringResource(R.string.llm_web_search_request_running)
+            WebSearchRequestStatus.SUCCESS ->
+                message.webSearchProviderName?.takeIf(String::isNotBlank)?.let { provider ->
+                    stringResource(R.string.llm_web_search_request_success_provider, provider)
+                } ?: stringResource(R.string.llm_web_search_request_success)
+            WebSearchRequestStatus.FAILED_FALLBACK ->
+                stringResource(R.string.llm_web_search_request_failed_fallback)
+            WebSearchRequestStatus.NOT_NEEDED -> return
+        }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (status == WebSearchRequestStatus.TRIGGERED) {
+            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 1.8.dp)
+        } else {
+            Icon(
+                imageVector = Icons.Outlined.Public,
+                contentDescription = null,
+                modifier = Modifier.size(15.dp),
+                tint =
+                    if (status == WebSearchRequestStatus.FAILED_FALLBACK) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+            )
+        }
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            color =
+                if (status == WebSearchRequestStatus.FAILED_FALLBACK) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+        )
     }
 }
 

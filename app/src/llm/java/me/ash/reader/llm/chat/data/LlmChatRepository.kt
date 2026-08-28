@@ -4,6 +4,7 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import me.ash.reader.llm.runtime.LlmExecutionTask
+import me.ash.reader.llm.search.WebSearchRequestStatus
 import kotlinx.coroutines.flow.Flow
 
 @Singleton
@@ -152,6 +153,9 @@ class LlmChatRepository @Inject constructor(
         reasoning: String? = message.reasoning,
         status: LlmMessageStatus = message.status,
         errorMessage: String? = message.errorMessage,
+        webSearchStatus: WebSearchRequestStatus? = message.webSearchStatus,
+        webSearchProviderName: String? = message.webSearchProviderName,
+        webSearchErrorMessage: String? = message.webSearchErrorMessage,
         promptTokens: Int? = message.promptTokens,
         completionTokens: Int? = message.completionTokens,
         durationMs: Long? = message.durationMs,
@@ -163,6 +167,9 @@ class LlmChatRepository @Inject constructor(
                 reasoning = reasoning,
                 status = status,
                 errorMessage = errorMessage,
+                webSearchStatus = webSearchStatus,
+                webSearchProviderName = webSearchProviderName,
+                webSearchErrorMessage = webSearchErrorMessage,
                 promptTokens = promptTokens,
                 completionTokens = completionTokens,
                 durationMs = durationMs,

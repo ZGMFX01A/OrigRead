@@ -230,4 +230,8 @@
     <string name="llm_web_search_mode_auto_desc">仅在问题明确需要最新或网络信息时搜索。</string>
     <string name="llm_web_search_mode_force">下一条强制联网</string>
     <string name="llm_web_search_mode_force_desc">仅下一条消息强制搜索，发送后自动恢复默认模式。</string>
+    <string name="llm_web_search_request_running">正在联网搜索…</string>
+    <string name="llm_web_search_request_success">联网搜索已完成</string>
+    <string name="llm_web_search_request_success_provider">联网搜索已完成 · %1$s</string>
+    <string name="llm_web_search_request_failed_fallback">联网搜索失败，已改用现有文章内容继续回答。</string>
 </resources>

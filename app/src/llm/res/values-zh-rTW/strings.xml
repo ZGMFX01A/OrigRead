@@ -231,4 +231,8 @@
     <string name="llm_web_search_mode_auto_desc">僅在問題明確需要最新或網路資訊時搜尋。</string>
     <string name="llm_web_search_mode_force">下一則強制連網</string>
     <string name="llm_web_search_mode_force_desc">僅下一則訊息強制搜尋，送出後自動恢復預設模式。</string>
+    <string name="llm_web_search_request_running">正在連網搜尋…</string>
+    <string name="llm_web_search_request_success">連網搜尋已完成</string>
+    <string name="llm_web_search_request_success_provider">連網搜尋已完成 · %1$s</string>
+    <string name="llm_web_search_request_failed_fallback">連網搜尋失敗，已改用現有文章內容繼續回答。</string>
 </resources>

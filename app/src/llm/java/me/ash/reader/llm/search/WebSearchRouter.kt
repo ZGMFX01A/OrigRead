@@ -1,7 +1,9 @@
 package me.ash.reader.llm.search
 
+import java.io.InterruptedIOException
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import me.ash.reader.infrastructure.ai.AiPerfTracer
 import me.ash.reader.llm.runtime.LlmContextItem
 import me.ash.reader.llm.runtime.LlmContextType
@@ -23,23 +25,36 @@ class WebSearchRouter @Inject constructor(
         mode: WebSearchMode,
         userInput: String,
         articleTitle: String?,
-    ): WebSearchResponse? {
-        if (!enabled || mode == WebSearchMode.OFF) return null
+    ): WebSearchRouteResult {
+        val decision = resolveWebSearchDecision(enabled, mode, userInput)
+        if (!decision.triggered) {
+            return WebSearchRouteResult(status = WebSearchRequestStatus.NOT_NEEDED)
+        }
         val perfTrace = AiPerfTracer.start("web-search")
-        val required = mode == WebSearchMode.FORCE
-        val autoTriggered = required || shouldAutoSearch(userInput)
+        val required = decision.required
         AiPerfTracer.mark(
             perfTrace,
             "search_decision_complete",
             "mode" to mode.name,
-            "triggered" to autoTriggered,
+            "triggered" to true,
         )
-        if (!autoTriggered) return null
 
-        if (repository.configuredProviders().isEmpty()) {
+        val configuredProviders = repository.configuredProviders()
+        val selectedProvider =
+            selectConfiguredSearchProvider(
+                configuredProviders = configuredProviders,
+                defaultProviderId = repository.current().defaultProviderId,
+            )
+        if (selectedProvider == null) {
             AiPerfTracer.mark(perfTrace, "search_no_provider", "required" to required)
-            if (required) throw WebSearchException("尚未配置可用的 Web Search Provider")
-            return null
+            val message = "尚未配置可用的 Web Search Provider"
+            return WebSearchRouteResult(
+                status =
+                    if (required) WebSearchRequestStatus.TRIGGERED
+                    else WebSearchRequestStatus.FAILED_FALLBACK,
+                errorMessage = message,
+                requiredFailure = required,
+            )
         }
 
         val request =
@@ -58,30 +73,65 @@ class WebSearchRouter @Inject constructor(
             "timeoutMs" to request.timeoutMillis,
             "required" to required,
         )
-        return if (required) {
-            try {
-                service.search(request)
-            } catch (error: Throwable) {
-                AiPerfTracer.mark(
-                    perfTrace,
-                    "force_search_failed",
-                    "error" to error.javaClass.simpleName,
+        return try {
+            val response = service.search(request, providerId = selectedProvider.id)
+            buildWebSearchSuccessResult(response)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            val failure =
+                buildWebSearchFailureResult(
+                    required = required,
+                    providerName = selectedProvider.name,
+                    error = error,
                 )
-                throw error
-            }
-        } else {
-            // AUTO 搜索失败时继续使用文章上下文回答；FORCE 才把搜索失败暴露为本轮错误。
-            runCatching { service.search(request) }
-                .onFailure { error ->
-                    AiPerfTracer.mark(
-                        perfTrace,
-                        "auto_search_failed_fallback",
-                        "error" to error.javaClass.simpleName,
-                    )
-                }
-                .getOrNull()
+            AiPerfTracer.mark(
+                perfTrace,
+                if (required) "force_search_failed" else "auto_search_failed_fallback",
+                "providerKind" to selectedProvider.kind.name,
+                "error" to error.javaClass.simpleName,
+            )
+            failure
         }
     }
+}
+
+/**
+ * Dedicated Search 只允许从真正完成配置的 Provider 中选默认项。
+ *
+ * 设置里可能仍把一个“已启用但缺 Key”的 Provider 记作 default；这种情况下必须回退到第一个 configured
+ * Provider，不能让不完整默认项把本来可工作的 AUTO/FORCE 搜索误判成失败。
+ */
+internal fun selectConfiguredSearchProvider(
+    configuredProviders: List<WebSearchProviderProfile>,
+    defaultProviderId: String?,
+): WebSearchProviderProfile? =
+    configuredProviders.firstOrNull { it.id == defaultProviderId }
+        ?: configuredProviders.firstOrNull()
+
+/**
+ * 计算 AUTO/FORCE 是否应触发 Dedicated Search。
+ *
+ * 该函数不访问 Provider，供 ViewModel 在网络请求前立即把 TRIGGERED 状态写入对应 Assistant 消息。
+ */
+internal fun resolveWebSearchDecision(
+    enabled: Boolean,
+    mode: WebSearchMode,
+    userInput: String,
+): WebSearchDecision {
+    if (!enabled || mode == WebSearchMode.OFF) {
+        return WebSearchDecision(WebSearchRequestStatus.NOT_NEEDED, required = false)
+    }
+    val required = mode == WebSearchMode.FORCE
+    return WebSearchDecision(
+        status =
+            if (required || shouldAutoSearch(userInput)) {
+                WebSearchRequestStatus.TRIGGERED
+            } else {
+                WebSearchRequestStatus.NOT_NEEDED
+            },
+        required = required,
+    )
 }
 
 /** AUTO 模式的保守联网意图判定；只识别明确时效/搜索表达，不尝试做通用自然语言分类。 */
@@ -104,6 +154,46 @@ internal fun buildSearchQuery(
         else -> "$title — $input"
     }.take(MAX_SEARCH_QUERY_LENGTH)
 }
+
+/** 把底层网络/协议异常收敛为带 Provider 名称的 FORCE 可读错误；AUTO UI 只展示通用软降级提示。 */
+internal fun webSearchUserError(
+    providerName: String,
+    error: Throwable,
+): String {
+    val existing = error.message?.trim().orEmpty()
+    if (error is InterruptedIOException) return "$providerName 搜索超时"
+    if (error is WebSearchException && existing.isNotBlank()) {
+        return if (existing.contains(providerName, ignoreCase = true)) existing else "$providerName：$existing"
+    }
+    return if (existing.isBlank()) {
+        "$providerName 搜索失败"
+    } else {
+        "$providerName 搜索失败：$existing"
+    }
+}
+
+/** 把 Provider 异常映射成 AUTO 软降级或 FORCE 必须失败的稳定业务结果。 */
+internal fun buildWebSearchFailureResult(
+    required: Boolean,
+    providerName: String,
+    error: Throwable,
+): WebSearchRouteResult =
+    WebSearchRouteResult(
+        status =
+            if (required) WebSearchRequestStatus.TRIGGERED
+            else WebSearchRequestStatus.FAILED_FALLBACK,
+        providerName = providerName,
+        errorMessage = webSearchUserError(providerName, error),
+        requiredFailure = required,
+    )
+
+/** 将已完成的 Provider 响应映射为稳定 SUCCESS 状态，供 Router 与回归测试共同使用。 */
+internal fun buildWebSearchSuccessResult(response: WebSearchResponse): WebSearchRouteResult =
+    WebSearchRouteResult(
+        status = WebSearchRequestStatus.SUCCESS,
+        response = response,
+        providerName = response.providerName,
+    )
 
 /** 将外部搜索资料转换为明确的 reference-data Context，而不是 system instructions。 */
 internal fun WebSearchResponse.toContextItems(): List<LlmContextItem> =

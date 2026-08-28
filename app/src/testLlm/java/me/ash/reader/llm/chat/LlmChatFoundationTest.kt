@@ -55,6 +55,7 @@ import me.ash.reader.llm.runtime.LlmReasoningEffort
 import me.ash.reader.llm.runtime.LlmToolDescriptor
 import me.ash.reader.llm.runtime.LlmToolSource
 import me.ash.reader.llm.runtime.ModelCapability
+import me.ash.reader.llm.search.WebSearchRequestStatus
 import me.ash.reader.llm.runtime.ReasoningParameterStyle
 import me.ash.reader.llm.runtime.estimateLlmTokens
 import me.ash.reader.ui.page.home.reading.ArticleAssistantContext
@@ -603,6 +604,16 @@ class LlmChatFoundationTest {
         assertEquals("ARTICLE_ANALYSIS", encoded)
         assertEquals(LlmExecutionTask.ARTICLE_ANALYSIS, converters.stringToExecutionTask(encoded))
         assertNull(converters.stringToExecutionTask("FUTURE_UNKNOWN_TASK"))
+    }
+
+    @Test
+    fun `web search request status survives room converter round trip`() {
+        val converters = LlmChatConverters()
+        val encoded = converters.webSearchStatusToString(WebSearchRequestStatus.FAILED_FALLBACK)
+        assertEquals("FAILED_FALLBACK", encoded)
+        assertEquals(WebSearchRequestStatus.FAILED_FALLBACK, converters.stringToWebSearchStatus(encoded))
+        assertNull(converters.stringToWebSearchStatus("FUTURE_UNKNOWN_SEARCH_STATUS"))
+        assertNull(converters.webSearchStatusToString(null))
     }
 
     @Test

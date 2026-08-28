@@ -16,6 +16,42 @@ enum class WebSearchMode {
     FORCE,
 }
 
+/**
+ * 单次 Assistant 请求的 Dedicated Web Search 状态。
+ *
+ * 该状态会持久化到对应 Assistant 消息，用于区分“没有搜索必要”“已经触发”“成功”和
+ * “AUTO 搜索失败后继续回答”，避免用户只能通过模型回答内容猜测是否真正联网。
+ */
+enum class WebSearchRequestStatus {
+    NOT_NEEDED,
+    TRIGGERED,
+    SUCCESS,
+    FAILED_FALLBACK,
+}
+
+/** Router 对一次 Chat 请求做出的纯业务决策；不包含 Provider I/O。 */
+data class WebSearchDecision(
+    val status: WebSearchRequestStatus,
+    val required: Boolean,
+) {
+    val triggered: Boolean
+        get() = status == WebSearchRequestStatus.TRIGGERED
+}
+
+/**
+ * Dedicated Search 执行结果。
+ *
+ * FORCE 失败仍返回结构化结果，让上层先持久化搜索状态，再把 [errorMessage] 作为本轮明确错误暴露；
+ * AUTO 失败则使用 [FAILED_FALLBACK] 并继续模型链。
+ */
+data class WebSearchRouteResult(
+    val status: WebSearchRequestStatus,
+    val response: WebSearchResponse? = null,
+    val providerName: String? = null,
+    val errorMessage: String? = null,
+    val requiredFailure: Boolean = false,
+)
+
 /** P5-A 首期内置 Dedicated Search Provider。 */
 enum class WebSearchProviderKind(
     val defaultDisplayName: String,
