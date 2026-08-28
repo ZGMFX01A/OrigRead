@@ -121,7 +121,7 @@
     <string name="article_filter_settings">文章過濾</string>
     <string name="article_filter_settings_desc">依標題關鍵字或正規表示式過濾文章</string>
     <string name="add_filter_keyword">新增關鍵字</string>
-    <string name="add_filter_keyword_desc">套用至所有來源，同步時自動過濾</string>
+    <string name="add_filter_keyword_desc">套用至所有來源，既有文章立即隱藏，新文章入庫前過濾</string>
     <string name="filter_keyword">過濾關鍵字</string>
     <string name="no_filter_rules">尚無過濾規則</string>
     <string name="no_filter_rules_desc">新增規則後，標題符合的文章將被過濾</string>

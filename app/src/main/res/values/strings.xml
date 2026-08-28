@@ -4,7 +4,7 @@
     <string name="article_filter_settings">Article filters</string>
     <string name="article_filter_settings_desc">Hide unwanted articles by title keywords</string>
     <string name="add_filter_keyword">Add keyword</string>
-    <string name="add_filter_keyword_desc">Applies to all sources and filters before saving articles</string>
+    <string name="add_filter_keyword_desc">Applies to all sources, hides existing matches immediately, and filters new articles before saving</string>
     <string name="filter_keyword">Keyword</string>
     <string name="no_filter_rules">No filter rules</string>
     <string name="no_filter_rules_desc">Add a keyword to hide matching article titles</string>

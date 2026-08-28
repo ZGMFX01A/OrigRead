@@ -123,7 +123,7 @@
     <string name="article_filter_settings">文章过滤</string>
     <string name="article_filter_settings_desc">按标题关键词或正则表达式过滤文章</string>
     <string name="add_filter_keyword">添加关键词</string>
-    <string name="add_filter_keyword_desc">对所有来源生效，同步时自动过滤</string>
+    <string name="add_filter_keyword_desc">对所有来源生效，已有文章立即隐藏，新文章入库前过滤</string>
     <string name="filter_keyword">过滤关键词</string>
     <string name="no_filter_rules">暂无过滤规则</string>
     <string name="no_filter_rules_desc">添加规则后，匹配标题的文章将被过滤</string>

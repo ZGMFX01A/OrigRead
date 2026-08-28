@@ -45,6 +45,18 @@ class ArticleFilterEngineTest {
     }
 
     @Test
+    fun `short lowercase ai rule matches uppercase ai in chinese title`() {
+        val match =
+            ArticleFilterMatcher.match(
+                title = "AI发展变慢了！Sam Altman：技术零件已经齐了，AI产品却没有迎来iPhone时刻",
+                feedId = "51cto-feed",
+                rules = listOf(ArticleFilterRule(keyword = "ai")),
+            )
+
+        assertEquals("ai", match?.rule?.keyword)
+    }
+
+    @Test
     fun `feed rule only matches configured feed`() {
         val rules = listOf(ArticleFilterRule(keyword = "广告", feedId = "feed-a"))
 
