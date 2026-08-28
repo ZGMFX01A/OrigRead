@@ -19,12 +19,14 @@ import me.ash.reader.llm.chat.runtime.LlmChatTransport
 import me.ash.reader.llm.chat.runtime.buildLlmChatSystemPrompt
 import me.ash.reader.llm.chat.runtime.parseNonStreamingPayload
 import me.ash.reader.llm.chat.runtime.parseStreamPayload
+import me.ash.reader.llm.chat.runtime.renderLlmChatMessageContent
 import me.ash.reader.llm.chat.data.deriveConversationTitle
 import me.ash.reader.llm.chat.data.buildContextRefEntities
 import me.ash.reader.llm.chat.data.buildRequestCitationReferences
 import me.ash.reader.llm.chat.data.buildRequestContextRefEntities
 import me.ash.reader.llm.chat.data.buildToolResultContextRefEntities
 import me.ash.reader.llm.chat.data.citationToken
+import me.ash.reader.llm.chat.data.stripDisabledLlmCitationTokens
 import me.ash.reader.llm.chat.data.LlmToolCallEntity
 import me.ash.reader.llm.chat.data.LlmToolCallStatus
 import me.ash.reader.llm.chat.ui.buildArticleContextItems
@@ -437,7 +439,7 @@ class LlmChatFoundationTest {
     fun `article analysis system prompt keeps hard task skill custom context ordering`() {
         val prompt =
             buildLlmChatSystemPrompt(
-                LlmExecutionPlan(
+                plan = LlmExecutionPlan(
                     task = LlmExecutionTask.ARTICLE_ANALYSIS,
                     providerId = "provider",
                     providerName = "Provider",
@@ -464,7 +466,8 @@ class LlmChatFoundationTest {
                                 type = LlmContextType.ARTICLE,
                             )
                         ),
-                )
+                ),
+                citationFeatureEnabled = true,
             ).orEmpty()
 
         val hardIndex = prompt.indexOf("OrigRead hard rule")
@@ -484,6 +487,113 @@ class LlmChatFoundationTest {
         assertTrue(prompt.contains("Valid citation tokens for this request: [R1]"))
         assertTrue(prompt.contains("id=article:1 citation=[R1]"))
         assertFalse(prompt.contains("[R2]"))
+    }
+
+    @Test
+    fun `citation feature is disabled in current product path`() {
+        val refs =
+            buildRequestContextRefEntities(
+                conversationId = "conversation",
+                assistantMessageId = "assistant",
+                candidates =
+                    listOf(
+                        LlmContextItem(
+                            id = "article:1",
+                            type = LlmContextType.ARTICLE,
+                            content = "article evidence",
+                        )
+                    ),
+                composed =
+                    ComposedLlmContext(
+                        text = "[ORIGREAD_CONTEXT type=ARTICLE id=article:1]article evidence[/ORIGREAD_CONTEXT]",
+                        includedIds = listOf("article:1"),
+                        omittedIds = emptyList(),
+                        truncated = false,
+                    ),
+                toolCalls = emptyList(),
+                createdAt = 1L,
+                citationFeatureEnabled = false,
+            )
+        assertTrue(refs.all { it.citationIndex == null })
+        assertTrue(
+            buildRequestCitationReferences(
+                contextRefs = refs,
+                toolCalls = emptyList(),
+                citationFeatureEnabled = false,
+            ).isEmpty()
+        )
+
+        val prompt =
+            buildLlmChatSystemPrompt(
+                LlmExecutionPlan(
+                    providerId = "provider",
+                    providerName = "Provider",
+                    runtimeConfig = AiRuntimeConfig("https://example.com/v1", "model", ""),
+                    capability = ModelCapability(),
+                    reasoningParameter = null,
+                    tools = emptyList(),
+                    automaticToolCalling = false,
+                    context =
+                        ComposedLlmContext(
+                            text = "[ORIGREAD_CONTEXT type=ARTICLE id=article:1]article evidence[/ORIGREAD_CONTEXT]",
+                            includedIds = listOf("article:1"),
+                            omittedIds = emptyList(),
+                            truncated = false,
+                        ),
+                    skillId = null,
+                    citations =
+                        listOf(
+                            LlmCitationReference(
+                                index = 1,
+                                contextId = "article:1",
+                                type = LlmContextType.ARTICLE,
+                            )
+                        ),
+                )
+            ).orEmpty()
+        assertFalse(prompt.contains("origread_citation_protocol"))
+        assertFalse(prompt.contains("[R1]"))
+        val toolPlan =
+            LlmExecutionPlan(
+                providerId = "provider",
+                providerName = "Provider",
+                runtimeConfig = AiRuntimeConfig("https://example.com/v1", "model", ""),
+                capability = ModelCapability(),
+                reasoningParameter = null,
+                tools = emptyList(),
+                automaticToolCalling = false,
+                context = ComposedLlmContext("", emptyList(), emptyList(), false),
+                skillId = null,
+                citations =
+                    listOf(
+                        LlmCitationReference(
+                            index = 1,
+                            contextId = "tool-result:1",
+                            type = LlmContextType.TOOL_RESULT,
+                            toolCallId = "provider-call",
+                        )
+                    ),
+            )
+        assertEquals(
+            "tool evidence",
+            renderLlmChatMessageContent(
+                plan = toolPlan,
+                message =
+                    LlmChatRequestMessage(
+                        role = LlmChatRole.TOOL,
+                        content = "tool evidence",
+                        toolCallId = "provider-call",
+                    ),
+            ),
+        )
+        assertEquals("Fact. Next", stripDisabledLlmCitationTokens("Fact. [R1] Next"))
+        assertNull(
+            buildLlmCitationLink(
+                token = "[R1]",
+                validCitationIndices = setOf(1),
+                citationFeatureEnabled = false,
+            )
+        )
     }
 
     @Test
@@ -1181,7 +1291,7 @@ class LlmChatFoundationTest {
     }
 
     @Test
-    fun `chat transport labels cited tool result without changing original history`() = runBlocking {
+    fun `chat transport does not expose deferred citation protocol`() = runBlocking {
         val server = MockWebServer()
         server.enqueue(
             MockResponse()
@@ -1241,11 +1351,14 @@ class LlmChatFoundationTest {
 
             val body = JSONObject(server.takeRequest().body.readUtf8())
             val messages = body.getJSONArray("messages")
-            val systemContent = messages.getJSONObject(0).getString("content")
-            val toolContent = messages.getJSONObject(2).getString("content")
-            assertTrue(systemContent.contains("Valid citation tokens for this request: [R1]"))
-            assertFalse(systemContent.contains("[R2]"))
-            assertEquals("[ORIGREAD_CITATION token=[R1]]\n$originalToolContent", toolContent)
+            assertFalse(body.toString().contains("origread_citation_protocol"))
+            assertFalse(body.toString().contains("[R1]"))
+            val toolContent =
+                (0 until messages.length())
+                    .map { index -> messages.getJSONObject(index) }
+                    .single { it.getString("role") == "tool" }
+                    .getString("content")
+            assertEquals(originalToolContent, toolContent)
             assertEquals(originalToolContent, history[1].content)
         } finally {
             server.shutdown()

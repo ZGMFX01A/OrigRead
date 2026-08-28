@@ -103,7 +103,7 @@ internal fun buildRequestArticleContextItems(
 
 /**
  * 统一清洗附加文章：排除当前文章、空 ID、无正文且无摘要的无效快照，并按首次出现去重。
- * 稳定保留用户附件顺序，使同优先级 Context 的 Composer 顺序与后续 [R#] 编号可预测。
+ * 稳定保留用户附件顺序，使同优先级 Context 的 Composer 顺序可预测；未来 Evidence Citation 也可复用该顺序。
  */
 internal fun normalizedAdditionalArticleAttachments(
     currentArticleId: String,
@@ -133,7 +133,7 @@ internal fun normalizedAdditionalArticleAttachments(
     }
 }
 
-/** 同一 articleId 重复附加时原位替换快照，避免改变附件顺序和后续引用编号。 */
+/** 同一 articleId 重复附加时原位替换快照，避免无意义改变附件与 Context 顺序。 */
 internal fun upsertAdditionalArticleAttachment(
     currentArticleId: String,
     existing: List<LlmArticleAttachment>,

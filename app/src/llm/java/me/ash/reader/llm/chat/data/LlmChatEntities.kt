@@ -83,7 +83,7 @@ data class LlmConversationArticleEntity(
     val link: String? = null,
     @ColumnInfo(name = "original_content") val originalContent: String,
     val summary: String? = null,
-    /** 用户附加顺序；Runtime 会利用稳定顺序保证同优先级 Context 与后续 [R#] 编号可预测。 */
+    /** 用户附加顺序；Runtime 利用稳定顺序保证同优先级 Context 的组合结果可预测。 */
     val position: Int,
     @ColumnInfo(name = "created_at") val createdAt: Long,
 )
@@ -211,8 +211,8 @@ data class LlmContextRefEntity(
     @ColumnInfo(name = "included_in_prompt") val includedInPrompt: Boolean,
     @ColumnInfo(name = "truncated_in_prompt") val truncatedInPrompt: Boolean,
     /**
-     * P6.6 请求级引用编号。只有本次请求真正可引用的来源才分配 1..N；被预算排除的候选保持 null。
-     * 编号与 assistant_message_id 一起冻结，历史回答中的 [R#] 不依赖未来 UI 排序重新计算。
+     * 历史/未来 Evidence Citation 的请求级编号槽位。
+     * 当前生产功能已关闭，因此新 ContextRef 默认保持 null；字段不删除，避免破坏旧库和未来独立功能迁移。
      */
     @ColumnInfo(name = "citation_index") val citationIndex: Int? = null,
     @ColumnInfo(name = "created_at") val createdAt: Long,

@@ -33,6 +33,7 @@ import me.ash.reader.llm.chat.data.LlmMessageEntity
 import me.ash.reader.llm.chat.data.LlmMessageStatus
 import me.ash.reader.llm.chat.data.LlmToolCallEntity
 import me.ash.reader.llm.chat.data.LlmToolCallStatus
+import me.ash.reader.llm.chat.data.LLM_EVIDENCE_CITATION_ENABLED
 import me.ash.reader.llm.chat.data.buildRequestCitationReferences
 import me.ash.reader.llm.chat.data.buildRequestContextRefEntities
 import me.ash.reader.llm.chat.runtime.LlmChatRequestMessage
@@ -1280,15 +1281,21 @@ class LlmChatViewModel @Inject constructor(
                     composed = plan.context,
                     toolCalls = requestToolCalls,
                     createdAt = contextRefCreatedAt,
+                    citationFeatureEnabled = LLM_EVIDENCE_CITATION_ENABLED,
                 )
             repository.replaceContextRefsForAssistant(
                 assistantMessageId = assistant.id,
                 contextRefs = contextRefs,
             )
-            // 引用协议只能消费已经冻结的 ContextRef；Runtime 不提前猜编号，Provider 也无权创建新的 [R#]。
+            // Evidence Citation 已移出当前版本；ContextRef 继续冻结来源快照，但生产请求不生成/发送 [R#]。
             val requestPlan =
                 plan.copy(
-                    citations = buildRequestCitationReferences(contextRefs, requestToolCalls),
+                    citations =
+                        buildRequestCitationReferences(
+                            contextRefs = contextRefs,
+                            toolCalls = requestToolCalls,
+                            citationFeatureEnabled = LLM_EVIDENCE_CITATION_ENABLED,
+                        ),
                 )
 
             fallbackPromptTokens = transport.estimateRequestTokens(requestPlan, history)

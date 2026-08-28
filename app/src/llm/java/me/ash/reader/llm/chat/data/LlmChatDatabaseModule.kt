@@ -149,7 +149,8 @@ object LlmChatDatabaseModule {
     /**
      * v8 为请求级 ContextRef 增加稳定 citation_index。
      *
-     * 旧历史没有生成过 [R#] 协议，因此统一保持 null；新请求由 Mapper 在真正发请求前冻结 1..N 映射。
+     * 该字段继续保留旧历史与未来 Evidence Citation 的 schema 兼容性；当前生产路径已关闭 [R#]，
+     * 因此新请求默认保持 null，不为了暂时禁用功能回滚数据库版本。
      */
     private val MIGRATION_7_8 =
         object : Migration(7, 8) {

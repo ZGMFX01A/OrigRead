@@ -23,6 +23,7 @@ import com.hrm.latex.renderer.LatexAutoWrap
 import com.hrm.latex.renderer.model.LatexConfig
 import com.hrm.latex.renderer.model.LatexTheme
 import me.ash.reader.R
+import me.ash.reader.llm.chat.data.LLM_EVIDENCE_CITATION_ENABLED
 import me.ash.reader.ui.page.home.reading.AiMarkdown
 import me.ash.reader.ui.page.home.reading.AiMarkdownBlock
 import me.ash.reader.ui.page.home.reading.AiMarkdownSpecialBlockCard
@@ -39,13 +40,18 @@ internal fun LlmRichMarkdown(
     modifier: Modifier = Modifier,
     validCitationIndices: Set<Int> = emptySet(),
     onCitationClick: (Int) -> Unit = {},
+    citationFeatureEnabled: Boolean = LLM_EVIDENCE_CITATION_ENABLED,
 ) {
     val parentUriHandler = LocalUriHandler.current
     val citationUriHandler =
         object : UriHandler {
             override fun openUri(uri: String) {
                 val citationIndex = parseLlmCitationUri(uri)
-                if (citationIndex != null && citationIndex in validCitationIndices) {
+                if (
+                    citationFeatureEnabled &&
+                        citationIndex != null &&
+                        citationIndex in validCitationIndices
+                ) {
                     onCitationClick(citationIndex)
                 } else {
                     parentUriHandler.openUri(uri)
@@ -57,7 +63,11 @@ internal fun LlmRichMarkdown(
             markdown = markdown,
             modifier = modifier,
             inlineTokenLinkResolver = { token ->
-                buildLlmCitationLink(token, validCitationIndices)
+                buildLlmCitationLink(
+                    token = token,
+                    validCitationIndices = validCitationIndices,
+                    citationFeatureEnabled = citationFeatureEnabled,
+                )
             },
             specialBlockRenderer = { block ->
                 when (block) {
@@ -80,11 +90,13 @@ internal fun LlmRichMarkdown(
     }
 }
 
-/** 只有当前 Assistant 请求真实存在的引用编号才会转换为内部链接；模型凭空输出的 [R#] 保持普通文本。 */
+/** 未来 Evidence Citation 显式启用时，只有请求真实存在的引用编号才转换为内部链接。 */
 internal fun buildLlmCitationLink(
     token: String,
     validCitationIndices: Set<Int>,
+    citationFeatureEnabled: Boolean = true,
 ): String? {
+    if (!citationFeatureEnabled) return null
     val index =
         CITATION_TOKEN_REGEX.matchEntire(token)
             ?.groupValues

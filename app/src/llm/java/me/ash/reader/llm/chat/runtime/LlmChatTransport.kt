@@ -19,6 +19,7 @@ import me.ash.reader.infrastructure.ai.AiPerfTrace
 import me.ash.reader.infrastructure.ai.AiPerfTracer
 import me.ash.reader.infrastructure.ai.resolveChatCompletionsEndpoint
 import me.ash.reader.llm.chat.data.LlmChatRole
+import me.ash.reader.llm.chat.data.LLM_EVIDENCE_CITATION_ENABLED
 import me.ash.reader.llm.runtime.LlmCitationReference
 import me.ash.reader.llm.runtime.LlmExecutionPlan
 import me.ash.reader.llm.runtime.LlmExecutionTask
@@ -355,7 +356,10 @@ private fun ModelCapability.isReasoningModel(): Boolean =
  * 只接受无歧义的正整数引用映射；重复 index/context/tool_call_id 会整体丢弃对应歧义项。
  * 正常生产请求由 P6.6.1 的唯一索引和 Mapper 保证不会进入该降级分支。
  */
-private fun LlmExecutionPlan.safeCitationReferences(): List<LlmCitationReference> {
+private fun LlmExecutionPlan.safeCitationReferences(
+    citationFeatureEnabled: Boolean = LLM_EVIDENCE_CITATION_ENABLED,
+): List<LlmCitationReference> {
+    if (!citationFeatureEnabled) return emptyList()
     val candidates = citations.filter { it.index > 0 && it.contextId.isNotBlank() }
     val duplicateIndexes =
         candidates.groupingBy(LlmCitationReference::index).eachCount().filterValues { it > 1 }.keys
@@ -415,11 +419,12 @@ internal fun attachLlmCitationLabelsToContext(
 internal fun renderLlmChatMessageContent(
     plan: LlmExecutionPlan,
     message: LlmChatRequestMessage,
+    citationFeatureEnabled: Boolean = LLM_EVIDENCE_CITATION_ENABLED,
 ): String {
     if (message.role != LlmChatRole.TOOL) return message.content
     val toolCallId = message.toolCallId?.takeIf(String::isNotBlank) ?: return message.content
     val citation =
-        plan.safeCitationReferences()
+        plan.safeCitationReferences(citationFeatureEnabled)
             .singleOrNull { it.toolCallId == toolCallId }
             ?: return message.content
     return "[ORIGREAD_CITATION token=[R${citation.index}]]\n${message.content}"
@@ -431,8 +436,12 @@ internal fun renderLlmChatMessageContent(
  * P6.3 的 ARTICLE_ANALYSIS 是受控阅读任务，不依赖一条可被用户文本覆盖的普通 Chat 提示来定义；
  * Skill 仍只是任务方法层，不取得 Tool 权限，也不能把文章、搜索或 Tool Result 中的指令提升为 system 指令。
  */
-internal fun buildLlmChatSystemPrompt(plan: LlmExecutionPlan): String? {
-    val citations = plan.safeCitationReferences()
+internal fun buildLlmChatSystemPrompt(
+    plan: LlmExecutionPlan,
+    citationFeatureEnabled: Boolean = LLM_EVIDENCE_CITATION_ENABLED,
+): String? {
+    // 当前产品不向模型暴露任何 [R#] 输出协议；未来 Evidence Anchor 独立项目完整后再显式启用。
+    val citations = plan.safeCitationReferences(citationFeatureEnabled)
     val context = attachLlmCitationLabelsToContext(plan.context.text.trim(), citations)
     val skill = plan.skillInstructions?.trim().orEmpty()
     val customInstructions = plan.customInstructions?.trim().orEmpty()

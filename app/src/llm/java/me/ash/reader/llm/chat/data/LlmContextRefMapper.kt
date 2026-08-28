@@ -46,7 +46,7 @@ internal fun buildContextRefEntities(
 }
 
 /**
- * 冻结一次 Assistant 请求完整的 ContextRef 与 [R#] 映射。
+ * 冻结一次 Assistant 请求完整的 ContextRef；只有未来 Evidence Citation 显式启用时才同时生成 [R#] 映射。
  *
  * 引用顺序必须来自当次请求本身而不是 UI 临时排序：
  * 1. 先按 ContextComposer 实际纳入 Prompt 的 includedIds 顺序编号；
@@ -60,6 +60,7 @@ internal fun buildRequestContextRefEntities(
     composed: ComposedLlmContext,
     toolCalls: List<LlmToolCallEntity>,
     createdAt: Long = System.currentTimeMillis(),
+    citationFeatureEnabled: Boolean = true,
 ): List<LlmContextRefEntity> {
     val contextRefs =
         buildContextRefEntities(
@@ -76,6 +77,9 @@ internal fun buildRequestContextRefEntities(
             toolCalls = toolCalls,
             createdAt = createdAt,
         )
+    // 当前整篇文章级 [R#] 已移出主开发链。仍冻结 ContextRef 来源快照，但不再给新请求分配引用编号。
+    if (!citationFeatureEnabled) return contextRefs + toolResultRefs
+
     val candidateById = candidates.associateBy(LlmContextItem::id)
     val citationEligibleContextIds =
         composed.includedIds.filter { contextId ->
@@ -100,9 +104,15 @@ internal fun buildRequestContextRefEntities(
     }
 }
 
-/** 将持久化编号渲染成模型/UI 共用的短引用 token；非法旧数据保守视为不可引用。 */
-internal fun LlmContextRefEntity.citationToken(): String? =
-    citationIndex?.takeIf { it > 0 }?.let { "[R$it]" }
+/** 未来 Evidence Citation 启用时，将持久化编号渲染成模型/UI 共用的短引用 token。 */
+internal fun LlmContextRefEntity.citationToken(
+    citationFeatureEnabled: Boolean = true,
+): String? =
+    if (!citationFeatureEnabled) {
+        null
+    } else {
+        citationIndex?.takeIf { it > 0 }?.let { "[R$it]" }
+    }
 
 /**
  * 将已经冻结并持久化的 ContextRef 转成 Transport 只读引用元数据。
@@ -113,7 +123,9 @@ internal fun LlmContextRefEntity.citationToken(): String? =
 internal fun buildRequestCitationReferences(
     contextRefs: List<LlmContextRefEntity>,
     toolCalls: List<LlmToolCallEntity>,
+    citationFeatureEnabled: Boolean = true,
 ): List<LlmCitationReference> {
+    if (!citationFeatureEnabled) return emptyList()
     val toolCallIdByContextId =
         toolCalls.associate { call ->
             "tool-result:${call.id}" to call.providerCallId
@@ -174,7 +186,7 @@ internal fun buildToolResultContextRefEntities(
     }
 
 /**
- * Citation 只指向用户可以回到原始来源核验的证据。
+ * 未来 Evidence Citation 启用后，只允许可回到原始来源核验的证据参与编号。
  * 摘要/译文仍是有效推理辅助 Context，但不再获得 [R#]；MANUAL 没有稳定外部来源，也不参与引用编号。
  */
 private fun LlmContextItem.isCitationEligibleEvidence(): Boolean =
