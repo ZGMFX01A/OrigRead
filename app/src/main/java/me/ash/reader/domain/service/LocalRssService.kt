@@ -128,7 +128,8 @@ constructor(
                     accountId = accountId,
                     entries = searchedFeed.entries,
                 )
-            insertFeedAndArticles(feed, articles)
+            val filteredArticles = articleFilterEngine.filterBeforeInsert(articles)
+            insertFeedAndArticles(feed, filteredArticles)
             if (!etag.isNullOrBlank() || !lastModified.isNullOrBlank()) {
                 rssHttpCacheDao.upsert(
                     RssHttpCache(
@@ -227,9 +228,10 @@ constructor(
                     accountId = accountId,
                     entries = searchedFeed.entries,
                 )
+            val filteredArticles = articleFilterEngine.filterBeforeInsert(articles)
             insertFeedAndArticles(
                 feed = feed,
-                articles = articles.map { article -> article.copy(feedId = feedId) },
+                articles = filteredArticles.map { article -> article.copy(feedId = feedId) },
             )
             rssHubSubscriptionRepository.record(feedId, sourcePageUrl)
             feedId

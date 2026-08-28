@@ -1,10 +1,37 @@
 package me.ash.reader.infrastructure.filter
 
+import android.content.Context
+import java.nio.file.Files
+import java.util.Date
+import me.ash.reader.domain.model.article.Article
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import org.mockito.kotlin.mock
+import org.mockito.kotlin.whenever
 
 class ArticleFilterEngineTest {
+    @Test
+    fun `filter before insert drops matching articles and keeps non matching articles`() {
+        val filesDir = Files.createTempDirectory("origread-filter-engine").toFile()
+        try {
+            val context = mock<Context>()
+            whenever(context.filesDir).thenReturn(filesDir)
+            val repository = ArticleFilterRepository(context)
+            repository.add(keyword = "blocked")
+            val engine = ArticleFilterEngine(repository)
+            val blocked = article(id = "blocked", title = "BLOCKED breaking news")
+            val allowed = article(id = "allowed", title = "Normal article")
+
+            val result = engine.filterBeforeInsert(listOf(blocked, allowed))
+
+            assertEquals(listOf("allowed"), result.map { it.id })
+            assertEquals(1L, repository.getStats().totalFiltered)
+        } finally {
+            filesDir.deleteRecursively()
+        }
+    }
+
     @Test
     fun `global rule matches any feed ignoring case`() {
         val match =
@@ -94,4 +121,22 @@ class ArticleFilterEngineTest {
         assertEquals(ArticleFilterRuleType.REGEX, match?.rule?.type)
         assertEquals("feed-a", match?.rule?.feedId)
     }
+
+    /** 构造不依赖 Android API 的最小文章测试数据。 */
+    private fun article(id: String, title: String): Article =
+        Article(
+            id = id,
+            date = Date(1_700_000_000_000L),
+            title = title,
+            author = null,
+            rawDescription = "",
+            shortDescription = "",
+            link = "https://example.com/$id",
+            feedId = "feed-a",
+            accountId = 1,
+            isUnread = true,
+            isStarred = false,
+            isReadLater = false,
+            updateAt = Date(1_700_000_000_000L),
+        )
 }

@@ -10,6 +10,7 @@ import androidx.paging.PagingData
 import androidx.paging.PagingDataEvent
 import androidx.paging.PagingDataPresenter
 import androidx.paging.cachedIn
+import androidx.paging.filter
 import javax.inject.Inject
 import kotlin.text.trim
 import kotlinx.coroutines.CoroutineDispatcher
@@ -29,6 +30,7 @@ import me.ash.reader.domain.service.RssService
 import me.ash.reader.infrastructure.android.AndroidStringsHelper
 import me.ash.reader.infrastructure.di.ApplicationScope
 import me.ash.reader.infrastructure.di.IODispatcher
+import me.ash.reader.infrastructure.filter.ArticleFilterEngine
 import me.ash.reader.infrastructure.preference.SettingsProvider
 
 class ArticlePagingListUseCase
@@ -41,6 +43,7 @@ constructor(
     private val settingsProvider: SettingsProvider,
     private val filterStateUseCase: FilterStateUseCase,
     private val accountService: AccountService,
+    private val articleFilterEngine: ArticleFilterEngine,
 ) {
 
     private val mutablePagerFlow =
@@ -69,7 +72,11 @@ constructor(
     init {
         applicationScope.launch(ioDispatcher) {
             filterStateUseCase.filterStateFlow
-                .combine(accountService.currentAccountIdFlow) { filterState, accountId ->
+                .combine(accountService.currentAccountIdFlow) { filterState, _ ->
+                    filterState
+                }
+                .combine(articleFilterEngine.rulesFlow) { filterState, _ ->
+                    // 规则变更本身就是重建 Pager 的信号；实际匹配使用 Engine 内已编译规则。
                     filterState
                 }
                 .collect { filterState ->
@@ -108,6 +115,13 @@ constructor(
                                     }
                                 }
                                 .flow
+                                .map { pagingData ->
+                                    // 历史文章不做物理删除；展示层按当前规则即时隐藏。
+                                    // 因此删除/停用规则后，原文章能够自然重新出现。
+                                    pagingData.filter { articleWithFeed ->
+                                        articleFilterEngine.match(articleWithFeed.article) == null
+                                    }
+                                }
                                 .map { it.mapPagingFlowItem(androidStringsHelper) }
                                 .cachedIn(applicationScope),
                             filterState = filterState,

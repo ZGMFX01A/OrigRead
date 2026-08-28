@@ -6,6 +6,9 @@ import java.util.Collections
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -61,6 +64,15 @@ class ArticleFilterRepository @Inject constructor(
 
     @Volatile
     private var cachedCompiledRules = ArticleFilterMatcher.compile(cachedBundle.rules)
+
+    /**
+     * 当前过滤规则快照。
+     *
+     * 时间线通过该 Flow 感知新增、启停、删除和恢复规则，并重建 PagingSource；
+     * 过滤统计变化不会触发时间线刷新，避免同步抓取时产生无意义的 UI 抖动。
+     */
+    private val mutableRulesFlow = MutableStateFlow(cachedBundle.rules)
+    val rulesFlow: StateFlow<List<ArticleFilterRule>> = mutableRulesFlow.asStateFlow()
 
     fun getAll(): List<ArticleFilterRule> = cachedBundle.rules
 
@@ -193,9 +205,13 @@ class ArticleFilterRepository @Inject constructor(
 
     private fun update(bundle: ArticleFilterRuleBundle) {
         val snapshot = bundle.copy(rules = immutableRules(bundle.rules))
+        val rulesChanged = cachedBundle.rules != snapshot.rules
         write(snapshot)
         cachedBundle = snapshot
         cachedCompiledRules = ArticleFilterMatcher.compile(snapshot.rules)
+        if (rulesChanged) {
+            mutableRulesFlow.value = snapshot.rules
+        }
     }
 
     private fun write(bundle: ArticleFilterRuleBundle) {

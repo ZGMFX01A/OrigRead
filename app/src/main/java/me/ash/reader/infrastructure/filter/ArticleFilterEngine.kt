@@ -2,6 +2,7 @@ package me.ash.reader.infrastructure.filter
 
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.StateFlow
 import me.ash.reader.domain.model.article.Article
 
 data class ArticleFilterMatch(
@@ -17,6 +18,9 @@ internal data class CompiledFilterRule(
 class ArticleFilterEngine @Inject constructor(
     private val repository: ArticleFilterRepository,
 ) {
+    /** 规则变化信号，供文章时间线即时刷新；统计更新不会触发。 */
+    val rulesFlow: StateFlow<List<ArticleFilterRule>> = repository.rulesFlow
+
     /** 返回首条命中规则。 */
     fun match(article: Article): ArticleFilterMatch? =
         ArticleFilterMatcher.matchCompiled(
@@ -24,6 +28,22 @@ class ArticleFilterEngine @Inject constructor(
             feedId = article.feedId,
             rules = repository.getCompiledRules(),
         )
+
+    /**
+     * 新抓取文章写库前统一应用当前过滤规则，并一次性记录命中统计。
+     *
+     * 该方法只负责“新文章不入库”的既有语义；已经存在的历史文章由时间线查询层
+     * 动态过滤，从而保证删除或停用规则后历史文章可以重新出现。
+     */
+    fun filterBeforeInsert(articles: List<Article>): List<Article> {
+        val matches = mutableListOf<ArticleFilterMatch>()
+        val filteredArticles =
+            articles.filterNot { article ->
+                match(article)?.also(matches::add) != null
+            }
+        recordMatches(matches)
+        return filteredArticles
+    }
 
     /** 同步完成筛选后批量记录统计，避免逐篇文章写文件。 */
     fun recordMatches(matches: List<ArticleFilterMatch>) {
