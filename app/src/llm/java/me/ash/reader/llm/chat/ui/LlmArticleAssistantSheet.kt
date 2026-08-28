@@ -219,7 +219,6 @@ fun LlmArticleAssistantSheet(
             if (uiState.messages.isEmpty()) {
                 ArticleAssistantEmptyState(
                     configured = uiState.selectedProviderId != null && uiState.selectedModel != null,
-                    articleTitle = articleContext.title,
                     modifier = Modifier.weight(1f),
                 )
             } else {
@@ -578,7 +577,6 @@ private fun AssistantHeader(
 @Composable
 private fun ArticleAssistantEmptyState(
     configured: Boolean,
-    articleTitle: String,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -590,19 +588,22 @@ private fun ArticleAssistantEmptyState(
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.SemiBold,
         )
-        Spacer(Modifier.size(8.dp))
-        Text(
-            text =
-                if (configured) {
-                    stringResource(R.string.llm_article_assistant_empty_desc, articleTitle)
-                } else {
-                    stringResource(R.string.llm_chat_not_configured)
-                },
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        if (shouldShowArticleAssistantConfigurationHint(configured)) {
+            Spacer(Modifier.size(8.dp))
+            Text(
+                text = stringResource(R.string.llm_chat_not_configured),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
+
+/**
+ * 已配置 Provider/Model 时，文章 Chat 的正常空态只保留一句行动提示。
+ * 只有缺少可用运行时配置时才展示必要的设置引导，避免重复解释产品设计。
+ */
+internal fun shouldShowArticleAssistantConfigurationHint(configured: Boolean): Boolean = !configured
 
 /** 长对话中的轻量跳转按钮，不占用输入区，也不把导航动作做成新的主视觉。 */
 @Composable

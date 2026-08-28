@@ -30,7 +30,6 @@
     <string name="llm_chat_delete_message">Delete “%1$s” and all of its messages?</string>
     <string name="llm_article_assistant_title">AI Reading Assistant</string>
     <string name="llm_article_assistant_empty_title">Ask about this article</string>
-    <string name="llm_article_assistant_empty_desc">The assistant will answer using “%1$s” and the reading context currently available in OrigRead.</string>
     <string name="llm_article_input_hint">Ask about this article…</string>
     <string name="llm_related_articles_add">Add related articles</string>
     <string name="llm_related_articles_title">Add related articles</string>

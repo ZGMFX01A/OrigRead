@@ -39,6 +39,7 @@ import me.ash.reader.llm.chat.ui.buildRequestHistorySnapshot
 import me.ash.reader.llm.chat.ui.buildLlmCitationLink
 import me.ash.reader.llm.chat.ui.parseLlmCitationUri
 import me.ash.reader.llm.chat.ui.resolveRequestSkillId
+import me.ash.reader.llm.chat.ui.shouldShowArticleAssistantConfigurationHint
 import me.ash.reader.llm.chat.ui.shouldExposeManualToolFallback
 import me.ash.reader.llm.runtime.LlmCitationReference
 import me.ash.reader.llm.runtime.ComposedLlmContext
@@ -66,6 +67,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LlmChatFoundationTest {
+    @Test
+    fun `configured article chat empty state hides explanatory copy`() {
+        assertFalse(shouldShowArticleAssistantConfigurationHint(configured = true))
+        assertTrue(shouldShowArticleAssistantConfigurationHint(configured = false))
+    }
+
     @Test
     fun `p6 combined context budget keeps explicit and current article evidence ahead of attachments`() {
         val current =

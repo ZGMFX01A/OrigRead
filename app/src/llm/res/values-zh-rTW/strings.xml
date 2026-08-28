@@ -30,7 +30,6 @@
     <string name="llm_chat_delete_message">刪除「%1$s」及其中所有訊息？</string>
     <string name="llm_article_assistant_title">AI 閱讀助手</string>
     <string name="llm_article_assistant_empty_title">針對這篇文章提問</string>
-    <string name="llm_article_assistant_empty_desc">助手會依據「%1$s」與目前可用的閱讀內容回答。</string>
     <string name="llm_article_input_hint">針對這篇文章提問…</string>
     <string name="llm_related_articles_add">加入相關文章</string>
     <string name="llm_related_articles_title">加入相關文章</string>

@@ -30,7 +30,6 @@
     <string name="llm_chat_delete_message">删除“%1$s”以及其中的全部消息？</string>
     <string name="llm_article_assistant_title">AI 阅读助手</string>
     <string name="llm_article_assistant_empty_title">围绕这篇文章提问</string>
-    <string name="llm_article_assistant_empty_desc">助手会基于“%1$s”以及原读当前可用的阅读上下文回答，不是脱离文章的通用聊天。</string>
     <string name="llm_article_input_hint">询问这篇文章…</string>
     <string name="llm_related_articles_add">添加相关文章</string>
     <string name="llm_related_articles_title">添加相关文章</string>
