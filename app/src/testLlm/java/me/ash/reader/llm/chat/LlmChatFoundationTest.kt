@@ -41,6 +41,8 @@ import me.ash.reader.llm.chat.ui.toConversationArticleEntity
 import me.ash.reader.llm.chat.ui.upsertAdditionalArticleAttachment
 import me.ash.reader.llm.chat.ui.buildRequestHistorySnapshot
 import me.ash.reader.llm.chat.ui.buildLlmCitationLink
+import me.ash.reader.llm.chat.ui.acknowledgedChatTransientMessageIds
+import me.ash.reader.llm.chat.ui.mergeChatMessagesWithTransientOverrides
 import me.ash.reader.llm.chat.ui.parseLlmCitationUri
 import me.ash.reader.llm.chat.ui.resolveRequestSkillId
 import me.ash.reader.llm.chat.ui.shouldIssueChatAutoFollowScroll
@@ -203,6 +205,111 @@ class LlmChatFoundationTest {
                         ),
                 )
             )
+        )
+    }
+
+    @Test
+    fun `transient streaming message overrides older room snapshot`() {
+        val persistedAssistant =
+            LlmMessageEntity(
+                id = "assistant-1",
+                conversationId = "conversation-1",
+                role = LlmChatRole.ASSISTANT,
+                content = "old",
+                reasoning = "old reasoning",
+                status = LlmMessageStatus.STREAMING,
+                createdAt = 20L,
+                updatedAt = 20L,
+            )
+        val transientAssistant =
+            persistedAssistant.copy(
+                content = "newer streaming text",
+                reasoning = "newer reasoning",
+                updatedAt = 30L,
+            )
+
+        val merged =
+            mergeChatMessagesWithTransientOverrides(
+                persistedMessages = listOf(persistedAssistant),
+                transientOverrides = mapOf(transientAssistant.id to transientAssistant),
+                conversationId = "conversation-1",
+            )
+
+        assertEquals(listOf(transientAssistant), merged)
+    }
+
+    @Test
+    fun `transient streaming message can appear before room placeholder emission`() {
+        val user =
+            LlmMessageEntity(
+                id = "user-1",
+                conversationId = "conversation-1",
+                role = LlmChatRole.USER,
+                content = "question",
+                createdAt = 10L,
+                updatedAt = 10L,
+            )
+        val transientAssistant =
+            LlmMessageEntity(
+                id = "assistant-1",
+                conversationId = "conversation-1",
+                role = LlmChatRole.ASSISTANT,
+                content = "first delta",
+                status = LlmMessageStatus.STREAMING,
+                createdAt = 20L,
+                updatedAt = 21L,
+            )
+
+        val merged =
+            mergeChatMessagesWithTransientOverrides(
+                persistedMessages = listOf(user),
+                transientOverrides = mapOf(transientAssistant.id to transientAssistant),
+                conversationId = "conversation-1",
+            )
+
+        assertEquals(listOf(user, transientAssistant), merged)
+    }
+
+    @Test
+    fun `terminal transient message releases only after identical room acknowledgement`() {
+        val terminal =
+            LlmMessageEntity(
+                id = "assistant-1",
+                conversationId = "conversation-1",
+                role = LlmChatRole.ASSISTANT,
+                content = "final answer",
+                reasoning = "reasoning",
+                status = LlmMessageStatus.COMPLETE,
+                createdAt = 20L,
+                updatedAt = 40L,
+            )
+        val stalePersisted =
+            terminal.copy(
+                content = "older partial",
+                status = LlmMessageStatus.STREAMING,
+                updatedAt = 30L,
+            )
+
+        assertTrue(
+            acknowledgedChatTransientMessageIds(
+                persistedMessages = listOf(terminal),
+                transientOverrides = mapOf(terminal.id to terminal),
+                conversationId = "conversation-1",
+            ).contains(terminal.id)
+        )
+        assertFalse(
+            acknowledgedChatTransientMessageIds(
+                persistedMessages = listOf(stalePersisted),
+                transientOverrides = mapOf(terminal.id to terminal),
+                conversationId = "conversation-1",
+            ).contains(terminal.id)
+        )
+        assertFalse(
+            acknowledgedChatTransientMessageIds(
+                persistedMessages = listOf(stalePersisted),
+                transientOverrides = mapOf(stalePersisted.id to stalePersisted),
+                conversationId = "conversation-1",
+            ).contains(stalePersisted.id)
         )
     }
 

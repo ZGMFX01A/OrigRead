@@ -19,6 +19,7 @@ internal object LlmChatPerfTracker {
         var reasoningDeltaChars: Int = 0,
         var toolCallDeltaCount: Int = 0,
         var roomPersistCount: Int = 0,
+        var streamingUiPublishCount: Int = 0,
         var markdownParseCount: Int = 0,
         var markdownParseTotalMs: Long = 0L,
         var autoFollowScrollCount: Int = 0,
@@ -86,6 +87,24 @@ internal object LlmChatPerfTracker {
             AiPerfTracer.mark(
                 state.trace,
                 "first_stream_room_persist",
+                "contentChars" to contentChars.coerceAtLeast(0),
+                "reasoningChars" to reasoningChars.coerceAtLeast(0),
+            )
+        }
+    }
+
+    @Synchronized
+    fun recordStreamingUiPublish(
+        assistantMessageId: String,
+        contentChars: Int,
+        reasoningChars: Int,
+    ) {
+        val state = states[assistantMessageId] ?: return
+        state.streamingUiPublishCount += 1
+        if (state.streamingUiPublishCount == 1) {
+            AiPerfTracer.mark(
+                state.trace,
+                "first_streaming_ui_publish",
                 "contentChars" to contentChars.coerceAtLeast(0),
                 "reasoningChars" to reasoningChars.coerceAtLeast(0),
             )
@@ -166,6 +185,7 @@ internal object LlmChatPerfTracker {
             "reasoningDeltaChars" to state.reasoningDeltaChars,
             "toolCallDeltaCount" to state.toolCallDeltaCount,
             "roomPersistCount" to state.roomPersistCount,
+            "streamingUiPublishCount" to state.streamingUiPublishCount,
             "markdownParseCount" to state.markdownParseCount,
             "markdownParseTotalMs" to state.markdownParseTotalMs,
             "autoFollowScrollCount" to state.autoFollowScrollCount,

@@ -12,6 +12,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
@@ -212,6 +213,13 @@ private data class RuntimeSelection(
     val model: String? = null,
 )
 
+/** Room 持久化消息与当前内存流式覆盖的组合快照。 */
+private data class ChatMessagePresentationSnapshot(
+    val conversationId: String?,
+    val persistedMessages: List<LlmMessageEntity>,
+    val transientOverrides: Map<String, LlmMessageEntity>,
+)
+
 @HiltViewModel
 /**
  * P3 基础 Chat 的状态协调层。
@@ -239,6 +247,14 @@ class LlmChatViewModel @Inject constructor(
     private val selectedConversationId = MutableStateFlow<String?>(null)
     private val articleContext = MutableStateFlow<ArticleAssistantContext?>(null)
     private val runtimeSelection = MutableStateFlow(RuntimeSelection())
+    /**
+     * 当前流式 Assistant 的内存消息覆盖。
+     *
+     * UI 不再依赖每次 Room persistence 才能看到增量；终态消息会继续保留到 Room 明确回读出
+     * 完全相同的实体后才移除，避免较旧的数据库 emission 把新内容短暂覆盖回去。
+     */
+    private val transientMessageOverrides =
+        MutableStateFlow<Map<String, LlmMessageEntity>>(emptyMap())
     private var forceWebSearchNextRequest = false
     private var generationJob: Job? = null
     private var manualToolJob: Job? = null
@@ -333,6 +349,7 @@ class LlmChatViewModel @Inject constructor(
             stopGeneration()
             manualToolJob?.cancel(CancellationException("文章已切换"))
             articleCandidateJob?.cancel(CancellationException("文章已切换"))
+            clearTransientStreamingMessages()
             nextConversationSelectionRevision()
             conversationSelectionInitialized = false
             selectedConversationId.value = null
@@ -396,11 +413,41 @@ class LlmChatViewModel @Inject constructor(
         viewModelScope.launch {
             selectedConversationId
                 .flatMapLatest { conversationId ->
-                    if (conversationId == null) flowOf(emptyList())
-                    else repository.observeMessages(conversationId)
+                    val persistedMessages =
+                        if (conversationId == null) flowOf(emptyList())
+                        else repository.observeMessages(conversationId)
+                    persistedMessages.combine(transientMessageOverrides) { messages, overrides ->
+                        ChatMessagePresentationSnapshot(
+                            conversationId = conversationId,
+                            persistedMessages = messages,
+                            transientOverrides = overrides,
+                        )
+                    }
                 }
-                .collect { messages ->
-                    _uiState.update { it.copy(messages = messages) }
+                .collect { snapshot ->
+                    _uiState.update {
+                        it.copy(
+                            messages =
+                                mergeChatMessagesWithTransientOverrides(
+                                    persistedMessages = snapshot.persistedMessages,
+                                    transientOverrides = snapshot.transientOverrides,
+                                    conversationId = snapshot.conversationId,
+                                )
+                        )
+                    }
+
+                    // 终态覆盖只有在 Room 已回读到完全相同实体后才释放，防止旧 emission 回闪。
+                    val acknowledgedIds =
+                        acknowledgedChatTransientMessageIds(
+                            persistedMessages = snapshot.persistedMessages,
+                            transientOverrides = snapshot.transientOverrides,
+                            conversationId = snapshot.conversationId,
+                        )
+                    if (acknowledgedIds.isNotEmpty()) {
+                        transientMessageOverrides.update { current ->
+                            current.filterKeys { it !in acknowledgedIds }
+                        }
+                    }
                 }
         }
     }
@@ -478,6 +525,7 @@ class LlmChatViewModel @Inject constructor(
      */
     private fun clearConversationScopedTransientContext() {
         manualToolJob?.cancel(CancellationException("会话已切换"))
+        clearTransientStreamingMessages(selectedConversationId.value)
         _uiState.update {
             it.copy(
                 additionalArticleAttachments = emptyList(),
@@ -876,6 +924,7 @@ class LlmChatViewModel @Inject constructor(
     fun regenerateLast() {
         if (hasGenerationInFlight()) return
         val conversationId = selectedConversationId.value ?: return
+        clearTransientStreamingMessages(conversationId)
         startGenerationJob {
             val messages = repository.getMessages(conversationId)
             val lastUserIndex = messages.indexOfLast { it.role == LlmChatRole.USER }
@@ -1158,6 +1207,7 @@ class LlmChatViewModel @Inject constructor(
         val perfTrace = LlmChatPerfTracker.start(assistant.id, toolRound)
         var content = ""
         var reasoning = ""
+        var lastUiPublishAt = 0L
         var lastPersistAt = 0L
         var requestStartedAtNanos: Long? = null
         var fallbackPromptTokens: Int? = null
@@ -1388,7 +1438,25 @@ class LlmChatViewModel @Inject constructor(
                 delta.promptTokens?.let { providerPromptTokens = it }
                 delta.completionTokens?.let { providerCompletionTokens = it }
                 val now = System.currentTimeMillis()
-                if (now - lastPersistAt >= STREAM_PERSIST_INTERVAL_MS) {
+                val hasVisibleText = content.isNotEmpty() || reasoning.isNotEmpty()
+                if (hasVisibleText && now - lastUiPublishAt >= STREAM_UI_UPDATE_INTERVAL_MS) {
+                    publishTransientStreamingMessage(
+                        assistant.copy(
+                            content = content,
+                            reasoning = reasoning.ifBlank { null },
+                            status = LlmMessageStatus.STREAMING,
+                            errorMessage = null,
+                            updatedAt = now,
+                        )
+                    )
+                    LlmChatPerfTracker.recordStreamingUiPublish(
+                        assistantMessageId = assistant.id,
+                        contentChars = content.length,
+                        reasoningChars = reasoning.length,
+                    )
+                    lastUiPublishAt = now
+                }
+                if (hasVisibleText && now - lastPersistAt >= STREAM_PERSIST_INTERVAL_MS) {
                     assistant =
                         repository.updateMessage(
                             message = assistant,
@@ -1413,6 +1481,23 @@ class LlmChatViewModel @Inject constructor(
             if (content.isBlank() && toolCallParts.isEmpty()) {
                 error("AI 服务没有返回可显示内容")
             }
+            // 把不足一个 UI interval 的尾部增量先补到内存层，再执行最终 Room 落盘。
+            if (content.isNotEmpty() || reasoning.isNotEmpty()) {
+                publishTransientStreamingMessage(
+                    assistant.copy(
+                        content = content,
+                        reasoning = reasoning.ifBlank { null },
+                        status = LlmMessageStatus.STREAMING,
+                        errorMessage = null,
+                        updatedAt = System.currentTimeMillis(),
+                    )
+                )
+                LlmChatPerfTracker.recordStreamingUiPublish(
+                    assistantMessageId = assistant.id,
+                    contentChars = content.length,
+                    reasoningChars = reasoning.length,
+                )
+            }
             assistant = repository.updateMessage(
                 message = assistant,
                 content = content,
@@ -1424,6 +1509,7 @@ class LlmChatViewModel @Inject constructor(
                 durationMs = durationMs(),
                 tokenUsageEstimated = tokenUsageEstimated(),
             )
+            publishTransientStreamingMessage(assistant)
             LlmChatPerfTracker.finish(
                 assistantMessageId = assistant.id,
                 status = LlmMessageStatus.COMPLETE.name,
@@ -1477,17 +1563,19 @@ class LlmChatViewModel @Inject constructor(
         } catch (error: CancellationException) {
             // 取消发生时当前协程已经不可挂起，使用 NonCancellable 确保部分结果和 STOPPED 状态落库。
             withContext(NonCancellable) {
-                repository.updateMessage(
-                    message = assistant,
-                    content = content,
-                    reasoning = reasoning.ifBlank { null },
-                    status = LlmMessageStatus.STOPPED,
-                    errorMessage = null,
-                    promptTokens = promptTokens(),
-                    completionTokens = completionTokens(),
-                    durationMs = durationMs(),
-                    tokenUsageEstimated = tokenUsageEstimated(),
-                )
+                assistant =
+                    repository.updateMessage(
+                        message = assistant,
+                        content = content,
+                        reasoning = reasoning.ifBlank { null },
+                        status = LlmMessageStatus.STOPPED,
+                        errorMessage = null,
+                        promptTokens = promptTokens(),
+                        completionTokens = completionTokens(),
+                        durationMs = durationMs(),
+                        tokenUsageEstimated = tokenUsageEstimated(),
+                    )
+                publishTransientStreamingMessage(assistant)
                 LlmChatPerfTracker.finish(
                     assistantMessageId = assistant.id,
                     status = LlmMessageStatus.STOPPED.name,
@@ -1499,17 +1587,19 @@ class LlmChatViewModel @Inject constructor(
         } catch (error: Throwable) {
             // 错误信息既持久化到消息，又作为一次性 Snackbar 暴露，便于历史恢复后仍能看见失败原因。
             val message = error.message?.takeIf(String::isNotBlank) ?: "AI 请求失败"
-            repository.updateMessage(
-                message = assistant,
-                content = content,
-                reasoning = reasoning.ifBlank { null },
-                status = LlmMessageStatus.ERROR,
-                errorMessage = message,
-                promptTokens = promptTokens(),
-                completionTokens = completionTokens(),
-                durationMs = durationMs(),
-                tokenUsageEstimated = tokenUsageEstimated(),
-            )
+            assistant =
+                repository.updateMessage(
+                    message = assistant,
+                    content = content,
+                    reasoning = reasoning.ifBlank { null },
+                    status = LlmMessageStatus.ERROR,
+                    errorMessage = message,
+                    promptTokens = promptTokens(),
+                    completionTokens = completionTokens(),
+                    durationMs = durationMs(),
+                    tokenUsageEstimated = tokenUsageEstimated(),
+                )
+            publishTransientStreamingMessage(assistant)
             LlmChatPerfTracker.finish(
                 assistantMessageId = assistant.id,
                 status = LlmMessageStatus.ERROR.name,
@@ -1616,10 +1706,71 @@ class LlmChatViewModel @Inject constructor(
         generationJob = job
         job.start()
     }
+
+    /** 更新当前流式消息的内存覆盖；历史真值仍由 Room 终态负责。 */
+    private fun publishTransientStreamingMessage(message: LlmMessageEntity) {
+        transientMessageOverrides.update { current -> current + (message.id to message) }
+    }
+
+    /** 切文章、切会话或重新生成时移除旧 UI 覆盖，禁止已删除消息继续残留在列表。 */
+    private fun clearTransientStreamingMessages(conversationId: String? = null) {
+        transientMessageOverrides.update { current ->
+            if (conversationId == null) {
+                emptyMap()
+            } else {
+                current.filterValues { it.conversationId != conversationId }
+            }
+        }
+    }
 }
 
-/** 流式期间限制 Room 写入频率，避免每个 token 都触发一次持久化。 */
-private const val STREAM_PERSIST_INTERVAL_MS = 90L
+/**
+ * 用内存流式快照覆盖 Room 中较旧的同 id 消息；首个 delta 早于 Room placeholder emission 时也允许补入列表。
+ */
+internal fun mergeChatMessagesWithTransientOverrides(
+    persistedMessages: List<LlmMessageEntity>,
+    transientOverrides: Map<String, LlmMessageEntity>,
+    conversationId: String?,
+): List<LlmMessageEntity> {
+    if (conversationId == null || transientOverrides.isEmpty()) return persistedMessages
+    val scopedOverrides =
+        transientOverrides.values
+            .filter { it.conversationId == conversationId }
+            .associateBy(LlmMessageEntity::id)
+    if (scopedOverrides.isEmpty()) return persistedMessages
+
+    val persistedIds = persistedMessages.mapTo(mutableSetOf(), LlmMessageEntity::id)
+    return buildList {
+            persistedMessages.forEach { message -> add(scopedOverrides[message.id] ?: message) }
+            scopedOverrides.values
+                .filterNot { it.id in persistedIds }
+                .forEach(::add)
+        }
+        .sortedWith(compareBy<LlmMessageEntity> { it.createdAt }.thenBy { it.id })
+}
+
+/** 只有 Room 已经回读到完全相同的终态实体时，内存覆盖才算被持久化层确认。 */
+internal fun acknowledgedChatTransientMessageIds(
+    persistedMessages: List<LlmMessageEntity>,
+    transientOverrides: Map<String, LlmMessageEntity>,
+    conversationId: String?,
+): Set<String> {
+    if (conversationId == null || transientOverrides.isEmpty()) return emptySet()
+    val persistedById = persistedMessages.associateBy(LlmMessageEntity::id)
+    return transientOverrides.values
+        .asSequence()
+        .filter { it.conversationId == conversationId }
+        .filter { it.status != LlmMessageStatus.STREAMING }
+        .filter { persistedById[it.id] == it }
+        .map(LlmMessageEntity::id)
+        .toSet()
+}
+
+/** 保持原有约 90ms 的屏幕流式刷新节奏；首个可见 delta 仍会立即发布。 */
+private const val STREAM_UI_UPDATE_INTERVAL_MS = 90L
+
+/** Room 与 UI 解耦后降低流式持久化频率；STOPPED / ERROR / COMPLETE 仍立即最终落盘。 */
+private const val STREAM_PERSIST_INTERVAL_MS = 300L
 
 /** 单条用户请求最多允许的自动 Tool 往返轮数，防止模型与外部 Tool 进入无限循环。 */
 private const val MAX_AUTOMATIC_TOOL_ROUNDS = 8
