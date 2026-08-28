@@ -127,13 +127,7 @@ android {
         }
     }
     kotlinOptions {
-        freeCompilerArgs =
-            freeCompilerArgs +
-                listOf(
-                    "-opt-in=kotlin.RequiresOptIn",
-                    // 单 app 大模块的 Kotlin 编译是当前主要瓶颈；让 JVM IR backend 使用可用 CPU 核心并行降低完整编译耗时。
-                    "-Xbackend-threads=0",
-                )
+        freeCompilerArgs = freeCompilerArgs + "-opt-in=kotlin.RequiresOptIn"
         jvmTarget = JavaVersion.VERSION_11.toString()
     }
     compileOptions {
