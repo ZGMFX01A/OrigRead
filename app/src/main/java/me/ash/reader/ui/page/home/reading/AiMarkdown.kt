@@ -78,7 +78,15 @@ internal sealed interface AiMarkdownBlock {
 internal fun splitLeadingBoldBullet(value: String): Pair<String, String>? {
     val match = Regex("^\\*\\*(.+?)\\*\\*\\s*(.*)$", RegexOption.DOT_MATCHES_ALL).matchEntire(value.trim())
         ?: return null
-    return match.groupValues[1].trim() to match.groupValues[2].trim()
+    val title = match.groupValues[1].trim()
+    val explanation = match.groupValues[2].trim()
+    val leadingColon = explanation.firstOrNull()?.takeIf { it == '：' || it == ':' }
+    return if (leadingColon != null) {
+        // 模型常输出 **标题**：说明；两段式排版时必须把冒号留在标题行，避免冒号掉到下一行开头。
+        "$title$leadingColon" to explanation.drop(1).trimStart()
+    } else {
+        title to explanation
+    }
 }
 
 /**
@@ -205,6 +213,23 @@ internal fun parseAiMarkdown(markdown: String): List<AiMarkdownBlock> {
         }
 
         val trimmed = line.trim()
+        val previousBullet = blocks.lastOrNull() as? AiMarkdownBlock.Bullet
+        val isDirectColonContinuation =
+            paragraph.isEmpty() &&
+                index > 0 &&
+                lines[index - 1].isNotBlank() &&
+                previousBullet != null &&
+                splitLeadingBoldBullet(previousBullet.text)?.second.isNullOrBlank() &&
+                (trimmed.startsWith("：") || trimmed.startsWith(":"))
+        if (isDirectColonContinuation) {
+            // 容错第三方模型的 malformed Markdown：
+            // - **标题**
+            // ：说明
+            // 将冒号说明归并回上一 Bullet，避免被解析成独立 Paragraph。
+            blocks[blocks.lastIndex] = previousBullet!!.copy(text = previousBullet.text + trimmed)
+            index++
+            continue
+        }
         val heading = Regex("^(#{1,6})\\s+(.+)$").matchEntire(trimmed)
         val ordered = Regex("^(\\d+)[.)]\\s+(.+)$").matchEntire(trimmed)
         val unordered = Regex("^[-+*]\\s+(.+)$").matchEntire(trimmed)

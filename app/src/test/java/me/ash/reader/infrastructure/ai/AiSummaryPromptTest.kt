@@ -81,6 +81,15 @@ class AiSummaryPromptTest {
     }
 
     @Test
+    fun `summary prompt keeps bullet title colon and explanation in one list item`() {
+        val prompt = buildAiSummaryUserPrompt("标题", "正文", AiSummaryLength.STANDARD)
+
+        assertTrue(prompt.contains("- **结论标题：** 说明"))
+        assertTrue(prompt.contains("- **结论标题**：说明"))
+        assertTrue(prompt.contains("禁止把 `:` / `：` 单独放到下一行"))
+    }
+
+    @Test
     fun `three summary lengths use materially different output contracts`() {
         val brief = buildAiSummaryUserPrompt("标题", "正文", AiSummaryLength.BRIEF)
         val standard = buildAiSummaryUserPrompt("标题", "正文", AiSummaryLength.STANDARD)

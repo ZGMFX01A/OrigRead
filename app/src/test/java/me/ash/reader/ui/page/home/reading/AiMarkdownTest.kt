@@ -65,6 +65,33 @@ class AiMarkdownTest {
     }
 
     @Test
+    fun `keeps chinese and english colon on leading bold bullet title`() {
+        assertEquals(
+            "软件工程被逐层拆解：" to "Agent 先接走编码。",
+            splitLeadingBoldBullet("**软件工程被逐层拆解**：Agent 先接走编码。"),
+        )
+        assertEquals(
+            "Software engineering changes:" to "Agents take over coding first.",
+            splitLeadingBoldBullet("**Software engineering changes**: Agents take over coding first."),
+        )
+    }
+
+    @Test
+    fun `merges malformed colon continuation back into previous bullet`() {
+        val chinese = parseAiMarkdown("- **软件工程被逐层拆解**\n：Agent 先接走编码。")
+        val english = parseAiMarkdown("- **Software engineering changes**\n: Agents take over coding first.")
+
+        assertEquals(
+            listOf(AiMarkdownBlock.Bullet("**软件工程被逐层拆解**：Agent 先接走编码。")),
+            chinese,
+        )
+        assertEquals(
+            listOf(AiMarkdownBlock.Bullet("**Software engineering changes**: Agents take over coding first.")),
+            english,
+        )
+    }
+
+    @Test
     fun `parses github flavored markdown tables as table blocks`() {
         val blocks =
             parseAiMarkdown(

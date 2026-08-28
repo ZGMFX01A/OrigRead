@@ -480,6 +480,10 @@ internal fun buildAiSummaryUserPrompt(
                 不要输出“摘要”标题，不得逐段复述。
                 """.trimIndent()
         }
+    val listItemRequirement =
+        """
+        如果使用列表项，结论标题、冒号和说明必须属于同一个列表项，例如 `- **结论标题：** 说明` 或 `- **结论标题**：说明`。禁止把 `:` / `：` 单独放到下一行。
+        """.trimIndent()
 
     return """
         请按照上面的编辑原则处理下面这篇文章。先判断是否值得摘要，再判断文章形态与内容领域，然后按形态完成信息分层与取舍。
@@ -489,6 +493,8 @@ internal fun buildAiSummaryUserPrompt(
         当前档位的文章形态上限参考（同样使用等效长度单位）：${articleFormCaps(length)}。最终实际上限取“当前硬上限”和“文章形态上限”中更小者。flash 也只有在高度确定摘要只能同义复述时才返回 shouldSummarize=false；存在疑问必须继续生成摘要。
 
         $formatRequirement
+
+        $listItemRequirement
 
         <article>
         <title>${title.ifBlank { "（无标题）" }}</title>
