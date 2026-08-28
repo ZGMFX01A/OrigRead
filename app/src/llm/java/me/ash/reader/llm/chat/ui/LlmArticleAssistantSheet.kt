@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -73,6 +74,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
@@ -142,6 +144,9 @@ fun LlmArticleAssistantSheet(
     var renameTarget by remember { mutableStateOf<LlmConversationEntity?>(null) }
     var deleteTarget by remember { mutableStateOf<LlmConversationEntity?>(null) }
     var autoFollow by remember(uiState.currentConversationId) { mutableStateOf(true) }
+    var userScrollControlActive by remember(uiState.currentConversationId) { mutableStateOf(false) }
+    val latestLastAssistantId =
+        rememberUpdatedState(uiState.messages.lastOrNull { it.role == LlmChatRole.ASSISTANT }?.id)
     val coroutineScope = rememberCoroutineScope()
     val canScrollUp by remember { derivedStateOf { listState.canScrollBackward } }
     val canScrollDown by remember { derivedStateOf { listState.canScrollForward } }
@@ -158,31 +163,41 @@ fun LlmArticleAssistantSheet(
             viewModel.analyzeArticle(articleAnalysisPrompt)
         }
     }
-    LaunchedEffect(
-        uiState.messages.size,
-        uiState.messages.lastOrNull()?.content?.length,
-        uiState.messages.lastOrNull()?.reasoning?.length,
-        autoFollow,
-    ) {
-        if (autoFollow && uiState.messages.isNotEmpty()) {
-            uiState.messages.lastOrNull()?.id?.let(LlmChatPerfTracker::recordAutoFollowScroll)
-            // 最后一条消息后放一个稳定锚点；滚到锚点才能保证超长单条回答真正到“尾”，
-            // 而不是只把最后一条消息的顶部滚进视口。
-            listState.scrollToItem(uiState.messages.size)
-        }
-    }
-    LaunchedEffect(listState) {
+    LaunchedEffect(listState, uiState.currentConversationId) {
         // 只有真实拖拽才关闭自动跟随；程序自己的 scrollToItem 不会被误判成用户意图。
+        // 显式记录 Drag 生命周期，避免 Drag.Start 与 LazyList isScrollInProgress 更新存在一帧时序差时又被错误恢复。
         listState.interactionSource.interactions.collect { interaction ->
-            if (interaction is DragInteraction.Start) autoFollow = false
+            when (interaction) {
+                is DragInteraction.Start -> {
+                    userScrollControlActive = true
+                    autoFollow = false
+                }
+                is DragInteraction.Stop,
+                is DragInteraction.Cancel -> userScrollControlActive = false
+            }
         }
     }
-    LaunchedEffect(listState) {
-        // fling 的 Drag.Stop 往往早于惯性滚动真正结束，所以不能在 Stop 时判断是否到底。
-        // 等滚动完全停止后再恢复 autoFollow，用户自然滑回底部也能继续跟随新 token。
-        snapshotFlow { listState.isScrollInProgress to listState.canScrollForward }
-            .collect { (isScrolling, canScrollForward) ->
-                if (!isScrolling && !canScrollForward) autoFollow = true
+    LaunchedEffect(listState, uiState.currentConversationId) {
+        // 用真实尾部锚点的可见性统一驱动“恢复跟随”和“需要追尾”，不再依赖 canScrollForward 的瞬时值。
+        // 这样顶部 overscroll / BottomSheet nested scroll 不会把一次边界状态误判成“已经回到底部”。
+        snapshotFlow {
+                ChatAutoFollowObservation(
+                    autoFollow = autoFollow,
+                    userScrollControlActive = userScrollControlActive,
+                    layout = listState.chatAutoFollowLayoutSnapshot(),
+                )
+            }
+            .collect { observation ->
+                if (shouldResumeChatAutoFollow(observation)) {
+                    autoFollow = true
+                    return@collect
+                }
+                if (shouldIssueChatAutoFollowScroll(observation)) {
+                    latestLastAssistantId.value?.let(LlmChatPerfTracker::recordAutoFollowScroll)
+                    // 最后一条消息后存在稳定锚点；只有锚点确实离开 viewport 才执行一次追尾，
+                    // 避免短回答或布局未变化时每次 Room 更新都重复 scrollToItem()。
+                    listState.scrollToItem(observation.layout.totalItemsCount - 1)
+                }
             }
         }
 
@@ -280,8 +295,15 @@ fun LlmArticleAssistantSheet(
                                     icon = Icons.Rounded.KeyboardArrowUp,
                                     contentDescription = stringResource(R.string.llm_chat_scroll_top),
                                     onClick = {
+                                        userScrollControlActive = true
                                         autoFollow = false
-                                        coroutineScope.launch { listState.animateScrollToItem(0) }
+                                        coroutineScope.launch {
+                                            try {
+                                                listState.animateScrollToItem(0)
+                                            } finally {
+                                                userScrollControlActive = false
+                                            }
+                                        }
                                     },
                                 )
                             }
@@ -290,9 +312,14 @@ fun LlmArticleAssistantSheet(
                                     icon = Icons.Rounded.KeyboardArrowDown,
                                     contentDescription = stringResource(R.string.llm_chat_scroll_bottom),
                                     onClick = {
+                                        userScrollControlActive = true
                                         autoFollow = true
                                         coroutineScope.launch {
-                                            listState.animateScrollToItem(uiState.messages.size)
+                                            try {
+                                                listState.animateScrollToItem(uiState.messages.size)
+                                            } finally {
+                                                userScrollControlActive = false
+                                            }
                                         }
                                     },
                                 )
@@ -601,6 +628,64 @@ private fun ArticleAssistantEmptyState(
  * 只有缺少可用运行时配置时才展示必要的设置引导，避免重复解释产品设计。
  */
 internal fun shouldShowArticleAssistantConfigurationHint(configured: Boolean): Boolean = !configured
+
+/**
+ * Chat 列表当前与尾部锚点相关的最小布局快照。
+ *
+ * 不把 LazyListState 本身带进业务判断，既方便纯 JVM 回归，也避免继续用 canScrollForward 这种边界瞬时值
+ * 直接决定 auto-follow 状态。
+ */
+internal data class ChatAutoFollowLayoutSnapshot(
+    val isScrollInProgress: Boolean,
+    val totalItemsCount: Int,
+    val lastVisibleItemIndex: Int?,
+    val lastVisibleItemEndOffset: Int?,
+    val viewportEndOffset: Int,
+)
+
+/** 一次 auto-follow 决策需要的 UI 状态；显式用户滚动控制单独保存以覆盖 Drag/动画启动的一帧时序差。 */
+internal data class ChatAutoFollowObservation(
+    val autoFollow: Boolean,
+    val userScrollControlActive: Boolean,
+    val layout: ChatAutoFollowLayoutSnapshot,
+)
+
+/** 只有真正的最后一个 item（conversation-bottom-anchor）完整进入 viewport 才算回到底部。 */
+internal fun isChatBottomAnchorFullyVisible(layout: ChatAutoFollowLayoutSnapshot): Boolean {
+    if (layout.totalItemsCount <= 0) return false
+    val lastVisibleIndex = layout.lastVisibleItemIndex ?: return false
+    val lastVisibleEnd = layout.lastVisibleItemEndOffset ?: return false
+    return lastVisibleIndex == layout.totalItemsCount - 1 &&
+        lastVisibleEnd <= layout.viewportEndOffset
+}
+
+/** 用户已经主动脱离跟随时，只有拖拽/惯性滚动都结束且尾部锚点完整可见才恢复。 */
+internal fun shouldResumeChatAutoFollow(observation: ChatAutoFollowObservation): Boolean =
+    !observation.autoFollow &&
+        !observation.userScrollControlActive &&
+        !observation.layout.isScrollInProgress &&
+        isChatBottomAnchorFullyVisible(observation.layout)
+
+/** 已处于跟随态时，仅在列表静止且尾部锚点确实离开 viewport 后执行一次程序追尾。 */
+internal fun shouldIssueChatAutoFollowScroll(observation: ChatAutoFollowObservation): Boolean =
+    observation.autoFollow &&
+        !observation.userScrollControlActive &&
+        !observation.layout.isScrollInProgress &&
+        observation.layout.totalItemsCount > 0 &&
+        !isChatBottomAnchorFullyVisible(observation.layout)
+
+/** 将 Compose LazyList 布局压缩成稳定、无正文内容的 auto-follow 快照。 */
+private fun LazyListState.chatAutoFollowLayoutSnapshot(): ChatAutoFollowLayoutSnapshot {
+    val layout = layoutInfo
+    val lastVisibleItem = layout.visibleItemsInfo.lastOrNull()
+    return ChatAutoFollowLayoutSnapshot(
+        isScrollInProgress = isScrollInProgress,
+        totalItemsCount = layout.totalItemsCount,
+        lastVisibleItemIndex = lastVisibleItem?.index,
+        lastVisibleItemEndOffset = lastVisibleItem?.let { it.offset + it.size },
+        viewportEndOffset = layout.viewportEndOffset,
+    )
+}
 
 /** 长对话中的轻量跳转按钮，不占用输入区，也不把导航动作做成新的主视觉。 */
 @Composable
