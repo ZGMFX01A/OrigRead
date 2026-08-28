@@ -3,6 +3,7 @@ package me.ash.reader.ui.component.webview
 import android.util.Log
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -75,9 +76,36 @@ fun OrigReadWebView(
             "/android_res/font/google_sans_flex.ttf"
         } else null
 
+    val renderSpec =
+        WebViewRenderSpec(
+            content = content,
+            fontSize = fontSize,
+            fontPath = fontPath,
+            lineHeight = lineHeight,
+            letterSpacing = letterSpacing,
+            textMargin = textMargin,
+            textColor = textColor,
+            textBold = textBold,
+            textAlign = textAlign,
+            boldTextColor = boldTextColor,
+            subheadBold = subheadBold,
+            subheadUpperCase = subheadUpperCase,
+            imgMargin = imgMargin,
+            imgBorderRadius = imgBorderRadius,
+            linkTextColor = linkTextColor,
+            codeTextColor = codeTextColor,
+            codeBgColor = codeBgColor,
+            selectionTextColor = selectionTextColor,
+            selectionBgColor = selectionBgColor,
+            boldCharacters = boldCharacters.value,
+        )
+    val renderGuard = remember { WebViewRenderGuard() }
+
     AndroidView(
         modifier = modifier,
         factory = {
+            // factory 重新创建了实体时必须让新 WebView 完成首次正文加载。
+            renderGuard.reset()
             WebViewLayout.get(
                 context = context,
                 readingFontsPreference = readingFonts,
@@ -94,46 +122,49 @@ fun OrigReadWebView(
         },
         update = {
             it.apply {
+                // 选区回调属于交互状态，可以随父级重组更新，但不应因此重载整篇正文。
                 configureSelectionAction(selectionActionLabel, onSelectedTextAction)
-                Log.i("RLog", "maxWidth: ${maxWidth}")
-                Log.i("RLog", "readingFont: ${context.filesDir.absolutePath}")
-                Log.i("RLog", "CustomWebView: ${content}")
                 settings.defaultFontSize = fontSize
-                loadDataWithBaseURL(
-                    null,
-                    WebViewHtml.HTML.format(
-                        WebViewStyle.get(
-                            fontSize = fontSize,
-                            fontPath = fontPath,
-                            lineHeight = lineHeight,
-                            letterSpacing = letterSpacing,
-                            textMargin = textMargin,
-                            textColor = textColor,
-                            textBold = textBold,
-                            textAlign = textAlign,
-                            boldTextColor = boldTextColor,
-                            subheadBold = subheadBold,
-                            subheadUpperCase = subheadUpperCase,
-                            imgMargin = imgMargin,
-                            imgBorderRadius = imgBorderRadius,
-                            linkTextColor = linkTextColor,
-                            codeTextColor = codeTextColor,
-                            codeBgColor = codeBgColor,
-                            tableMargin = textMargin,
-                            selectionTextColor = selectionTextColor,
-                            selectionBgColor = selectionBgColor,
+                if (renderGuard.shouldReload(renderSpec)) {
+                    Log.i("RLog", "maxWidth: ${maxWidth}")
+                    Log.i("RLog", "readingFont: ${context.filesDir.absolutePath}")
+                    loadDataWithBaseURL(
+                        null,
+                        WebViewHtml.HTML.format(
+                            WebViewStyle.get(
+                                fontSize = fontSize,
+                                fontPath = fontPath,
+                                lineHeight = lineHeight,
+                                letterSpacing = letterSpacing,
+                                textMargin = textMargin,
+                                textColor = textColor,
+                                textBold = textBold,
+                                textAlign = textAlign,
+                                boldTextColor = boldTextColor,
+                                subheadBold = subheadBold,
+                                subheadUpperCase = subheadUpperCase,
+                                imgMargin = imgMargin,
+                                imgBorderRadius = imgBorderRadius,
+                                linkTextColor = linkTextColor,
+                                codeTextColor = codeTextColor,
+                                codeBgColor = codeBgColor,
+                                tableMargin = textMargin,
+                                selectionTextColor = selectionTextColor,
+                                selectionBgColor = selectionBgColor,
+                            ),
+                            url,
+                            content,
+                            WebViewScript.get(boldCharacters.value),
                         ),
-                        url,
-                        content,
-                        WebViewScript.get(boldCharacters.value),
-                    ),
-                    "text/HTML",
-                    "UTF-8",
-                    null,
-                )
+                        "text/HTML",
+                        "UTF-8",
+                        null,
+                    )
+                }
             }
         },
         onRelease = { view ->
+            renderGuard.reset()
             view.stopLoading()
             view.configureSelectionAction(null, null)
             view.removeJavascriptInterface(JavaScriptInterface.NAME)
