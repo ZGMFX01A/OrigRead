@@ -98,7 +98,7 @@ internal fun ReadingShareConfigSheet(
     obsidianAvailability: ShareTargetAvailability,
     siYuanAvailability: ShareTargetAvailability,
     logseqAvailability: ShareTargetAvailability,
-    notionAvailable: Boolean,
+    notionAvailability: ShareTargetAvailability,
     notionConfiguration: NotionShareConfiguration,
     onDismiss: () -> Unit,
     onSave: (ReadingSharePreference, notionToken: String) -> Unit,
@@ -110,7 +110,14 @@ internal fun ReadingShareConfigSheet(
         mutableStateOf(initialPreference.includeTranslation)
     }
     var includeSummary by remember(initialPreference) { mutableStateOf(initialPreference.includeSummary) }
-    var target by remember(initialPreference) { mutableStateOf(initialPreference.target) }
+    var target by remember(initialPreference, notionAvailability.available) {
+        mutableStateOf(
+            normalizeReadingShareTarget(
+                target = initialPreference.target,
+                notionAvailable = notionAvailability.available,
+            )
+        )
+    }
     var notionToken by remember { mutableStateOf("") }
     var notionError by remember { mutableStateOf("") }
     val savedTokenMask = remember(notionConfiguration.tokenLength) {
@@ -211,7 +218,7 @@ internal fun ReadingShareConfigSheet(
                     onCheckedChange = { if (it) target = ReadingShareTarget.LOGSEQ },
                 )
             }
-            if (notionAvailable) {
+            if (notionAvailability.available) {
                 ReadingShareOption(
                     title = stringResource(R.string.reading_share_target_notion),
                     checked = target == ReadingShareTarget.NOTION,
@@ -317,6 +324,17 @@ internal fun ReadingShareConfigSheet(
         }
     }
 }
+
+/** 已保存的 Notion 目标在 App 被卸载后必须回到系统分享，避免隐藏目标继续生效。 */
+internal fun normalizeReadingShareTarget(
+    target: ReadingShareTarget,
+    notionAvailable: Boolean,
+): ReadingShareTarget =
+    if (target == ReadingShareTarget.NOTION && !notionAvailable) {
+        ReadingShareTarget.SYSTEM
+    } else {
+        target
+    }
 
 @Composable
 private fun ShareSheetHeader(title: String, description: String) {

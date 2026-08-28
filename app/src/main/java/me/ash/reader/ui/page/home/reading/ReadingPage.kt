@@ -74,6 +74,7 @@ import me.ash.reader.infrastructure.share.ReadingShareIntent
 import me.ash.reader.infrastructure.share.ReadingShareLabels
 import me.ash.reader.infrastructure.share.ReadingSharePayload
 import me.ash.reader.infrastructure.share.LogseqShare
+import me.ash.reader.infrastructure.share.NotionShareTarget
 import me.ash.reader.infrastructure.share.ObsidianShare
 import me.ash.reader.infrastructure.share.NotionShareEntryPoint
 import me.ash.reader.infrastructure.share.NotionShareInProgressException
@@ -250,44 +251,52 @@ fun ReadingPage(
                     )
                 }
                 ReadingShareTarget.NOTION -> {
-                    if (!notionShareConfiguration.tokenConfigured) {
+                    if (!NotionShareTarget.availability(context).available) {
+                        context.showToast(
+                            context.getString(
+                                R.string.reading_share_target_unavailable_fallback,
+                                "Notion",
+                            )
+                        )
+                    } else if (!notionShareConfiguration.tokenConfigured) {
                         showReadingShareConfig = true
                         context.showToast(context.getString(R.string.reading_share_notion_not_configured))
                         return false
-                    }
-                    context.showToast(context.getString(R.string.reading_share_notion_in_progress))
-                    coroutineScope.launch {
-                        notionShareRepository.share(readerState.title, payload).fold(
-                            onSuccess = { pageUrl ->
-                                context.showToast(
-                                    context.getString(R.string.reading_share_notion_success, pageUrl),
-                                )
-                                val notionIntent =
-                                    Intent(Intent.ACTION_VIEW, Uri.parse(pageUrl)).apply {
-                                        setPackage("notion.id")
-                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    }
-                                runCatching { context.startActivity(notionIntent) }
-                                    .onFailure {
-                                        context.openURL(
-                                            pageUrl,
-                                            OpenLinkPreference.AutoPreferDefaultBrowser,
+                    } else {
+                        context.showToast(context.getString(R.string.reading_share_notion_in_progress))
+                        coroutineScope.launch {
+                            notionShareRepository.share(readerState.title, payload).fold(
+                                onSuccess = { pageUrl ->
+                                    context.showToast(
+                                        context.getString(R.string.reading_share_notion_success, pageUrl),
+                                    )
+                                    val notionIntent =
+                                        Intent(Intent.ACTION_VIEW, Uri.parse(pageUrl)).apply {
+                                            setPackage(NotionShareTarget.packageName)
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                    runCatching { context.startActivity(notionIntent) }
+                                        .onFailure {
+                                            context.openURL(
+                                                pageUrl,
+                                                OpenLinkPreference.AutoPreferDefaultBrowser,
+                                            )
+                                        }
+                                },
+                                onFailure = { error ->
+                                    if (error !is NotionShareInProgressException) {
+                                        context.showToast(
+                                            context.getString(
+                                                R.string.reading_share_notion_failure,
+                                                error.message.orEmpty(),
+                                            ),
                                         )
                                     }
-                            },
-                            onFailure = { error ->
-                                if (error !is NotionShareInProgressException) {
-                                    context.showToast(
-                                        context.getString(
-                                            R.string.reading_share_notion_failure,
-                                            error.message.orEmpty(),
-                                        ),
-                                    )
-                                }
-                            },
-                        )
+                                },
+                            )
+                        }
+                        return true
                     }
-                    return true
                 }
                 ReadingShareTarget.SYSTEM -> Unit
             }
@@ -849,13 +858,13 @@ fun ReadingPage(
         val obsidianAvailability = remember { ObsidianShare.availability(context) }
         val siYuanAvailability = remember { SiYuanShare.availability(context) }
         val logseqAvailability = remember { LogseqShare.availability(context) }
+        val notionAvailability = remember { NotionShareTarget.availability(context) }
         ReadingShareConfigSheet(
             initialPreference = readingSharePreference,
             obsidianAvailability = obsidianAvailability,
             siYuanAvailability = siYuanAvailability,
             logseqAvailability = logseqAvailability,
-            // Notion 通过 API 写入，不依赖本机是否安装 Notion 客户端。
-            notionAvailable = true,
+            notionAvailability = notionAvailability,
             notionConfiguration = notionShareConfiguration,
             onDismiss = { showReadingShareConfig = false },
             onSave = { preference, notionToken ->
