@@ -774,9 +774,10 @@ class LlmChatViewModel @Inject constructor(
      */
     fun sendQuickMessage(message: LlmQuickMessage): LlmQuickMessageResolution {
         val currentArticle = articleContext.value
+        val quickMessageText = quickMessageRepository.resolveText(message)
         val resolution =
             resolveQuickMessageTemplate(
-                template = message.content,
+                template = quickMessageText.content,
                 context =
                     LlmQuickMessageContext(
                         articleTitle = currentArticle?.title.orEmpty(),

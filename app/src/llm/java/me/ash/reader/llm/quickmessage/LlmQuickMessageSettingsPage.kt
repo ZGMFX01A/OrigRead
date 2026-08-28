@@ -37,6 +37,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -88,6 +89,7 @@ fun LlmQuickMessageSettingsPage(
     viewModel: LlmQuickMessageSettingsViewModel = hiltViewModel(),
 ) {
     val messages by viewModel.messages.collectAsState()
+    val context = LocalContext.current
     var editing by remember { mutableStateOf<LlmQuickMessage?>(null) }
     var createVisible by remember { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<LlmQuickMessage?>(null) }
@@ -131,6 +133,7 @@ fun LlmQuickMessageSettingsPage(
                     items(messages, key = LlmQuickMessage::id) { message ->
                         QuickMessageCard(
                             message = message,
+                            text = resolveQuickMessageText(context, message),
                             canMoveUp = message.order > 0,
                             canMoveDown = message.order < messages.lastIndex,
                             onEnabledChange = { viewModel.setEnabled(message.id, it) },
@@ -148,6 +151,7 @@ fun LlmQuickMessageSettingsPage(
     if (createVisible) {
         QuickMessageEditorSheet(
             initial = null,
+            initialText = null,
             onDismiss = { createVisible = false },
             onSave = { title, content ->
                 viewModel.save(null, title, content).also { error ->
@@ -159,6 +163,7 @@ fun LlmQuickMessageSettingsPage(
     editing?.let { message ->
         QuickMessageEditorSheet(
             initial = message,
+            initialText = resolveQuickMessageText(context, message),
             onDismiss = { editing = null },
             onSave = { title, content ->
                 viewModel.save(message.id, title, content).also { error ->
@@ -168,10 +173,11 @@ fun LlmQuickMessageSettingsPage(
         )
     }
     deleteTarget?.let { message ->
+        val displayText = resolveQuickMessageText(context, message)
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
             title = { Text(stringResource(R.string.llm_quick_message_delete_title)) },
-            text = { Text(stringResource(R.string.llm_quick_message_delete_desc, message.title)) },
+            text = { Text(stringResource(R.string.llm_quick_message_delete_desc, displayText.title)) },
             dismissButton = {
                 TextButton(onClick = { deleteTarget = null }) {
                     Text(stringResource(R.string.cancel))
@@ -194,6 +200,7 @@ fun LlmQuickMessageSettingsPage(
 @Composable
 private fun QuickMessageCard(
     message: LlmQuickMessage,
+    text: LlmQuickMessageText,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
     onEnabledChange: (Boolean) -> Unit,
@@ -210,14 +217,14 @@ private fun QuickMessageCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = message.title,
+                        text = text.title,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = message.content,
+                        text = text.content,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 3,
@@ -252,11 +259,12 @@ private fun QuickMessageCard(
 @Composable
 private fun QuickMessageEditorSheet(
     initial: LlmQuickMessage?,
+    initialText: LlmQuickMessageText?,
     onDismiss: () -> Unit,
     onSave: (title: String, content: String) -> String?,
 ) {
-    var title by rememberSaveable(initial?.id) { mutableStateOf(initial?.title.orEmpty()) }
-    var content by rememberSaveable(initial?.id) { mutableStateOf(initial?.content.orEmpty()) }
+    var title by rememberSaveable(initial?.id) { mutableStateOf(initialText?.title.orEmpty()) }
+    var content by rememberSaveable(initial?.id) { mutableStateOf(initialText?.content.orEmpty()) }
     var error by remember { mutableStateOf<String?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 

@@ -1,7 +1,10 @@
 package me.ash.reader.llm.quickmessage
 
 import android.content.Context
+import android.content.res.Configuration
+import androidx.appcompat.app.AppCompatDelegate
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.util.Locale
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -12,14 +15,85 @@ import me.ash.reader.R
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** 一条可管理的阅读快捷消息；[id] 是持久稳定标识，[order] 只负责展示顺序。 */
+/** 内置 Quick Message 的稳定类型；本地化文案不进入持久化数据。 */
+enum class LlmQuickMessageBuiltin(
+    val id: String,
+    val storageValue: String,
+    val titleRes: Int,
+    val contentRes: Int,
+) {
+    EXPLAIN(
+        id = "builtin:explain",
+        storageValue = "explain",
+        titleRes = R.string.llm_suggestion_explain,
+        contentRes = R.string.llm_prompt_explain,
+    ),
+    EVIDENCE(
+        id = "builtin:evidence",
+        storageValue = "evidence",
+        titleRes = R.string.llm_suggestion_evidence,
+        contentRes = R.string.llm_prompt_evidence,
+    ),
+    ;
+
+    companion object {
+        fun fromId(id: String): LlmQuickMessageBuiltin? = entries.firstOrNull { it.id == id }
+
+        fun fromStorageValue(value: String): LlmQuickMessageBuiltin? =
+            entries.firstOrNull { it.storageValue == value }
+    }
+}
+
+data class LlmQuickMessageText(
+    val title: String,
+    val content: String,
+)
+
+/** 一条可管理的阅读快捷消息；[builtin] 非空时 title/content 只作为空占位，不持久化本地化文本。 */
 data class LlmQuickMessage(
     val id: String,
     val title: String,
     val content: String,
     val enabled: Boolean = true,
     val order: Int = 0,
+    val builtin: LlmQuickMessageBuiltin? = null,
 )
+
+/** 根据当前 App locale 解析内置项；自定义项原样返回用户保存的文本。 */
+fun resolveQuickMessageText(
+    context: Context,
+    message: LlmQuickMessage,
+): LlmQuickMessageText =
+    message.builtin?.let { builtin ->
+        LlmQuickMessageText(
+            title = context.getString(builtin.titleRes),
+            content = context.getString(builtin.contentRes),
+        )
+    } ?: LlmQuickMessageText(message.title, message.content)
+
+/** 旧版内置文案只有命中受支持语言的原始资源时才认作内置；用户改过任一字段就按自定义项保护。 */
+internal fun inferLegacyQuickMessageBuiltin(
+    id: String,
+    title: String,
+    content: String,
+    localizedCandidates: Map<LlmQuickMessageBuiltin, Set<LlmQuickMessageText>>,
+): LlmQuickMessageBuiltin? {
+    val builtin = LlmQuickMessageBuiltin.fromId(id) ?: return null
+    val stored = LlmQuickMessageText(title.trim(), content.trim())
+    return builtin.takeIf { stored in localizedCandidates[builtin].orEmpty() }
+}
+
+/** 用户保存编辑后，内置项立即脱离本地化资源，成为普通自定义 Quick Message。 */
+internal fun customizeQuickMessage(
+    message: LlmQuickMessage,
+    title: String,
+    content: String,
+): LlmQuickMessage =
+    message.copy(
+        title = title.trim(),
+        content = content.trim(),
+        builtin = null,
+    )
 
 /** Quick Message 模板展开所需的当前阅读快照。 */
 data class LlmQuickMessageContext(
@@ -81,12 +155,21 @@ class LlmQuickMessageRepository @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+    private val legacyBuiltinTextCandidates by lazy(::buildLegacyBuiltinTextCandidates)
     private val _messages = MutableStateFlow(readMessages())
     val messages: StateFlow<List<LlmQuickMessage>> = _messages.asStateFlow()
 
     fun current(): List<LlmQuickMessage> = _messages.value
 
     fun enabledMessages(): List<LlmQuickMessage> = current().filter(LlmQuickMessage::enabled)
+
+    /** 发送时显式按当前 App locale 解析资源，避免仓储单例持有切换语言前的内置 Prompt 文本。 */
+    fun resolveText(message: LlmQuickMessage): LlmQuickMessageText {
+        val appLocale = AppCompatDelegate.getApplicationLocales()[0]
+        if (appLocale == null) return resolveQuickMessageText(context, message)
+        val configuration = Configuration(context.resources.configuration).apply { setLocale(appLocale) }
+        return resolveQuickMessageText(context.createConfigurationContext(configuration), message)
+    }
 
     @Synchronized
     fun create(
@@ -118,7 +201,8 @@ class LlmQuickMessageRepository @Inject constructor(
         updateState(
             current().map { message ->
                 if (message.id == id) {
-                    message.copy(title = title.trim(), content = content.trim())
+                    // 用户显式编辑内置项后即转为自定义语义，后续切换语言不得覆盖用户修改。
+                    customizeQuickMessage(message, title, content)
                 } else {
                     message
                 }
@@ -163,7 +247,8 @@ class LlmQuickMessageRepository @Inject constructor(
             persist(defaults)
             return defaults
         }
-        return runCatching {
+        val restored =
+            runCatching {
                 val array = JSONArray(encoded)
                 buildList {
                     repeat(array.length()) { index ->
@@ -171,41 +256,88 @@ class LlmQuickMessageRepository @Inject constructor(
                         val id = item.optString("id").trim()
                         val title = item.optString("title").trim()
                         val content = item.optString("content").trim()
-                        if (id.isNotBlank() && title.isNotBlank() && content.isNotBlank()) {
+                        val source = item.optString(KEY_SOURCE).trim()
+                        val builtin =
+                            when {
+                                source.startsWith(BUILTIN_SOURCE_PREFIX) ->
+                                    LlmQuickMessageBuiltin.fromStorageValue(
+                                        source.removePrefix(BUILTIN_SOURCE_PREFIX)
+                                    )
+                                source == CUSTOM_SOURCE -> null
+                                else ->
+                                    inferLegacyQuickMessageBuiltin(
+                                        id = id,
+                                        title = title,
+                                        content = content,
+                                        localizedCandidates = legacyBuiltinTextCandidates,
+                                    )
+                            }
+                        if (
+                            id.isNotBlank() &&
+                                (builtin != null || (title.isNotBlank() && content.isNotBlank()))
+                        ) {
                             add(
                                 LlmQuickMessage(
                                     id = id,
-                                    title = title.take(MAX_TITLE_LENGTH),
-                                    content = content.take(MAX_CONTENT_LENGTH),
+                                    title = if (builtin == null) title.take(MAX_TITLE_LENGTH) else "",
+                                    content = if (builtin == null) content.take(MAX_CONTENT_LENGTH) else "",
                                     enabled = item.optBoolean("enabled", true),
                                     order = item.optInt("order", index),
+                                    builtin = builtin,
                                 )
                             )
                         }
                     }
                 }
             }
-            .getOrElse { defaultMessages() }
-            .let(::normalizeOrder)
+                .getOrElse { defaultMessages() }
+        val normalized = normalizeOrder(restored)
+        // 每次成功读取都重写为带 source 的新格式；旧版本地化文本只迁移一次。
+        persist(normalized)
+        return normalized
     }
 
     private fun defaultMessages(): List<LlmQuickMessage> =
         listOf(
             LlmQuickMessage(
-                id = BUILTIN_EXPLAIN_ID,
-                title = context.getString(R.string.llm_suggestion_explain),
-                content = context.getString(R.string.llm_prompt_explain),
+                id = LlmQuickMessageBuiltin.EXPLAIN.id,
+                title = "",
+                content = "",
                 enabled = true,
                 order = 0,
+                builtin = LlmQuickMessageBuiltin.EXPLAIN,
             ),
             LlmQuickMessage(
-                id = BUILTIN_EVIDENCE_ID,
-                title = context.getString(R.string.llm_suggestion_evidence),
-                content = context.getString(R.string.llm_prompt_evidence),
+                id = LlmQuickMessageBuiltin.EVIDENCE.id,
+                title = "",
+                content = "",
                 enabled = true,
                 order = 1,
+                builtin = LlmQuickMessageBuiltin.EVIDENCE,
             ),
         )
+
+    /** 枚举当前公开支持的三种 UI 语言，用于识别旧版未编辑的内置 Quick Message。 */
+    private fun buildLegacyBuiltinTextCandidates(): Map<LlmQuickMessageBuiltin, Set<LlmQuickMessageText>> {
+        val locales =
+            listOf(
+                Locale.ENGLISH,
+                Locale.forLanguageTag("zh-Hans"),
+                Locale.forLanguageTag("zh-Hant"),
+            )
+        return LlmQuickMessageBuiltin.entries.associateWith { builtin ->
+            locales
+                .map { locale ->
+                    val configuration = Configuration(context.resources.configuration).apply { setLocale(locale) }
+                    val localizedContext = context.createConfigurationContext(configuration)
+                    LlmQuickMessageText(
+                        title = localizedContext.getString(builtin.titleRes),
+                        content = localizedContext.getString(builtin.contentRes),
+                    )
+                }
+                .toSet()
+        }
+    }
 
     private fun validateDraft(
         title: String,
@@ -226,11 +358,14 @@ class LlmQuickMessageRepository @Inject constructor(
     private fun persist(messages: List<LlmQuickMessage>) {
         val array = JSONArray()
         normalizeOrder(messages).forEach { message ->
+            val source =
+                message.builtin?.let { "$BUILTIN_SOURCE_PREFIX${it.storageValue}" } ?: CUSTOM_SOURCE
             array.put(
                 JSONObject()
                     .put("id", message.id)
-                    .put("title", message.title)
-                    .put("content", message.content)
+                    .put(KEY_SOURCE, source)
+                    .put("title", if (message.builtin == null) message.title else "")
+                    .put("content", if (message.builtin == null) message.content else "")
                     .put("enabled", message.enabled)
                     .put("order", message.order)
             )
@@ -244,8 +379,9 @@ class LlmQuickMessageRepository @Inject constructor(
         internal const val MAX_CONTENT_LENGTH = 4_000
         private const val PREFERENCES_NAME = "origread_llm_quick_messages"
         private const val KEY_MESSAGES = "messages"
-        private const val BUILTIN_EXPLAIN_ID = "builtin:explain"
-        private const val BUILTIN_EVIDENCE_ID = "builtin:evidence"
+        private const val KEY_SOURCE = "source"
+        private const val CUSTOM_SOURCE = "custom"
+        private const val BUILTIN_SOURCE_PREFIX = "builtin:"
 
         internal fun normalizeOrder(messages: List<LlmQuickMessage>): List<LlmQuickMessage> =
             messages

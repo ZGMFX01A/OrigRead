@@ -79,6 +79,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -102,6 +103,7 @@ import me.ash.reader.llm.chat.data.LlmToolCallStatus
 import me.ash.reader.llm.chat.data.citationToken
 import me.ash.reader.llm.quickmessage.LlmQuickMessage
 import me.ash.reader.llm.quickmessage.LlmQuickMessageResolution
+import me.ash.reader.llm.quickmessage.resolveQuickMessageText
 import me.ash.reader.llm.runtime.LlmReasoningEffort
 import me.ash.reader.llm.runtime.LlmContextType
 import me.ash.reader.llm.runtime.LlmToolDescriptor
@@ -1427,6 +1429,7 @@ private fun QuickMessageSheet(
     onDismiss: () -> Unit,
     onSelect: (LlmQuickMessage) -> LlmQuickMessageResolution,
 ) {
+    val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var resolutionError by remember { mutableStateOf<LlmQuickMessageResolution?>(null) }
 
@@ -1482,6 +1485,7 @@ private fun QuickMessageSheet(
                 contentPadding = PaddingValues(bottom = 12.dp),
             ) {
                 items(messages, key = LlmQuickMessage::id) { message ->
+                    val displayText = resolveQuickMessageText(context, message)
                     Surface(
                         modifier =
                             Modifier.fillMaxWidth()
@@ -1502,12 +1506,12 @@ private fun QuickMessageSheet(
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             Text(
-                                text = message.title,
+                                text = displayText.title,
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                             )
                             Text(
-                                text = message.content,
+                                text = displayText.content,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 2,

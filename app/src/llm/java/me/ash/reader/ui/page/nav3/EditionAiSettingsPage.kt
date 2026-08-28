@@ -1,9 +1,10 @@
 package me.ash.reader.ui.page.nav3
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import me.ash.reader.llm.mcp.McpSettingsPage
 import me.ash.reader.llm.quickmessage.LlmQuickMessageSettingsPage
@@ -13,43 +14,55 @@ import me.ash.reader.llm.settings.LlmCustomInstructionsSettingsPage
 import me.ash.reader.llm.skill.LlmSkillSettingsPage
 import me.ash.reader.ui.page.settings.ai.AiSettingsPage
 
+private enum class AiSettingsSubPage {
+    CUSTOM_INSTRUCTIONS,
+    SKILLS,
+    QUICK_MESSAGES,
+    WEB_SEARCH,
+    MCP,
+}
+
 /** LLM edition 在基础 AI 阅读设置上叠加 Runtime / Context / Reasoning 参数。 */
 @Composable
 internal fun EditionAiSettingsPage(onBack: () -> Unit) {
-    var showCustomInstructions by remember { mutableStateOf(false) }
-    var showSkills by remember { mutableStateOf(false) }
-    var showQuickMessages by remember { mutableStateOf(false) }
-    var showWebSearch by remember { mutableStateOf(false) }
-    var showMcp by remember { mutableStateOf(false) }
-    if (showCustomInstructions) {
-        LlmCustomInstructionsSettingsPage(onBack = { showCustomInstructions = false })
-        return
-    }
-    if (showSkills) {
-        LlmSkillSettingsPage(onBack = { showSkills = false })
-        return
-    }
-    if (showQuickMessages) {
-        LlmQuickMessageSettingsPage(onBack = { showQuickMessages = false })
-        return
-    }
-    if (showWebSearch) {
-        WebSearchSettingsPage(onBack = { showWebSearch = false })
-        return
-    }
-    if (showMcp) {
-        McpSettingsPage(onBack = { showMcp = false })
-        return
+    var currentSubPage by rememberSaveable { mutableStateOf<AiSettingsSubPage?>(null) }
+
+    /** 顶部返回与系统 Back/返回手势共用同一关闭动作；无子页时才交还外层 Settings。 */
+    val closeCurrentSubPage = { currentSubPage = null }
+    BackHandler(enabled = currentSubPage != null) { closeCurrentSubPage() }
+
+    when (currentSubPage) {
+        AiSettingsSubPage.CUSTOM_INSTRUCTIONS -> {
+            LlmCustomInstructionsSettingsPage(onBack = closeCurrentSubPage)
+            return
+        }
+        AiSettingsSubPage.SKILLS -> {
+            LlmSkillSettingsPage(onBack = closeCurrentSubPage)
+            return
+        }
+        AiSettingsSubPage.QUICK_MESSAGES -> {
+            LlmQuickMessageSettingsPage(onBack = closeCurrentSubPage)
+            return
+        }
+        AiSettingsSubPage.WEB_SEARCH -> {
+            WebSearchSettingsPage(onBack = closeCurrentSubPage)
+            return
+        }
+        AiSettingsSubPage.MCP -> {
+            McpSettingsPage(onBack = closeCurrentSubPage)
+            return
+        }
+        null -> Unit
     }
     AiSettingsPage(
         onBack = onBack,
         additionalSettingsContent = {
             LlmAdvancedSettingsSection(
-                onOpenCustomInstructions = { showCustomInstructions = true },
-                onOpenSkills = { showSkills = true },
-                onOpenQuickMessages = { showQuickMessages = true },
-                onOpenWebSearch = { showWebSearch = true },
-                onOpenMcp = { showMcp = true },
+                onOpenCustomInstructions = { currentSubPage = AiSettingsSubPage.CUSTOM_INSTRUCTIONS },
+                onOpenSkills = { currentSubPage = AiSettingsSubPage.SKILLS },
+                onOpenQuickMessages = { currentSubPage = AiSettingsSubPage.QUICK_MESSAGES },
+                onOpenWebSearch = { currentSubPage = AiSettingsSubPage.WEB_SEARCH },
+                onOpenMcp = { currentSubPage = AiSettingsSubPage.MCP },
             )
         },
     )
