@@ -160,6 +160,7 @@ class LlmChatRepository @Inject constructor(
         completionTokens: Int? = message.completionTokens,
         durationMs: Long? = message.durationMs,
         tokenUsageEstimated: Boolean = message.tokenUsageEstimated,
+        touchConversation: Boolean = true,
     ): LlmMessageEntity {
         val updated =
             message.copy(
@@ -177,7 +178,9 @@ class LlmChatRepository @Inject constructor(
                 updatedAt = System.currentTimeMillis(),
             )
         dao.updateMessage(updated)
-        touchConversation(message.conversationId)
+        if (touchConversation) {
+            touchConversation(message.conversationId)
+        }
         return updated
     }
 

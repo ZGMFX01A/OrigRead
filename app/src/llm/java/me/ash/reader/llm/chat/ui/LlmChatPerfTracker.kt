@@ -170,8 +170,10 @@ internal object LlmChatPerfTracker {
             "markdownParseTotalMs" to state.markdownParseTotalMs,
             "autoFollowScrollCount" to state.autoFollowScrollCount,
         )
-        // 不立即删除：最终 COMPLETE Room 更新后 Compose 可能才执行最后一次 Rich Markdown parse。
-        // 有界 Map 会淘汰旧请求，因此不会随长期聊天无限增长。
+        // 完成汇总已经冻结本次请求的指标；继续保留会让之后的历史重排/滚动错误归因到已完成请求。
+        // 设备基线曾观察到一条请求 COMPLETE 约 90 秒后又被记为 first_auto_follow_scroll，
+        // 因此这里立即结束 trace 生命周期。最终 Room/Compose 收口仍由产品状态自己完成，不再污染性能样本。
+        states.remove(assistantMessageId)
     }
 
     private fun trimToBound() {

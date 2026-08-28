@@ -1396,6 +1396,10 @@ class LlmChatViewModel @Inject constructor(
                             reasoning = reasoning.ifBlank { null },
                             status = LlmMessageStatus.STREAMING,
                             errorMessage = null,
+                            // 流式正文自身已经会触发 messages Flow；不要每 90ms 再更新一次会话元数据，
+                            // 否则同一次 token 刷新会额外触发 conversations Flow 与一次无意义的 Room 写入。
+                            // 最终 COMPLETE / STOPPED / ERROR 仍使用默认 true，保证最近活动时间最终正确落盘。
+                            touchConversation = false,
                         )
                     LlmChatPerfTracker.recordRoomPersist(
                         assistantMessageId = assistant.id,
