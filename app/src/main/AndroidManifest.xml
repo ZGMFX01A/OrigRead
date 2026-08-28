@@ -10,6 +10,7 @@
 
     <queries>
         <package android:name="md.obsidian" />
+        <package android:name="org.b3log.siyuan" />
         <package android:name="notion.id" />
         <!-- P7：同设备 Standard / LLM 互相发现；Google Play flavor 使用独立 applicationId 后缀。 -->
         <package android:name="me.ash.reader" />
@@ -23,6 +24,18 @@
         </intent>
         <intent>
             <action android:name="android.intent.action.VIEW" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="obsidian" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="logseq" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SEND" />
+            <data android:mimeType="text/plain" />
         </intent>
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />

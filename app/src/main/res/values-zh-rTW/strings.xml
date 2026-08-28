@@ -268,7 +268,11 @@
     <string name="reading_share_target_title">分享目標</string>
     <string name="reading_share_target_system">系統分享（選擇應用程式）</string>
     <string name="reading_share_target_obsidian">Obsidian（自動建立新筆記）</string>
+    <string name="reading_share_target_siyuan">思源（傳送 Markdown）</string>
+    <string name="reading_share_target_logseq">Logseq（快速擷取）</string>
     <string name="reading_share_target_notion">Notion（建立私人頁面）</string>
+    <string name="reading_share_target_unavailable">目前裝置未偵測到可用入口</string>
+    <string name="reading_share_target_unavailable_fallback">無法開啟 %1$s，已改用系統分享</string>
     <string name="reading_share_notion_config_title">Notion · 個人存取權杖</string>
     <string name="reading_share_notion_config_desc">填寫 Notion 個人存取權杖。文章將直接建立為工作區私人頁面，無需連結頁面或指定父頁面；權杖在本機加密儲存。</string>
     <string name="reading_share_notion_tokens_url">notion.so/developers/tokens</string>

@@ -12,6 +12,8 @@ import me.ash.reader.ui.ext.dataStore
 enum class ReadingShareTarget {
     SYSTEM,
     OBSIDIAN,
+    SIYUAN,
+    LOGSEQ,
     NOTION,
 }
 

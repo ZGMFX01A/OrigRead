@@ -73,9 +73,11 @@ import me.ash.reader.infrastructure.share.ReadingShareContentBuilder
 import me.ash.reader.infrastructure.share.ReadingShareIntent
 import me.ash.reader.infrastructure.share.ReadingShareLabels
 import me.ash.reader.infrastructure.share.ReadingSharePayload
+import me.ash.reader.infrastructure.share.LogseqShare
 import me.ash.reader.infrastructure.share.ObsidianShare
 import me.ash.reader.infrastructure.share.NotionShareEntryPoint
 import me.ash.reader.infrastructure.share.NotionShareInProgressException
+import me.ash.reader.infrastructure.share.SiYuanShare
 import me.ash.reader.infrastructure.translation.TranslationProviderType
 import me.ash.reader.infrastructure.translation.TranslationDisplayMode
 import me.ash.reader.infrastructure.translation.TranslationTarget
@@ -213,6 +215,39 @@ fun ReadingPage(
             when (preference.target) {
                 ReadingShareTarget.OBSIDIAN -> {
                     if (ObsidianShare.share(context, readerState.title, payload.markdown)) return true
+                    context.showToast(
+                        context.getString(
+                            R.string.reading_share_target_unavailable_fallback,
+                            "Obsidian",
+                        )
+                    )
+                }
+                ReadingShareTarget.SIYUAN -> {
+                    if (SiYuanShare.share(context, readerState.title, payload.markdown)) return true
+                    context.showToast(
+                        context.getString(
+                            R.string.reading_share_target_unavailable_fallback,
+                            "思源",
+                        )
+                    )
+                }
+                ReadingShareTarget.LOGSEQ -> {
+                    if (
+                        LogseqShare.share(
+                            context = context,
+                            title = readerState.title,
+                            url = readerState.link,
+                            markdown = payload.markdown,
+                        )
+                    ) {
+                        return true
+                    }
+                    context.showToast(
+                        context.getString(
+                            R.string.reading_share_target_unavailable_fallback,
+                            "Logseq",
+                        )
+                    )
                 }
                 ReadingShareTarget.NOTION -> {
                     if (!notionShareConfiguration.tokenConfigured) {
@@ -280,9 +315,11 @@ fun ReadingPage(
                     when (preference.target) {
                         // 文件名/页面标题已经由专有渠道单独写入；正文只保留当前已打开的译文标题。
                         ReadingShareTarget.OBSIDIAN,
+                        ReadingShareTarget.LOGSEQ,
                         ReadingShareTarget.NOTION -> visibleTranslation?.translatedTitle
                             ?.takeIf { preference.includeTranslation }
-                        ReadingShareTarget.SYSTEM -> readerState.title
+                        ReadingShareTarget.SYSTEM,
+                        ReadingShareTarget.SIYUAN -> readerState.title
                     },
             )
         shareToConfiguredTarget(payload)
@@ -808,9 +845,15 @@ fun ReadingPage(
         )
     }
     if (showReadingShareConfig) {
+        // 每次重新打开配置页时重新探测，避免仅依赖包名导致“已安装却入口消失”。
+        val obsidianAvailability = remember { ObsidianShare.availability(context) }
+        val siYuanAvailability = remember { SiYuanShare.availability(context) }
+        val logseqAvailability = remember { LogseqShare.availability(context) }
         ReadingShareConfigSheet(
             initialPreference = readingSharePreference,
-            obsidianAvailable = ObsidianShare.isInstalled(context),
+            obsidianAvailability = obsidianAvailability,
+            siYuanAvailability = siYuanAvailability,
+            logseqAvailability = logseqAvailability,
             // Notion 通过 API 写入，不依赖本机是否安装 Notion 客户端。
             notionAvailable = true,
             notionConfiguration = notionShareConfiguration,

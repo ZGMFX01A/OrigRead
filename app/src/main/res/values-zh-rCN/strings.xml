@@ -319,7 +319,11 @@
     <string name="reading_share_target_title">分享目标</string>
     <string name="reading_share_target_system">系统分享（选择应用）</string>
     <string name="reading_share_target_obsidian">Obsidian（自动创建新笔记）</string>
+    <string name="reading_share_target_siyuan">思源（发送 Markdown）</string>
+    <string name="reading_share_target_logseq">Logseq（快速捕获）</string>
     <string name="reading_share_target_notion">Notion（创建私有页面）</string>
+    <string name="reading_share_target_unavailable">当前设备未检测到可用入口</string>
+    <string name="reading_share_target_unavailable_fallback">无法打开 %1$s，已改用系统分享</string>
     <string name="reading_share_notion_config_title">Notion · 个人访问令牌</string>
     <string name="reading_share_notion_config_desc">填写 Notion 个人访问令牌。文章将直接创建为工作区私有页面，无需连接页面或指定父页面；令牌在本机加密保存。</string>
     <string name="reading_share_notion_tokens_url">notion.so/developers/tokens</string>

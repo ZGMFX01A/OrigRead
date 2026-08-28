@@ -348,7 +348,11 @@
     <string name="reading_share_target_title">Share target</string>
     <string name="reading_share_target_system">System share (choose an app)</string>
     <string name="reading_share_target_obsidian">Obsidian (create a new note automatically)</string>
+    <string name="reading_share_target_siyuan">SiYuan (send Markdown)</string>
+    <string name="reading_share_target_logseq">Logseq (Quick Capture)</string>
     <string name="reading_share_target_notion">Notion (API rich page)</string>
+    <string name="reading_share_target_unavailable">No usable entry point was detected on this device</string>
+    <string name="reading_share_target_unavailable_fallback">Could not open %1$s. Using system share instead.</string>
     <string name="reading_share_notion_config_title">Notion API · personal access token</string>
     <string name="reading_share_notion_config_desc">Create a personal access token and paste it here. No page connection or parent page is required; OrigRead creates each article as a private workspace page. The token is encrypted and stored on this device.</string>
     <string name="reading_share_notion_tokens_url">notion.so/developers/tokens</string>

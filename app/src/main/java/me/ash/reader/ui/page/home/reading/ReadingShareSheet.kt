@@ -47,6 +47,7 @@ import me.ash.reader.R
 import me.ash.reader.infrastructure.preference.ReadingSharePreference
 import me.ash.reader.infrastructure.preference.ReadingShareTarget
 import me.ash.reader.infrastructure.share.NotionShareConfiguration
+import me.ash.reader.infrastructure.share.ShareTargetAvailability
 
 @Composable
 internal fun ReadingShareFirstUseSheet(
@@ -94,7 +95,9 @@ internal fun ReadingShareFirstUseSheet(
 @Composable
 internal fun ReadingShareConfigSheet(
     initialPreference: ReadingSharePreference,
-    obsidianAvailable: Boolean,
+    obsidianAvailability: ShareTargetAvailability,
+    siYuanAvailability: ShareTargetAvailability,
+    logseqAvailability: ShareTargetAvailability,
     notionAvailable: Boolean,
     notionConfiguration: NotionShareConfiguration,
     onDismiss: () -> Unit,
@@ -175,11 +178,37 @@ internal fun ReadingShareConfigSheet(
                 checked = target == ReadingShareTarget.SYSTEM,
                 onCheckedChange = { if (it) target = ReadingShareTarget.SYSTEM },
             )
-            if (obsidianAvailable) {
+            if (obsidianAvailability.detected || target == ReadingShareTarget.OBSIDIAN) {
                 ReadingShareOption(
                     title = stringResource(R.string.reading_share_target_obsidian),
                     checked = target == ReadingShareTarget.OBSIDIAN,
+                    description =
+                        if (obsidianAvailability.available) null
+                        else stringResource(R.string.reading_share_target_unavailable),
+                    enabled = obsidianAvailability.available,
                     onCheckedChange = { if (it) target = ReadingShareTarget.OBSIDIAN },
+                )
+            }
+            if (siYuanAvailability.detected || target == ReadingShareTarget.SIYUAN) {
+                ReadingShareOption(
+                    title = stringResource(R.string.reading_share_target_siyuan),
+                    checked = target == ReadingShareTarget.SIYUAN,
+                    description =
+                        if (siYuanAvailability.available) null
+                        else stringResource(R.string.reading_share_target_unavailable),
+                    enabled = siYuanAvailability.available,
+                    onCheckedChange = { if (it) target = ReadingShareTarget.SIYUAN },
+                )
+            }
+            if (logseqAvailability.detected || target == ReadingShareTarget.LOGSEQ) {
+                ReadingShareOption(
+                    title = stringResource(R.string.reading_share_target_logseq),
+                    checked = target == ReadingShareTarget.LOGSEQ,
+                    description =
+                        if (logseqAvailability.available) null
+                        else stringResource(R.string.reading_share_target_unavailable),
+                    enabled = logseqAvailability.available,
+                    onCheckedChange = { if (it) target = ReadingShareTarget.LOGSEQ },
                 )
             }
             if (notionAvailable) {
@@ -327,6 +356,8 @@ private fun ShareSheetHeader(title: String, description: String) {
 private fun ReadingShareOption(
     title: String,
     checked: Boolean,
+    description: String? = null,
+    enabled: Boolean = true,
     onCheckedChange: (Boolean) -> Unit,
 ) {
     ListItem(
@@ -336,12 +367,25 @@ private fun ReadingShareOption(
                 modifier = Modifier.fillMaxWidth(),
             )
         },
+        supportingContent =
+            description?.let { text ->
+                {
+                    Text(
+                        text = text,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
         trailingContent = {
-            Checkbox(checked = checked, onCheckedChange = onCheckedChange)
+            Checkbox(
+                checked = checked,
+                enabled = enabled,
+                onCheckedChange = onCheckedChange,
+            )
         },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         modifier =
-            Modifier.fillMaxWidth().clickable { onCheckedChange(!checked) },
+            Modifier.fillMaxWidth().clickable(enabled = enabled) { onCheckedChange(!checked) },
     )
 }
 
