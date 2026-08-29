@@ -46,6 +46,32 @@ internal fun buildContextRefEntities(
 }
 
 /**
+ * 冻结已经取得、但尚未完成 Runtime context compose 的候选来源。
+ *
+ * 这类快照明确标记为未进入 Prompt；后续 prepare 成功后会被同一 Assistant 的最终 ContextRef 原子替换。
+ * 主要用于 Search 已成功返回、但用户 Stop / Runtime prepare 失败 / 进程退出发生在模型请求之前的恢复窗口。
+ */
+internal fun buildUnconsumedContextRefEntities(
+    conversationId: String,
+    assistantMessageId: String,
+    candidates: List<LlmContextItem>,
+    createdAt: Long = System.currentTimeMillis(),
+): List<LlmContextRefEntity> =
+    buildContextRefEntities(
+        conversationId = conversationId,
+        assistantMessageId = assistantMessageId,
+        candidates = candidates,
+        composed =
+            ComposedLlmContext(
+                text = "",
+                includedIds = emptyList(),
+                omittedIds = candidates.map(LlmContextItem::id),
+                truncated = false,
+            ),
+        createdAt = createdAt,
+    )
+
+/**
  * 冻结一次 Assistant 请求完整的 ContextRef；只有未来 Evidence Citation 显式启用时才同时生成 [R#] 映射。
  *
  * 引用顺序必须来自当次请求本身而不是 UI 临时排序：

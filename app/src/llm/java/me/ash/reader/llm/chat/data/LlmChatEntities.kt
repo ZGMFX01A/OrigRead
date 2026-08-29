@@ -112,6 +112,13 @@ data class LlmMessageEntity(
     val reasoning: String? = null,
     val status: LlmMessageStatus = LlmMessageStatus.COMPLETE,
     @ColumnInfo(name = "error_message") val errorMessage: String? = null,
+    /**
+     * 是否属于当前选中的 Provider 历史分支。
+     *
+     * Regenerate 会保留旧 Assistant 及其 ContextRef 作为可审计历史，但旧版本不再进入后续模型 Prompt；
+     * 新请求和 Tool 续接只消费 historyActive=true 的消息。
+     */
+    @ColumnInfo(name = "history_active", defaultValue = "1") val historyActive: Boolean = true,
     /** 本轮 Dedicated Search 状态；仅 Assistant 请求使用，旧历史与普通消息保持 null。 */
     @ColumnInfo(name = "web_search_status") val webSearchStatus: WebSearchRequestStatus? = null,
     /** 本轮真正发给 Dedicated Search Provider 的冻结 query；旧 v11 历史保持 null，不反推。 */

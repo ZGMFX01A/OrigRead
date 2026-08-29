@@ -109,20 +109,30 @@ class WebSearchMessageUiModelTest {
 
     @Test
     fun `old success history keeps null query instead of guessing`() {
+        val message =
+            assistantMessage(
+                webSearchStatus = WebSearchRequestStatus.SUCCESS,
+                query = null,
+                provider = "Exa",
+            )
         val model =
             requireNotNull(
                 projectWebSearchMessage(
-                    assistantMessage(
-                        webSearchStatus = WebSearchRequestStatus.SUCCESS,
-                        query = null,
-                        provider = "Exa",
+                    message,
+                    listOf(
+                        contextRef(
+                            assistantMessageId = message.id,
+                            contextId = "legacy-search",
+                            type = LlmContextType.WEB_SEARCH_RESULT,
+                            sourceUrl = "https://example.com/legacy",
+                        )
                     ),
-                    emptyList(),
                 )
             )
 
         assertNull(model.query)
         assertEquals(WebSearchActivityUiState.SUCCESS, model.state)
+        assertTrue(model.canShowResults)
     }
 
     @Test
@@ -141,6 +151,10 @@ class WebSearchMessageUiModelTest {
 
         assertEquals(WebSearchActivityUiState.FAILED_FALLBACK, model.state)
         assertEquals(WebSearchMessageErrorState.AUTO_FALLBACK, model.errorState)
+        assertEquals("latest news", model.query)
+        assertEquals("Brave", model.providerName)
+        assertEquals(0, model.resultCount)
+        assertFalse(model.canShowResults)
     }
 
     @Test
@@ -150,9 +164,10 @@ class WebSearchMessageUiModelTest {
                 projectWebSearchMessage(
                     assistantMessage(
                         status = LlmMessageStatus.ERROR,
-                        webSearchStatus = WebSearchRequestStatus.TRIGGERED,
+                        webSearchStatus = WebSearchRequestStatus.FAILED_REQUIRED,
                         query = "force search",
                         provider = "Keenable",
+                        webSearchError = "Keenable request failed",
                     ),
                     emptyList(),
                 )
@@ -160,6 +175,43 @@ class WebSearchMessageUiModelTest {
 
         assertEquals(WebSearchActivityUiState.FORCE_FAILURE, model.state)
         assertEquals(WebSearchMessageErrorState.FORCE_FAILURE, model.errorState)
+        assertEquals("force search", model.query)
+        assertEquals("Keenable", model.providerName)
+        assertEquals(0, model.resultCount)
+        assertFalse(model.canShowResults)
+        assertEquals("Keenable request failed", model.errorMessage)
+    }
+
+    @Test
+    fun `cancelled and legacy triggered stopped never project searching`() {
+        val cancelled =
+            requireNotNull(
+                projectWebSearchMessage(
+                    assistantMessage(
+                        status = LlmMessageStatus.STOPPED,
+                        webSearchStatus = WebSearchRequestStatus.CANCELLED,
+                        query = "latest release",
+                        provider = "Exa",
+                    ),
+                    emptyList(),
+                )
+            )
+        val legacyStopped =
+            requireNotNull(
+                projectWebSearchMessage(
+                    assistantMessage(
+                        status = LlmMessageStatus.STOPPED,
+                        webSearchStatus = WebSearchRequestStatus.TRIGGERED,
+                        query = "old interrupted search",
+                        provider = "Tavily",
+                    ),
+                    emptyList(),
+                )
+            )
+
+        assertEquals(WebSearchActivityUiState.CANCELLED, cancelled.state)
+        assertEquals(WebSearchActivityUiState.CANCELLED, legacyStopped.state)
+        assertEquals(WebSearchMessageErrorState.NONE, cancelled.errorState)
     }
 
     @Test
@@ -215,6 +267,7 @@ class WebSearchMessageUiModelTest {
         webSearchStatus: WebSearchRequestStatus? = null,
         query: String? = null,
         provider: String? = null,
+        webSearchError: String? = null,
     ): LlmMessageEntity =
         LlmMessageEntity(
             id = "assistant-1",
@@ -225,6 +278,7 @@ class WebSearchMessageUiModelTest {
             webSearchStatus = webSearchStatus,
             webSearchQuery = query,
             webSearchProviderName = provider,
+            webSearchErrorMessage = webSearchError,
             createdAt = 1L,
             updatedAt = 1L,
         )

@@ -76,7 +76,7 @@ class WebSearchRouter @Inject constructor(
         prepared.preflightErrorMessage?.let { message ->
             return WebSearchRouteResult(
                 status =
-                    if (prepared.required) WebSearchRequestStatus.TRIGGERED
+                    if (prepared.required) WebSearchRequestStatus.FAILED_REQUIRED
                     else WebSearchRequestStatus.FAILED_FALLBACK,
                 providerName = prepared.providerName,
                 errorMessage = message,
@@ -243,7 +243,7 @@ internal fun buildWebSearchFailureResult(
 ): WebSearchRouteResult =
     WebSearchRouteResult(
         status =
-            if (required) WebSearchRequestStatus.TRIGGERED
+            if (required) WebSearchRequestStatus.FAILED_REQUIRED
             else WebSearchRequestStatus.FAILED_FALLBACK,
         providerName = providerName,
         errorMessage = webSearchUserError(providerName, error),

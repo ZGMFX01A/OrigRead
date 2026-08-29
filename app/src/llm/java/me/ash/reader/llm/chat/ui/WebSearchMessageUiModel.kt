@@ -7,12 +7,13 @@ import me.ash.reader.llm.chat.data.LlmMessageStatus
 import me.ash.reader.llm.runtime.LlmContextType
 import me.ash.reader.llm.search.WebSearchRequestStatus
 
-/** Chat 主列表只需要这四种稳定视觉状态；取消/重试恢复在 UX2.4 单独收口。 */
+/** Chat 主列表使用稳定终态；旧 TRIGGERED+STOPPED/ERROR 仍兼容投影，绝不恢复成假 searching。 */
 internal enum class WebSearchActivityUiState {
     SEARCHING,
     SUCCESS,
     FAILED_FALLBACK,
     FORCE_FAILURE,
+    CANCELLED,
 }
 
 internal enum class WebSearchMessageErrorState {
@@ -35,6 +36,7 @@ internal data class WebSearchMessageUiModel(
     val sourceLabels: List<String>,
     val canShowResults: Boolean,
     val errorState: WebSearchMessageErrorState,
+    val errorMessage: String?,
 )
 
 internal fun projectWebSearchMessage(
@@ -51,10 +53,13 @@ internal fun projectWebSearchMessage(
                 when (message.status) {
                     LlmMessageStatus.STREAMING -> WebSearchActivityUiState.SEARCHING
                     LlmMessageStatus.ERROR -> WebSearchActivityUiState.FORCE_FAILURE
+                    LlmMessageStatus.STOPPED -> WebSearchActivityUiState.CANCELLED
                     else -> return null
                 }
             WebSearchRequestStatus.SUCCESS -> WebSearchActivityUiState.SUCCESS
             WebSearchRequestStatus.FAILED_FALLBACK -> WebSearchActivityUiState.FAILED_FALLBACK
+            WebSearchRequestStatus.FAILED_REQUIRED -> WebSearchActivityUiState.FORCE_FAILURE
+            WebSearchRequestStatus.CANCELLED -> WebSearchActivityUiState.CANCELLED
             WebSearchRequestStatus.NOT_NEEDED -> return null
         }
 
@@ -81,6 +86,7 @@ internal fun projectWebSearchMessage(
                 WebSearchActivityUiState.FORCE_FAILURE -> WebSearchMessageErrorState.FORCE_FAILURE
                 else -> WebSearchMessageErrorState.NONE
             },
+        errorMessage = message.webSearchErrorMessage?.trim()?.takeIf(String::isNotBlank),
     )
 }
 

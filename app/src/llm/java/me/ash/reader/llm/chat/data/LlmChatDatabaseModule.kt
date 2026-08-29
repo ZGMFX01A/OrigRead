@@ -232,6 +232,21 @@ object LlmChatDatabaseModule {
             }
         }
 
+    /**
+     * v13 为 Regenerate 引入显式历史分支选择标记。
+     *
+     * 旧 v12 历史全部视为当前有效分支；之后 Regenerate 只把被替代的 Assistant 标记为 false，
+     * 不删除其正文、Search Plan、ContextRef 或 ToolCall 审计记录。
+     */
+    internal val MIGRATION_12_13 =
+        object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE llm_messages ADD COLUMN history_active INTEGER NOT NULL DEFAULT 1"
+                )
+            }
+        }
+
     /** 创建 LLM Chat Room 数据库单例。 */
     @Provides
     @Singleton
@@ -252,6 +267,7 @@ object LlmChatDatabaseModule {
             MIGRATION_9_10,
             MIGRATION_10_11,
             MIGRATION_11_12,
+            MIGRATION_12_13,
         ).build()
 
     /** 向业务层提供 Chat DAO 单例。 */

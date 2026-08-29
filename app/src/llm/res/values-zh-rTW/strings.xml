@@ -237,6 +237,7 @@
     <string name="llm_web_search_request_failed_fallback">連網搜尋失敗，已改用現有文章內容繼續回答。</string>
     <string name="llm_web_search_activity_title">連網搜尋</string>
     <string name="llm_web_search_activity_failed">連網搜尋失敗</string>
+    <string name="llm_web_search_activity_cancelled">連網搜尋已停止</string>
     <string name="llm_web_search_activity_result_count_provider">%1$s · %2$d 筆結果</string>
     <string name="llm_web_search_activity_result_count">%1$d 筆結果</string>
     <string name="llm_web_search_activity_query">搜尋：%1$s</string>

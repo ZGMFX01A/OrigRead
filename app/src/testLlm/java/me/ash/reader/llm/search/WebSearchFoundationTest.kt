@@ -517,9 +517,30 @@ class WebSearchFoundationTest {
                 providerName = "Exa",
                 error = InterruptedIOException("timeout"),
             )
-        assertEquals(WebSearchRequestStatus.TRIGGERED, force.status)
+        assertEquals(WebSearchRequestStatus.FAILED_REQUIRED, force.status)
         assertTrue(force.requiredFailure)
         assertEquals("Exa 搜索超时", force.errorMessage)
+    }
+
+    @Test
+    fun `stopping generation only cancels an in flight search`() {
+        assertEquals(
+            WebSearchRequestStatus.CANCELLED,
+            webSearchStatusAfterGenerationStopped(WebSearchRequestStatus.TRIGGERED),
+        )
+        assertEquals(
+            WebSearchRequestStatus.SUCCESS,
+            webSearchStatusAfterGenerationStopped(WebSearchRequestStatus.SUCCESS),
+        )
+        assertEquals(
+            WebSearchRequestStatus.FAILED_FALLBACK,
+            webSearchStatusAfterGenerationStopped(WebSearchRequestStatus.FAILED_FALLBACK),
+        )
+        assertEquals(
+            WebSearchRequestStatus.FAILED_REQUIRED,
+            webSearchStatusAfterGenerationStopped(WebSearchRequestStatus.FAILED_REQUIRED),
+        )
+        assertEquals(null, webSearchStatusAfterGenerationStopped(null))
     }
 
     @Test

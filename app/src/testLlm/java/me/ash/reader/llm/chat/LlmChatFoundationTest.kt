@@ -31,6 +31,7 @@ import me.ash.reader.llm.chat.data.buildContextRefEntities
 import me.ash.reader.llm.chat.data.buildRequestCitationReferences
 import me.ash.reader.llm.chat.data.buildRequestContextRefEntities
 import me.ash.reader.llm.chat.data.buildToolResultContextRefEntities
+import me.ash.reader.llm.chat.data.buildUnconsumedContextRefEntities
 import me.ash.reader.llm.chat.data.citationToken
 import me.ash.reader.llm.chat.data.stripDisabledLlmCitationTokens
 import me.ash.reader.llm.chat.data.LlmToolCallEntity
@@ -46,6 +47,7 @@ import me.ash.reader.llm.chat.ui.toArticleAttachment
 import me.ash.reader.llm.chat.ui.toConversationArticleEntity
 import me.ash.reader.llm.chat.ui.upsertAdditionalArticleAttachment
 import me.ash.reader.llm.chat.ui.buildRequestHistorySnapshot
+import me.ash.reader.llm.chat.ui.regenerationSupersededAssistantIds
 import me.ash.reader.llm.chat.ui.buildLlmCitationLink
 import me.ash.reader.llm.chat.ui.acknowledgedChatTransientMessageIds
 import me.ash.reader.llm.chat.ui.mergeChatMessagesWithTransientOverrides
@@ -855,8 +857,45 @@ class LlmChatFoundationTest {
         val encoded = converters.webSearchStatusToString(WebSearchRequestStatus.FAILED_FALLBACK)
         assertEquals("FAILED_FALLBACK", encoded)
         assertEquals(WebSearchRequestStatus.FAILED_FALLBACK, converters.stringToWebSearchStatus(encoded))
+        assertEquals(
+            WebSearchRequestStatus.FAILED_REQUIRED,
+            converters.stringToWebSearchStatus("FAILED_REQUIRED"),
+        )
+        assertEquals(
+            WebSearchRequestStatus.CANCELLED,
+            converters.stringToWebSearchStatus("CANCELLED"),
+        )
         assertNull(converters.stringToWebSearchStatus("FUTURE_UNKNOWN_SEARCH_STATUS"))
         assertNull(converters.webSearchStatusToString(null))
+    }
+
+    @Test
+    fun `search evidence can be frozen before model prepare without claiming prompt usage`() {
+        val searchItem =
+            LlmContextItem(
+                id = "web-search:1",
+                type = LlmContextType.WEB_SEARCH_RESULT,
+                title = "Result one",
+                sourceId = "https://example.com/result",
+                content = "fresh search evidence",
+                priority = 120,
+            )
+
+        val ref =
+            buildUnconsumedContextRefEntities(
+                conversationId = "conversation",
+                assistantMessageId = "assistant",
+                candidates = listOf(searchItem),
+                createdAt = 123L,
+            ).single()
+
+        assertEquals(searchItem.id, ref.contextId)
+        assertEquals(LlmContextType.WEB_SEARCH_RESULT, ref.type)
+        assertEquals("fresh search evidence", ref.contentSnapshot)
+        assertNull(ref.promptContentSnapshot)
+        assertFalse(ref.includedInPrompt)
+        assertFalse(ref.truncatedInPrompt)
+        assertEquals(123L, ref.createdAt)
     }
 
     @Test
@@ -1606,6 +1645,97 @@ class LlmChatFoundationTest {
             snapshot.messages.any {
                 it.role == LlmChatRole.USER && it.content == "continue"
             }
+        )
+    }
+
+    @Test
+    fun `inactive regenerated assistant and its tool results stay out of provider history`() {
+        val user =
+            LlmMessageEntity(
+                id = "user-1",
+                conversationId = "conversation",
+                role = LlmChatRole.USER,
+                content = "latest update",
+                createdAt = 1L,
+                updatedAt = 1L,
+            )
+        val oldAssistant =
+            LlmMessageEntity(
+                id = "assistant-old",
+                conversationId = "conversation",
+                role = LlmChatRole.ASSISTANT,
+                content = "old answer",
+                historyActive = false,
+                createdAt = 2L,
+                updatedAt = 2L,
+            )
+        val currentAssistant =
+            LlmMessageEntity(
+                id = "assistant-current",
+                conversationId = "conversation",
+                role = LlmChatRole.ASSISTANT,
+                content = "",
+                status = LlmMessageStatus.STREAMING,
+                createdAt = 3L,
+                updatedAt = 3L,
+            )
+        val oldToolCall =
+            LlmToolCallEntity(
+                id = "tool-old",
+                conversationId = "conversation",
+                assistantMessageId = oldAssistant.id,
+                providerCallId = "provider-old",
+                toolId = "mcp:search",
+                apiName = "search",
+                argumentsJson = "{}",
+                status = LlmToolCallStatus.COMPLETE,
+                resultContent = "old tool result",
+                createdAt = 2L,
+                updatedAt = 2L,
+            )
+
+        val snapshot =
+            buildRequestHistorySnapshot(
+                messages = listOf(user, oldAssistant, currentAssistant),
+                toolCalls = listOf(oldToolCall),
+                excludedAssistantId = currentAssistant.id,
+            )
+
+        assertEquals(listOf(LlmChatRole.USER), snapshot.messages.map(LlmChatRequestMessage::role))
+        assertTrue(snapshot.toolCalls.isEmpty())
+        assertFalse(snapshot.messages.any { it.content == "old answer" || it.content == "old tool result" })
+    }
+
+    @Test
+    fun `regenerate supersedes only active assistant chain after latest user`() {
+        fun message(
+            id: String,
+            role: LlmChatRole,
+            historyActive: Boolean = true,
+        ) =
+            LlmMessageEntity(
+                id = id,
+                conversationId = "conversation",
+                role = role,
+                content = id,
+                historyActive = historyActive,
+                createdAt = id.hashCode().toLong(),
+                updatedAt = id.hashCode().toLong(),
+            )
+
+        val messages =
+            listOf(
+                message("user-old", LlmChatRole.USER),
+                message("assistant-before", LlmChatRole.ASSISTANT),
+                message("user-latest", LlmChatRole.USER),
+                message("assistant-already-archived", LlmChatRole.ASSISTANT, historyActive = false),
+                message("assistant-tool-round", LlmChatRole.ASSISTANT),
+                message("assistant-final", LlmChatRole.ASSISTANT),
+            )
+
+        assertEquals(
+            setOf("assistant-tool-round", "assistant-final"),
+            regenerationSupersededAssistantIds(messages),
         )
     }
 

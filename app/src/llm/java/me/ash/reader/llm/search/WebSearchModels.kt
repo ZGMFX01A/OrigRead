@@ -27,7 +27,17 @@ enum class WebSearchRequestStatus {
     TRIGGERED,
     SUCCESS,
     FAILED_FALLBACK,
+    FAILED_REQUIRED,
+    CANCELLED,
 }
+
+/**
+ * 生成协程停止时只收口仍在执行中的 Search；已经成功/降级/失败的搜索历史必须原样保留。
+ */
+internal fun webSearchStatusAfterGenerationStopped(
+    current: WebSearchRequestStatus?,
+): WebSearchRequestStatus? =
+    if (current == WebSearchRequestStatus.TRIGGERED) WebSearchRequestStatus.CANCELLED else current
 
 /** Router 对一次 Chat 请求做出的纯业务决策；不包含 Provider I/O。 */
 data class WebSearchDecision(

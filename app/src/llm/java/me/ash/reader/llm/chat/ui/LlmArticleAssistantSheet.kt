@@ -793,6 +793,7 @@ private fun AssistantMessage(
             message.webSearchStatus,
             message.webSearchQuery,
             message.webSearchProviderName,
+            message.webSearchErrorMessage,
             contextRefs,
         ) {
             projectWebSearchMessage(message, contextRefs)
@@ -905,7 +906,7 @@ private fun WebSearchActivityCard(
     onOpenResults: () -> Unit,
 ) {
     if (model.state == WebSearchActivityUiState.SUCCESS && model.query == null) {
-        LegacyWebSearchStatusRow(model)
+        LegacyWebSearchStatusRow(model, onOpenResults)
         return
     }
 
@@ -953,6 +954,8 @@ private fun WebSearchActivityCard(
                                 stringResource(R.string.llm_web_search_activity_failed)
                             WebSearchActivityUiState.FORCE_FAILURE ->
                                 stringResource(R.string.llm_web_search_activity_failed)
+                            WebSearchActivityUiState.CANCELLED ->
+                                stringResource(R.string.llm_web_search_activity_cancelled)
                         },
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.labelLarge,
@@ -1055,10 +1058,13 @@ private fun WebSearchActivityCard(
                     )
                 WebSearchActivityUiState.FORCE_FAILURE ->
                     Text(
-                        text = stringResource(R.string.llm_web_search_activity_force_failed),
+                        text =
+                            model.errorMessage
+                                ?: stringResource(R.string.llm_web_search_activity_force_failed),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
+                WebSearchActivityUiState.CANCELLED -> Unit
             }
         }
     }
@@ -1066,7 +1072,10 @@ private fun WebSearchActivityCard(
 
 /** v11 及更早历史没有冻结 query；保持旧版单行展示，绝不事后猜测搜索词。 */
 @Composable
-private fun LegacyWebSearchStatusRow(model: WebSearchMessageUiModel) {
+private fun LegacyWebSearchStatusRow(
+    model: WebSearchMessageUiModel,
+    onOpenResults: () -> Unit,
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -1083,9 +1092,26 @@ private fun LegacyWebSearchStatusRow(model: WebSearchMessageUiModel) {
                 model.providerName?.let { provider ->
                     stringResource(R.string.llm_web_search_request_success_provider, provider)
                 } ?: stringResource(R.string.llm_web_search_request_success),
+            modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (model.canShowResults) {
+            TextButton(
+                onClick = onOpenResults,
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+            ) {
+                Text(
+                    stringResource(R.string.llm_web_search_activity_view_results),
+                    style = MaterialTheme.typography.labelMedium,
+                )
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
     }
 }
 

@@ -8,6 +8,7 @@ import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
+import me.ash.reader.llm.search.WebSearchRequestStatus
 
 @Dao
 /** LLM Chat Room 数据访问接口。 */
@@ -92,6 +93,35 @@ interface LlmChatDao {
     @Update
     suspend fun updateMessage(message: LlmMessageEntity)
 
+    /**
+     * Search 终态与当次已取得的 Search ContextRef 必须原子提交。
+     *
+     * 否则 Search Provider 已成功返回后，若用户立即 Stop 或进程在 Runtime prepare 前退出，
+     * 可能留下 SUCCESS 但没有任何结果快照的半状态。
+     */
+    @Transaction
+    suspend fun updateMessageAndReplaceContextRefs(
+        message: LlmMessageEntity,
+        contextRefs: List<LlmContextRefEntity>,
+    ) {
+        updateMessage(message)
+        deleteContextRefsForAssistant(message.id)
+        if (contextRefs.isNotEmpty()) insertContextRefs(contextRefs)
+    }
+
+    /**
+     * Regenerate 只切换 Provider 历史分支，不删除旧 Assistant；旧 ContextRef/ToolCall 继续可审计。
+     */
+    @Query(
+        "UPDATE llm_messages SET history_active = :active, updated_at = :updatedAt " +
+            "WHERE id IN (:messageIds)"
+    )
+    suspend fun setMessagesHistoryActive(
+        messageIds: List<String>,
+        active: Boolean,
+        updatedAt: Long,
+    ): Int
+
     /** Provider 同一轮可能返回多个 Tool Call，批量落库。 */
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertToolCalls(toolCalls: List<LlmToolCallEntity>)
@@ -145,12 +175,18 @@ interface LlmChatDao {
      * 下次进入 Chat 时统一收口为 STOPPED，避免历史记录永久显示“生成中”。
      */
     @Query(
-        "UPDATE llm_messages SET status = :stoppedStatus, updated_at = :updatedAt " +
+        "UPDATE llm_messages SET status = :stoppedStatus, " +
+            "web_search_status = CASE " +
+            "WHEN web_search_status = :triggeredWebSearchStatus THEN :cancelledWebSearchStatus " +
+            "ELSE web_search_status END, " +
+            "updated_at = :updatedAt " +
             "WHERE status = :streamingStatus"
     )
     suspend fun recoverInterruptedMessages(
         streamingStatus: LlmMessageStatus,
         stoppedStatus: LlmMessageStatus,
+        triggeredWebSearchStatus: WebSearchRequestStatus,
+        cancelledWebSearchStatus: WebSearchRequestStatus,
         updatedAt: Long,
     ): Int
 

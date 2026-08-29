@@ -37,6 +37,7 @@ import me.ash.reader.llm.chat.data.LlmToolCallStatus
 import me.ash.reader.llm.chat.data.LLM_EVIDENCE_CITATION_ENABLED
 import me.ash.reader.llm.chat.data.buildRequestCitationReferences
 import me.ash.reader.llm.chat.data.buildRequestContextRefEntities
+import me.ash.reader.llm.chat.data.buildUnconsumedContextRefEntities
 import me.ash.reader.llm.chat.runtime.LlmChatRequestMessage
 import me.ash.reader.llm.chat.runtime.LlmChatRequestToolCall
 import me.ash.reader.llm.chat.runtime.LlmChatToolCallDelta
@@ -67,8 +68,10 @@ import me.ash.reader.llm.runtime.ModelCapabilityOverride
 import me.ash.reader.llm.runtime.estimateLlmTokens
 import me.ash.reader.llm.search.WebSearchException
 import me.ash.reader.llm.search.WebSearchMode
+import me.ash.reader.llm.search.WebSearchRequestStatus
 import me.ash.reader.llm.search.WebSearchRouter
 import me.ash.reader.llm.search.toContextItems
+import me.ash.reader.llm.search.webSearchStatusAfterGenerationStopped
 import me.ash.reader.llm.settings.LlmSettingsRepository
 import me.ash.reader.llm.skill.LlmSkillRepository
 import me.ash.reader.llm.skill.LlmSkillRouter
@@ -152,6 +155,7 @@ internal fun buildRequestHistorySnapshot(
     val requestMessages = buildList {
         messages.forEach { message ->
             if (message.id == excludedAssistantId || message.role == LlmChatRole.SYSTEM) return@forEach
+            if (!message.historyActive) return@forEach
             if (message.status == LlmMessageStatus.ERROR) return@forEach
             // TOOL 只属于传输拓扑；本地 UI/Room 不单独保存 Tool result 消息。
             if (message.role == LlmChatRole.TOOL) return@forEach
@@ -207,6 +211,23 @@ internal fun buildRequestHistorySnapshot(
         messages = requestMessages,
         toolCalls = visibleToolCalls,
     )
+}
+
+/**
+ * Regenerate 只替代最后一条 USER 之后仍属于当前历史分支的 Assistant 链。
+ * 旧消息本身不删除，后续通过 historyActive=false 从 Provider Prompt 中退出。
+ */
+internal fun regenerationSupersededAssistantIds(
+    messages: List<LlmMessageEntity>,
+): Set<String> {
+    val lastUserIndex = messages.indexOfLast { it.role == LlmChatRole.USER }
+    if (lastUserIndex < 0) return emptySet()
+    return messages
+        .drop(lastUserIndex + 1)
+        .asSequence()
+        .filter { it.role == LlmChatRole.ASSISTANT && it.historyActive }
+        .map(LlmMessageEntity::id)
+        .toSet()
 }
 
 /** 当前会话的运行时选择，只保存 Provider/Model 标识，不持有 API Key。 */
@@ -929,14 +950,11 @@ class LlmChatViewModel @Inject constructor(
         clearTransientStreamingMessages(conversationId)
         startGenerationJob {
             val messages = repository.getMessages(conversationId)
-            val lastUserIndex = messages.indexOfLast { it.role == LlmChatRole.USER }
-            if (lastUserIndex < 0) return@startGenerationJob
-            messages.drop(lastUserIndex + 1).forEach { trailing ->
-                if (trailing.role == LlmChatRole.ASSISTANT) {
-                    repository.deleteMessage(trailing.id)
-                }
-            }
-            generateAssistant(conversationId)
+            if (messages.none { it.role == LlmChatRole.USER }) return@startGenerationJob
+            generateAssistant(
+                conversationId = conversationId,
+                supersededHistoryAssistantIds = regenerationSupersededAssistantIds(messages),
+            )
         }
     }
 
@@ -1194,6 +1212,7 @@ class LlmChatViewModel @Inject constructor(
         conversationId: String,
         allowWebSearch: Boolean = true,
         toolRound: Int = 0,
+        supersededHistoryAssistantIds: Set<String> = emptySet(),
     ) {
         if (toolRound > MAX_AUTOMATIC_TOOL_ROUNDS) {
             _uiState.update { it.copy(transientError = "Tool Calling 超过安全轮次限制") }
@@ -1234,6 +1253,12 @@ class LlmChatViewModel @Inject constructor(
             providerPromptTokens == null || providerCompletionTokens == null
 
         try {
+            if (supersededHistoryAssistantIds.isNotEmpty()) {
+                repository.setMessagesHistoryActive(
+                    messageIds = supersededHistoryAssistantIds,
+                    active = false,
+                )
+            }
             val requestPrepareStartedAtNanos = System.nanoTime()
             val historySnapshot = buildRequestHistory(conversationId, assistant.id)
             val history = historySnapshot.messages
@@ -1318,19 +1343,37 @@ class LlmChatViewModel @Inject constructor(
                 "status" to webSearchRoute.status.name,
                 "requiredFailure" to webSearchRoute.requiredFailure,
             )
-            assistant =
-                repository.updateMessage(
-                    message = assistant,
-                    webSearchStatus = webSearchRoute.status,
-                    webSearchProviderName = webSearchRoute.providerName,
-                    webSearchErrorMessage = webSearchRoute.errorMessage,
-                )
+            val webSearch = webSearchRoute.response
+            val webSearchContextItems = webSearch?.toContextItems().orEmpty()
+            val searchEvidenceCreatedAt = System.currentTimeMillis()
+            val unconsumedSearchRefs =
+                if (webSearchRoute.status == WebSearchRequestStatus.SUCCESS) {
+                    buildUnconsumedContextRefEntities(
+                        conversationId = conversationId,
+                        assistantMessageId = assistant.id,
+                        candidates = webSearchContextItems,
+                        createdAt = searchEvidenceCreatedAt,
+                    )
+                } else {
+                    emptyList()
+                }
+            // Search 一旦产生终态，就先把“终态 + 已取得结果快照”作为一个 Room 事务冻结。
+            // 用户在 Provider 已返回后立即 Stop 时，也不能把真实 SUCCESS/FAILED 重新降成 TRIGGERED。
+            withContext(NonCancellable) {
+                assistant =
+                    repository.finalizeWebSearch(
+                        message = assistant,
+                        status = webSearchRoute.status,
+                        providerName = webSearchRoute.providerName,
+                        errorMessage = webSearchRoute.errorMessage,
+                        contextRefs = unconsumedSearchRefs,
+                    )
+            }
             if (webSearchRoute.requiredFailure) {
                 throw WebSearchException(
                     webSearchRoute.errorMessage ?: "Web Search 强制联网失败"
                 )
             }
-            val webSearch = webSearchRoute.response
             val contextItems =
                 buildRequestArticleContextItems(
                     currentArticle = currentArticle,
@@ -1339,7 +1382,7 @@ class LlmChatViewModel @Inject constructor(
                     includeAdditionalArticles = requestTask == LlmExecutionTask.CHAT,
                 ) +
                     _uiState.value.manualToolContexts.map(LlmManualToolContext::toContextItem) +
-                    webSearch?.toContextItems().orEmpty()
+                    webSearchContextItems
             val enabledToolIds =
                 if (advancedSettings.mcpEnabled) {
                     toolRuntime.descriptors()
@@ -1391,6 +1434,7 @@ class LlmChatViewModel @Inject constructor(
             // 同一 assistant placeholder 若重新 prepare，则 Repository 事务替换旧快照，不留下半套来源。
             val contextRefCreatedAt = System.currentTimeMillis()
             val requestToolCalls = historySnapshot.toolCalls
+            val frozenSearchRefsByContextId = unconsumedSearchRefs.associateBy { it.contextId }
             val contextRefs =
                 buildRequestContextRefEntities(
                     conversationId = conversationId,
@@ -1400,7 +1444,12 @@ class LlmChatViewModel @Inject constructor(
                     toolCalls = requestToolCalls,
                     createdAt = contextRefCreatedAt,
                     citationFeatureEnabled = LLM_EVIDENCE_CITATION_ENABLED,
-                )
+                ).map { ref ->
+                    frozenSearchRefsByContextId[ref.contextId]?.let { frozen ->
+                        // SUCCESS 后立即打开详情时，最终 usage 刷新复用同一冻结结果身份。
+                        ref.copy(id = frozen.id, createdAt = frozen.createdAt)
+                    } ?: ref
+                }
             repository.replaceContextRefsForAssistant(
                 assistantMessageId = assistant.id,
                 contextRefs = contextRefs,
@@ -1581,6 +1630,8 @@ class LlmChatViewModel @Inject constructor(
                         reasoning = reasoning.ifBlank { null },
                         status = LlmMessageStatus.STOPPED,
                         errorMessage = null,
+                        webSearchStatus =
+                            webSearchStatusAfterGenerationStopped(assistant.webSearchStatus),
                         promptTokens = promptTokens(),
                         completionTokens = completionTokens(),
                         durationMs = durationMs(),

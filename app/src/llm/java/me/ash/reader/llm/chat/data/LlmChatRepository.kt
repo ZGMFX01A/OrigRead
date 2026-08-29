@@ -186,6 +186,48 @@ class LlmChatRepository @Inject constructor(
         return updated
     }
 
+    /**
+     * 原子冻结 Dedicated Search 的终态与已取得的结果证据。
+     *
+     * SUCCESS 会先保存一份“尚未进入模型 Prompt”的 Search ContextRef；Runtime prepare 完成后再由
+     * replaceContextRefsForAssistant 原子替换成最终 usage 状态。这样 Stop/进程退出落在两阶段之间时，
+     * 仍能恢复真实 Search 结果，而不会制造 SUCCESS + 0 evidence 的竞态。
+     */
+    suspend fun finalizeWebSearch(
+        message: LlmMessageEntity,
+        status: WebSearchRequestStatus,
+        providerName: String?,
+        errorMessage: String?,
+        contextRefs: List<LlmContextRefEntity>,
+    ): LlmMessageEntity {
+        val updated =
+            message.copy(
+                webSearchStatus = status,
+                webSearchProviderName = providerName,
+                webSearchErrorMessage = errorMessage,
+                updatedAt = System.currentTimeMillis(),
+            )
+        dao.updateMessageAndReplaceContextRefs(updated, contextRefs)
+        touchConversation(message.conversationId)
+        return updated
+    }
+
+    /**
+     * 切换消息是否进入后续 Provider 历史；只改分支选择，不删除消息及其请求级证据。
+     */
+    suspend fun setMessagesHistoryActive(
+        messageIds: Collection<String>,
+        active: Boolean,
+    ): Int {
+        val ids = messageIds.distinct()
+        if (ids.isEmpty()) return 0
+        return dao.setMessagesHistoryActive(
+            messageIds = ids,
+            active = active,
+            updatedAt = System.currentTimeMillis(),
+        )
+    }
+
     /** 将同一 assistant response 中的 Tool Calls 一次落库。 */
     suspend fun appendToolCalls(toolCalls: List<LlmToolCallEntity>) {
         if (toolCalls.isEmpty()) return
@@ -232,6 +274,8 @@ class LlmChatRepository @Inject constructor(
             dao.recoverInterruptedMessages(
                 streamingStatus = LlmMessageStatus.STREAMING,
                 stoppedStatus = LlmMessageStatus.STOPPED,
+                triggeredWebSearchStatus = WebSearchRequestStatus.TRIGGERED,
+                cancelledWebSearchStatus = WebSearchRequestStatus.CANCELLED,
                 updatedAt = now,
             )
         dao.recoverInterruptedToolCalls(
