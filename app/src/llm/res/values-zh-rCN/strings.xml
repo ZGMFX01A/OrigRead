@@ -33,6 +33,7 @@
     <string name="llm_article_input_hint">询问这篇文章…</string>
     <string name="llm_related_articles_add">添加相关文章</string>
     <string name="llm_related_articles_title">添加相关文章</string>
+    <string name="llm_related_articles_selection_count">已选择 %1$d / %2$d 篇</string>
     <string name="llm_related_articles_search_hint">搜索文章标题</string>
     <string name="llm_related_articles_recent">最近文章</string>
     <string name="llm_related_articles_results">搜索结果</string>
@@ -204,6 +205,10 @@
     <string name="llm_web_search_title">Web Search</string>
     <string name="llm_web_search_desc">配置专用搜索服务；Web Search 与 MCP 保持独立。</string>
     <string name="llm_web_search_execution_desc">每次搜索只使用一个默认服务。其他已启用服务作为可切换备选；OrigRead 不会并行请求多个服务，也不会在服务间自动重试。</string>
+    <string name="llm_web_search_results_count">每次搜索结果数</string>
+    <string name="llm_web_search_results_count_desc">控制向当前搜索服务请求的结果数量。默认 5 个，可设置 1–20 个。</string>
+    <string name="llm_web_search_results_decrease">减少搜索结果数</string>
+    <string name="llm_web_search_results_increase">增加搜索结果数</string>
     <string name="llm_web_search_add">添加搜索服务</string>
     <string name="llm_web_search_empty">尚未配置搜索服务。</string>
     <string name="llm_web_search_default">默认</string>

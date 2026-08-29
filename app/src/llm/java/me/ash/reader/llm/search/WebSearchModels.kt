@@ -140,6 +140,7 @@ data class WebSearchProviderProfile(
 data class WebSearchSettings(
     val providers: List<WebSearchProviderProfile> = emptyList(),
     val defaultProviderId: String? = null,
+    val maxResults: Int = DEFAULT_WEB_SEARCH_MAX_RESULTS,
 ) {
     fun defaultProvider(): WebSearchProviderProfile? =
         providers.firstOrNull { it.id == defaultProviderId && it.enabled }
@@ -149,7 +150,7 @@ data class WebSearchSettings(
 /** 单次 Web Search 请求。 */
 data class WebSearchRequest(
     val query: String,
-    val maxResults: Int = 5,
+    val maxResults: Int = DEFAULT_WEB_SEARCH_MAX_RESULTS,
     val includeContent: Boolean = false,
     /**
      * Dedicated Search 的整次 HTTP Call 预算。
@@ -163,7 +164,9 @@ data class WebSearchRequest(
 ) {
     init {
         require(query.isNotBlank()) { "Search query 不能为空" }
-        require(maxResults in 1..20) { "maxResults 必须在 1..20" }
+        require(maxResults in MIN_WEB_SEARCH_MAX_RESULTS..MAX_WEB_SEARCH_MAX_RESULTS) {
+            "maxResults 必须在 $MIN_WEB_SEARCH_MAX_RESULTS..$MAX_WEB_SEARCH_MAX_RESULTS"
+        }
         require(timeoutMillis in 250L..60_000L) { "Search timeoutMillis 必须在 250..60000" }
     }
 }
@@ -203,4 +206,10 @@ data class WebSearchHealthCheckResult(
 class WebSearchException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)
 
 internal const val DEFAULT_WEB_SEARCH_TIMEOUT_MILLIS = 12_000L
+internal const val DEFAULT_WEB_SEARCH_MAX_RESULTS = 5
+internal const val MIN_WEB_SEARCH_MAX_RESULTS = 1
+internal const val MAX_WEB_SEARCH_MAX_RESULTS = 20
+
+internal fun normalizeWebSearchMaxResults(value: Int): Int =
+    value.coerceIn(MIN_WEB_SEARCH_MAX_RESULTS, MAX_WEB_SEARCH_MAX_RESULTS)
 

@@ -19,6 +19,8 @@ data class LlmArticleAttachment(
     val summary: String? = null,
 )
 
+internal const val MAX_ADDITIONAL_ARTICLES = 5
+
 /** 将 Room 中保存的活动附件快照恢复为 Runtime/UI 共用的文章附件。 */
 internal fun LlmConversationArticleEntity.toArticleAttachment(): LlmArticleAttachment =
     LlmArticleAttachment(
@@ -111,26 +113,28 @@ internal fun normalizedAdditionalArticleAttachments(
 ): List<LlmArticleAttachment> {
     val normalizedCurrentId = currentArticleId.trim()
     val seenArticleIds = linkedSetOf<String>()
-    return attachments.mapNotNull { attachment ->
-        val articleId = attachment.articleId.trim()
-        if (
-            articleId.isBlank() ||
-                articleId == normalizedCurrentId ||
-                !seenArticleIds.add(articleId)
-        ) {
-            return@mapNotNull null
+    return attachments
+        .mapNotNull { attachment ->
+            val articleId = attachment.articleId.trim()
+            if (
+                articleId.isBlank() ||
+                    articleId == normalizedCurrentId ||
+                    !seenArticleIds.add(articleId)
+            ) {
+                return@mapNotNull null
+            }
+            val originalContent = attachment.originalContent.trim()
+            val summary = attachment.summary?.trim()?.takeIf(String::isNotBlank)
+            if (originalContent.isBlank() && summary == null) return@mapNotNull null
+            attachment.copy(
+                articleId = articleId,
+                title = attachment.title.trim(),
+                link = attachment.link?.trim()?.takeIf(String::isNotBlank),
+                originalContent = originalContent,
+                summary = summary,
+            )
         }
-        val originalContent = attachment.originalContent.trim()
-        val summary = attachment.summary?.trim()?.takeIf(String::isNotBlank)
-        if (originalContent.isBlank() && summary == null) return@mapNotNull null
-        attachment.copy(
-            articleId = articleId,
-            title = attachment.title.trim(),
-            link = attachment.link?.trim()?.takeIf(String::isNotBlank),
-            originalContent = originalContent,
-            summary = summary,
-        )
-    }
+        .take(MAX_ADDITIONAL_ARTICLES)
 }
 
 /** 同一 articleId 重复附加时原位替换快照，避免无意义改变附件与 Context 顺序。 */
@@ -144,6 +148,9 @@ internal fun upsertAdditionalArticleAttachment(
             ?: return existing
     val current = normalizedAdditionalArticleAttachments(currentArticleId, existing)
     val index = current.indexOfFirst { it.articleId == normalized.articleId }
-    if (index < 0) return current + normalized
+    if (index < 0) {
+        if (current.size >= MAX_ADDITIONAL_ARTICLES) return current
+        return current + normalized
+    }
     return current.toMutableList().apply { this[index] = normalized }
 }

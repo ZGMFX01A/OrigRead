@@ -667,6 +667,7 @@
     <string name="configuration_backup_scope_desc">包含訂閱與群組、解析與過濾規則、RSSHub、應用程式偏好及翻譯/AI 服務設定；不包含文章、閱讀狀態、已產生摘要/譯文與快取。</string>
     <string name="configuration_backup_include_secrets">包含 API Key</string>
     <string name="configuration_backup_include_secrets_desc">預設關閉；開啟後 API Key 會加密寫入備份檔案，也可隨同簽名的版本間同步遷移。</string>
+    <string name="configuration_backup_include_secrets_desc_portable_only">預設關閉；開啟後 API Key 會使用備份密碼加密寫入備份檔案。</string>
     <string name="configuration_backup_password">備份密碼</string>
     <string name="configuration_backup_password_desc">至少 6 個字元。還原加密憑證時需再次輸入，原讀不會儲存此密碼。</string>
     <string name="configuration_backup_password_too_short">備份密碼至少需要 6 個字元</string>

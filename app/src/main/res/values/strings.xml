@@ -803,6 +803,7 @@
     <string name="configuration_backup_scope_desc">Includes the current account’s subscriptions and groups, source rules, filters, RSSHub settings, app preferences, translation providers and AI providers. Articles, read/starred state, generated summaries, translations and caches are not included.</string>
     <string name="configuration_backup_include_secrets">Include API keys</string>
     <string name="configuration_backup_include_secrets_desc">Off by default. When enabled, API keys are encrypted in backup files and may also be included in same-signature edition sync.</string>
+    <string name="configuration_backup_include_secrets_desc_portable_only">Off by default. When enabled, API keys are encrypted in the backup file using your backup password.</string>
     <string name="configuration_backup_password">Backup password</string>
     <string name="configuration_backup_password_desc">At least 6 characters. This password is not saved by OrigRead and is required to restore encrypted API keys on another device.</string>
     <string name="configuration_backup_password_too_short">Backup password must be at least 6 characters</string>

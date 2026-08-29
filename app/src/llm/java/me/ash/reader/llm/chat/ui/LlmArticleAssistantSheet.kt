@@ -219,7 +219,12 @@ fun LlmArticleAssistantSheet(
             modifier = Modifier.fillMaxWidth().fillMaxHeight(0.92f),
         ) {
             AssistantHeader(
-                articleTitle = articleContext.title,
+                providerName =
+                    uiState.providers
+                        .firstOrNull { it.id == uiState.selectedProviderId }
+                        ?.name
+                        ?.takeIf(String::isNotBlank)
+                        ?: stringResource(R.string.llm_chat_select_provider),
                 conversations = uiState.conversations,
                 currentConversationId = uiState.currentConversationId,
                 historyExpanded = historyExpanded,
@@ -500,7 +505,7 @@ fun LlmArticleAssistantSheet(
 
 @Composable
 private fun AssistantHeader(
-    articleTitle: String,
+    providerName: String,
     conversations: List<LlmConversationEntity>,
     currentConversationId: String?,
     historyExpanded: Boolean,
@@ -530,7 +535,7 @@ private fun AssistantHeader(
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = articleTitle,
+                text = providerName,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodySmall,
@@ -1365,7 +1370,6 @@ private fun AssistantComposer(
     var reasoningSheetVisible by remember { mutableStateOf(false) }
     var quickMessageSheetVisible by remember { mutableStateOf(false) }
     var relatedArticleSheetVisible by remember { mutableStateOf(false) }
-    val selectedProvider = uiState.providers.firstOrNull { it.id == uiState.selectedProviderId }
     val configured = uiState.selectedProviderId != null && uiState.selectedModel != null
     val canModifyAdditionalArticles =
         !uiState.isGenerating &&
@@ -1469,9 +1473,9 @@ private fun AssistantComposer(
                     modifier = Modifier.widthIn(max = 248.dp),
                     label = {
                         Text(
-                            listOfNotNull(selectedProvider?.name, uiState.selectedModel)
-                                .joinToString(" · ")
-                                .ifBlank { stringResource(R.string.llm_chat_select_model) },
+                            uiState.selectedModel
+                                ?.takeIf(String::isNotBlank)
+                                ?: stringResource(R.string.llm_chat_select_model),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -1640,6 +1644,7 @@ private fun RelatedArticlePickerSheet(
     val attachedIds = remember(uiState.additionalArticleAttachments) {
         uiState.additionalArticleAttachments.mapTo(hashSetOf()) { it.articleId }
     }
+    val selectionLimitReached = attachedIds.size >= MAX_ADDITIONAL_ARTICLES
 
     LaunchedEffect(query) {
         if (query.isNotBlank()) delay(250)
@@ -1661,6 +1666,16 @@ private fun RelatedArticlePickerSheet(
                 text = stringResource(R.string.llm_related_articles_title),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text =
+                    stringResource(
+                        R.string.llm_related_articles_selection_count,
+                        attachedIds.size,
+                        MAX_ADDITIONAL_ARTICLES,
+                    ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             OutlinedTextField(
                 value = query,
@@ -1723,10 +1738,11 @@ private fun RelatedArticlePickerSheet(
                             key = { it.articleId },
                         ) { candidate ->
                             val attached = candidate.articleId in attachedIds
+                            val canAttach = canModify && !attached && !selectionLimitReached
                             Row(
                                 modifier =
                                     Modifier.fillMaxWidth()
-                                        .clickable(enabled = canModify && !attached) {
+                                        .clickable(enabled = canAttach) {
                                             onAttach(candidate)
                                         }
                                         .padding(vertical = 12.dp),
@@ -1760,7 +1776,8 @@ private fun RelatedArticlePickerSheet(
                                         ),
                                     tint =
                                         if (attached) MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        else if (canAttach) MaterialTheme.colorScheme.onSurfaceVariant
+                                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
                                     modifier = Modifier.size(20.dp),
                                 )
                             }

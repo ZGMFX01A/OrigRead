@@ -17,6 +17,10 @@ class EditionSyncTransferManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val editionSyncService: EditionSyncService,
 ) {
+    /** 仅判断另一 Edition 是否已安装；签名信任仍在真正创建直传 Intent 时严格校验。 */
+    fun isPeerInstalled(peerPackage: String = EditionSyncContract.peerPackageName()): Boolean =
+        runCatching { context.packageManager.getPackageInfo(peerPackage, 0) }.isSuccess
+
     /** 生成完整快照、加密并构造显式目标 Activity Intent；公共 AI/翻译 API Key 固定随 Edition Sync 迁移。 */
     suspend fun createPeerTransferIntent(): Intent {
         val peerPackage = EditionSyncContract.peerPackageName()

@@ -23,6 +23,7 @@ data class ConfigurationBackupUiState(
     val isWorking: Boolean = false,
     val pendingBackup: String? = null,
     val pendingSummary: ConfigurationBackupSummary? = null,
+    val peerEditionInstalled: Boolean = false,
 )
 
 @HiltViewModel
@@ -32,8 +33,19 @@ class ConfigurationBackupViewModel @Inject constructor(
     @IODispatcher private val ioDispatcher: CoroutineDispatcher,
     @MainDispatcher private val mainDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(ConfigurationBackupUiState())
+    private val _uiState =
+        MutableStateFlow(
+            ConfigurationBackupUiState(
+                peerEditionInstalled = editionSyncTransferManager.isPeerInstalled(),
+            )
+        )
     val uiState: StateFlow<ConfigurationBackupUiState> = _uiState.asStateFlow()
+
+    fun refreshPeerEditionInstalled() {
+        _uiState.update {
+            it.copy(peerEditionInstalled = editionSyncTransferManager.isPeerInstalled())
+        }
+    }
 
     /**
      * 创建发送给另一 Edition 的一次性加密同步 Intent。

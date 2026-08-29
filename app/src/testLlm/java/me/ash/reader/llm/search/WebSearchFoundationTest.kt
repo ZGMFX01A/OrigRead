@@ -642,6 +642,30 @@ class WebSearchFoundationTest {
     }
 
     @Test
+    fun `prepared search uses configured result count`() {
+        val provider = WebSearchProviderProfile(id = "exa", kind = WebSearchProviderKind.EXA)
+        val prepared =
+            buildWebSearchPreparedRequest(
+                decision = WebSearchDecision(WebSearchRequestStatus.TRIGGERED, required = false),
+                articleTitle = "OrigRead",
+                userInput = "latest updates",
+                configuredProviders = listOf(provider),
+                defaultProviderId = provider.id,
+                maxResults = 9,
+            )
+
+        assertEquals(9, prepared.request?.maxResults)
+    }
+
+    @Test
+    fun `web search result count defaults to five and clamps to supported range`() {
+        assertEquals(5, WebSearchSettings().maxResults)
+        assertEquals(MIN_WEB_SEARCH_MAX_RESULTS, normalizeWebSearchMaxResults(0))
+        assertEquals(7, normalizeWebSearchMaxResults(7))
+        assertEquals(MAX_WEB_SEARCH_MAX_RESULTS, normalizeWebSearchMaxResults(99))
+    }
+
+    @Test
     fun `prepared force search freezes twelve second budget`() {
         val provider = WebSearchProviderProfile(id = "tavily", kind = WebSearchProviderKind.TAVILY)
         val prepared =

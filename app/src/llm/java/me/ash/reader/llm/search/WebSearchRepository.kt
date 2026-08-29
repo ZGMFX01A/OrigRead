@@ -88,6 +88,10 @@ class WebSearchRepository @Inject constructor(
         update { it.copy(defaultProviderId = profile.id) }
     }
 
+    fun setMaxResults(value: Int) {
+        update { it.copy(maxResults = normalizeWebSearchMaxResults(value)) }
+    }
+
     /**
      * 保存 Web Search API Key，并单独记录可公开展示的长度元数据。
      *
@@ -188,6 +192,11 @@ class WebSearchRepository @Inject constructor(
                     WebSearchSettings(
                         providers = providers,
                         defaultProviderId = preferences.getString(KEY_DEFAULT_PROVIDER, null),
+                        maxResults =
+                            preferences.getInt(
+                                KEY_MAX_RESULTS,
+                                DEFAULT_WEB_SEARCH_MAX_RESULTS,
+                            ),
                     )
                 )
             }
@@ -199,7 +208,11 @@ class WebSearchRepository @Inject constructor(
                 .filter { it.id.isNotBlank() }
                 .distinctBy(WebSearchProviderProfile::id)
         val defaultId = normalizedDefaultProviderId(providers, settings.defaultProviderId)
-        return WebSearchSettings(providers = providers, defaultProviderId = defaultId)
+        return WebSearchSettings(
+            providers = providers,
+            defaultProviderId = defaultId,
+            maxResults = normalizeWebSearchMaxResults(settings.maxResults),
+        )
     }
 
     private fun persist(settings: WebSearchSettings) {
@@ -219,6 +232,7 @@ class WebSearchRepository @Inject constructor(
         preferences.edit()
             .putString(KEY_PROVIDERS, providers.toString())
             .putString(KEY_DEFAULT_PROVIDER, settings.defaultProviderId)
+            .putInt(KEY_MAX_RESULTS, settings.maxResults)
             .apply()
     }
 
@@ -230,6 +244,7 @@ class WebSearchRepository @Inject constructor(
         private const val PREFERENCES_NAME = "origread_llm_web_search"
         private const val KEY_PROVIDERS = "providers"
         private const val KEY_DEFAULT_PROVIDER = "default_provider"
+        private const val KEY_MAX_RESULTS = "max_results"
         private const val MAX_NAME_LENGTH = 80
     }
 }

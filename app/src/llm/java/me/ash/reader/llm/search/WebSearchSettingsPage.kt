@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
@@ -128,6 +129,8 @@ class WebSearchSettingsViewModel @Inject constructor(
     }
 
     fun setDefaultProvider(providerId: String) = repository.setDefaultProvider(providerId)
+
+    fun setMaxResults(value: Int) = repository.setMaxResults(value)
 
     fun setKeyDraft(providerId: String, value: String) {
         _uiState.update {
@@ -268,6 +271,54 @@ fun WebSearchSettingsPage(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+                item {
+                    OutlinedCard(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(3.dp),
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.llm_web_search_results_count),
+                                    style = MaterialTheme.typography.titleSmall,
+                                )
+                                Text(
+                                    text = stringResource(R.string.llm_web_search_results_count_desc),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            IconButton(
+                                enabled = uiState.settings.maxResults > MIN_WEB_SEARCH_MAX_RESULTS,
+                                onClick = { viewModel.setMaxResults(uiState.settings.maxResults - 1) },
+                            ) {
+                                Icon(
+                                    Icons.Outlined.Remove,
+                                    contentDescription = stringResource(R.string.llm_web_search_results_decrease),
+                                )
+                            }
+                            Text(
+                                text = uiState.settings.maxResults.toString(),
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            IconButton(
+                                enabled = uiState.settings.maxResults < MAX_WEB_SEARCH_MAX_RESULTS,
+                                onClick = { viewModel.setMaxResults(uiState.settings.maxResults + 1) },
+                            ) {
+                                Icon(
+                                    Icons.Outlined.Add,
+                                    contentDescription = stringResource(R.string.llm_web_search_results_increase),
+                                )
+                            }
+                        }
+                    }
                 }
                 if (uiState.settings.providers.isEmpty()) {
                     item {

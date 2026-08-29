@@ -33,6 +33,7 @@
     <string name="llm_article_input_hint">Ask about this article…</string>
     <string name="llm_related_articles_add">Add related articles</string>
     <string name="llm_related_articles_title">Add related articles</string>
+    <string name="llm_related_articles_selection_count">%1$d of %2$d selected</string>
     <string name="llm_related_articles_search_hint">Search article titles</string>
     <string name="llm_related_articles_recent">Recent articles</string>
     <string name="llm_related_articles_results">Search results</string>
@@ -204,6 +205,10 @@
     <string name="llm_web_search_title">Web Search</string>
     <string name="llm_web_search_desc">Configure dedicated search services. Web Search and MCP remain independent.</string>
     <string name="llm_web_search_execution_desc">Each search uses one default service. Other enabled services stay available as alternatives; OrigRead does not query them in parallel or retry automatically across services.</string>
+    <string name="llm_web_search_results_count">Results per search</string>
+    <string name="llm_web_search_results_count_desc">Number of results requested from the selected search service. Default 5; range 1–20.</string>
+    <string name="llm_web_search_results_decrease">Decrease search results</string>
+    <string name="llm_web_search_results_increase">Increase search results</string>
     <string name="llm_web_search_add">Add search service</string>
     <string name="llm_web_search_empty">No search services configured.</string>
     <string name="llm_web_search_default">Default</string>

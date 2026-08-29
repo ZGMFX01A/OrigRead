@@ -568,6 +568,12 @@ class LlmChatViewModel @Inject constructor(
         if (hasGenerationInFlight()) return
         if (_uiState.value.toolCalls.any { it.status == LlmToolCallStatus.PENDING_APPROVAL }) return
         val current = _uiState.value.additionalArticleAttachments
+        if (
+            current.size >= MAX_ADDITIONAL_ARTICLES &&
+                current.none { it.articleId == attachment.articleId.trim() }
+        ) {
+            return
+        }
         val next =
             upsertAdditionalArticleAttachment(
                 currentArticleId = currentArticleId,
@@ -585,6 +591,13 @@ class LlmChatViewModel @Inject constructor(
         val selectionRevision = conversationSelectionRevision
         if (hasGenerationInFlight()) return
         if (_uiState.value.toolCalls.any { it.status == LlmToolCallStatus.PENDING_APPROVAL }) return
+        val current = _uiState.value.additionalArticleAttachments
+        if (
+            current.size >= MAX_ADDITIONAL_ARTICLES &&
+                current.none { it.articleId == candidate.articleId }
+        ) {
+            return
+        }
         viewModelScope.launch {
             val snapshot = articleCandidateRepository.loadArticleSnapshot(candidate.articleId) ?: return@launch
             if (

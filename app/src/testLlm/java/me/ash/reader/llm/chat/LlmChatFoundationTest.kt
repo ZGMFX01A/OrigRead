@@ -40,6 +40,7 @@ import me.ash.reader.llm.chat.ui.buildArticleContextItems
 import me.ash.reader.llm.chat.ui.buildAdditionalArticleContextItems
 import me.ash.reader.llm.chat.ui.buildRequestArticleContextItems
 import me.ash.reader.llm.chat.ui.LlmArticleAttachment
+import me.ash.reader.llm.chat.ui.MAX_ADDITIONAL_ARTICLES
 import me.ash.reader.llm.chat.ui.ChatAutoFollowLayoutSnapshot
 import me.ash.reader.llm.chat.ui.ChatAutoFollowObservation
 import me.ash.reader.llm.chat.ui.normalizedAdditionalArticleAttachments
@@ -607,6 +608,40 @@ class LlmChatFoundationTest {
             )
         assertEquals(listOf("article:current:original"), analysisItems.map { it.id })
         assertTrue(buildAdditionalArticleContextItems("current", updated).isNotEmpty())
+    }
+
+    @Test
+    fun `additional article attachments are capped at five while existing items remain replaceable`() {
+        val six =
+            (1..6).map { index ->
+                LlmArticleAttachment(
+                    articleId = "article-$index",
+                    title = "Article $index",
+                    link = null,
+                    originalContent = "body $index",
+                )
+            }
+
+        val normalized = normalizedAdditionalArticleAttachments("current", six)
+        assertEquals(MAX_ADDITIONAL_ARTICLES, normalized.size)
+        assertEquals((1..5).map { "article-$it" }, normalized.map { it.articleId })
+
+        val rejectedSixth =
+            upsertAdditionalArticleAttachment(
+                currentArticleId = "current",
+                existing = normalized,
+                attachment = six.last(),
+            )
+        assertEquals(normalized, rejectedSixth)
+
+        val replaced =
+            upsertAdditionalArticleAttachment(
+                currentArticleId = "current",
+                existing = normalized,
+                attachment = six.first().copy(title = "Updated first"),
+            )
+        assertEquals(MAX_ADDITIONAL_ARTICLES, replaced.size)
+        assertEquals("Updated first", replaced.first().title)
     }
 
     @Test

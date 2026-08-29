@@ -44,13 +44,15 @@ class WebSearchRouter @Inject constructor(
             "mode" to mode.name,
             "triggered" to true,
         )
+        val settings = repository.current()
         val prepared =
             buildWebSearchPreparedRequest(
                 decision = decision,
                 articleTitle = articleTitle,
                 userInput = userInput,
                 configuredProviders = repository.configuredProviders(),
-                defaultProviderId = repository.current().defaultProviderId,
+                defaultProviderId = settings.defaultProviderId,
+                maxResults = settings.maxResults,
                 perfTrace = perfTrace,
             )
         if (prepared.preflightErrorMessage != null) {
@@ -123,6 +125,7 @@ internal fun buildWebSearchPreparedRequest(
     userInput: String,
     configuredProviders: List<WebSearchProviderProfile>,
     defaultProviderId: String?,
+    maxResults: Int = DEFAULT_WEB_SEARCH_MAX_RESULTS,
     perfTrace: me.ash.reader.infrastructure.ai.AiPerfTrace? = null,
 ): WebSearchPreparedRequest {
     if (!decision.triggered) return WebSearchPreparedRequest(decision = decision)
@@ -141,7 +144,7 @@ internal fun buildWebSearchPreparedRequest(
     val request =
         WebSearchRequest(
             query = query,
-            maxResults = DEFAULT_CHAT_SEARCH_RESULTS,
+            maxResults = normalizeWebSearchMaxResults(maxResults),
             includeContent = false,
             // AUTO 优先保证 Chat 可用性；FORCE 是用户明确联网，允许更长等待后再暴露失败。
             timeoutMillis =
@@ -313,7 +316,6 @@ private val AUTO_SEARCH_MARKERS =
         "look up",
     )
 
-private const val DEFAULT_CHAT_SEARCH_RESULTS = 5
 private const val MAX_SEARCH_QUERY_LENGTH = 500
 private const val AUTO_SEARCH_TIMEOUT_MILLIS = 3_000L
 private const val FORCE_SEARCH_TIMEOUT_MILLIS = 12_000L

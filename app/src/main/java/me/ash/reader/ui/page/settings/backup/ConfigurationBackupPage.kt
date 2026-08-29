@@ -27,6 +27,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,6 +63,10 @@ fun ConfigurationBackupPage(
     var includeSecrets by remember { mutableStateOf(false) }
     var exportPassword by remember { mutableStateOf("") }
     var restorePassword by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) {
+        viewModel.refreshPeerEditionInstalled()
+    }
 
     val editionSyncLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -147,42 +152,51 @@ fun ConfigurationBackupPage(
                         desc = stringResource(R.string.configuration_backup_scope_desc),
                     )
                 }
-                item {
-                    val targetName =
-                        if (BuildConfig.EDITION == "llm") {
-                            stringResource(R.string.edition_sync_standard_name)
-                        } else {
-                            stringResource(R.string.edition_sync_llm_name)
-                        }
-                    SettingItem(
-                        enabled = !state.isWorking,
-                        title = stringResource(R.string.edition_sync_send_title, targetName),
-                        desc = stringResource(R.string.edition_sync_send_desc),
-                        descMaxLines = Int.MAX_VALUE,
-                        icon = Icons.Outlined.SyncAlt,
-                        onClick = {
-                            viewModel.createEditionSyncIntent { result ->
-                                result.fold(
-                                    onSuccess = editionSyncLauncher::launch,
-                                    onFailure = { error ->
-                                        Toast.makeText(
-                                            context,
-                                            error.message ?: context.getString(R.string.edition_sync_failed),
-                                            Toast.LENGTH_LONG,
-                                        ).show()
-                                    },
-                                )
+                if (state.peerEditionInstalled) {
+                    item {
+                        val targetName =
+                            if (BuildConfig.EDITION == "llm") {
+                                stringResource(R.string.edition_sync_standard_name)
+                            } else {
+                                stringResource(R.string.edition_sync_llm_name)
                             }
-                        },
-                    ) {
-                        if (state.isWorking) CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                        SettingItem(
+                            enabled = !state.isWorking,
+                            title = stringResource(R.string.edition_sync_send_title, targetName),
+                            desc = stringResource(R.string.edition_sync_send_desc),
+                            descMaxLines = Int.MAX_VALUE,
+                            icon = Icons.Outlined.SyncAlt,
+                            onClick = {
+                                viewModel.createEditionSyncIntent { result ->
+                                    result.fold(
+                                        onSuccess = editionSyncLauncher::launch,
+                                        onFailure = { error ->
+                                            Toast.makeText(
+                                                context,
+                                                error.message ?: context.getString(R.string.edition_sync_failed),
+                                                Toast.LENGTH_LONG,
+                                            ).show()
+                                        },
+                                    )
+                                }
+                            },
+                        ) {
+                            if (state.isWorking) CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                        }
                     }
+                    item { Spacer(modifier = Modifier.height(12.dp)) }
                 }
-                item { Spacer(modifier = Modifier.height(12.dp)) }
                 item {
                     SettingItem(
                         title = stringResource(R.string.configuration_backup_include_secrets),
-                        desc = stringResource(R.string.configuration_backup_include_secrets_desc),
+                        desc =
+                            stringResource(
+                                if (state.peerEditionInstalled) {
+                                    R.string.configuration_backup_include_secrets_desc
+                                } else {
+                                    R.string.configuration_backup_include_secrets_desc_portable_only
+                                }
+                            ),
                         icon = Icons.Outlined.Key,
                         onClick = { includeSecrets = !includeSecrets },
                     ) {

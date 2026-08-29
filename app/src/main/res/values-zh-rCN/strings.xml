@@ -769,6 +769,7 @@
     <string name="configuration_backup_scope_desc">包含订阅与分组、解析与过滤规则、RSSHub、应用偏好及翻译/AI 服务配置；不包含文章、阅读状态、已生成摘要/译文和缓存。</string>
     <string name="configuration_backup_include_secrets">包含 API Key</string>
     <string name="configuration_backup_include_secrets_desc">默认关闭；开启后 API Key 会加密写入备份文件，也可随同签名的版本间同步迁移。</string>
+    <string name="configuration_backup_include_secrets_desc_portable_only">默认关闭；开启后 API Key 会使用备份密码加密写入备份文件。</string>
     <string name="configuration_backup_password">备份密码</string>
     <string name="configuration_backup_password_desc">至少 6 个字符。恢复加密凭据时需再次输入，原读不会保存此密码。</string>
     <string name="configuration_backup_password_too_short">备份密码至少需要 6 个字符</string>
