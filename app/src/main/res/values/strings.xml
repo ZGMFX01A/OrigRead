@@ -688,7 +688,7 @@
     <string name="translation_set_default_method">Set default</string>
     <string name="translation_ai_model_count">%1$d models</string>
     <string name="source_discovery_title">Discover sources</string>
-    <string name="source_discovery_search_hint">Search names, categories, or RSS URLs</string>
+    <string name="source_discovery_search_hint">Search names, websites, RSS URLs, or categories</string>
     <string name="source_discovery_all">All</string>
     <string name="source_discovery_all_categories">All categories</string>
     <string name="source_discovery_choose_category">Choose a category</string>
@@ -697,6 +697,10 @@
     <string name="source_discovery_count">%1$d sources</string>
     <string name="source_discovery_no_results">No matching sources</string>
     <string name="source_discovery_no_results_hint">Try another keyword or category</string>
+    <string name="source_catalog_matches_title">Known sources for this address</string>
+    <string name="source_catalog_matches_desc">%1$d known source(s) match. Select one to validate it before subscribing.</string>
+    <string name="source_catalog_matches_desc_truncated">%1$d known sources match; showing %2$d. Select one to validate it.</string>
+    <string name="source_catalog_match_validate">Validate</string>
     <string name="translation_endpoint">Service endpoint</string>
     <string name="translation_region">Azure region</string>
     <string name="translation_region_desc">Required for regional or multi-service Azure resources</string>

@@ -66,6 +66,17 @@ class FeedDiscoveryCatalog @Inject constructor(
         }
     }
 
+    private val index: FeedCatalogIndex by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        FeedCatalogIndex(data.feeds)
+    }
+
+    fun search(
+        query: String,
+        selectedCategory: String? = null,
+    ): List<FeedCatalogEntry> = index.search(query, selectedCategory)
+
+    fun matchUrl(url: String): FeedCatalogUrlMatch = index.matchUrl(url)
+
     companion object {
         private const val ASSET_NAME = "source_catalog.json"
         private const val SCHEMA_VERSION = 1

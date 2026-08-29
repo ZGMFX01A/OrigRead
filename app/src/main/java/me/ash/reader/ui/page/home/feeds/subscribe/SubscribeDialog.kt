@@ -44,6 +44,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import me.ash.reader.R
+import me.ash.reader.infrastructure.discovery.FeedCatalogEntry
 import me.ash.reader.infrastructure.rsshub.RssHubProbeResult
 import me.ash.reader.ui.component.FeedIcon
 import me.ash.reader.ui.component.RenameDialog
@@ -108,6 +109,9 @@ fun SubscribeDialog(
                         SubscribeInputContent(
                             state = state,
                             onSearch = subscribeViewModel::searchFeed,
+                            onSelectCatalog = { feed ->
+                                subscribeViewModel.openFeedFromCatalog(feed.feedUrl)
+                            },
                         )
 
                     is SubscribeState.Configure ->
@@ -121,6 +125,9 @@ fun SubscribeDialog(
                             onToggleBrowser = subscribeViewModel::toggleOpenInBrowserPreset,
                             onGroupClick = subscribeViewModel::selectedGroup,
                             onAddGroup = subscribeViewModel::showNewGroupDialog,
+                            onSelectCatalog = { feed ->
+                                subscribeViewModel.openFeedFromCatalog(feed.feedUrl)
+                            },
                         )
 
                     SubscribeState.Hidden -> Unit
@@ -238,6 +245,7 @@ private fun SubscribeSheetHeader(
 private fun SubscribeInputContent(
     state: SubscribeState.Input,
     onSearch: () -> Unit,
+    onSelectCatalog: (FeedCatalogEntry) -> Unit,
 ) {
     val errorText =
         when (state) {
@@ -270,6 +278,14 @@ private fun SubscribeInputContent(
             Spacer(modifier = Modifier.height(8.dp))
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         }
+        if (state is SubscribeState.Idle && state.catalogMatches.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(20.dp))
+            CatalogMatchSection(
+                matches = state.catalogMatches,
+                totalMatches = state.catalogMatchCount,
+                onSelect = onSelectCatalog,
+            )
+        }
         if (state is SubscribeState.Idle && state.rssHubResults.isNotEmpty()) {
             Spacer(modifier = Modifier.height(20.dp))
             RssHubRouteSection(
@@ -294,6 +310,7 @@ private fun SubscribeConfigureContent(
     onToggleBrowser: () -> Unit,
     onGroupClick: (String) -> Unit,
     onAddGroup: () -> Unit,
+    onSelectCatalog: (FeedCatalogEntry) -> Unit,
 ) {
     val otherCandidates = state.candidates.filter { it.kind != SourceCandidateKind.RSSHUB }
     val selectedKind = state.candidates.firstOrNull { it.id == state.selectedCandidateId }?.kind
@@ -305,6 +322,15 @@ private fun SubscribeConfigureContent(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 14.dp),
     ) {
+        if (state.catalogMatches.isNotEmpty()) {
+            CatalogMatchSection(
+                matches = state.catalogMatches,
+                totalMatches = state.catalogMatchCount,
+                onSelect = onSelectCatalog,
+            )
+            Spacer(modifier = Modifier.height(20.dp))
+        }
+
         if (state.rssHubResults.isNotEmpty()) {
             RssHubRouteSection(
                 results = state.rssHubResults,
@@ -366,6 +392,70 @@ private fun SubscribeConfigureContent(
             showArticleFilter = false,
             scrollable = false,
         )
+    }
+}
+
+@Composable
+private fun CatalogMatchSection(
+    matches: List<FeedCatalogEntry>,
+    totalMatches: Int,
+    onSelect: (FeedCatalogEntry) -> Unit,
+) {
+    Text(
+        text = stringResource(R.string.source_catalog_matches_title),
+        style = MaterialTheme.typography.titleSmall,
+    )
+    Text(
+        text =
+            if (totalMatches > matches.size) {
+                stringResource(
+                    R.string.source_catalog_matches_desc_truncated,
+                    totalMatches,
+                    matches.size,
+                )
+            } else {
+                stringResource(R.string.source_catalog_matches_desc, totalMatches)
+            },
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        matches.forEach { feed ->
+            Surface(
+                modifier = Modifier.fillMaxWidth().roundClick { onSelect(feed) },
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                shape = MaterialTheme.shapes.medium,
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    FeedIcon(feedName = feed.name, iconUrl = null, size = 34.dp)
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = feed.name,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = feed.siteUrl?.takeIf(String::isNotBlank) ?: feed.feedUrl,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Text(
+                        text = stringResource(R.string.source_catalog_match_validate),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+        }
     }
 }
 

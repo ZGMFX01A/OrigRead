@@ -8,7 +8,11 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.InputStream
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,6 +30,9 @@ import me.ash.reader.domain.service.OpmlService
 import me.ash.reader.domain.service.RssService
 import me.ash.reader.infrastructure.android.AndroidStringsHelper
 import me.ash.reader.infrastructure.di.ApplicationScope
+import me.ash.reader.infrastructure.discovery.FeedCatalogEntry
+import me.ash.reader.infrastructure.discovery.FeedCatalogUrlMatch
+import me.ash.reader.infrastructure.discovery.FeedDiscoveryCatalog
 import me.ash.reader.infrastructure.json.JsonSourceHelper
 import me.ash.reader.infrastructure.rss.RssHelper
 import me.ash.reader.infrastructure.rsshub.RssHubResolver
@@ -44,10 +51,14 @@ constructor(
     private val rssHubResolver: RssHubResolver,
     private val websiteHelper: WebsiteHelper,
     private val jsonSourceHelper: JsonSourceHelper,
+    private val feedDiscoveryCatalog: FeedDiscoveryCatalog,
     private val androidStringsHelper: AndroidStringsHelper,
     @ApplicationScope private val applicationScope: CoroutineScope,
     private val accountService: AccountService,
 ) : ViewModel() {
+
+    /** 防止 Idle 状态到 Fetching 状态之间的极短窗口被连续点击启动两套发现链。 */
+    private var searchCoordinatorJob: Job? = null
 
     private val _subscribeUiState = MutableStateFlow(SubscribeUiState())
     val subscribeUiState: StateFlow<SubscribeUiState> = _subscribeUiState.asStateFlow()
@@ -141,15 +152,33 @@ constructor(
     }
 
     fun searchFeed() {
+        if (searchCoordinatorJob?.isActive == true) return
         val currentState = _subscribeState.value
         if (currentState !is SubscribeState.Idle) return
-        viewModelScope.launch {
+        searchCoordinatorJob = viewModelScope.launch {
             val feedLink = currentState.linkState.text.trim().toString().formatUrl()
             currentState.linkState.edit { this.replace(0, length, feedLink) }
 
+            // Catalog 是现有来源发现链之前的“可选本地知识”。目录读取/匹配失败绝不能阻断旧链。
+            // 明确 JSON/API 输入继续保持原有专用路径，不用 RSS 目录候选干扰。
+            val catalogMatch =
+                if (isExplicitJsonEndpoint(feedLink)) {
+                    FeedCatalogUrlMatch()
+                } else {
+                    runCatching { feedDiscoveryCatalog.matchUrl(feedLink) }
+                        .getOrDefault(FeedCatalogUrlMatch())
+                }
+            val discoveryIdleState =
+                currentState.copy(
+                    catalogMatches = catalogMatch.suggestions,
+                    catalogMatchCount = catalogMatch.totalSuggestions,
+                )
+
+            // 保持旧语义：这里只检查用户实际输入的地址。不能因为目录映射到一个已订阅 Feed，
+            // 就阻止用户继续按 Website / RSSHub / JSON 等原有方式探测同一个站点。
             if (rssService.get().isFeedExist(feedLink)) {
                 _subscribeState.value =
-                    currentState.copy(
+                    discoveryIdleState.copy(
                         errorMessage = androidStringsHelper.getString(R.string.already_subscribed)
                     )
                 return@launch
@@ -158,7 +187,7 @@ constructor(
             val firstGroupId = groups.firstOrNull()?.id ?: return@launch
 
             val job =
-                viewModelScope.launch {
+                viewModelScope.launch(start = CoroutineStart.LAZY) {
                     try {
                         if (
                             accountService.getCurrentAccount().type.id == AccountType.Local.id &&
@@ -166,11 +195,11 @@ constructor(
                         ) {
                             _subscribeState.value =
                                 SubscribeState.Fetching(
-                                    linkState = currentState.linkState,
+                                    linkState = discoveryIdleState.linkState,
                                     job = coroutineContext[Job]!!,
                                     stage = SearchStage.CHECKING_JSON,
                                 )
-                            val directJsonResult = runCatching { jsonSourceHelper.probe(feedLink) }
+                            val directJsonResult = runSuspendCatching { jsonSourceHelper.probe(feedLink) }
                             val directJsonSource = directJsonResult.getOrNull()
                             if (directJsonSource != null) {
                                 applyBestCandidate(
@@ -183,7 +212,7 @@ constructor(
                                                 kind = SourceCandidateKind.JSON,
                                             )
                                         ),
-                                    idleState = currentState,
+                                    idleState = discoveryIdleState,
                                     firstGroupId = firstGroupId,
                                     lastError = null,
                                 )
@@ -193,7 +222,7 @@ constructor(
                             // 明确输入 JSON/API 地址时只走 JSON 探测，失败后不得再交给 RSS/网页发现，
                             // 否则会把 JSON 响应错误识别成站点首页并跳转到官方 Feed。
                             _subscribeState.value =
-                                currentState.copy(
+                                discoveryIdleState.copy(
                                     errorMessage =
                                         directJsonResult.exceptionOrNull()?.message
                                             ?: "未能从该地址识别出有效的 JSON 文章列表"
@@ -205,7 +234,19 @@ constructor(
                         var lastError: Throwable? = null
 
                         updateSearchStage(SearchStage.CHECKING_RSS)
-                        runCatching { withTimeout(20_000) { rssHelper.discoverFeed(feedLink) } }
+                        // 唯一 Site URL 命中目录时，可并行验证目录中已知 Feed；原输入 URL 的 RSS 探测
+                        // 仍按原路径执行，目录失效/超时不会增加旧链的串行等待时间。
+                        val catalogProbe =
+                            catalogMatch.preferredProbeUrl(feedLink)?.let { catalogFeedUrl ->
+                                async {
+                                    runSuspendCatching {
+                                        withTimeout(20_000) { rssHelper.discoverFeed(catalogFeedUrl) }
+                                    }
+                                }
+                            }
+                        val directRssResult =
+                            runSuspendCatching { withTimeout(20_000) { rssHelper.discoverFeed(feedLink) } }
+                        directRssResult
                             .onSuccess { discovered ->
                                 candidates +=
                                     SubscribeCandidateProbe(
@@ -222,9 +263,30 @@ constructor(
                                         lastModified = discovered.lastModified,
                                     )
                             }.onFailure { lastError = it }
+                        catalogProbe?.let { probe ->
+                            // Catalog 只能“搭顺风车”，绝不能让已有 RSS 探测多等一毫秒：
+                            // 原 RSS 已经得到健康候选时完全沿用旧结果；仅原 RSS 无可用候选且目录探测
+                            // 已经完成时才补入目录 Feed。否则立刻取消并继续 RSSHub。
+                            val directRssAccepted = SubscribeCandidateSelector.rank(candidates).isNotEmpty()
+                            if (!directRssAccepted && probe.isCompleted) {
+                                probe.await().onSuccess { discovered ->
+                                    candidates +=
+                                        SubscribeCandidateProbe(
+                                            feed = discovered.feed,
+                                            feedLink = discovered.feedUrl,
+                                            sourceType = SourceType.RSS,
+                                            kind = SourceCandidateKind.RSS_DIRECT,
+                                            etag = discovered.etag,
+                                            lastModified = discovered.lastModified,
+                                        )
+                                }
+                            } else {
+                                probe.cancel()
+                            }
+                        }
 
                         if (accountService.getCurrentAccount().type.id != AccountType.Local.id) {
-                            applyBestCandidate(candidates, currentState, firstGroupId, lastError)
+                            applyBestCandidate(candidates, discoveryIdleState, firstGroupId, lastError)
                             return@launch
                         }
 
@@ -235,7 +297,7 @@ constructor(
                             runCatching { rssHubResolver.localRouteDiagnostics(feedLink) }
                                 .getOrDefault(emptyList())
                         val probedRssHubResults =
-                            runCatching { rssHubResolver.probe(feedLink) }
+                            runSuspendCatching { rssHubResolver.probe(feedLink) }
                                 .onFailure { lastError = it }
                                 .getOrDefault(emptyList())
                         val rssHubResults =
@@ -262,7 +324,7 @@ constructor(
                         val rssHubNotice = rssHubFailureNotice(rssHubResults)
 
                         updateSearchStage(SearchStage.CHECKING_JSON)
-                        runCatching { jsonSourceHelper.probe(feedLink) }
+                        runSuspendCatching { jsonSourceHelper.probe(feedLink) }
                             .onSuccess { jsonSource ->
                                 if (jsonSource != null) {
                                     candidates +=
@@ -276,7 +338,7 @@ constructor(
                             }.onFailure { lastError = it }
 
                         updateSearchStage(SearchStage.CHECKING_WEBSITE)
-                        runCatching { withTimeout(15_000) { websiteHelper.inspect(feedLink) } }
+                        runSuspendCatching { withTimeout(15_000) { websiteHelper.inspect(feedLink) } }
                             .onSuccess { website ->
                                 candidates +=
                                     SubscribeCandidateProbe(
@@ -295,7 +357,7 @@ constructor(
                         // 避免动态渲染增加普通 RSS、JSON 和静态网站的添加耗时。
                         if (SubscribeCandidateSelector.rank(candidates).isEmpty()) {
                             updateSearchStage(SearchStage.CHECKING_DYNAMIC_WEBSITE)
-                            runCatching { withTimeout(20_000) { websiteHelper.inspectDynamic(feedLink) } }
+                            runSuspendCatching { withTimeout(20_000) { websiteHelper.inspectDynamic(feedLink) } }
                                 .onSuccess { website ->
                                     candidates +=
                                         SubscribeCandidateProbe(
@@ -315,17 +377,17 @@ constructor(
 
                         applyBestCandidate(
                             candidates = candidates,
-                            idleState = currentState,
+                            idleState = discoveryIdleState,
                             firstGroupId = firstGroupId,
                             lastError = lastError,
                             fallbackMessage = rssHubNotice,
                             rssHubResults = rssHubResults,
                         )
-                    } catch (error: kotlinx.coroutines.CancellationException) {
+                    } catch (error: CancellationException) {
                         throw error
                     } catch (error: Exception) {
                         _subscribeState.value =
-                            currentState.copy(
+                            discoveryIdleState.copy(
                                 errorMessage =
                                     error.message
                                         ?: androidStringsHelper.getString(R.string.website_request_failed)
@@ -335,10 +397,11 @@ constructor(
 
             _subscribeState.value =
                 SubscribeState.Fetching(
-                    linkState = currentState.linkState,
+                    linkState = discoveryIdleState.linkState,
                     job = job,
                     stage = SearchStage.CHECKING_RSS,
                 )
+            job.start()
         }
     }
 
@@ -389,6 +452,8 @@ constructor(
                 selectedCandidateIds = setOf(selected.id),
                 dynamicRendering = selected.dynamicRendering,
                 rssHubResults = rssHubResults,
+                catalogMatches = idleState.catalogMatches,
+                catalogMatchCount = idleState.catalogMatchCount,
             )
     }
 
@@ -481,6 +546,7 @@ constructor(
         }
 
     fun cancelSearch() {
+        searchCoordinatorJob?.takeIf(Job::isActive)?.cancel()
         _subscribeState.value.let {
             if (it is SubscribeState.Fetching && it.job.isActive) {
                 it.job.cancel()
@@ -728,6 +794,8 @@ sealed interface SubscribeState {
         val importFromOpmlEnabled: Boolean = false,
         val errorMessage: String? = null,
         val rssHubResults: List<me.ash.reader.infrastructure.rsshub.RssHubProbeResult> = emptyList(),
+        val catalogMatches: List<FeedCatalogEntry> = emptyList(),
+        val catalogMatchCount: Int = catalogMatches.size,
     ) : SubscribeState, Input
 
     data class Fetching(
@@ -753,5 +821,21 @@ sealed interface SubscribeState {
         val selectedCandidateIds: Set<String> = selectedCandidateId?.let(::setOf) ?: emptySet(),
         val dynamicRendering: Boolean = false,
         val rssHubResults: List<me.ash.reader.infrastructure.rsshub.RssHubProbeResult> = emptyList(),
+        val catalogMatches: List<FeedCatalogEntry> = emptyList(),
+        val catalogMatchCount: Int = catalogMatches.size,
     ) : SubscribeState, Visible
 }
+
+/**
+ * suspend 探测允许单阶段 timeout 作为普通失败继续 fallback，但用户/生命周期主动取消必须立即向上传播。
+ */
+internal suspend inline fun <T> runSuspendCatching(crossinline block: suspend () -> T): Result<T> =
+    try {
+        Result.success(block())
+    } catch (error: TimeoutCancellationException) {
+        Result.failure(error)
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Throwable) {
+        Result.failure(error)
+    }

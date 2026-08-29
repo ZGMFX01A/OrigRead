@@ -555,7 +555,7 @@
     <string name="translation_set_default_method">設為預設</string>
     <string name="translation_ai_model_count">%1$d 個模型</string>
     <string name="source_discovery_title">探索來源</string>
-    <string name="source_discovery_search_hint">搜尋名稱、分類或 RSS 位址</string>
+    <string name="source_discovery_search_hint">搜尋名稱、網站、RSS 位址或分類</string>
     <string name="source_discovery_all">全部</string>
     <string name="source_discovery_all_categories">全部分類</string>
     <string name="source_discovery_choose_category">選擇分類</string>
@@ -564,6 +564,10 @@
     <string name="source_discovery_count">%1$d 個來源</string>
     <string name="source_discovery_no_results">找不到符合的來源</string>
     <string name="source_discovery_no_results_hint">試試其他關鍵字或分類</string>
+    <string name="source_catalog_matches_title">內建目錄符合項目</string>
+    <string name="source_catalog_matches_desc">找到 %1$d 個已知來源，選擇後會先驗證再訂閱。</string>
+    <string name="source_catalog_matches_desc_truncated">找到 %1$d 個已知來源，顯示前 %2$d 個；選擇後會重新驗證。</string>
+    <string name="source_catalog_match_validate">驗證</string>
     <string name="translation_endpoint">服務位址</string>
     <string name="translation_region">Azure 區域</string>
     <string name="translation_region_desc">區域資源或多服務資源需要填寫</string>

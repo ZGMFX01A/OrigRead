@@ -76,4 +76,36 @@ class FeedDiscoveryCatalogAssetTest {
         assertEquals("Programming", SourceCategoryLabels.localized("Programming", "en-US"))
         assertTrue("网络安全" in SourceCategoryLabels.searchTerms("Security"))
     }
+
+    @Test
+    fun `真实目录支持站点地址和上游原分类搜索`() {
+        val index = FeedCatalogIndex(catalog.feeds)
+        val withSiteUrl = catalog.feeds.first { !it.siteUrl.isNullOrBlank() }
+        val upstreamCategory = catalog.feeds.first().origins.first().category
+
+        assertTrue(withSiteUrl in index.search(withSiteUrl.siteUrl!!))
+        assertTrue(index.search(upstreamCategory).isNotEmpty())
+    }
+
+    @Test
+    fun `真实目录站点地址按唯一或多源规则保守匹配`() {
+        val index = FeedCatalogIndex(catalog.feeds)
+        val siteGroups =
+            catalog.feeds
+                .filter { !it.siteUrl.isNullOrBlank() }
+                .groupBy { FeedCatalogIndex.catalogComparisonKey(it.siteUrl!!) }
+        val group = siteGroups.values.first()
+        val sample = group.first()
+
+        val match = index.matchUrl(sample.siteUrl!!)
+
+        if (group.size == 1) {
+            assertEquals(sample.id, match.preferred?.id)
+            assertEquals(sample.feedUrl, match.preferredProbeUrl(sample.siteUrl!!))
+        } else {
+            assertEquals(null, match.preferred)
+            assertEquals(group.size, match.totalSuggestions)
+            assertTrue(match.suggestions.all { candidate -> candidate in group })
+        }
+    }
 }

@@ -10,7 +10,6 @@ import kotlinx.coroutines.flow.update
 import me.ash.reader.infrastructure.discovery.FeedCatalogEntry
 import me.ash.reader.infrastructure.discovery.FeedCatalogSource
 import me.ash.reader.infrastructure.discovery.FeedDiscoveryCatalog
-import me.ash.reader.infrastructure.discovery.SourceCategoryLabels
 
 data class SourceDiscoveryUiState(
     val query: String = "",
@@ -22,7 +21,7 @@ data class SourceDiscoveryUiState(
     val sources: Map<String, FeedCatalogSource> = emptyMap(),
 )
 
-/** 仅在本地目录上做名称、URL 与原分类筛选，不触发 Feed 网络请求。 */
+/** 仅在本地目录上搜索名称、站点/Feed URL、展示分类与上游原分类，不触发 Feed 网络请求。 */
 @HiltViewModel
 class SourceDiscoveryViewModel @Inject constructor(
     private val catalog: FeedDiscoveryCatalog,
@@ -57,22 +56,6 @@ class SourceDiscoveryViewModel @Inject constructor(
     }
 
     private fun SourceDiscoveryUiState.withFilteredFeeds(): SourceDiscoveryUiState {
-        val normalizedQuery = query.trim().lowercase()
-        val filtered =
-            allFeeds.filter { feed ->
-                val matchesCategory =
-                    selectedCategory == null || selectedCategory in feed.categories
-                val matchesQuery =
-                    normalizedQuery.isBlank() ||
-                        feed.name.contains(normalizedQuery, ignoreCase = true) ||
-                        feed.feedUrl.contains(normalizedQuery, ignoreCase = true) ||
-                        feed.categories.any { category ->
-                            SourceCategoryLabels.searchTerms(category).any { term ->
-                                term.contains(normalizedQuery, ignoreCase = true)
-                            }
-                        }
-                matchesCategory && matchesQuery
-            }
-        return copy(feeds = filtered)
+        return copy(feeds = catalog.search(query = query, selectedCategory = selectedCategory))
     }
 }
