@@ -203,6 +203,7 @@
     <string name="llm_skill_select">Select Skill</string>
     <string name="llm_web_search_title">Web Search</string>
     <string name="llm_web_search_desc">Configure dedicated search services. Web Search and MCP remain independent.</string>
+    <string name="llm_web_search_execution_desc">Each search uses one default service. Other enabled services stay available as alternatives; OrigRead does not query them in parallel or retry automatically across services.</string>
     <string name="llm_web_search_add">Add search service</string>
     <string name="llm_web_search_empty">No search services configured.</string>
     <string name="llm_web_search_default">Default</string>

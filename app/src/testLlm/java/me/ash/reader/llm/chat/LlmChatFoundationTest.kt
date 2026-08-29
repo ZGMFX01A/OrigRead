@@ -1361,6 +1361,60 @@ class LlmChatFoundationTest {
     }
 
     @Test
+    fun `production minimum context budget records used truncated and omitted search evidence`() {
+        val translation =
+            LlmContextItem(
+                id = "article:1:translation",
+                type = LlmContextType.ARTICLE_TRANSLATION,
+                content = "T".repeat(22_000),
+                title = "Translated article",
+                priority = 120,
+            )
+        val searchResults =
+            (0 until 5).map { index ->
+                LlmContextItem(
+                    id = "web-search:tavily:${index + 1}",
+                    type = LlmContextType.WEB_SEARCH_RESULT,
+                    content = "S".repeat(3_000),
+                    title = "Search result ${index + 1}",
+                    sourceId = "https://example.com/search/${index + 1}",
+                    priority = 110 - index,
+                )
+            }
+        val article =
+            LlmContextItem(
+                id = "article:1:original",
+                type = LlmContextType.ARTICLE,
+                content = "A".repeat(20_000),
+                title = "Original article",
+                reserveEvidenceBudget = true,
+                priority = 100,
+            )
+        val candidates = listOf(translation) + searchResults + article
+        val composed =
+            LlmContextComposer().compose(
+                items = candidates,
+                policy = LlmContextPolicy(maxTokens = 8_000),
+            )
+
+        val refs =
+            buildContextRefEntities(
+                conversationId = "conversation",
+                assistantMessageId = "assistant",
+                candidates = candidates,
+                composed = composed,
+                createdAt = 123L,
+            )
+        val searchRefs = refs.filter { it.type == LlmContextType.WEB_SEARCH_RESULT }
+
+        assertEquals(5, searchRefs.size)
+        assertTrue(searchRefs.any { it.includedInPrompt })
+        assertTrue(searchRefs.any { !it.includedInPrompt })
+        assertTrue(searchRefs.any { it.truncatedInPrompt })
+        assertTrue(composed.includedIds.contains(article.id))
+    }
+
+    @Test
     fun `tool result context refs include only finalized provider history results`() {
         val now = 123L
         val calls =

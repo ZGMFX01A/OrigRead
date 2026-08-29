@@ -584,6 +584,27 @@ class WebSearchFoundationTest {
     }
 
     @Test
+    fun `multiple configured search providers freeze only the selected default provider`() {
+        val exa = WebSearchProviderProfile(id = "exa", kind = WebSearchProviderKind.EXA)
+        val tavily = WebSearchProviderProfile(id = "tavily", kind = WebSearchProviderKind.TAVILY)
+        val keenable = WebSearchProviderProfile(id = "keenable", kind = WebSearchProviderKind.KEENABLE)
+
+        val prepared =
+            buildWebSearchPreparedRequest(
+                decision = WebSearchDecision(WebSearchRequestStatus.TRIGGERED, required = false),
+                articleTitle = "OrigRead v1.2.0",
+                userInput = "latest updates",
+                configuredProviders = listOf(exa, tavily, keenable),
+                defaultProviderId = tavily.id,
+            )
+
+        assertEquals(tavily.id, prepared.providerId)
+        assertEquals(tavily.name, prepared.providerName)
+        assertEquals(WebSearchProviderKind.TAVILY, prepared.providerKind)
+        assertEquals("OrigRead v1.2.0 — latest updates", prepared.query)
+    }
+
+    @Test
     fun `search query adds article title for pronoun follow-up`() {
         assertEquals(
             "Project Valhalla — 这件事后来有什么最新进展？",

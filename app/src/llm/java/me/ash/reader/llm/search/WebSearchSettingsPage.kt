@@ -261,6 +261,14 @@ fun WebSearchSettingsPage(
                         desc = stringResource(R.string.llm_web_search_desc),
                     )
                 }
+                item {
+                    Text(
+                        text = stringResource(R.string.llm_web_search_execution_desc),
+                        modifier = Modifier.padding(horizontal = 24.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 if (uiState.settings.providers.isEmpty()) {
                     item {
                         Column(
