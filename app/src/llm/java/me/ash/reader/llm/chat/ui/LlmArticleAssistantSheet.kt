@@ -142,6 +142,7 @@ fun LlmArticleAssistantSheet(
     var modelPickerVisible by remember { mutableStateOf(false) }
     var manualToolSheetVisible by remember { mutableStateOf(false) }
     var contextSourcesAssistantId by remember { mutableStateOf<String?>(null) }
+    var webSearchResultsAssistantId by remember { mutableStateOf<String?>(null) }
     var renameTarget by remember { mutableStateOf<LlmConversationEntity?>(null) }
     var deleteTarget by remember { mutableStateOf<LlmConversationEntity?>(null) }
     var autoFollow by remember(uiState.currentConversationId) { mutableStateOf(true) }
@@ -262,6 +263,9 @@ fun LlmArticleAssistantSheet(
                                     contextRefs = messageContextRefs,
                                     onShowContextSources = {
                                         contextSourcesAssistantId = message.id
+                                    },
+                                    onShowWebSearchResults = {
+                                        webSearchResultsAssistantId = message.id
                                     },
                                     canRegenerate =
                                         !uiState.isGenerating &&
@@ -414,6 +418,22 @@ fun LlmArticleAssistantSheet(
                 contextSourcesAssistantId = null
             },
         )
+    }
+
+    webSearchResultsAssistantId?.let { assistantMessageId ->
+        val message = uiState.messages.firstOrNull { it.id == assistantMessageId }
+        if (message != null) {
+            val refs =
+                uiState.contextRefs.filter { ref -> ref.assistantMessageId == assistantMessageId }
+            WebSearchResultsSheet(
+                query = message.webSearchQuery?.trim()?.takeIf(String::isNotBlank),
+                providerName = message.webSearchProviderName?.trim()?.takeIf(String::isNotBlank),
+                results = remember(assistantMessageId, refs) {
+                    projectWebSearchResults(assistantMessageId, refs)
+                },
+                onDismiss = { webSearchResultsAssistantId = null },
+            )
+        }
     }
 
     uiState.pendingManualTool?.let { pending ->
@@ -722,6 +742,7 @@ private fun AssistantMessage(
     showReasoning: Boolean,
     contextRefs: List<LlmContextRefEntity>,
     onShowContextSources: () -> Unit,
+    onShowWebSearchResults: () -> Unit,
     canRegenerate: Boolean,
     onRegenerate: () -> Unit,
 ) {
@@ -787,8 +808,7 @@ private fun AssistantMessage(
         if (webSearchUiModel != null) {
             WebSearchActivityCard(
                 model = webSearchUiModel,
-                // UX2.2 先复用现有完整 Context Sources 作为结果入口；UX2.3 再替换为专用 Search Detail Sheet。
-                onOpenResults = onShowContextSources,
+                onOpenResults = onShowWebSearchResults,
             )
             Spacer(Modifier.size(8.dp))
         }
@@ -891,7 +911,11 @@ private fun WebSearchActivityCard(
 
     val isError = model.errorState != WebSearchMessageErrorState.NONE
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier =
+            Modifier.fillMaxWidth().clickable(
+                enabled = model.state == WebSearchActivityUiState.SUCCESS && model.canShowResults,
+                onClick = onOpenResults,
+            ),
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1004,7 +1028,7 @@ private fun WebSearchActivityCard(
                             } else {
                                 Spacer(Modifier.weight(1f))
                             }
-                            if (model.canOpenResults) {
+                            if (model.canShowResults) {
                                 TextButton(
                                     onClick = onOpenResults,
                                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
@@ -1827,6 +1851,232 @@ private fun QuickMessageSheet(
                 }
             }
         }
+    }
+}
+
+/**
+ * Dedicated Search 的专用结果详情。
+ *
+ * 这里只展示当前 Assistant 已冻结的 WEB_SEARCH_RESULT ContextRef；usageState 直接来自
+ * includedInPrompt / truncatedInPrompt，不按搜索排名猜测“模型可能看过”。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun WebSearchResultsSheet(
+    query: String?,
+    providerName: String?,
+    results: List<WebSearchResultUiModel>,
+    onDismiss: () -> Unit,
+) {
+    val uriHandler = LocalUriHandler.current
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.llm_web_search_activity_title),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            query?.let { frozenQuery ->
+                Text(
+                    text = stringResource(R.string.llm_web_search_activity_query, frozenQuery),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Text(
+                text =
+                    providerName?.let { provider ->
+                        stringResource(
+                            R.string.llm_web_search_activity_result_count_provider,
+                            provider,
+                            results.size,
+                        )
+                    } ?: stringResource(
+                        R.string.llm_web_search_activity_result_count,
+                        results.size,
+                    ),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = stringResource(R.string.llm_web_search_results_desc),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            if (results.isEmpty()) {
+                Text(
+                    text = stringResource(R.string.llm_web_search_activity_no_results),
+                    modifier = Modifier.padding(vertical = 12.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().fillMaxHeight(0.72f),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(top = 4.dp, bottom = 20.dp),
+                ) {
+                    items(
+                        items = results,
+                        key = WebSearchResultUiModel::id,
+                        contentType = { "web-search-result" },
+                    ) { result ->
+                        WebSearchResultCard(
+                            result = result,
+                            onOpen = { sourceUrl ->
+                                runCatching { uriHandler.openUri(sourceUrl) }
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WebSearchResultCard(
+    result: WebSearchResultUiModel,
+    onOpen: (String) -> Unit,
+) {
+    val sourceInitial =
+        (result.domain ?: result.title)
+            ?.trim()
+            ?.firstOrNull()
+            ?.uppercaseChar()
+            ?.toString()
+            ?: "?"
+    Surface(
+        modifier =
+            Modifier.fillMaxWidth().clickable(
+                enabled = result.sourceUrl != null,
+                onClick = { result.sourceUrl?.let(onOpen) },
+            ),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Surface(
+                    modifier = Modifier.size(32.dp),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = sourceInitial,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = result.title ?: stringResource(R.string.llm_web_search_result_untitled),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text =
+                            result.domain
+                                ?: stringResource(R.string.llm_web_search_result_unknown_source),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                WebSearchUsageBadge(result.usageState)
+            }
+
+            result.preview?.let { preview ->
+                Text(
+                    text = preview,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            result.sourceUrl?.let { sourceUrl ->
+                Text(
+                    text = sourceUrl,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                TextButton(
+                    onClick = { onOpen(sourceUrl) },
+                    modifier = Modifier.align(Alignment.End),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                ) {
+                    Text(stringResource(R.string.llm_context_open_source))
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WebSearchUsageBadge(state: WebSearchResultUsageState) {
+    val label =
+        stringResource(
+            when (state) {
+                WebSearchResultUsageState.USED -> R.string.llm_context_included
+                WebSearchResultUsageState.USED_TRUNCATED -> R.string.llm_context_truncated
+                WebSearchResultUsageState.OMITTED -> R.string.llm_context_omitted
+            }
+        )
+    val containerColor =
+        when (state) {
+            WebSearchResultUsageState.USED -> MaterialTheme.colorScheme.primaryContainer
+            WebSearchResultUsageState.USED_TRUNCATED -> MaterialTheme.colorScheme.secondaryContainer
+            WebSearchResultUsageState.OMITTED -> MaterialTheme.colorScheme.surfaceVariant
+        }
+    val contentColor =
+        when (state) {
+            WebSearchResultUsageState.USED -> MaterialTheme.colorScheme.onPrimaryContainer
+            WebSearchResultUsageState.USED_TRUNCATED -> MaterialTheme.colorScheme.onSecondaryContainer
+            WebSearchResultUsageState.OMITTED -> MaterialTheme.colorScheme.onSurfaceVariant
+        }
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = containerColor,
+        contentColor = contentColor,
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+        )
     }
 }
 

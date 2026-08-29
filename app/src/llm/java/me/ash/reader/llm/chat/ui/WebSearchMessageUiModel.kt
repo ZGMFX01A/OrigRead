@@ -1,6 +1,5 @@
 package me.ash.reader.llm.chat.ui
 
-import java.net.URI
 import me.ash.reader.llm.chat.data.LlmChatRole
 import me.ash.reader.llm.chat.data.LlmContextRefEntity
 import me.ash.reader.llm.chat.data.LlmMessageEntity
@@ -34,7 +33,7 @@ internal data class WebSearchMessageUiModel(
     val providerName: String?,
     val resultCount: Int,
     val sourceLabels: List<String>,
-    val canOpenResults: Boolean,
+    val canShowResults: Boolean,
     val errorState: WebSearchMessageErrorState,
 )
 
@@ -75,7 +74,7 @@ internal fun projectWebSearchMessage(
         providerName = message.webSearchProviderName?.trim()?.takeIf(String::isNotBlank),
         resultCount = searchRefs.size,
         sourceLabels = sourceLabels,
-        canOpenResults = searchRefs.any { ref -> isSafeHttpUrl(ref.sourceUrl ?: ref.sourceId) },
+        canShowResults = searchRefs.isNotEmpty(),
         errorState =
             when (state) {
                 WebSearchActivityUiState.FAILED_FALLBACK -> WebSearchMessageErrorState.AUTO_FALLBACK
@@ -88,12 +87,8 @@ internal fun projectWebSearchMessage(
 private fun searchSourceLabel(ref: LlmContextRefEntity): String? {
     val source = ref.sourceUrl ?: ref.sourceId
     val host =
-        source
-            ?.takeIf(::isSafeHttpUrl)
-            ?.let { url -> runCatching { URI(url).host }.getOrNull() }
-            ?.trim()
-            ?.removePrefix("www.")
-            ?.takeIf(String::isNotBlank)
+        safeHttpUrlOrNull(source)
+            ?.let(::webSearchDomainLabel)
     if (host != null) return host
 
     return ref.title
@@ -101,16 +96,6 @@ private fun searchSourceLabel(ref: LlmContextRefEntity): String? {
         ?.firstOrNull()
         ?.uppercaseChar()
         ?.toString()
-}
-
-private fun isSafeHttpUrl(value: String?): Boolean {
-    val normalized = value?.trim()?.takeIf(String::isNotBlank) ?: return false
-    return runCatching {
-        val uri = URI(normalized)
-        (uri.scheme.equals("http", ignoreCase = true) ||
-            uri.scheme.equals("https", ignoreCase = true)) &&
-            !uri.host.isNullOrBlank()
-    }.getOrDefault(false)
 }
 
 private const val MAX_SEARCH_SOURCE_LABELS = 3

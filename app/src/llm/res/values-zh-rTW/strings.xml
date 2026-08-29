@@ -243,4 +243,7 @@
     <string name="llm_web_search_activity_no_results">沒有找到結果</string>
     <string name="llm_web_search_activity_view_results">查看結果</string>
     <string name="llm_web_search_activity_force_failed">連網搜尋失敗。</string>
+    <string name="llm_web_search_results_desc">這裡顯示本次回答凍結的搜尋結果；「已使用」表示該資料實際進入了模型上下文。</string>
+    <string name="llm_web_search_result_untitled">搜尋結果</string>
+    <string name="llm_web_search_result_unknown_source">未知來源</string>
 </resources>

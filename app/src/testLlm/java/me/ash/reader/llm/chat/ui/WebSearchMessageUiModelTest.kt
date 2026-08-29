@@ -32,7 +32,7 @@ class WebSearchMessageUiModelTest {
         assertEquals("Project Valhalla — latest updates", model.query)
         assertEquals("Exa", model.providerName)
         assertEquals(0, model.resultCount)
-        assertFalse(model.canOpenResults)
+        assertFalse(model.canShowResults)
         assertEquals(WebSearchMessageErrorState.NONE, model.errorState)
     }
 
@@ -83,7 +83,7 @@ class WebSearchMessageUiModelTest {
         assertEquals(WebSearchActivityUiState.SUCCESS, model.state)
         assertEquals(2, model.resultCount)
         assertEquals(listOf("openai.com", "developer.android.com"), model.sourceLabels)
-        assertTrue(model.canOpenResults)
+        assertTrue(model.canShowResults)
     }
 
     @Test
@@ -104,7 +104,7 @@ class WebSearchMessageUiModelTest {
 
         assertEquals(0, model.resultCount)
         assertTrue(model.sourceLabels.isEmpty())
-        assertFalse(model.canOpenResults)
+        assertFalse(model.canShowResults)
     }
 
     @Test
@@ -181,7 +181,7 @@ class WebSearchMessageUiModelTest {
     }
 
     @Test
-    fun `unsafe search source cannot open and falls back to title initial`() {
+    fun `unsafe search source can still show frozen detail and falls back to title initial`() {
         val message = assistantMessage(webSearchStatus = WebSearchRequestStatus.SUCCESS)
         val model =
             requireNotNull(
@@ -206,7 +206,7 @@ class WebSearchMessageUiModelTest {
                 )
             )
 
-        assertFalse(model.canOpenResults)
+        assertTrue(model.canShowResults)
         assertEquals(listOf("E", "F"), model.sourceLabels)
     }
 

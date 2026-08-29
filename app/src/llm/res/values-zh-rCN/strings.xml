@@ -242,4 +242,7 @@
     <string name="llm_web_search_activity_no_results">没有找到结果</string>
     <string name="llm_web_search_activity_view_results">查看结果</string>
     <string name="llm_web_search_activity_force_failed">联网搜索失败。</string>
+    <string name="llm_web_search_results_desc">这里展示本次回答冻结的搜索结果；“已使用”表示该资料实际进入了模型上下文。</string>
+    <string name="llm_web_search_result_untitled">搜索结果</string>
+    <string name="llm_web_search_result_unknown_source">未知来源</string>
 </resources>

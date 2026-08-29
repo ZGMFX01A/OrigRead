@@ -242,4 +242,7 @@
     <string name="llm_web_search_activity_no_results">No results found</string>
     <string name="llm_web_search_activity_view_results">View results</string>
     <string name="llm_web_search_activity_force_failed">Web search failed.</string>
+    <string name="llm_web_search_results_desc">Frozen results for this answer. “Used” means the result actually entered the model context.</string>
+    <string name="llm_web_search_result_untitled">Search result</string>
+    <string name="llm_web_search_result_unknown_source">Unknown source</string>
 </resources>
