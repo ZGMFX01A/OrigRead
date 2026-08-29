@@ -87,6 +87,7 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -633,11 +634,13 @@ private fun ArticleAssistantEmptyState(
     Column(
         modifier = modifier.fillMaxWidth().padding(horizontal = 22.dp),
         verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
             text = stringResource(R.string.llm_article_assistant_empty_title),
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center,
         )
         if (shouldShowArticleAssistantConfigurationHint(configured)) {
             Spacer(Modifier.size(8.dp))
@@ -645,6 +648,7 @@ private fun ArticleAssistantEmptyState(
                 text = stringResource(R.string.llm_chat_not_configured),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
             )
         }
     }

@@ -214,11 +214,11 @@
     <string name="open_release_page">打开 GitHub Release</string>
     <string name="ai_generate_website_rule">AI 生成网站规则</string>
     <string name="ai_generate_json_rule">AI 生成 JSON 规则</string>
-    <string name="ai_generate_rule_desc">抓取目标地址，可选择已配置的 AI 服务和模型，保存前使用本地解析器真实试跑验证</string>
+    <string name="ai_generate_rule_desc">选择 AI 服务和模型生成规则，保存前由本地解析器验证</string>
     <string name="ai_rule_generation_unavailable_desc">功能仍在开发和验证中，当前版本暂不可用</string>
     <string name="ai_rule_generation_unavailable_message">AI 生成规则尚未开发完成，当前版本暂不可用。请先使用规则模板、导入和测试功能。</string>
     <string name="ai_rule_target_url">目标 URL</string>
-    <string name="ai_rule_dialog_subtitle">选择来源后，会先用本地解析器真实试跑再生成规则</string>
+    <string name="ai_rule_dialog_subtitle">选择 AI 服务和模型，生成后由本地解析器验证</string>
     <string name="ai_rule_step_target">目标地址</string>
     <string name="ai_rule_step_service">AI 服务</string>
     <string name="ai_rule_step_generate">生成与校验</string>
@@ -253,7 +253,7 @@
     <string name="ai_rule_preview_title">AI 规则候选</string>
     <string name="ai_rule_preview_subtitle">保存前先查看真实试跑结果</string>
     <string name="ai_rule_local_validation_passed">列表规则已通过本地验证</string>
-    <string name="ai_rule_preview_validation_hint">列表规则已对目标地址真实执行并返回可用文章；正文规则单独显示下方结果</string>
+    <string name="ai_rule_preview_validation_hint">列表规则已返回可用文章；正文验证结果显示在下方</string>
     <string name="ai_rule_preview_articles">文章数</string>
     <string name="ai_rule_preview_score">评分</string>
     <string name="ai_rule_preview_attempts">尝试次数</string>
@@ -325,7 +325,7 @@
     <string name="reading_share_target_unavailable">当前设备未检测到可用入口</string>
     <string name="reading_share_target_unavailable_fallback">无法打开 %1$s，已改用系统分享</string>
     <string name="reading_share_notion_config_title">Notion · 个人访问令牌</string>
-    <string name="reading_share_notion_config_desc">填写 Notion 个人访问令牌。文章将直接创建为工作区私有页面，无需连接页面或指定父页面；令牌在本机加密保存。</string>
+    <string name="reading_share_notion_config_desc">填写 Notion 个人访问令牌。文章创建为工作区私有页面，令牌在本机加密保存。</string>
     <string name="reading_share_notion_tokens_url">notion.so/developers/tokens</string>
     <string name="reading_share_notion_token">个人访问令牌</string>
     <string name="reading_share_notion_token_saved">已保存，粘贴新令牌可替换</string>
@@ -384,6 +384,10 @@
     <string name="for_1_month">1 个月</string>
     <string name="local">本地</string>
     <string name="local_desc">在这台设备上</string>
+    <string name="feedly_desc">feedly.com</string>
+    <string name="inoreader_desc">inoreader.com</string>
+    <string name="fresh_rss_desc">freshrss.org</string>
+    <string name="google_reader_desc">Google Reader API</string>
     <string name="services">服务</string>
     <string name="self_hosted">自托管</string>
     <string name="fever_desc">已过时，不推荐。</string>
@@ -658,7 +662,7 @@
     <string name="source_discovery_all">全部</string>
     <string name="source_discovery_all_categories">全部分类</string>
     <string name="source_discovery_choose_category">选择分类</string>
-    <string name="source_discovery_category_sheet_hint">%1$d 个分类 · 保留上游原分类</string>
+    <string name="source_discovery_category_sheet_hint">%1$d 个分类 · 已合并相近的上游分类</string>
     <string name="source_discovery_clear_filter">清除</string>
     <string name="source_discovery_count">%1$d 个来源</string>
     <string name="source_discovery_no_results">没有找到匹配的来源</string>

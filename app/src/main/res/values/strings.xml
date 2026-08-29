@@ -2,7 +2,7 @@
 <resources>
     <string name="origread">OrigRead</string>
     <string name="article_filter_settings">Article filters</string>
-    <string name="article_filter_settings_desc">Hide unwanted articles by title keywords</string>
+    <string name="article_filter_settings_desc">Filter articles by title keywords or regex</string>
     <string name="add_filter_keyword">Add keyword</string>
     <string name="add_filter_keyword_desc">Applies to all sources, hides existing matches immediately, and filters new articles before saving</string>
     <string name="filter_keyword">Keyword</string>
@@ -91,19 +91,19 @@
     <string name="read_inside_origread_desc">Immersive layout, full-text search and AI summaries</string>
     <string name="current">Current</string>
     <string name="rss_subscription_content">Use feed content</string>
-    <string name="rss_subscription_content_desc">Uses the content provided by the RSS/Atom feed. This is the stable default and does not open the article website.</string>
+    <string name="rss_subscription_content_desc">Use RSS/Atom content without opening the article webpage.</string>
     <string name="advanced_reading_options">Advanced reading options</string>
     <string name="advanced_reading_options_desc">Only needed when a feed provides a short excerpt instead of the article body.</string>
     <string name="fetch_original_full_content">Try to fetch the original webpage</string>
     <string name="fetch_original_full_content_desc">Visits each article webpage and extracts its body. Sites that require sign-in, verification, or block automated access may fail.</string>
     <string name="website_content_reading">Parse website articles in OrigRead</string>
-    <string name="website_content_reading_desc">Article lists and reading content are extracted with the website parser selected for this source.</string>
+    <string name="website_content_reading_desc">Use the selected website parser for article lists and content.</string>
     <string name="website_full_content_desc">When opening an article, also fetch its detail page to extract a more complete body. This may fail on protected websites.</string>
     <string name="json_content_reading">Use JSON/API content</string>
-    <string name="json_content_reading_desc">Article content comes from the configured JSON/API rule. OrigRead does not fetch the webpage again by default.</string>
+    <string name="json_content_reading_desc">Use the configured JSON/API rule without fetching the webpage again.</string>
     <string name="open_original_in_browser">Open in browser</string>
     <string name="open_original_in_browser_desc">Go directly to the external webpage</string>
-    <string name="website_parser_setting_desc">Controls how this website source discovers article lists. Keep automatic selection unless a specific rule is more reliable.</string>
+    <string name="website_parser_setting_desc">Choose how this website source discovers articles. Automatic selection is recommended.</string>
     <string name="all_parse_full_content_tips">Full content parsing of all articles in the \"%1$s\" group</string>
     <string name="all_parse_full_content_toast">Enabled full content for \"%1$s\"</string>
     <string name="all_deny_parse_full_content_toast">Disabled full content for \"%1$s\"</string>
@@ -241,11 +241,11 @@
     <string name="open_release_page">Open GitHub Release</string>
     <string name="ai_generate_website_rule">Generate website rule with AI</string>
     <string name="ai_generate_json_rule">Generate JSON rule with AI</string>
-    <string name="ai_generate_rule_desc">Fetch the target, choose a configured AI service and model, then validate the candidate locally before saving</string>
+    <string name="ai_generate_rule_desc">Choose an AI service and model, generate a rule, then verify it locally before saving</string>
     <string name="ai_rule_generation_unavailable_desc">Under development; unavailable in this build</string>
     <string name="ai_rule_generation_unavailable_message">AI rule generation is not finished yet. Please use rule templates, import, and testing for now.</string>
     <string name="ai_rule_target_url">Target URL</string>
-    <string name="ai_rule_dialog_subtitle">Choose a source and let the local parser verify the result</string>
+    <string name="ai_rule_dialog_subtitle">Choose an AI service and model; the generated rule is verified locally</string>
     <string name="ai_rule_step_target">Target</string>
     <string name="ai_rule_step_service">AI service</string>
     <string name="ai_rule_step_generate">Generate</string>
@@ -280,7 +280,7 @@
     <string name="ai_rule_preview_title">AI rule candidate</string>
     <string name="ai_rule_preview_subtitle">Review the real local test result before saving</string>
     <string name="ai_rule_local_validation_passed">List rule passed local validation</string>
-    <string name="ai_rule_preview_validation_hint">The list rule ran against the target and returned usable articles; content validation is shown separately below</string>
+    <string name="ai_rule_preview_validation_hint">The list rule returned usable articles; content validation is shown below</string>
     <string name="ai_rule_preview_articles">Articles</string>
     <string name="ai_rule_preview_score">Score</string>
     <string name="ai_rule_preview_attempts">Attempts</string>
@@ -354,7 +354,7 @@
     <string name="reading_share_target_unavailable">No usable entry point was detected on this device</string>
     <string name="reading_share_target_unavailable_fallback">Could not open %1$s. Using system share instead.</string>
     <string name="reading_share_notion_config_title">Notion API · personal access token</string>
-    <string name="reading_share_notion_config_desc">Create a personal access token and paste it here. No page connection or parent page is required; OrigRead creates each article as a private workspace page. The token is encrypted and stored on this device.</string>
+    <string name="reading_share_notion_config_desc">Paste a Notion personal access token. OrigRead creates private workspace pages and stores the token encrypted on this device.</string>
     <string name="reading_share_notion_tokens_url">notion.so/developers/tokens</string>
     <string name="reading_share_notion_token">Personal access token</string>
     <string name="reading_share_notion_token_saved">Saved; paste a new token to replace it</string>
@@ -470,7 +470,7 @@
     <string name="open_link_ask_dialog_title">Open with…</string>
     <string name="include_additional_info">Include additional info</string>
     <string name="exclude">Exclude</string>
-    <string name="additional_info_desc">Additional information includes configuration options for each feed, such as whether to allow notification, parse full content, etc. When you intend to use the exported OPML file with other readers, please select \"Exclude\".</string>
+    <string name="additional_info_desc">Includes per-feed options such as notifications and full-content parsing. Choose \"Exclude\" for better compatibility with other readers.</string>
     <string name="grey_out_articles">Dim read articles</string>
     <string name="all_read">All read</string>
     <string name="read_excluding_starred">Read, excluding starred</string>
@@ -677,9 +677,9 @@
     <string name="translation_only">Translated text</string>
     <string name="translation_bilingual">Original and translation</string>
     <string name="translation_privacy_title">Privacy and credentials</string>
-    <string name="translation_privacy_desc">ML Kit runs on the device after its language model is downloaded. Cloud providers send article text to the configured service. API keys are encrypted with Android Keystore and are never exported.</string>
+    <string name="translation_privacy_desc">ML Kit runs on-device. Cloud providers receive article text. API keys are encrypted locally and exported only when credential backup is explicitly enabled.</string>
     <string name="translation_provider_selection_title">Enabled and default providers</string>
-    <string name="translation_provider_selection_desc">You can enable multiple translation providers. Use the radio button to choose the default, and at least one provider always remains enabled. Tap Translate to use the default provider, or long-press it to temporarily choose another enabled provider.</string>
+    <string name="translation_provider_selection_desc">Enable multiple providers and choose a default. Tap Translate to use it; long-press to choose another enabled provider.</string>
     <string name="translation_provider_default_item">%1$s (default)</string>
     <string name="translation_choose_method">Choose translation method</string>
     <string name="translation_traditional_section">Traditional translation</string>
@@ -692,7 +692,7 @@
     <string name="source_discovery_all">All</string>
     <string name="source_discovery_all_categories">All categories</string>
     <string name="source_discovery_choose_category">Choose a category</string>
-    <string name="source_discovery_category_sheet_hint">%1$d categories · upstream labels preserved</string>
+    <string name="source_discovery_category_sheet_hint">%1$d categories · simplified from upstream groups</string>
     <string name="source_discovery_clear_filter">Clear</string>
     <string name="source_discovery_count">%1$d sources</string>
     <string name="source_discovery_no_results">No matching sources</string>
@@ -727,7 +727,7 @@
     <string name="ai_endpoint">Base URL or full endpoint</string>
     <string name="ai_endpoint_desc">Base URL (such as /v1) or a full endpoint</string>
     <string name="ai_model">Model name</string>
-    <string name="ai_model_desc">Enter manually or fetch from the current service. Newlines and duplicated pasted model IDs are cleaned automatically.</string>
+    <string name="ai_model_desc">Enter a model ID or fetch models from the current service.</string>
     <string name="ai_default_model">Default model</string>
     <string name="ai_default_model_desc">Default model</string>
     <string name="ai_fetch_models">Fetch models</string>

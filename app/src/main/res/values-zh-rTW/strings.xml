@@ -108,11 +108,11 @@
     <string name="in_coding">打造中</string>
     <string name="coming_soon">即將登場</string>
     <string name="accounts">帳戶</string>
-    <string name="accounts_desc">本機、FreshRSS</string>
+    <string name="accounts_desc">本機、服務、自行託管</string>
     <string name="color_and_style">顏色和樣式</string>
     <string name="color_and_style_desc">主題、色調樣式、字型大小</string>
     <string name="interaction">互動</string>
-    <string name="interaction_desc">起始頁面、觸覺回饋</string>
+    <string name="interaction_desc">啟動頁面、手勢</string>
     <string name="languages">語言</string>
     <string name="use_device_languages">使用裝置語言</string>
     <string name="help_translate">協助翻譯</string>
@@ -211,7 +211,7 @@
     <string name="open_release_page">開啟 GitHub Release</string>
     <string name="ai_generate_website_rule">AI 產生網站規則</string>
     <string name="ai_generate_json_rule">AI 產生 JSON 規則</string>
-    <string name="ai_generate_rule_desc">抓取目標網址，由預設 AI 產生候選，並在儲存前使用本機解析器實際試跑驗證</string>
+    <string name="ai_generate_rule_desc">選擇 AI 服務與模型產生規則，儲存前由本機解析器驗證</string>
     <string name="ai_rule_generation_unavailable_desc">功能仍在開發與驗證中，目前版本暫不可用</string>
     <string name="ai_rule_generation_unavailable_message">AI 產生規則尚未開發完成，目前版本暫不可用。請先使用規則範本、匯入與測試功能。</string>
     <string name="ai_rule_preview_title">AI 規則候選</string>
@@ -274,7 +274,7 @@
     <string name="reading_share_target_unavailable">目前裝置未偵測到可用入口</string>
     <string name="reading_share_target_unavailable_fallback">無法開啟 %1$s，已改用系統分享</string>
     <string name="reading_share_notion_config_title">Notion · 個人存取權杖</string>
-    <string name="reading_share_notion_config_desc">填寫 Notion 個人存取權杖。文章將直接建立為工作區私人頁面，無需連結頁面或指定父頁面；權杖在本機加密儲存。</string>
+    <string name="reading_share_notion_config_desc">填寫 Notion 個人存取權杖。文章建立為工作區私人頁面，權杖在本機加密儲存。</string>
     <string name="reading_share_notion_tokens_url">notion.so/developers/tokens</string>
     <string name="reading_share_notion_token">個人存取權杖</string>
     <string name="reading_share_notion_token_saved">已儲存，貼上新權杖即可替換</string>
@@ -408,7 +408,7 @@
     <string name="only_link">僅連結</string>
     <string name="title_and_link">標題和連結</string>
     <string name="troubleshooting">疑難排解</string>
-    <string name="troubleshooting_desc">錯誤報告、偵錯工具</string>
+    <string name="troubleshooting_desc">查看同步錯誤紀錄</string>
     <string name="bug_report">錯誤報告</string>
     <string name="app_preferences">應用程式偏好設定</string>
     <string name="import_from_protobuf_file">從 protobuf 檔案匯入</string>
@@ -559,7 +559,7 @@
     <string name="source_discovery_all">全部</string>
     <string name="source_discovery_all_categories">全部分類</string>
     <string name="source_discovery_choose_category">選擇分類</string>
-    <string name="source_discovery_category_sheet_hint">%1$d 個分類 · 保留上游原分類</string>
+    <string name="source_discovery_category_sheet_hint">%1$d 個分類 · 已合併相近的上游分類</string>
     <string name="source_discovery_clear_filter">清除</string>
     <string name="source_discovery_count">%1$d 個來源</string>
     <string name="source_discovery_no_results">找不到符合的來源</string>
@@ -690,4 +690,22 @@
     <string name="ai_markdown_latex">LaTeX</string>
     <string name="ai_markdown_copy_block">複製%1$s</string>
     <string name="selected_text_ai">AI</string>
+    <!-- 繁中描述補全：避免缺少區域資源時回退英文。 -->
+    <string name="user_guide_desc">查看新增來源、規則、AI 產生與常見問題說明</string>
+    <string name="ai_rule_dialog_subtitle">選擇 AI 服務與模型，產生後由本機解析器驗證</string>
+    <string name="ai_rule_target_url_hint">填寫包含文章列表的網頁或 API 位址</string>
+    <string name="ai_rule_model_manual_hint">可直接填寫模型 ID，也可先在 AI 設定取得模型清單</string>
+    <string name="ai_rule_model_select_hint">從已設定的模型清單中選擇</string>
+    <string name="ai_rule_model_custom_hint">目前為自訂模型 ID，可切回清單選擇</string>
+    <string name="ai_rule_preview_subtitle">儲存前先查看實際試跑結果</string>
+    <string name="ai_rule_preview_validation_hint">列表規則已返回可用文章；正文驗證結果顯示於下方</string>
+    <string name="feedly_desc">feedly.com</string>
+    <string name="inoreader_desc">inoreader.com</string>
+    <string name="fresh_rss_desc">freshrss.org</string>
+    <string name="google_reader_desc">Google Reader API</string>
+    <string name="widget_description">查看所選來源的最新未讀文章</string>
+    <string name="group_configuration_description">設定「%2$s」內訂閱來源的「%1$s」</string>
+    <string name="notifications_desc">有新的未讀文章時顯示通知</string>
+    <string name="open_in_browser_desc">在瀏覽器中開啟文章</string>
+    <string name="parse_full_content_desc">從網頁取得完整內容</string>
 </resources>

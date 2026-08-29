@@ -50,8 +50,8 @@
     <string name="llm_prompt_evidence">列出支持文章主要結論的關鍵證據，並指出證據不足之處。</string>
     <string name="llm_article_analysis_request">深入分析這篇文章。</string>
     <string name="llm_quick_messages_title">快捷訊息</string>
-    <string name="llm_quick_messages_desc">可重複使用的閱讀提示。傳送時仍是一般使用者訊息，不授予 Tool 權限，也不修改系統指令。</string>
-    <string name="llm_quick_messages_settings_desc">管理文章助手中可重複使用的閱讀提示。</string>
+    <string name="llm_quick_messages_desc">可重複使用的閱讀提示，以一般使用者訊息傳送，不改變系統指令或 Tool 權限。</string>
+    <string name="llm_quick_messages_settings_desc">管理可重複使用的文章提示。</string>
     <string name="llm_quick_messages_manage">管理快捷訊息</string>
     <string name="llm_quick_messages_empty">還沒有快捷訊息。</string>
     <string name="llm_quick_message_add">新增快捷訊息</string>
@@ -72,8 +72,8 @@
     <string name="llm_model_search_hint">搜尋服務或模型</string>
     <string name="llm_model_search_empty">沒有符合的模型</string>
     <string name="llm_settings_runtime_title">LLM 執行參數</string>
-    <string name="llm_settings_runtime_desc">文章對話的執行參數。</string>
-    <string name="llm_settings_reasoning_effort">Reasoning Effort</string>
+    <string name="llm_settings_runtime_desc">控制文章對話的模型請求參數。</string>
+    <string name="llm_settings_reasoning_effort">模型推理強度</string>
     <string name="llm_settings_reasoning_effort_desc">僅在模型與服務支援時生效。</string>
     <string name="llm_reasoning_auto">Auto</string>
     <string name="llm_reasoning_low">Low</string>
@@ -86,11 +86,11 @@
     <string name="llm_settings_context_budget">Context Budget</string>
     <string name="llm_settings_context_budget_desc">文章上下文預算，預設 128K tokens；可手動輸入。</string>
     <string name="llm_custom_instructions_title">Custom Instructions</string>
-    <string name="llm_custom_instructions_settings_desc">文章對話、摘要與 AI 翻譯共用的長期回答偏好。</string>
+    <string name="llm_custom_instructions_settings_desc">對話、摘要與 AI 翻譯共用的長期回答偏好。</string>
     <string name="llm_custom_instructions_configured">已設定</string>
     <string name="llm_custom_instructions_not_configured">未設定</string>
     <string name="llm_custom_instructions_manage">編輯 Custom Instructions</string>
-    <string name="llm_custom_instructions_desc">設定長期回答偏好，但不會改變任務、Skill、Tool 或 MCP 權限。</string>
+    <string name="llm_custom_instructions_desc">設定回答偏好，不改變 Skill、Tool 或 MCP 權限。</string>
     <string name="llm_custom_instructions_priority_hint">優先順序低於目前任務與 Skill，高於文章與外部上下文；OrigRead 硬規則始終優先。</string>
     <string name="llm_custom_instructions_editor_label">回答偏好</string>
     <string name="llm_custom_instructions_editor_placeholder">例如：使用精簡中文回答；保留英文技術術語；區分事實與推論；優先使用緊湊 Markdown。</string>
@@ -103,18 +103,18 @@
     <string name="llm_settings_skills">Skills</string>
     <string name="llm_settings_skills_desc">請求符合時自動啟用已安裝 Skill。</string>
     <string name="llm_settings_web_search">Web Search</string>
-    <string name="llm_settings_web_search_desc">允許文章對話取得最新網路資料。</string>
+    <string name="llm_settings_web_search_desc">允許文章對話搜尋網路。</string>
     <string name="llm_settings_web_search_manage">管理 Web Search</string>
     <string name="llm_settings_mcp">MCP</string>
     <string name="llm_settings_mcp_desc">允許 AI 閱讀使用已設定的 MCP 工具。</string>
     <string name="llm_settings_mcp_manage">管理 MCP</string>
     <string name="llm_mcp_title">MCP</string>
-    <string name="llm_mcp_desc">連接 Remote MCP Server，並查看它實際暴露的工具。</string>
+    <string name="llm_mcp_desc">連接遠端 MCP Server，並查看可用工具。</string>
     <string name="llm_mcp_empty">尚未設定 MCP Server。</string>
     <string name="llm_mcp_add_server">新增 MCP Server</string>
     <string name="llm_mcp_edit_server">編輯 MCP Server</string>
     <string name="llm_mcp_delete_server">刪除 MCP Server</string>
-    <string name="llm_mcp_delete_server_desc">將同時刪除該 Server、快取的 Tools 與本機儲存的認證資訊。</string>
+    <string name="llm_mcp_delete_server_desc">刪除 Server、快取的 Tool 與本機憑證。</string>
     <string name="llm_mcp_server_name">Server 名稱</string>
     <string name="llm_mcp_endpoint">Endpoint</string>
     <string name="llm_mcp_auth">認證</string>
@@ -147,7 +147,7 @@
     <string name="llm_mcp_risk_write">寫入</string>
     <string name="llm_manual_tool">MCP Tool</string>
     <string name="llm_manual_tool_title">執行 MCP Tool</string>
-    <string name="llm_manual_tool_desc">目前模型不支援標準 Tool Calling。你可以手動執行 Tool，並把結果作為參考上下文附加給模型。</string>
+    <string name="llm_manual_tool_desc">目前模型不支援標準 Tool Calling，可手動執行 Tool 並將結果附加為上下文。</string>
     <string name="llm_manual_tool_arguments">參數 JSON</string>
     <string name="llm_manual_tool_schema">輸入 Schema</string>
     <string name="llm_manual_tool_run">執行並附加</string>
@@ -156,7 +156,7 @@
     <string name="llm_manual_tool_attached">已附加 Tool 上下文</string>
     <string name="llm_manual_tool_remove">移除已附加的 Tool 結果</string>
     <string name="llm_context_sources_title">本次回答的上下文</string>
-    <string name="llm_context_sources_desc">這裡顯示本次請求凍結的來源；標記「未納入」的候選內容沒有傳送給模型。</string>
+    <string name="llm_context_sources_desc">本次請求凍結的來源；「未納入」的內容沒有傳送給模型。</string>
     <string name="llm_context_sources_count">%1$d 項上下文</string>
     <string name="llm_context_included">已使用</string>
     <string name="llm_context_truncated">已使用 · 已截斷</string>
@@ -204,10 +204,10 @@
     <string name="llm_skill_scripts_ignored">腳本已忽略</string>
     <string name="llm_skill_select">選擇 Skill</string>
     <string name="llm_web_search_title">Web Search</string>
-    <string name="llm_web_search_desc">設定專用搜尋服務；Web Search 與 MCP 保持獨立。</string>
-    <string name="llm_web_search_execution_desc">每次搜尋只使用一個預設服務。其他已啟用服務作為可切換備選；OrigRead 不會平行請求多個服務，也不會在服務間自動重試。</string>
+    <string name="llm_web_search_desc">設定專用網路搜尋服務。</string>
+    <string name="llm_web_search_execution_desc">每次僅使用預設服務；其他已啟用服務可手動切換，不平行請求，也不跨服務自動重試。</string>
     <string name="llm_web_search_results_count">每次搜尋結果數</string>
-    <string name="llm_web_search_results_count_desc">控制向目前搜尋服務請求的結果數量。預設 5 個，可設定 1–20 個。</string>
+    <string name="llm_web_search_results_count_desc">預設 5 個，可設定 1–20 個。</string>
     <string name="llm_web_search_results_decrease">減少搜尋結果數</string>
     <string name="llm_web_search_results_increase">增加搜尋結果數</string>
     <string name="llm_web_search_add">新增搜尋服務</string>
@@ -230,7 +230,7 @@
     <string name="llm_web_search_test_success">連線正常 · %1$d ms · %2$d 筆結果</string>
     <string name="llm_web_search_test_failed">連線失敗：%1$s</string>
     <string name="llm_web_search_mode_title">Web Search</string>
-    <string name="llm_web_search_mode_desc">控制文章對話何時取得最新網路資料。</string>
+    <string name="llm_web_search_mode_desc">控制文章對話何時進行網路搜尋。</string>
     <string name="llm_web_search_mode_off">關閉</string>
     <string name="llm_web_search_mode_off_desc">不進行網路搜尋。</string>
     <string name="llm_web_search_mode_auto">自動</string>
@@ -250,7 +250,7 @@
     <string name="llm_web_search_activity_no_results">沒有找到結果</string>
     <string name="llm_web_search_activity_view_results">查看結果</string>
     <string name="llm_web_search_activity_force_failed">連網搜尋失敗。</string>
-    <string name="llm_web_search_results_desc">這裡顯示本次回答凍結的搜尋結果；「已使用」表示該資料實際進入了模型上下文。</string>
+    <string name="llm_web_search_results_desc">本次回答凍結的搜尋結果；「已使用」表示已進入模型上下文。</string>
     <string name="llm_web_search_result_untitled">搜尋結果</string>
     <string name="llm_web_search_result_unknown_source">未知來源</string>
 </resources>

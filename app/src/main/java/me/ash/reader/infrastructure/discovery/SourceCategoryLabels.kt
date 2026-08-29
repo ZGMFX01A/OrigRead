@@ -3,7 +3,7 @@ package me.ash.reader.infrastructure.discovery
 /**
  * 内置来源目录的分类本地化表。
  *
- * key 始终保持上游目录里的英文原分类，避免改变分类语义；展示层再根据当前语言选择中文标签。
+ * key 使用内置目录的稳定英文展示分类；每条 Feed 的上游原分类仍保存在 origins 中。
  * 同时保留中英文搜索词，因此中文界面可以直接搜索“编程”“科技”“网络安全”等分类。
  */
 object SourceCategoryLabels {
@@ -24,13 +24,18 @@ object SourceCategoryLabels {
             "Beauty" to Label("美妆", "美妝"),
             "Books" to Label("图书", "書籍"),
             "Business & Economy" to Label("商业与经济", "商業與經濟"),
+            "Business & Finance" to Label("商业与财经", "商業與財經"),
             "Cars" to Label("汽车", "汽車"),
             "Chess" to Label("国际象棋", "西洋棋"),
             "Cricket" to Label("板球", "板球"),
             "Cryptocurrency" to Label("加密货币", "加密貨幣"),
             "Cyber security" to Label("网络安全", "網路安全"),
+            "Culture & Life" to Label("文化与生活", "文化與生活"),
             "DIY" to Label("DIY 手作", "DIY 手作"),
+            "Developer Tools" to Label("开发工具", "開發工具"),
+            "DevOps & Data" to Label("DevOps 与数据", "DevOps 與資料"),
             "Environment" to Label("环境", "環境"),
+            "Essays & Blogs" to Label("随笔与博客", "隨筆與部落格"),
             "Fashion" to Label("时尚", "時尚"),
             "Food" to Label("美食", "美食"),
             "Football" to Label("足球", "足球"),
@@ -40,19 +45,27 @@ object SourceCategoryLabels {
             "Interior design" to Label("室内设计", "室內設計"),
             "iOS Development" to Label("iOS 开发", "iOS 開發"),
             "Memes" to Label("梗图", "迷因"),
+            "Media & Entertainment" to Label("媒体与娱乐", "媒體與娛樂"),
+            "Mobile" to Label("移动开发", "行動開發"),
             "Movies" to Label("电影", "電影"),
             "Music" to Label("音乐", "音樂"),
             "Nature" to Label("自然", "自然"),
             "News" to Label("新闻", "新聞"),
+            "Newsletters" to Label("周刊", "電子報與週刊"),
             "Personal finance" to Label("个人理财", "個人理財"),
             "Photography" to Label("摄影", "攝影"),
+            "Podcasts" to Label("播客", "Podcast"),
             "Product" to Label("产品", "產品"),
+            "Product & Design" to Label("产品与设计", "產品與設計"),
             "Programming" to Label("编程", "程式設計"),
             "Science" to Label("科学", "科學"),
+            "Science & Nature" to Label("科学与自然", "科學與自然"),
+            "Security" to Label("网络安全", "網路安全"),
             "Space" to Label("太空", "太空"),
             "Sports" to Label("体育", "體育"),
             "Startups" to Label("创业", "創業"),
             "Tech" to Label("科技", "科技"),
+            "Tech & Engineering" to Label("科技与工程", "科技與工程"),
             "Television" to Label("电视", "電視"),
             "Tennis" to Label("网球", "網球"),
             "Travel" to Label("旅行", "旅行"),

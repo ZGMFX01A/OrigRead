@@ -111,7 +111,7 @@ fun LlmAdvancedSettingsSection(
                     FilterChip(
                         selected = settings.reasoningEffort == effort,
                         onClick = { viewModel.setReasoningEffort(effort) },
-                        // Reasoning Effort 属于模型 API 领域术语，跨语言界面保持英文值，避免自行发明译名。
+                        // Reasoning Effort 的 API 语义保持不变；界面标题按当前语言本地化。
                         label = { Text(reasoningEffortLabel(effort)) },
                     )
                 }
