@@ -87,6 +87,52 @@ class WebSearchMessageUiModelTest {
     }
 
     @Test
+    fun `success source labels follow the same frozen priority order as result detail`() {
+        val message =
+            assistantMessage(
+                webSearchStatus = WebSearchRequestStatus.SUCCESS,
+                query = "OrigRead latest",
+                provider = "Keenable",
+            )
+        val refs =
+            listOf(
+                contextRef(
+                    assistantMessageId = message.id,
+                    contextId = "third",
+                    type = LlmContextType.WEB_SEARCH_RESULT,
+                    sourceUrl = "https://third.example/result",
+                ).copy(priority = 108, createdAt = 3L),
+                contextRef(
+                    assistantMessageId = message.id,
+                    contextId = "first",
+                    type = LlmContextType.WEB_SEARCH_RESULT,
+                    sourceUrl = "https://first.example/result",
+                ).copy(priority = 110, createdAt = 1L),
+                contextRef(
+                    assistantMessageId = message.id,
+                    contextId = "fourth",
+                    type = LlmContextType.WEB_SEARCH_RESULT,
+                    sourceUrl = "https://fourth.example/result",
+                ).copy(priority = 107, createdAt = 4L),
+                contextRef(
+                    assistantMessageId = message.id,
+                    contextId = "second",
+                    type = LlmContextType.WEB_SEARCH_RESULT,
+                    sourceUrl = "https://second.example/result",
+                ).copy(priority = 109, createdAt = 2L),
+            )
+
+        val card = requireNotNull(projectWebSearchMessage(message, refs))
+        val detail = projectWebSearchResults(message.id, refs)
+
+        assertEquals(listOf("first.example", "second.example", "third.example"), card.sourceLabels)
+        assertEquals(
+            detail.take(3).mapNotNull(WebSearchResultUiModel::domain),
+            card.sourceLabels,
+        )
+    }
+
+    @Test
     fun `success with no search refs exposes zero results`() {
         val message =
             assistantMessage(

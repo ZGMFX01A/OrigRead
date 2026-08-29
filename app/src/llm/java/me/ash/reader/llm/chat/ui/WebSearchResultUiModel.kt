@@ -26,6 +26,17 @@ internal data class WebSearchResultUiModel(
     val priority: Int,
 )
 
+/**
+ * Dedicated Search 冻结结果的唯一稳定展示顺序。
+ *
+ * Search Card 来源摘要与 Result Sheet 必须使用同一顺序，不能依赖 Room Flow 当前返回顺序，
+ * 否则同一个 Assistant 会出现折叠卡与详情页来源不一致的错觉。
+ */
+internal val WEB_SEARCH_CONTEXT_REF_ORDER: Comparator<LlmContextRefEntity> =
+    compareByDescending<LlmContextRefEntity> { it.priority }
+        .thenBy { it.createdAt }
+        .thenBy { it.id }
+
 internal fun projectWebSearchResults(
     assistantMessageId: String,
     contextRefs: List<LlmContextRefEntity>,
@@ -36,11 +47,7 @@ internal fun projectWebSearchResults(
             ref.assistantMessageId == assistantMessageId &&
                 ref.type == LlmContextType.WEB_SEARCH_RESULT
         }
-        .sortedWith(
-            compareByDescending<LlmContextRefEntity> { it.priority }
-                .thenBy { it.createdAt }
-                .thenBy { it.id }
-        )
+        .sortedWith(WEB_SEARCH_CONTEXT_REF_ORDER)
         .map { ref ->
             val safeUrl = safeHttpUrlOrNull(ref.sourceUrl ?: ref.sourceId)
             val domain = safeUrl?.let(::webSearchDomainLabel)

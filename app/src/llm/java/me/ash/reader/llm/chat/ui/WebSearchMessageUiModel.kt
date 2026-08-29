@@ -69,6 +69,7 @@ internal fun projectWebSearchMessage(
         }
     val sourceLabels =
         searchRefs
+            .sortedWith(WEB_SEARCH_CONTEXT_REF_ORDER)
             .mapNotNull(::searchSourceLabel)
             .distinct()
             .take(MAX_SEARCH_SOURCE_LABELS)
