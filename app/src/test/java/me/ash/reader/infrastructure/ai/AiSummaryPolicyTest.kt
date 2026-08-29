@@ -43,41 +43,23 @@ class AiSummaryPolicyTest {
     }
 
     @Test
-    fun `readable floor never breaks 48 percent compression cap`() {
-        assertEquals(96, summaryOutputCeiling(200, AiSummaryLength.STANDARD))
-        assertEquals(144, summaryOutputCeiling(300, AiSummaryLength.DETAILED))
-        assertEquals(1_000, summaryOutputCeiling(3_000, AiSummaryLength.DETAILED))
-    }
-
-    @Test
-    fun `parses no summary metadata from same ai request`() {
+    fun `parses v2 summary metadata`() {
         val result =
             parseAiSummaryModelOutput(
-                """<!-- origread-summary-v1: {"v":1,"shouldSummarize":false,"form":"flash","domain":"finance","reason":"source_already_concise"} -->"""
-            )
-        assertEquals(false, result.shouldSummarize)
-        assertEquals(AiArticleForm.FLASH, result.articleForm)
-        assertEquals("finance", result.domain)
-        assertEquals(AiSummarySkipReason.SOURCE_ALREADY_CONCISE, result.reason)
-        assertEquals("", result.summary)
-    }
-
-    @Test
-    fun `legacy metadata marker remains compatible`() {
-        val result =
-            parseAiSummaryModelOutput(
-                """<!-- origread-summary: {"shouldSummarize":true,"form":"news","domain":"technology","reason":null} -->
+                """<!-- origread-summary-v2: {"v":2,"form":"news","domain":"technology"} -->
                 正文摘要""".trimIndent()
             )
 
-        assertTrue(result.shouldSummarize)
+        assertEquals(AiArticleForm.NEWS, result.articleForm)
+        assertEquals("technology", result.domain)
         assertEquals("正文摘要", result.summary)
     }
 
     @Test
     fun `model that ignores metadata fails open to normal summary`() {
         val result = parseAiSummaryModelOutput("普通 Markdown 摘要")
-        assertTrue(result.shouldSummarize)
+        assertNull(result.articleForm)
+        assertNull(result.domain)
         assertEquals("普通 Markdown 摘要", result.summary)
     }
 }

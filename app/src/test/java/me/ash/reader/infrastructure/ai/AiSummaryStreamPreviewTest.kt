@@ -8,7 +8,7 @@ class AiSummaryStreamPreviewTest {
     fun `metadata 未闭合时不泄露协议文本`() {
         assertEquals(
             "",
-            extractAiSummaryStreamPreview("<!-- origread-summary-v1: {\"v\":1"),
+            extractAiSummaryStreamPreview("<!-- origread-summary-v2: {\"v\":2"),
         )
     }
 
@@ -17,7 +17,7 @@ class AiSummaryStreamPreviewTest {
         assertEquals(
             "## 主要内容\n正文",
             extractAiSummaryStreamPreview(
-                "<!-- origread-summary-v1: {\"v\":1} -->\n## 主要内容\n正文"
+                "<!-- origread-summary-v2: {\"v\":2,\"form\":\"analysis\",\"domain\":\"technology\"} -->\n## 主要内容\n正文"
             ),
         )
     }

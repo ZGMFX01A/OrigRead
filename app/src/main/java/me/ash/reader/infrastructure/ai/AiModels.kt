@@ -32,9 +32,6 @@ enum class AiArticleForm {
 
 enum class AiSummarySkipReason {
     LOCAL_SOURCE_ALREADY_CONCISE,
-    SOURCE_ALREADY_CONCISE,
-    LOW_COMPRESSION_VALUE,
-    INSUFFICIENT_CONTENT,
 }
 
 /**

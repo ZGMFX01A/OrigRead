@@ -779,7 +779,6 @@
     <string name="ai_summary_elapsed">Waiting for %1$d s</string>
     <string name="ai_summary_not_needed_title">No summary needed</string>
     <string name="ai_summary_not_needed_local">The article is already very short, so further compression would only repeat it. No AI request was sent.</string>
-    <string name="ai_summary_not_needed_model">The source is already highly concise, so another summary would not meaningfully reduce reading effort.</string>
     <string name="ai_summary_regenerate_options">Regenerate summary</string>
     <string name="ai_summary_choose_provider">AI service</string>
     <string name="ai_summary_choose_model">Model</string>

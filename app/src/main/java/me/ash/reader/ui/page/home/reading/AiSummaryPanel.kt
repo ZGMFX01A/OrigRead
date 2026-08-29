@@ -45,7 +45,6 @@ import androidx.compose.ui.unit.dp
 import me.ash.reader.R
 import me.ash.reader.infrastructure.ai.AiSummaryDocument
 import me.ash.reader.infrastructure.ai.AiSummaryProgressStage
-import me.ash.reader.infrastructure.ai.AiSummarySkipReason
 import me.ash.reader.infrastructure.ai.AiSummaryStatus
 
 /**
@@ -217,14 +216,7 @@ internal fun AiSummaryPanel(
                                         fontWeight = FontWeight.SemiBold,
                                     )
                                     Text(
-                                        text =
-                                            stringResource(
-                                                if (document.skipReason == AiSummarySkipReason.LOCAL_SOURCE_ALREADY_CONCISE) {
-                                                    R.string.ai_summary_not_needed_local
-                                                } else {
-                                                    R.string.ai_summary_not_needed_model
-                                                }
-                                            ),
+                                        text = stringResource(R.string.ai_summary_not_needed_local),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )

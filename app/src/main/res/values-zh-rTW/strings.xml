@@ -646,7 +646,6 @@
     <string name="ai_summary_elapsed">已等待 %1$d 秒</string>
     <string name="ai_summary_not_needed_title">這篇文章無需再摘要</string>
     <string name="ai_summary_not_needed_local">文章內容過短，無需產生摘要；本次未傳送 AI 請求。</string>
-    <string name="ai_summary_not_needed_model">模型判斷原文已足夠精煉，無需產生摘要。</string>
     <string name="ai_summary_regenerate_options">重新生成摘要</string>
     <string name="ai_summary_choose_provider">AI 服務</string>
     <string name="ai_summary_choose_model">模型</string>

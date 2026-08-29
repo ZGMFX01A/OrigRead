@@ -14,15 +14,12 @@ data class AiSummaryInputMetrics(
 )
 
 data class AiSummaryModelDecision(
-    val shouldSummarize: Boolean,
     val articleForm: AiArticleForm?,
     val domain: String?,
-    val reason: AiSummarySkipReason?,
     val summary: String,
 )
 
-private const val SUMMARY_META_V1_PREFIX = "<!-- origread-summary-v1:"
-private const val LEGACY_SUMMARY_META_PREFIX = "<!-- origread-summary:"
+private const val SUMMARY_META_V2_PREFIX = "<!-- origread-summary-v2:"
 
 private data class SummaryMetaPrefix(
     val json: String,
@@ -41,14 +38,10 @@ private fun extractSummaryMetaPrefix(content: String): SummaryMetaPrefix? {
     while (start < content.length && content[start].isWhitespace()) start += 1
     if (start >= content.length) return null
 
-    val prefix =
-        when {
-            content.regionMatches(start, SUMMARY_META_V1_PREFIX, 0, SUMMARY_META_V1_PREFIX.length, ignoreCase = true) ->
-                SUMMARY_META_V1_PREFIX
-            content.regionMatches(start, LEGACY_SUMMARY_META_PREFIX, 0, LEGACY_SUMMARY_META_PREFIX.length, ignoreCase = true) ->
-                LEGACY_SUMMARY_META_PREFIX
-            else -> return null
-        }
+    if (!content.regionMatches(start, SUMMARY_META_V2_PREFIX, 0, SUMMARY_META_V2_PREFIX.length, ignoreCase = true)) {
+        return null
+    }
+    val prefix = SUMMARY_META_V2_PREFIX
     val jsonStart = start + prefix.length
     val commentEnd = content.indexOf("-->", startIndex = jsonStart)
     if (commentEnd < 0) return null
@@ -138,74 +131,28 @@ fun localSummarySkipReason(metrics: AiSummaryInputMetrics): AiSummarySkipReason?
     return null
 }
 
-/** 硬上限 = 模式比例/软可读下限，最终再受原文 48% 和模式绝对上限共同约束。 */
-fun summaryOutputCeiling(
-    effectiveLength: Int,
-    length: AiSummaryLength,
-): Int {
-    val source = effectiveLength.coerceAtLeast(1)
-    val ratio: Double
-    val softFloor: Int
-    val modeMax: Int
-    when (length) {
-        AiSummaryLength.BRIEF -> {
-            ratio = 0.25
-            softFloor = 80
-            modeMax = 220
-        }
-        AiSummaryLength.STANDARD -> {
-            ratio = 0.30
-            softFloor = 140
-            modeMax = 650
-        }
-        AiSummaryLength.DETAILED -> {
-            ratio = 0.45
-            softFloor = 220
-            modeMax = 1_000
-        }
-    }
-    val proportional = (source * ratio).toInt()
-    val compressionCap = (source * 0.48).toInt().coerceAtLeast(1)
-    return minOf(modeMax, maxOf(softFloor, proportional), compressionCap).coerceAtLeast(1)
-}
-
 fun parseAiSummaryModelOutput(content: String): AiSummaryModelDecision {
     val metaPrefix = extractSummaryMetaPrefix(content)
-        ?: return AiSummaryModelDecision(true, null, null, null, content.trim())
+        ?: return AiSummaryModelDecision(null, null, content.trim())
     return runCatching {
             val meta = JSONObject(metaPrefix.json)
-            val shouldSummarize = meta.optBoolean("shouldSummarize", true)
             val form =
                 meta.optString("form")
                     .takeIf(String::isNotBlank)
                     ?.uppercase()
                     ?.let { value -> runCatching { AiArticleForm.valueOf(value) }.getOrNull() }
             val domain = meta.optString("domain").trim().take(48).takeIf(String::isNotBlank)
-            val reason =
-                meta.optString("reason")
-                    .takeIf(String::isNotBlank)
-                    ?.uppercase()
-                    ?.let { value -> runCatching { AiSummarySkipReason.valueOf(value) }.getOrNull() }
             val summary = content.substring(metaPrefix.bodyStartIndex).trim()
-            require(!shouldSummarize || summary.isNotBlank()) { "AI 摘要元数据声明需要摘要，但没有返回摘要正文" }
+            require(summary.isNotBlank()) { "AI 摘要元数据后没有返回摘要正文" }
             AiSummaryModelDecision(
-                shouldSummarize = shouldSummarize,
                 articleForm = form,
                 domain = domain,
-                reason = if (shouldSummarize) null else reason ?: AiSummarySkipReason.LOW_COMPRESSION_VALUE,
-                summary = if (shouldSummarize) summary else "",
+                summary = summary,
             )
         }
         .getOrElse {
-            // OpenAI Compatible 模型不完全遵循协议时 fail-open，避免把兼容性问题误判成“无需摘要”。
+            // OpenAI Compatible 模型不完全遵循 metadata 时 fail-open，仍把正文作为摘要展示。
             val body = content.substring(metaPrefix.bodyStartIndex).trim()
-            AiSummaryModelDecision(true, null, null, null, body.ifBlank { content.trim() })
+            AiSummaryModelDecision(null, null, body.ifBlank { content.trim() })
         }
 }
-
-fun articleFormCaps(length: AiSummaryLength): String =
-    when (length) {
-        AiSummaryLength.BRIEF -> "快讯 100；产品/版本发布 160；普通新闻 180；评测/教程/科研/报告/深度分析/观点/访谈 220"
-        AiSummaryLength.STANDARD -> "快讯 160；产品/版本发布 280；普通新闻 360；评测 520；教程 560；科研/行业报告/深度分析 650；观点/访谈 520"
-        AiSummaryLength.DETAILED -> "快讯 200；产品/版本发布 420；普通新闻 500；评测 700；教程 850；科研/行业报告/深度分析 1000；观点/访谈 800"
-    }

@@ -155,8 +155,8 @@ class AiSummaryCache @Inject constructor(
             .joinToString("") { "%02x".format(it) }
 
     companion object {
-        // v8 引入 P4 的 STANDARD 固定骨架与摘要低温度采样，避免旧缓存继续展示不一致结构。
-        private const val CACHE_VERSION = "8"
+        // v9 对应当前英文摘要 Prompt 与 v2 metadata 协议。
+        private const val CACHE_VERSION = "9"
     }
 }
 

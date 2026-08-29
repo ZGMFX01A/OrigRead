@@ -2,7 +2,7 @@ package me.ash.reader.infrastructure.ai
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -14,23 +14,20 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class AiSummaryPolicyInstrumentedTest {
     @Test
-    fun parsesV1AndLegacyMetadataOnAndroidRuntime() {
-        val skipped =
+    fun parsesV2MetadataOnAndroidRuntime() {
+        val parsed =
             parseAiSummaryModelOutput(
-                """<!-- origread-summary-v1: {"v":1,"shouldSummarize":false,"form":"flash","domain":"finance","reason":"source_already_concise"} -->"""
-            )
-        assertFalse(skipped.shouldSummarize)
-        assertEquals(AiArticleForm.FLASH, skipped.articleForm)
-        assertEquals(AiSummarySkipReason.SOURCE_ALREADY_CONCISE, skipped.reason)
-
-        val legacy =
-            parseAiSummaryModelOutput(
-                """<!-- origread-summary: {"shouldSummarize":true,"form":"news","domain":"technology","reason":null} -->
+                """<!-- origread-summary-v2: {"v":2,"form":"news","domain":"technology"} -->
                 Android 运行时摘要正文""".trimIndent()
             )
-        assertTrue(legacy.shouldSummarize)
-        assertEquals(AiArticleForm.NEWS, legacy.articleForm)
-        assertEquals("Android 运行时摘要正文", legacy.summary)
+        assertEquals(AiArticleForm.NEWS, parsed.articleForm)
+        assertEquals("technology", parsed.domain)
+        assertEquals("Android 运行时摘要正文", parsed.summary)
+
+        val plain = parseAiSummaryModelOutput("普通摘要正文")
+        assertNull(plain.articleForm)
+        assertNull(plain.domain)
+        assertEquals("普通摘要正文", plain.summary)
     }
 
     @Test

@@ -56,37 +56,36 @@ class AiSummaryPromptTest {
                 length = AiSummaryLength.STANDARD,
             )
 
-        assertTrue(prompt.contains("release/news"))
-        assertTrue(prompt.contains("research/report/analysis"))
-        assertTrue(prompt.contains("## 主要内容"))
-        assertTrue(prompt.contains("不要因为采用 STANDARD 就削掉复杂文章的论证、方法或限制"))
+        assertTrue(prompt.contains("localized level-2 Markdown heading meaning \"Key Points\""))
+        assertTrue(prompt.contains("Start with one overview paragraph"))
+        assertTrue(prompt.contains("multiple independent findings, arguments, methods, steps, data points, or limitations"))
         assertTrue(prompt.contains("<article>"))
-        assertFalse(prompt.contains("以下是摘要"))
+        assertFalse(prompt.contains("是否值得摘要"))
     }
 
     @Test
-    fun `system prompt separates facts opinions and evidence`() {
+    fun `system prompt is canonical English and separates facts opinions and evidence`() {
         val prompt = buildAiSummarySystemPrompt("zh-CN")
 
-        assertTrue(prompt.contains("是否值得摘要"))
-        assertTrue(prompt.contains("文章形态 × 内容领域"))
-        assertTrue(prompt.contains("不得仅因为篇幅中等或偏短就判定无需摘要"))
-        assertTrue(prompt.contains("shouldSummarize=false 是高置信度动作"))
-        assertTrue(prompt.contains("只要存在疑问，一律返回 true"))
-        assertTrue(prompt.contains("可核对事实"))
-        assertTrue(prompt.contains("作者观点/判断"))
-        assertTrue(prompt.contains("禁止使用原文之外的知识"))
-        assertTrue(prompt.contains("origread-summary-v1"))
-        assertTrue(prompt.contains("\"v\":1"))
+        assertTrue(prompt.contains("You are OrigRead's article summarization editor"))
+        assertTrue(prompt.contains("verifiable facts"))
+        assertTrue(prompt.contains("the author's judgments"))
+        assertTrue(prompt.contains("Use only information contained in the article"))
+        assertTrue(prompt.contains("research/report: research question, method/sample, key data, conclusions, and limitations"))
+        assertTrue(prompt.contains("The summary should be materially shorter than the source"))
+        assertTrue(prompt.contains("origread-summary-v2"))
+        assertTrue(prompt.contains("\"v\":2"))
+        assertTrue(prompt.contains("Output language: zh-CN"))
+        assertFalse(prompt.contains("shouldSummarize"))
+        assertFalse(prompt.contains("reason\""))
     }
 
     @Test
     fun `summary prompt keeps bullet title colon and explanation in one list item`() {
         val prompt = buildAiSummaryUserPrompt("标题", "正文", AiSummaryLength.STANDARD)
 
-        assertTrue(prompt.contains("- **结论标题：** 说明"))
-        assertTrue(prompt.contains("- **结论标题**：说明"))
-        assertTrue(prompt.contains("禁止把 `:` / `：` 单独放到下一行"))
+        assertTrue(prompt.contains("- **Conclusion:** explanation"))
+        assertTrue(prompt.contains("keep the label, colon, and explanation in the same item"))
     }
 
     @Test
@@ -95,27 +94,24 @@ class AiSummaryPromptTest {
         val standard = buildAiSummaryUserPrompt("标题", "正文", AiSummaryLength.STANDARD)
         val detailed = buildAiSummaryUserPrompt("标题", "正文", AiSummaryLength.DETAILED)
 
-        assertTrue(brief.contains("不要列要点"))
-        assertFalse(brief.contains("## 主要内容"))
-        assertTrue(standard.contains("research/report/analysis"))
-        assertTrue(standard.contains("## 主要内容"))
-        assertTrue(standard.contains("必须先输出 1 个自然段总览"))
-        assertTrue(standard.contains("不得直接以标题、列表或“## 主要内容”开头"))
-        assertTrue(standard.contains("简单文章在总览段已经足够时可以到此结束"))
-        assertTrue(standard.contains("“## 主要内容”只能出现在总览段之后"))
-        assertTrue(detailed.contains("## 论证结构"))
-        assertTrue(detailed.contains("研究问题 / 方法或样本 / 关键数据 / 结论 / 限制"))
-        assertTrue(detailed.contains("复杂文章原有的多层摘要能力必须保留"))
-        assertTrue(detailed.contains("## 值得关注"))
+        assertTrue(brief.contains("Write one dense paragraph only"))
+        assertTrue(brief.contains("Do not add a summary heading or bullet list"))
+        assertTrue(standard.contains("Start with one overview paragraph"))
+        assertTrue(standard.contains("localized level-2 Markdown heading meaning \"Key Points\""))
+        assertTrue(standard.contains("Never start with a heading or list"))
+        assertTrue(detailed.contains("preserve more of the source's meaningful structure and relevant details than STANDARD mode"))
+        assertTrue(detailed.contains("Apply the article-form priorities from the system rules"))
+        assertTrue(detailed.contains("Use localized level-2 Markdown headings only when the source actually supports those sections"))
     }
 
     @Test
-    fun `standard prompt derives a concrete output ceiling from article length`() {
+    fun `summary prompt does not expose local length heuristics or summary eligibility decisions`() {
         val prompt = buildAiSummaryUserPrompt("新品发布", "正文".repeat(1_000), AiSummaryLength.STANDARD)
 
-        assertTrue(prompt.contains("跨语言等效长度约 2000 单位"))
-        assertTrue(prompt.contains("硬上限约为 600 个等效长度单位"))
-        assertTrue(prompt.contains("文章形态上限参考"))
-        assertTrue(prompt.contains("48%"))
+        assertFalse(prompt.contains("48%"))
+        assertFalse(prompt.contains("CJK"))
+        assertFalse(prompt.contains("equivalent length"))
+        assertFalse(prompt.contains("shouldSummarize"))
+        assertFalse(prompt.contains("是否值得摘要"))
     }
 }
