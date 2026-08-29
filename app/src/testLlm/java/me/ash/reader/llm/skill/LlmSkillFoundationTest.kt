@@ -89,7 +89,7 @@ class LlmSkillFoundationTest {
             )
 
         assertTrue(prompt.startsWith("MANDATORY_ORIGREAD_JSON_CONTRACT"))
-        assertTrue(prompt.contains("mandatory OrigRead instructions above win"))
+        assertTrue(prompt.contains("mandatory OrigRead instructions win"))
         assertTrue(prompt.contains("custom-summary"))
         assertTrue(prompt.contains("Write in a narrative style"))
     }

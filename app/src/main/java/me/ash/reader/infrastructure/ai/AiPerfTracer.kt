@@ -1,6 +1,5 @@
 package me.ash.reader.infrastructure.ai
 
-import android.os.SystemClock
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Proxy
@@ -32,13 +31,21 @@ internal data class AiPerfRequestTag(
 internal object AiPerfTracer {
     private val serial = AtomicLong(0L)
 
+    /**
+     * 返回跨 JVM / Android 可用的单调毫秒时钟。
+     *
+     * 性能 trace 只关心同一进程内的耗时差，不需要 wall clock；使用 [System.nanoTime] 可以避免
+     * 基础网络层反向依赖 Android framework clock，也让同一套 Transport 在普通 JVM 单测中保持真实行为。
+     */
+    private fun monotonicNowMs(): Long = System.nanoTime() / 1_000_000L
+
     /** 创建一条新的业务 trace，并以单调时钟作为统一基准。 */
     fun start(kind: String): AiPerfTrace {
         val trace =
             AiPerfTrace(
                 id = "$kind-${serial.incrementAndGet()}",
                 kind = kind,
-                startedAtMs = SystemClock.elapsedRealtime(),
+                startedAtMs = monotonicNowMs(),
             )
         mark(trace, "trace_start")
         return trace
@@ -51,7 +58,7 @@ internal object AiPerfTracer {
         vararg fields: Pair<String, Any?>,
     ) {
         if (!BuildConfig.DEBUG) return
-        val elapsedMs = (SystemClock.elapsedRealtime() - trace.startedAtMs).coerceAtLeast(0L)
+        val elapsedMs = (monotonicNowMs() - trace.startedAtMs).coerceAtLeast(0L)
         val suffix =
             fields
                 .filter { it.second != null }
