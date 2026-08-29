@@ -219,6 +219,19 @@ object LlmChatDatabaseModule {
             }
         }
 
+    /**
+     * v12 为 Assistant 消息增加本轮 Dedicated Search 的真实冻结 query。
+     *
+     * 旧 v11 历史保持 null，禁止根据用户消息或文章标题事后推测当时实际发出的搜索词。
+     */
+    /** 仅暴露给同模块 migration 测试；生产数据库仍通过 [provideLlmChatDatabase] 注册该迁移。 */
+    internal val MIGRATION_11_12 =
+        object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE llm_messages ADD COLUMN web_search_query TEXT")
+            }
+        }
+
     /** 创建 LLM Chat Room 数据库单例。 */
     @Provides
     @Singleton
@@ -238,6 +251,7 @@ object LlmChatDatabaseModule {
             MIGRATION_8_9,
             MIGRATION_9_10,
             MIGRATION_10_11,
+            MIGRATION_11_12,
         ).build()
 
     /** 向业务层提供 Chat DAO 单例。 */

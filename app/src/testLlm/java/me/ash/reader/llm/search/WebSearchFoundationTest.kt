@@ -571,6 +571,103 @@ class WebSearchFoundationTest {
     }
 
     @Test
+    fun `prepared search freezes exact query provider and auto timeout`() {
+        val provider =
+            WebSearchProviderProfile(id = "exa", kind = WebSearchProviderKind.EXA, name = "Exa Main")
+        val prepared =
+            buildWebSearchPreparedRequest(
+                decision =
+                    resolveWebSearchDecision(
+                        enabled = true,
+                        mode = WebSearchMode.AUTO,
+                        userInput = "这件事后来有什么最新进展？",
+                    ),
+                articleTitle = "Project Valhalla",
+                userInput = "这件事后来有什么最新进展？",
+                configuredProviders = listOf(provider),
+                defaultProviderId = provider.id,
+            )
+
+        assertTrue(prepared.triggered)
+        assertFalse(prepared.required)
+        assertEquals("Project Valhalla — 这件事后来有什么最新进展？", prepared.query)
+        assertEquals(prepared.query, prepared.request?.query)
+        assertEquals("exa", prepared.providerId)
+        assertEquals("Exa Main", prepared.providerName)
+        assertEquals(WebSearchProviderKind.EXA, prepared.providerKind)
+        assertEquals(3_000L, prepared.request?.timeoutMillis)
+        assertEquals(null, prepared.preflightErrorMessage)
+    }
+
+    @Test
+    fun `prepared force search freezes twelve second budget`() {
+        val provider = WebSearchProviderProfile(id = "tavily", kind = WebSearchProviderKind.TAVILY)
+        val prepared =
+            buildWebSearchPreparedRequest(
+                decision =
+                    resolveWebSearchDecision(
+                        enabled = true,
+                        mode = WebSearchMode.FORCE,
+                        userInput = "总结这篇文章",
+                    ),
+                articleTitle = "Article title",
+                userInput = "总结这篇文章",
+                configuredProviders = listOf(provider),
+                defaultProviderId = provider.id,
+            )
+
+        assertTrue(prepared.required)
+        assertEquals(12_000L, prepared.request?.timeoutMillis)
+        assertEquals(prepared.query, prepared.request?.query)
+    }
+
+    @Test
+    fun `prepared search keeps exact query when no provider is configured`() {
+        val prepared =
+            buildWebSearchPreparedRequest(
+                decision =
+                    resolveWebSearchDecision(
+                        enabled = true,
+                        mode = WebSearchMode.AUTO,
+                        userInput = "查一下最新消息",
+                    ),
+                articleTitle = "OrigRead",
+                userInput = "查一下最新消息",
+                configuredProviders = emptyList(),
+                defaultProviderId = null,
+            )
+
+        assertTrue(prepared.triggered)
+        assertEquals("OrigRead — 查一下最新消息", prepared.query)
+        assertEquals(null, prepared.providerId)
+        assertEquals(null, prepared.request)
+        assertEquals("尚未配置可用的 Web Search Provider", prepared.preflightErrorMessage)
+    }
+
+    @Test
+    fun `not needed search plan does not create query provider or request`() {
+        val prepared =
+            buildWebSearchPreparedRequest(
+                decision =
+                    resolveWebSearchDecision(
+                        enabled = true,
+                        mode = WebSearchMode.AUTO,
+                        userInput = "解释这篇文章",
+                    ),
+                articleTitle = "Article title",
+                userInput = "解释这篇文章",
+                configuredProviders =
+                    listOf(WebSearchProviderProfile(id = "exa", kind = WebSearchProviderKind.EXA)),
+                defaultProviderId = "exa",
+            )
+
+        assertFalse(prepared.triggered)
+        assertEquals(null, prepared.query)
+        assertEquals(null, prepared.providerId)
+        assertEquals(null, prepared.request)
+    }
+
+    @Test
     fun `search results become high priority reference contexts`() {
         val contexts =
             WebSearchResponse(

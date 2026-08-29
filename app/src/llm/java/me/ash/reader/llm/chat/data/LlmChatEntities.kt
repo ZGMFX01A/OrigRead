@@ -114,6 +114,8 @@ data class LlmMessageEntity(
     @ColumnInfo(name = "error_message") val errorMessage: String? = null,
     /** 本轮 Dedicated Search 状态；仅 Assistant 请求使用，旧历史与普通消息保持 null。 */
     @ColumnInfo(name = "web_search_status") val webSearchStatus: WebSearchRequestStatus? = null,
+    /** 本轮真正发给 Dedicated Search Provider 的冻结 query；旧 v11 历史保持 null，不反推。 */
+    @ColumnInfo(name = "web_search_query") val webSearchQuery: String? = null,
     /** 实际执行 Dedicated Search 的 Provider 名称；未触发或尚未选定时保持 null。 */
     @ColumnInfo(name = "web_search_provider_name") val webSearchProviderName: String? = null,
     /** 搜索失败的冻结诊断；AUTO UI 使用本地化软降级文案，FORCE 可据此暴露明确错误。 */

@@ -20,15 +20,21 @@ class WebSearchRouter @Inject constructor(
     private val repository: WebSearchRepository,
     private val service: WebSearchService,
 ) {
-    suspend fun searchIfNeeded(
+    /**
+     * 在网络请求前冻结本次 Dedicated Search 的真实 query、Provider 和 timeout。
+     *
+     * 该阶段不访问 Search Provider；上层可以先把返回计划持久化到 Assistant 消息，再调用
+     * [executePreparedSearch]，从而保证 UI 展示内容与真正执行请求完全一致。
+     */
+    fun prepareSearch(
         enabled: Boolean,
         mode: WebSearchMode,
         userInput: String,
         articleTitle: String?,
-    ): WebSearchRouteResult {
+    ): WebSearchPreparedRequest {
         val decision = resolveWebSearchDecision(enabled, mode, userInput)
         if (!decision.triggered) {
-            return WebSearchRouteResult(status = WebSearchRequestStatus.NOT_NEEDED)
+            return WebSearchPreparedRequest(decision = decision)
         }
         val perfTrace = AiPerfTracer.start("web-search")
         val required = decision.required
@@ -38,62 +44,119 @@ class WebSearchRouter @Inject constructor(
             "mode" to mode.name,
             "triggered" to true,
         )
-
-        val configuredProviders = repository.configuredProviders()
-        val selectedProvider =
-            selectConfiguredSearchProvider(
-                configuredProviders = configuredProviders,
+        val prepared =
+            buildWebSearchPreparedRequest(
+                decision = decision,
+                articleTitle = articleTitle,
+                userInput = userInput,
+                configuredProviders = repository.configuredProviders(),
                 defaultProviderId = repository.current().defaultProviderId,
-            )
-        if (selectedProvider == null) {
-            AiPerfTracer.mark(perfTrace, "search_no_provider", "required" to required)
-            val message = "尚未配置可用的 Web Search Provider"
-            return WebSearchRouteResult(
-                status =
-                    if (required) WebSearchRequestStatus.TRIGGERED
-                    else WebSearchRequestStatus.FAILED_FALLBACK,
-                errorMessage = message,
-                requiredFailure = required,
-            )
-        }
-
-        val request =
-            WebSearchRequest(
-                query = buildSearchQuery(articleTitle, userInput),
-                maxResults = DEFAULT_CHAT_SEARCH_RESULTS,
-                includeContent = false,
-                // AUTO 优先保证 Chat 可用性；FORCE 是用户明确联网，允许更长等待后再暴露失败。
-                timeoutMillis =
-                    if (required) FORCE_SEARCH_TIMEOUT_MILLIS else AUTO_SEARCH_TIMEOUT_MILLIS,
                 perfTrace = perfTrace,
             )
-        AiPerfTracer.mark(
-            perfTrace,
-            "search_budget_resolved",
-            "timeoutMs" to request.timeoutMillis,
-            "required" to required,
-        )
+        if (prepared.preflightErrorMessage != null) {
+            AiPerfTracer.mark(perfTrace, "search_no_provider", "required" to required)
+        } else {
+            prepared.request?.let { request ->
+                AiPerfTracer.mark(
+                    perfTrace,
+                    "search_budget_resolved",
+                    "timeoutMs" to request.timeoutMillis,
+                    "required" to required,
+                )
+            }
+        }
+        return prepared
+    }
+
+    /** 执行已经冻结的 Search 计划；禁止在这里重新生成 query、重选 Provider 或改 timeout。 */
+    suspend fun executePreparedSearch(prepared: WebSearchPreparedRequest): WebSearchRouteResult {
+        if (!prepared.triggered) {
+            return WebSearchRouteResult(status = WebSearchRequestStatus.NOT_NEEDED)
+        }
+        prepared.preflightErrorMessage?.let { message ->
+            return WebSearchRouteResult(
+                status =
+                    if (prepared.required) WebSearchRequestStatus.TRIGGERED
+                    else WebSearchRequestStatus.FAILED_FALLBACK,
+                providerName = prepared.providerName,
+                errorMessage = message,
+                requiredFailure = prepared.required,
+            )
+        }
+        val request = prepared.request ?: error("已触发 Web Search 但缺少冻结请求")
+        val providerId = prepared.providerId ?: error("已触发 Web Search 但缺少 Provider ID")
+        val providerName = prepared.providerName ?: error("已触发 Web Search 但缺少 Provider 名称")
         return try {
-            val response = service.search(request, providerId = selectedProvider.id)
+            val response = service.search(request, providerId = providerId)
             buildWebSearchSuccessResult(response)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
             val failure =
                 buildWebSearchFailureResult(
-                    required = required,
-                    providerName = selectedProvider.name,
+                    required = prepared.required,
+                    providerName = providerName,
                     error = error,
                 )
-            AiPerfTracer.mark(
-                perfTrace,
-                if (required) "force_search_failed" else "auto_search_failed_fallback",
-                "providerKind" to selectedProvider.kind.name,
-                "error" to error.javaClass.simpleName,
-            )
+            prepared.perfTrace?.let { trace ->
+                AiPerfTracer.mark(
+                    trace,
+                    if (prepared.required) "force_search_failed" else "auto_search_failed_fallback",
+                    "providerKind" to (prepared.providerKind?.name ?: "UNKNOWN"),
+                    "error" to error.javaClass.simpleName,
+                )
+            }
             failure
         }
     }
+}
+
+/**
+ * 纯函数构造 Search 执行计划，供 Router 与 JVM 回归测试共同验证。
+ *
+ * Query 在这里仅生成一次，并直接写入 [WebSearchRequest.query]；后续 UI/Room 读取同一个 [query]，避免
+ * ViewModel 与 Router 各自拼装导致“显示的搜索词”和真正发出的请求不一致。
+ */
+internal fun buildWebSearchPreparedRequest(
+    decision: WebSearchDecision,
+    articleTitle: String?,
+    userInput: String,
+    configuredProviders: List<WebSearchProviderProfile>,
+    defaultProviderId: String?,
+    perfTrace: me.ash.reader.infrastructure.ai.AiPerfTrace? = null,
+): WebSearchPreparedRequest {
+    if (!decision.triggered) return WebSearchPreparedRequest(decision = decision)
+    val query = buildSearchQuery(articleTitle, userInput)
+    val selectedProvider =
+        selectConfiguredSearchProvider(
+            configuredProviders = configuredProviders,
+            defaultProviderId = defaultProviderId,
+        )
+        ?: return WebSearchPreparedRequest(
+            decision = decision,
+            query = query,
+            preflightErrorMessage = "尚未配置可用的 Web Search Provider",
+            perfTrace = perfTrace,
+        )
+    val request =
+        WebSearchRequest(
+            query = query,
+            maxResults = DEFAULT_CHAT_SEARCH_RESULTS,
+            includeContent = false,
+            // AUTO 优先保证 Chat 可用性；FORCE 是用户明确联网，允许更长等待后再暴露失败。
+            timeoutMillis =
+                if (decision.required) FORCE_SEARCH_TIMEOUT_MILLIS else AUTO_SEARCH_TIMEOUT_MILLIS,
+            perfTrace = perfTrace,
+        )
+    return WebSearchPreparedRequest(
+        decision = decision,
+        query = query,
+        providerId = selectedProvider.id,
+        providerName = selectedProvider.name,
+        providerKind = selectedProvider.kind,
+        request = request,
+        perfTrace = perfTrace,
+    )
 }
 
 /**

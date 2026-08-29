@@ -39,6 +39,29 @@ data class WebSearchDecision(
 }
 
 /**
+ * 一次 Chat Dedicated Search 在真正发起网络请求前冻结的执行计划。
+ *
+ * [query]、Provider 和 [request] 一旦生成就不再重新计算，确保 Chat UI 展示的搜索词与真正发送给
+ * Search Provider 的请求完全一致；NOT_NEEDED 时这些字段保持 null。
+ */
+data class WebSearchPreparedRequest(
+    val decision: WebSearchDecision,
+    val query: String? = null,
+    val providerId: String? = null,
+    val providerName: String? = null,
+    val providerKind: WebSearchProviderKind? = null,
+    val request: WebSearchRequest? = null,
+    val preflightErrorMessage: String? = null,
+    val perfTrace: AiPerfTrace? = null,
+) {
+    val triggered: Boolean
+        get() = decision.triggered
+
+    val required: Boolean
+        get() = decision.required
+}
+
+/**
  * Dedicated Search 执行结果。
  *
  * FORCE 失败仍返回结构化结果，让上层先持久化搜索状态，再把 [errorMessage] 作为本轮明确错误暴露；

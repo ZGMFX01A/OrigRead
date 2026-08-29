@@ -68,7 +68,6 @@ import me.ash.reader.llm.runtime.estimateLlmTokens
 import me.ash.reader.llm.search.WebSearchException
 import me.ash.reader.llm.search.WebSearchMode
 import me.ash.reader.llm.search.WebSearchRouter
-import me.ash.reader.llm.search.resolveWebSearchDecision
 import me.ash.reader.llm.search.toContextItems
 import me.ash.reader.llm.settings.LlmSettingsRepository
 import me.ash.reader.llm.skill.LlmSkillRepository
@@ -1278,11 +1277,12 @@ class LlmChatViewModel @Inject constructor(
                 _uiState.update { it.copy(webSearchMode = advancedSettings.webSearchMode) }
             }
             val webSearchEnabled = allowWebSearch && advancedSettings.webSearchEnabled
-            val webSearchDecision =
-                resolveWebSearchDecision(
+            val preparedWebSearch =
+                webSearchRouter.prepareSearch(
                     enabled = webSearchEnabled,
                     mode = effectiveWebSearchMode,
                     userInput = latestUserInput,
+                    articleTitle = currentArticle.title,
                 )
             LlmChatPerfTracker.mark(
                 assistant.id,
@@ -1295,24 +1295,20 @@ class LlmChatViewModel @Inject constructor(
                 "historyToolCalls" to historySnapshot.toolCalls.size,
                 "additionalArticles" to _uiState.value.additionalArticleAttachments.size,
                 "searchMode" to effectiveWebSearchMode.name,
-                "searchTriggered" to webSearchDecision.triggered,
+                "searchTriggered" to preparedWebSearch.triggered,
             )
-            // 在真正执行网络请求前先落 TRIGGERED，UI 因此能即时显示“正在联网搜索”而不是一直停在泛化的“正在生成”。
+            // 在真正执行网络请求前冻结 TRIGGERED/query/Provider；UI 展示值与随后真正执行的请求共用同一份计划。
             assistant =
                 repository.updateMessage(
                     message = assistant,
-                    webSearchStatus = webSearchDecision.status,
-                    webSearchProviderName = null,
+                    webSearchStatus = preparedWebSearch.decision.status,
+                    webSearchQuery = preparedWebSearch.query,
+                    webSearchProviderName = preparedWebSearch.providerName,
                     webSearchErrorMessage = null,
                 )
             val searchStartedAtNanos = System.nanoTime()
             val webSearchRoute =
-                webSearchRouter.searchIfNeeded(
-                    enabled = webSearchEnabled,
-                    mode = effectiveWebSearchMode,
-                    userInput = latestUserInput,
-                    articleTitle = currentArticle.title,
-                )
+                webSearchRouter.executePreparedSearch(preparedWebSearch)
             LlmChatPerfTracker.mark(
                 assistant.id,
                 "search_stage_complete",
