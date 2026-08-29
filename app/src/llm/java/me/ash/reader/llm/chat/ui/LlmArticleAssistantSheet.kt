@@ -27,6 +27,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.outlined.Public
@@ -241,6 +242,10 @@ fun LlmArticleAssistantSheet(
             } else {
                 val lastAssistantId =
                     uiState.messages.lastOrNull { it.role == LlmChatRole.ASSISTANT }?.id
+                val contextRefsByAssistantId =
+                    remember(uiState.contextRefs) {
+                        uiState.contextRefs.groupBy(LlmContextRefEntity::assistantMessageId)
+                    }
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
@@ -249,10 +254,7 @@ fun LlmArticleAssistantSheet(
                         verticalArrangement = Arrangement.spacedBy(18.dp),
                     ) {
                         items(uiState.messages, key = LlmMessageEntity::id) { message ->
-                            val messageContextRefs =
-                                uiState.contextRefs.filter { ref ->
-                                    ref.assistantMessageId == message.id
-                                }
+                            val messageContextRefs = contextRefsByAssistantId[message.id].orEmpty()
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 AssistantMessage(
                                     message = message,
@@ -763,14 +765,16 @@ private fun AssistantMessage(
             )
         }
     }
-    val showWebSearchStatus =
-        when (message.webSearchStatus) {
-            // TRIGGERED 表示搜索仍处于前置阶段；请求已经 ERROR/STOPPED 后不能留下永久旋转的“搜索中”。
-            WebSearchRequestStatus.TRIGGERED -> message.status == LlmMessageStatus.STREAMING
-            WebSearchRequestStatus.SUCCESS,
-            WebSearchRequestStatus.FAILED_FALLBACK -> true
-            WebSearchRequestStatus.NOT_NEEDED,
-            null -> false
+    val webSearchUiModel =
+        remember(
+            message.id,
+            message.status,
+            message.webSearchStatus,
+            message.webSearchQuery,
+            message.webSearchProviderName,
+            contextRefs,
+        ) {
+            projectWebSearchMessage(message, contextRefs)
         }
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
@@ -780,8 +784,12 @@ private fun AssistantMessage(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.size(6.dp))
-        if (showWebSearchStatus) {
-            WebSearchRequestStatusRow(message)
+        if (webSearchUiModel != null) {
+            WebSearchActivityCard(
+                model = webSearchUiModel,
+                // UX2.2 先复用现有完整 Context Sources 作为结果入口；UX2.3 再替换为专用 Search Detail Sheet。
+                onOpenResults = onShowContextSources,
+            )
             Spacer(Modifier.size(8.dp))
         }
         if (showReasoning && !displayReasoning.isNullOrBlank()) {
@@ -870,50 +878,189 @@ private fun AssistantMessage(
     }
 }
 
-/** 单次 Assistant 的 Dedicated Search 状态；只展示真正触发的请求，NOT_NEEDED 不占 Chat 空间。 */
+/** 单次 Assistant 的 Dedicated Search 折叠活动卡；完整结果详情在 UX2.3 单独实现。 */
 @Composable
-private fun WebSearchRequestStatusRow(message: LlmMessageEntity) {
-    val status = message.webSearchStatus ?: return
-    val text =
-        when (status) {
-            WebSearchRequestStatus.TRIGGERED -> stringResource(R.string.llm_web_search_request_running)
-            WebSearchRequestStatus.SUCCESS ->
-                message.webSearchProviderName?.takeIf(String::isNotBlank)?.let { provider ->
-                    stringResource(R.string.llm_web_search_request_success_provider, provider)
-                } ?: stringResource(R.string.llm_web_search_request_success)
-            WebSearchRequestStatus.FAILED_FALLBACK ->
-                stringResource(R.string.llm_web_search_request_failed_fallback)
-            WebSearchRequestStatus.NOT_NEEDED -> return
+private fun WebSearchActivityCard(
+    model: WebSearchMessageUiModel,
+    onOpenResults: () -> Unit,
+) {
+    if (model.state == WebSearchActivityUiState.SUCCESS && model.query == null) {
+        LegacyWebSearchStatusRow(model)
+        return
+    }
+
+    val isError = model.errorState != WebSearchMessageErrorState.NONE
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (model.state == WebSearchActivityUiState.SEARCHING) {
+                    CircularProgressIndicator(modifier = Modifier.size(15.dp), strokeWidth = 1.8.dp)
+                } else {
+                    Icon(
+                        imageVector = Icons.Outlined.Public,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint =
+                            if (isError) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Text(
+                    text =
+                        when (model.state) {
+                            WebSearchActivityUiState.SEARCHING ->
+                                stringResource(R.string.llm_web_search_request_running)
+                            WebSearchActivityUiState.SUCCESS ->
+                                stringResource(R.string.llm_web_search_activity_title)
+                            WebSearchActivityUiState.FAILED_FALLBACK ->
+                                stringResource(R.string.llm_web_search_activity_failed)
+                            WebSearchActivityUiState.FORCE_FAILURE ->
+                                stringResource(R.string.llm_web_search_activity_failed)
+                        },
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color =
+                        if (isError) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurface,
+                )
+                when (model.state) {
+                    WebSearchActivityUiState.SUCCESS -> {
+                        val summary =
+                            model.providerName?.let { provider ->
+                                stringResource(
+                                    R.string.llm_web_search_activity_result_count_provider,
+                                    provider,
+                                    model.resultCount,
+                                )
+                            } ?: stringResource(
+                                R.string.llm_web_search_activity_result_count,
+                                model.resultCount,
+                            )
+                        Text(
+                            text = summary,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    else ->
+                        model.providerName?.let { provider ->
+                            Text(
+                                text = provider,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                }
+            }
+
+            model.query?.let { query ->
+                Text(
+                    text = stringResource(R.string.llm_web_search_activity_query, query),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            when (model.state) {
+                WebSearchActivityUiState.SEARCHING -> Unit
+                WebSearchActivityUiState.SUCCESS -> {
+                    if (model.resultCount == 0) {
+                        Text(
+                            text = stringResource(R.string.llm_web_search_activity_no_results),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            if (model.sourceLabels.isNotEmpty()) {
+                                Text(
+                                    text = model.sourceLabels.joinToString(" · "),
+                                    modifier = Modifier.weight(1f),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            } else {
+                                Spacer(Modifier.weight(1f))
+                            }
+                            if (model.canOpenResults) {
+                                TextButton(
+                                    onClick = onOpenResults,
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                                ) {
+                                    Text(
+                                        stringResource(R.string.llm_web_search_activity_view_results),
+                                        style = MaterialTheme.typography.labelMedium,
+                                    )
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                WebSearchActivityUiState.FAILED_FALLBACK ->
+                    Text(
+                        text = stringResource(R.string.llm_web_search_request_failed_fallback),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                WebSearchActivityUiState.FORCE_FAILURE ->
+                    Text(
+                        text = stringResource(R.string.llm_web_search_activity_force_failed),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+            }
         }
+    }
+}
+
+/** v11 及更早历史没有冻结 query；保持旧版单行展示，绝不事后猜测搜索词。 */
+@Composable
+private fun LegacyWebSearchStatusRow(model: WebSearchMessageUiModel) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        if (status == WebSearchRequestStatus.TRIGGERED) {
-            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 1.8.dp)
-        } else {
-            Icon(
-                imageVector = Icons.Outlined.Public,
-                contentDescription = null,
-                modifier = Modifier.size(15.dp),
-                tint =
-                    if (status == WebSearchRequestStatus.FAILED_FALLBACK) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-            )
-        }
+        Icon(
+            imageVector = Icons.Outlined.Public,
+            contentDescription = null,
+            modifier = Modifier.size(15.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Text(
-            text = text,
+            text =
+                model.providerName?.let { provider ->
+                    stringResource(R.string.llm_web_search_request_success_provider, provider)
+                } ?: stringResource(R.string.llm_web_search_request_success),
             style = MaterialTheme.typography.labelMedium,
-            color =
-                if (status == WebSearchRequestStatus.FAILED_FALLBACK) {
-                    MaterialTheme.colorScheme.error
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

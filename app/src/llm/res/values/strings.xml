@@ -234,4 +234,12 @@
     <string name="llm_web_search_request_success">Web search complete</string>
     <string name="llm_web_search_request_success_provider">Web search complete · %1$s</string>
     <string name="llm_web_search_request_failed_fallback">Web search failed; using the available article context.</string>
+    <string name="llm_web_search_activity_title">Web search</string>
+    <string name="llm_web_search_activity_failed">Web search failed</string>
+    <string name="llm_web_search_activity_result_count_provider">%1$s · %2$d results</string>
+    <string name="llm_web_search_activity_result_count">%1$d results</string>
+    <string name="llm_web_search_activity_query">Search: %1$s</string>
+    <string name="llm_web_search_activity_no_results">No results found</string>
+    <string name="llm_web_search_activity_view_results">View results</string>
+    <string name="llm_web_search_activity_force_failed">Web search failed.</string>
 </resources>
