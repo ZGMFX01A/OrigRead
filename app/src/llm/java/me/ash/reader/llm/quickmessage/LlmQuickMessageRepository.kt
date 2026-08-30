@@ -163,6 +163,20 @@ class LlmQuickMessageRepository @Inject constructor(
 
     fun enabledMessages(): List<LlmQuickMessage> = current().filter(LlmQuickMessage::enabled)
 
+    /** 完整配置备份使用与本地持久化相同的稳定 source 协议，不保存本地化后的内置文案。 */
+    fun exportBackupState(): String = encodeMessages(current())
+
+    fun validateBackupState(raw: String) {
+        validateMessages(decodeMessages(raw))
+    }
+
+    @Synchronized
+    fun restoreBackupState(raw: String) {
+        val restored = decodeMessages(raw)
+        validateMessages(restored)
+        updateState(restored)
+    }
+
     /** 发送时显式按当前 App locale 解析资源，避免仓储单例持有切换语言前的内置 Prompt 文本。 */
     fun resolveText(message: LlmQuickMessage): LlmQuickMessageText {
         val appLocale = AppCompatDelegate.getApplicationLocales()[0]
@@ -247,54 +261,59 @@ class LlmQuickMessageRepository @Inject constructor(
             persist(defaults)
             return defaults
         }
-        val restored =
-            runCatching {
-                val array = JSONArray(encoded)
-                buildList {
-                    repeat(array.length()) { index ->
-                        val item = array.getJSONObject(index)
-                        val id = item.optString("id").trim()
-                        val title = item.optString("title").trim()
-                        val content = item.optString("content").trim()
-                        val source = item.optString(KEY_SOURCE).trim()
-                        val builtin =
-                            when {
-                                source.startsWith(BUILTIN_SOURCE_PREFIX) ->
-                                    LlmQuickMessageBuiltin.fromStorageValue(
-                                        source.removePrefix(BUILTIN_SOURCE_PREFIX)
-                                    )
-                                source == CUSTOM_SOURCE -> null
-                                else ->
-                                    inferLegacyQuickMessageBuiltin(
-                                        id = id,
-                                        title = title,
-                                        content = content,
-                                        localizedCandidates = legacyBuiltinTextCandidates,
-                                    )
-                            }
-                        if (
-                            id.isNotBlank() &&
-                                (builtin != null || (title.isNotBlank() && content.isNotBlank()))
-                        ) {
-                            add(
-                                LlmQuickMessage(
-                                    id = id,
-                                    title = if (builtin == null) title.take(MAX_TITLE_LENGTH) else "",
-                                    content = if (builtin == null) content.take(MAX_CONTENT_LENGTH) else "",
-                                    enabled = item.optBoolean("enabled", true),
-                                    order = item.optInt("order", index),
-                                    builtin = builtin,
-                                )
-                            )
-                        }
-                    }
-                }
-            }
-                .getOrElse { defaultMessages() }
+        val restored = runCatching { decodeMessages(encoded).also(::validateMessages) }.getOrNull()
+        if (restored == null) {
+            // 主值损坏时尝试上一份可解析快照；两份都坏则只在内存回退默认值，不覆盖任何原始数据。
+            return preferences.getString(KEY_MESSAGES_BACKUP, null)
+                ?.let { backup -> runCatching { decodeMessages(backup).also(::validateMessages) }.getOrNull() }
+                ?.let(::normalizeOrder)
+                ?: defaultMessages()
+        }
         val normalized = normalizeOrder(restored)
         // 每次成功读取都重写为带 source 的新格式；旧版本地化文本只迁移一次。
         persist(normalized)
         return normalized
+    }
+
+    private fun decodeMessages(encoded: String): List<LlmQuickMessage> {
+        val array = JSONArray(encoded)
+        return buildList {
+            repeat(array.length()) { index ->
+                val item = array.getJSONObject(index)
+                val id = item.optString("id").trim()
+                val title = item.optString("title").trim()
+                val content = item.optString("content").trim()
+                val source = item.optString(KEY_SOURCE).trim()
+                val builtin =
+                    when {
+                        source.startsWith(BUILTIN_SOURCE_PREFIX) ->
+                            LlmQuickMessageBuiltin.fromStorageValue(source.removePrefix(BUILTIN_SOURCE_PREFIX))
+                                ?: throw IllegalArgumentException("Quick Message 内置类型无效")
+                        source == CUSTOM_SOURCE -> null
+                        else ->
+                            inferLegacyQuickMessageBuiltin(
+                                id = id,
+                                title = title,
+                                content = content,
+                                localizedCandidates = legacyBuiltinTextCandidates,
+                            )
+                    }
+                if (id.isBlank()) throw IllegalArgumentException("Quick Message ID 不能为空")
+                if (builtin == null && (title.isBlank() || content.isBlank())) {
+                    throw IllegalArgumentException("Quick Message 自定义内容不完整")
+                }
+                add(
+                    LlmQuickMessage(
+                        id = id,
+                        title = if (builtin == null) title else "",
+                        content = if (builtin == null) content else "",
+                        enabled = item.optBoolean("enabled", true),
+                        order = item.optInt("order", index),
+                        builtin = builtin,
+                    )
+                )
+            }
+        }
     }
 
     private fun defaultMessages(): List<LlmQuickMessage> =
@@ -350,12 +369,24 @@ class LlmQuickMessageRepository @Inject constructor(
     }
 
     private fun updateState(messages: List<LlmQuickMessage>) {
+        validateMessages(messages)
         val normalized = normalizeOrder(messages)
         persist(normalized)
         _messages.value = normalized
     }
 
     private fun persist(messages: List<LlmQuickMessage>) {
+        validateMessages(messages)
+        val encoded = encodeMessages(messages)
+        val previous = preferences.getString(KEY_MESSAGES, null)
+        val editor = preferences.edit()
+        if (previous != null && runCatching { decodeMessages(previous).also(::validateMessages) }.isSuccess) {
+            editor.putString(KEY_MESSAGES_BACKUP, previous)
+        }
+        editor.putString(KEY_MESSAGES, encoded).apply()
+    }
+
+    private fun encodeMessages(messages: List<LlmQuickMessage>): String {
         val array = JSONArray()
         normalizeOrder(messages).forEach { message ->
             val source =
@@ -370,7 +401,20 @@ class LlmQuickMessageRepository @Inject constructor(
                     .put("order", message.order)
             )
         }
-        preferences.edit().putString(KEY_MESSAGES, array.toString()).apply()
+        return array.toString()
+    }
+
+    private fun validateMessages(messages: List<LlmQuickMessage>) {
+        require(messages.size <= MAX_MESSAGES) { "Quick Messages 已达到上限 $MAX_MESSAGES" }
+        require(messages.map(LlmQuickMessage::id).distinct().size == messages.size) {
+            "Quick Messages 包含重复 ID"
+        }
+        messages.forEach { message ->
+            require(message.id.isNotBlank()) { "Quick Message ID 不能为空" }
+            if (message.builtin == null) {
+                validateDraft(message.title, message.content)
+            }
+        }
     }
 
     companion object {
@@ -379,6 +423,7 @@ class LlmQuickMessageRepository @Inject constructor(
         internal const val MAX_CONTENT_LENGTH = 4_000
         private const val PREFERENCES_NAME = "origread_llm_quick_messages"
         private const val KEY_MESSAGES = "messages"
+        private const val KEY_MESSAGES_BACKUP = "messages_backup"
         private const val KEY_SOURCE = "source"
         private const val CUSTOM_SOURCE = "custom"
         private const val BUILTIN_SOURCE_PREFIX = "builtin:"

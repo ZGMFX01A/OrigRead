@@ -48,6 +48,7 @@ import me.ash.reader.llm.chat.ui.toArticleAttachment
 import me.ash.reader.llm.chat.ui.toConversationArticleEntity
 import me.ash.reader.llm.chat.ui.upsertAdditionalArticleAttachment
 import me.ash.reader.llm.chat.ui.buildRequestHistorySnapshot
+import me.ash.reader.llm.chat.ui.currentToolChainCalls
 import me.ash.reader.llm.chat.ui.regenerationSupersededAssistantIds
 import me.ash.reader.llm.chat.ui.buildLlmCitationLink
 import me.ash.reader.llm.chat.ui.acknowledgedChatTransientMessageIds
@@ -82,6 +83,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 
 class LlmChatFoundationTest {
@@ -2071,6 +2073,90 @@ class LlmChatFoundationTest {
         } finally {
             server.shutdown()
         }
+    }
+
+    @Test
+    fun `chat transport rejects premature sse eof`() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody("data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n")
+        )
+        server.start()
+
+        try {
+            val plan =
+                LlmExecutionPlan(
+                    providerId = "test-provider",
+                    providerName = "Test",
+                    runtimeConfig = AiRuntimeConfig(server.url("/v1").toString(), "test-model", ""),
+                    capability = ModelCapability(),
+                    reasoningParameter = null,
+                    tools = emptyList(),
+                    automaticToolCalling = false,
+                    context = ComposedLlmContext("", emptyList(), emptyList(), false),
+                    skillId = null,
+                )
+
+            try {
+                LlmChatTransport(AiHttpClient())
+                    .stream(
+                        plan = plan,
+                        messages = listOf(LlmChatRequestMessage(LlmChatRole.USER, "hello")),
+                    )
+                    .toList()
+                fail("premature EOF must fail")
+            } catch (error: AiException) {
+                assertTrue(error.message.orEmpty().contains("提前结束"))
+            }
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `current tool chain ignores calls from earlier user requests`() {
+        fun message(id: String, role: LlmChatRole, createdAt: Long) =
+            LlmMessageEntity(
+                id = id,
+                conversationId = "conversation",
+                role = role,
+                content = id,
+                createdAt = createdAt,
+                updatedAt = createdAt,
+            )
+        fun toolCall(id: String, assistantId: String, createdAt: Long) =
+            LlmToolCallEntity(
+                id = id,
+                conversationId = "conversation",
+                assistantMessageId = assistantId,
+                providerCallId = id,
+                toolId = "tool",
+                apiName = "tool",
+                argumentsJson = "{}",
+                status = LlmToolCallStatus.COMPLETE,
+                createdAt = createdAt,
+                updatedAt = createdAt,
+            )
+
+        val messages =
+            listOf(
+                message("user-old", LlmChatRole.USER, 1),
+                message("assistant-old", LlmChatRole.ASSISTANT, 2),
+                message("user-current", LlmChatRole.USER, 3),
+                message("assistant-current", LlmChatRole.ASSISTANT, 4),
+            )
+        val calls =
+            listOf(
+                toolCall("old-call", "assistant-old", 2),
+                toolCall("current-call", "assistant-current", 4),
+            )
+
+        assertEquals(
+            listOf("current-call"),
+            currentToolChainCalls(messages, calls).map(LlmToolCallEntity::id),
+        )
     }
 
     @Test

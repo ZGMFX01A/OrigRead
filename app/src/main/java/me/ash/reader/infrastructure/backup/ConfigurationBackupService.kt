@@ -17,6 +17,7 @@ import me.ash.reader.domain.repository.GroupDao
 import me.ash.reader.domain.repository.AccountDao
 import me.ash.reader.domain.service.AccountService
 import me.ash.reader.infrastructure.ai.AiProviderProfile
+import me.ash.reader.infrastructure.ai.AiCapabilityOverrideMode
 import me.ash.reader.infrastructure.ai.AiSettings
 import me.ash.reader.infrastructure.ai.AiSettingsRepository
 import me.ash.reader.infrastructure.ai.AiSummaryLength
@@ -627,12 +628,18 @@ class ConfigurationBackupService @Inject constructor(
                         endpoint = provider.endpoint,
                         defaultModel = provider.defaultModel,
                         models = provider.models,
+                        streamingCapabilityOverride = provider.streamingCapabilityOverride.name,
+                        toolCallingCapabilityOverride = provider.toolCallingCapabilityOverride.name,
+                        reasoningCapabilityOverride = provider.reasoningCapabilityOverride.name,
                     )
                 },
         )
 
     private fun AiBackup.toSettings(): AiSettings {
         require(providers.isNotEmpty()) { "AI 配置至少需要一个 Provider" }
+        require(providers.map(AiProviderBackup::id).distinct().size == providers.size) {
+            "AI 配置包含重复 Provider ID"
+        }
         val restoredProviders =
             providers.map { provider ->
                 require(provider.id.isNotBlank() && provider.endpoint.isNotBlank()) { "备份包含无效 AI Provider" }
@@ -643,6 +650,12 @@ class ConfigurationBackupService @Inject constructor(
                     endpoint = provider.endpoint,
                     defaultModel = provider.defaultModel,
                     models = provider.models,
+                    streamingCapabilityOverride =
+                        AiCapabilityOverrideMode.valueOf(provider.streamingCapabilityOverride),
+                    toolCallingCapabilityOverride =
+                        AiCapabilityOverrideMode.valueOf(provider.toolCallingCapabilityOverride),
+                    reasoningCapabilityOverride =
+                        AiCapabilityOverrideMode.valueOf(provider.reasoningCapabilityOverride),
                 )
             }
         return AiSettings(

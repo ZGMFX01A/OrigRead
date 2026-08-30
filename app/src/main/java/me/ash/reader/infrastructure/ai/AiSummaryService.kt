@@ -98,8 +98,11 @@ class AiSummaryService @Inject constructor(
             AiPerfTracer.mark(trace, "service_io_enter")
             val settings = requireEnabledSettings()
             val profile =
-                providerId?.let { id -> settings.providers.firstOrNull { it.id == id } }
-                    ?: settings.defaultProvider()
+                if (providerId == null) {
+                    settings.defaultProvider()
+                } else {
+                    settings.providers.firstOrNull { it.id == providerId }
+                }
                     ?: throw AiException(AiErrorCode.NOT_CONFIGURED, "没有可用的 AI 服务")
             if (!profile.enabled) {
                 throw AiException(AiErrorCode.DISABLED, "所选 AI 服务未启用")

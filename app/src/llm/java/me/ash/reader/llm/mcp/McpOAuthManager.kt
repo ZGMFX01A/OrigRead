@@ -10,9 +10,12 @@ import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import me.ash.reader.infrastructure.ai.AiHttpClient
 import me.ash.reader.infrastructure.di.IODispatcher
@@ -65,6 +68,9 @@ class McpOAuthManager @Inject constructor(
     private val httpClient: AiHttpClient,
     @IODispatcher private val ioDispatcher: CoroutineDispatcher,
 ) {
+    /** 同一 Server 的 refresh_token 只能串行消费，避免 rotating token 被多个并发请求重复使用。 */
+    private val refreshMutexes = ConcurrentHashMap<String, Mutex>()
+
     /**
      * 执行交互式 Authorization Code + PKCE 流程。
      * [openAuthorizationUrl] 仅负责把 URL 交给系统浏览器/Custom Tab，不接触 Token。
@@ -139,32 +145,41 @@ class McpOAuthManager @Inject constructor(
         forceRefresh: Boolean = false,
     ): String {
         require(profile.authType == McpAuthType.OAUTH) { "当前 MCP Server 未选择 OAuth" }
-        val current = repository.oauthTokenSet(profile.id)
+        val observed = repository.oauthTokenSet(profile.id)
             ?: throw McpException("MCP OAuth 尚未授权，请先在 Server 设置中完成授权")
-        if (!forceRefresh && current.isAccessTokenUsable()) return current.accessToken
-        if (current.refreshToken.isBlank()) {
-            throw McpException("MCP OAuth 授权已过期且没有 Refresh Token，请重新授权")
-        }
-        val registration = repository.oauthRegistration(profile.id)
-            ?: throw McpException("MCP OAuth Client 注册信息缺失，请重新授权")
-        if (registration.issuer != current.issuer) {
-            throw McpException("MCP OAuth Client 与 Token issuer 不一致，请重新授权")
-        }
-        val discovery = discover(profile)
-        if (discovery.authorizationServer.issuer != current.issuer) {
-            throw McpException("MCP OAuth Authorization Server 已变化，请重新授权")
-        }
-        val refreshed =
-            withContext(ioDispatcher) {
-                refreshAccessToken(
-                    metadata = discovery.authorizationServer,
-                    registration = registration,
-                    previous = current,
-                    resource = discovery.resource,
-                )
+        if (!forceRefresh && observed.isAccessTokenUsable()) return observed.accessToken
+
+        return refreshMutexes.computeIfAbsent(profile.id) { Mutex() }.withLock {
+            // 等锁期间另一个请求可能已经刷新并写回新 token。即使本次来自 401 强制刷新，也应直接复用
+            // 已变化且可用的新 token，不能再次消费刚轮换出来的 refresh_token。
+            val current = repository.oauthTokenSet(profile.id)
+                ?: throw McpException("MCP OAuth 尚未授权，请先在 Server 设置中完成授权")
+            if (current != observed && current.isAccessTokenUsable()) return@withLock current.accessToken
+            if (!forceRefresh && current.isAccessTokenUsable()) return@withLock current.accessToken
+            if (current.refreshToken.isBlank()) {
+                throw McpException("MCP OAuth 授权已过期且没有 Refresh Token，请重新授权")
             }
-        repository.setOAuthTokenSet(profile.id, refreshed)
-        return refreshed.accessToken
+            val registration = repository.oauthRegistration(profile.id)
+                ?: throw McpException("MCP OAuth Client 注册信息缺失，请重新授权")
+            if (registration.issuer != current.issuer) {
+                throw McpException("MCP OAuth Client 与 Token issuer 不一致，请重新授权")
+            }
+            val discovery = discover(profile)
+            if (discovery.authorizationServer.issuer != current.issuer) {
+                throw McpException("MCP OAuth Authorization Server 已变化，请重新授权")
+            }
+            val refreshed =
+                withContext(ioDispatcher) {
+                    refreshAccessToken(
+                        metadata = discovery.authorizationServer,
+                        registration = registration,
+                        previous = current,
+                        resource = discovery.resource,
+                    )
+                }
+            repository.setOAuthTokenSet(profile.id, refreshed)
+            refreshed.accessToken
+        }
     }
 
     /** 403 insufficient_scope 不在后台偷偷拉起浏览器；记录 scope，下一次显式“重新授权”时做并集。 */

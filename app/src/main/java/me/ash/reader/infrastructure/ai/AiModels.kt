@@ -46,7 +46,17 @@ data class AiProviderProfile(
     val endpoint: String = "https://api.openai.com/v1",
     val defaultModel: String = "",
     val models: List<String> = emptyList(),
+    val streamingCapabilityOverride: AiCapabilityOverrideMode = AiCapabilityOverrideMode.AUTO,
+    val toolCallingCapabilityOverride: AiCapabilityOverrideMode = AiCapabilityOverrideMode.AUTO,
+    val reasoningCapabilityOverride: AiCapabilityOverrideMode = AiCapabilityOverrideMode.AUTO,
 )
+
+/** 自定义 OpenAI-compatible 服务识别不准时，允许用户按 Provider 覆盖 Runtime 能力。 */
+enum class AiCapabilityOverrideMode {
+    AUTO,
+    ENABLED,
+    DISABLED,
+}
 
 /** 统一清理服务端模型列表，并确保默认模型不会因为列表接口遗漏而消失。 */
 fun AiProviderProfile.availableModels(): List<String> =

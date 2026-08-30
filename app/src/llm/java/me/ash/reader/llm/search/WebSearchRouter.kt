@@ -45,7 +45,7 @@ class WebSearchRouter @Inject constructor(
             "triggered" to true,
         )
         val settings = repository.current()
-        val prepared =
+        val basePrepared =
             buildWebSearchPreparedRequest(
                 decision = decision,
                 articleTitle = articleTitle,
@@ -55,6 +55,24 @@ class WebSearchRouter @Inject constructor(
                 maxResults = settings.maxResults,
                 perfTrace = perfTrace,
             )
+        val prepared =
+            basePrepared.providerId?.let { providerId ->
+                val profile = settings.providers.firstOrNull { it.id == providerId }
+                if (profile == null) {
+                    basePrepared.copy(
+                        request = null,
+                        preflightErrorMessage = "Web Search Provider 在请求准备期间已失效",
+                    )
+                } else {
+                    basePrepared.copy(
+                        providerSnapshot =
+                            WebSearchProviderSnapshot(
+                                profile = profile,
+                                apiKey = repository.getApiKey(profile.id),
+                            )
+                    )
+                }
+            } ?: basePrepared
         if (prepared.preflightErrorMessage != null) {
             AiPerfTracer.mark(perfTrace, "search_no_provider", "required" to required)
         } else {
@@ -86,10 +104,11 @@ class WebSearchRouter @Inject constructor(
             )
         }
         val request = prepared.request ?: error("已触发 Web Search 但缺少冻结请求")
-        val providerId = prepared.providerId ?: error("已触发 Web Search 但缺少 Provider ID")
+        val providerSnapshot =
+            prepared.providerSnapshot ?: error("已触发 Web Search 但缺少 Provider 快照")
         val providerName = prepared.providerName ?: error("已触发 Web Search 但缺少 Provider 名称")
         return try {
-            val response = service.search(request, providerId = providerId)
+            val response = service.searchPrepared(request, providerSnapshot)
             buildWebSearchSuccessResult(response)
         } catch (error: CancellationException) {
             throw error

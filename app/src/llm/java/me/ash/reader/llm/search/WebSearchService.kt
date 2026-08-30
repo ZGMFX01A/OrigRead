@@ -40,6 +40,30 @@ class WebSearchService @Inject constructor(
         providerId: String? = null,
     ): WebSearchResponse {
         val profile = configuredProfile(providerId)
+        return searchWithProfile(
+            request = request,
+            profile = profile,
+            apiKey = repository.getApiKey(profile.id),
+        )
+    }
+
+    /** 执行 Router 已冻结的请求级 Provider；此路径禁止重新选默认项或重新读取 Secret。 */
+    suspend fun searchPrepared(
+        request: WebSearchRequest,
+        snapshot: WebSearchProviderSnapshot,
+    ): WebSearchResponse =
+        searchWithProfile(
+            request = request,
+            profile = snapshot.profile,
+            apiKey = snapshot.apiKey,
+        )
+
+    private suspend fun searchWithProfile(
+        request: WebSearchRequest,
+        profile: WebSearchProviderProfile,
+        apiKey: String,
+    ): WebSearchResponse {
+        validateRuntimeProfile(profile, apiKey)
         val adapter = adapterFor(profile)
         request.perfTrace?.let { trace ->
             AiPerfTracer.mark(
@@ -53,7 +77,7 @@ class WebSearchService @Inject constructor(
         val response =
             adapter.search(
                 profile = profile,
-                apiKey = repository.getApiKey(profile.id),
+                apiKey = apiKey,
                 request = request,
             )
         request.perfTrace?.let { trace ->
@@ -100,14 +124,25 @@ class WebSearchService @Inject constructor(
     private fun configuredProfile(providerId: String?): WebSearchProviderProfile {
         val settings = repository.current()
         val profile =
-            providerId
-                ?.let { id -> settings.providers.firstOrNull { it.id == id } }
-                ?: settings.defaultProvider()
+            if (providerId == null) {
+                settings.defaultProvider()
+            } else {
+                settings.providers.firstOrNull { it.id == providerId }
+            }
                 ?: throw WebSearchException("没有配置 Web Search Provider")
         if (!repository.isConfigured(profile.id)) {
             throw WebSearchException("Web Search Provider 未完成配置：${profile.name}")
         }
         return profile
+    }
+
+    private fun validateRuntimeProfile(profile: WebSearchProviderProfile, apiKey: String) {
+        if (!profile.enabled || profile.endpoint.isBlank()) {
+            throw WebSearchException("Web Search Provider 未完成配置：${profile.name}")
+        }
+        if (profile.kind.requiresApiKey && apiKey.isBlank()) {
+            throw WebSearchException("Web Search Provider 缺少 API Key：${profile.name}")
+        }
     }
 
     private fun adapterFor(profile: WebSearchProviderProfile): WebSearchProviderAdapter =

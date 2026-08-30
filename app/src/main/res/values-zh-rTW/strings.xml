@@ -622,6 +622,17 @@
     <string name="ai_provider_switch_hint">已設定 %1$d 個服務 · 目前編輯：%2$s</string>
     <string name="ai_provider_enabled">啟用此服務</string>
     <string name="ai_provider_enabled_desc">關閉後不參與 AI 請求</string>
+    <string name="ai_provider_capabilities">相容能力</string>
+    <string name="ai_provider_capabilities_desc">預設由原讀自動判斷。自訂 OpenAI Compatible 服務辨識不準時，可按目前服務手動覆寫。</string>
+    <string name="ai_capability_streaming">串流輸出</string>
+    <string name="ai_capability_streaming_desc">控制目前服務是否使用串流回應。</string>
+    <string name="ai_capability_tool_calling">Tool Calling</string>
+    <string name="ai_capability_tool_calling_desc">開啟後允許支援 Function Calling 的模型自動請求已授權工具。</string>
+    <string name="ai_capability_reasoning">Reasoning</string>
+    <string name="ai_capability_reasoning_desc">開啟後按 OpenAI Compatible reasoning_effort 傳送 Low/Medium/High，並接收 reasoning 輸出；參數格式不同的服務請保持自動或關閉。</string>
+    <string name="ai_capability_auto">自動判斷</string>
+    <string name="ai_capability_supported">支援</string>
+    <string name="ai_capability_unsupported">不支援</string>
     <string name="ai_default_provider">預設</string>
     <string name="ai_provider_name">服務名稱</string>
     <string name="ai_set_default_provider">設為預設</string>

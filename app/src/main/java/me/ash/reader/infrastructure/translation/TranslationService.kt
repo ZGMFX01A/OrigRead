@@ -39,12 +39,14 @@ class TranslationService @Inject constructor(
         title: String,
         content: String,
         target: TranslationTarget? = null,
+        targetLanguageOverride: String? = null,
     ): TranslationDocument =
         withContext(ioDispatcher) {
             val settings = settingsRepository.current()
             val actualTarget = target ?: settings.defaultTarget
             val targetLanguage =
-                settings.targetLanguage.trim().ifBlank {
+                targetLanguageOverride?.trim()?.takeIf(String::isNotBlank)
+                    ?: settings.targetLanguage.trim().ifBlank {
                     TranslationSettings.defaultTargetLanguage()
                 }
             // 缓存只是可再生成结果；即使本地已有译文，也必须先确认当前服务仍启用且配置有效。

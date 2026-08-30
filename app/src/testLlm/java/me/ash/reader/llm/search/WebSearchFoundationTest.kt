@@ -13,8 +13,57 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.mockito.kotlin.mock
+import org.mockito.kotlin.verifyNoInteractions
 
 class WebSearchFoundationTest {
+    @Test
+    fun `prepared search uses frozen provider and key without rereading repository`() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(200)
+                    .setHeader("Content-Type", "application/json")
+                    .setBody("""{"results":[]}""")
+            )
+            val repository = mock<WebSearchRepository>()
+            val httpClient = AiHttpClient()
+            val service =
+                WebSearchService(
+                    repository = repository,
+                    exa = ExaWebSearchProvider(httpClient, Dispatchers.IO),
+                    tavily = TavilyWebSearchProvider(httpClient, Dispatchers.IO),
+                    brave = BraveWebSearchProvider(httpClient, Dispatchers.IO),
+                    perplexity = PerplexityWebSearchProvider(httpClient, Dispatchers.IO),
+                    linkup = LinkupWebSearchProvider(httpClient, Dispatchers.IO),
+                    firecrawl = FirecrawlWebSearchProvider(httpClient, Dispatchers.IO),
+                    keenable = KeenableWebSearchProvider(httpClient, Dispatchers.IO),
+                    searxng = SearxngWebSearchProvider(httpClient, Dispatchers.IO),
+                )
+            val frozenProfile =
+                WebSearchProviderProfile(
+                    id = "exa-frozen",
+                    kind = WebSearchProviderKind.EXA,
+                    name = "Frozen Exa",
+                    endpoint = server.url("/search").toString(),
+                )
+
+            service.searchPrepared(
+                request = WebSearchRequest(query = "frozen request", maxResults = 3),
+                snapshot = WebSearchProviderSnapshot(profile = frozenProfile, apiKey = "frozen-secret"),
+            )
+
+            val recorded = server.takeRequest()
+            assertEquals("frozen-secret", recorded.getHeader("x-api-key"))
+            assertEquals("/search", recorded.requestUrl?.encodedPath)
+            verifyNoInteractions(repository)
+        } finally {
+            server.shutdown()
+        }
+    }
+
     @Test
     fun `exa response normalizes search metadata and content`() {
         val profile = WebSearchProviderProfile(id = "exa-1", kind = WebSearchProviderKind.EXA)

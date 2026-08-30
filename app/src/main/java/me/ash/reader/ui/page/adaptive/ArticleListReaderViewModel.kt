@@ -338,6 +338,7 @@ constructor(
     val translationUiState = _translationUiState.asStateFlow()
     val translationSettings = translationSettingsRepository.settings
     private var translationJob: Job? = null
+    private var translationRequestSerial: Long = 0L
 
     private val _aiSummaryUiState = MutableStateFlow(ReaderAiSummaryUiState())
     val aiSummaryUiState = _aiSummaryUiState.asStateFlow()
@@ -559,7 +560,11 @@ constructor(
     /** 统一翻译目标入口；传统 Provider 与 AI Provider/Model 共用同一执行状态和缓存流程。 */
     fun translateWithTarget(target: TranslationTarget) {
         val state = _translationUiState.value
-        if (state.document?.target == target) {
+        val targetLanguage =
+            translationSettingsRepository.current().targetLanguage.trim().ifBlank {
+                me.ash.reader.infrastructure.translation.TranslationSettings.defaultTargetLanguage()
+            }
+        if (state.document?.target == target && state.document.targetLanguage == targetLanguage) {
             _translationUiState.update { it.copy(showTranslation = true) }
             return
         }
@@ -569,6 +574,7 @@ constructor(
         val title = _readerState.value.title.orEmpty()
         val previousState = _translationUiState.value
         translationJob?.cancel()
+        val requestSerial = ++translationRequestSerial
         translationJob =
             viewModelScope.launch {
                 _translationUiState.value =
@@ -579,11 +585,17 @@ constructor(
                             title = title,
                             content = content,
                             target = target,
+                            targetLanguageOverride = targetLanguage,
                         )
                     }
                     .onSuccess { document ->
-                        // 网络调用结束时用户可能已经切换文章，旧结果不得覆盖新页面。
-                        if (_readerState.value.articleId == articleId) {
+                        // 网络调用结束时用户可能已经切换文章、目标或语言；旧结果不得覆盖更新的请求。
+                        if (
+                            _readerState.value.articleId == articleId &&
+                                translationRequestSerial == requestSerial &&
+                                document.target == target &&
+                                document.targetLanguage == targetLanguage
+                        ) {
                             _translationUiState.value =
                                 ReaderTranslationUiState(
                                     document = document,
@@ -593,7 +605,10 @@ constructor(
                     }
                     .onFailure { error ->
                         if (error is CancellationException) return@onFailure
-                        if (_readerState.value.articleId == articleId) {
+                        if (
+                            _readerState.value.articleId == articleId &&
+                                translationRequestSerial == requestSerial
+                        ) {
                             _translationUiState.value =
                                 previousState.copy(
                                     isLoading = false,
@@ -631,6 +646,7 @@ constructor(
     }
 
     private fun resetTranslation() {
+        translationRequestSerial++
         translationJob?.cancel()
         translationJob = null
         _translationUiState.value = ReaderTranslationUiState()

@@ -122,7 +122,7 @@ open class McpException(message: String, cause: Throwable? = null) : RuntimeExce
 /** MCP Tool 在本地 Runtime 使用的稳定 ID，避免不同 Server 的同名 Tool 冲突。 */
 fun stableToolId(serverId: String, toolName: String): String = "mcp:$serverId:$toolName"
 
-/** MCP annotations 缺省不能假定安全；只有明确 readOnlyHint=true 才免确认。 */
+/** MCP annotations 仅用于风险展示；是否免确认由本地授权策略决定，不能信任远端 readOnlyHint。 */
 internal fun inferMcpToolRisk(annotations: JSONObject?): LlmToolRisk =
     when {
         annotations?.optBoolean("destructiveHint", false) == true -> LlmToolRisk.WRITE

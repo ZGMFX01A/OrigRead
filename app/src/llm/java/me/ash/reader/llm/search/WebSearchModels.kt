@@ -60,6 +60,8 @@ data class WebSearchPreparedRequest(
     val providerId: String? = null,
     val providerName: String? = null,
     val providerKind: WebSearchProviderKind? = null,
+    /** 仅驻留当前请求内存，不持久化；prepare/execute 之间配置变化不会改变真实请求目标。 */
+    val providerSnapshot: WebSearchProviderSnapshot? = null,
     val request: WebSearchRequest? = null,
     val preflightErrorMessage: String? = null,
     val perfTrace: AiPerfTrace? = null,
@@ -69,6 +71,18 @@ data class WebSearchPreparedRequest(
 
     val required: Boolean
         get() = decision.required
+}
+
+/**
+ * Dedicated Search 的请求级 Provider 快照。
+ * API Key 不进入 Room；覆写 toString，避免调试输出误带明文凭据。
+ */
+class WebSearchProviderSnapshot(
+    val profile: WebSearchProviderProfile,
+    val apiKey: String,
+) {
+    override fun toString(): String =
+        "WebSearchProviderSnapshot(providerId=${profile.id}, kind=${profile.kind.name})"
 }
 
 /**

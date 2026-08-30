@@ -10,6 +10,7 @@ import javax.inject.Singleton
 import me.ash.reader.llm.settings.LlmSettingsRepository
 import me.ash.reader.llm.skill.LlmSkillRepository
 import me.ash.reader.llm.skill.LlmSkillTask
+import me.ash.reader.llm.runtime.estimateLlmTokens
 
 /** LLM edition 将任务绑定 Skill 作为内置 Prompt 之上的受控方法层。 */
 @Singleton
@@ -29,6 +30,15 @@ class EditionAiTaskPromptCustomizer @Inject constructor(
                 null
             }
         val skillInstructions = skill?.instructionBundle()?.trim().orEmpty()
+        if (skill != null && skillInstructions.isNotBlank()) {
+            val estimatedTokens = estimateLlmTokens(skillInstructions)
+            if (estimatedTokens > MAX_TASK_SKILL_PROMPT_TOKENS) {
+                throw AiException(
+                    AiErrorCode.INVALID_REQUEST,
+                    "Skill ${skill.id} 内容过大：约 $estimatedTokens tokens，摘要/翻译最多允许 $MAX_TASK_SKILL_PROMPT_TOKENS tokens",
+                )
+            }
+        }
         val customInstructions = settings.customInstructions.trim()
         var systemPrompt = baseSystemPrompt.trim()
         if (skill != null && skillInstructions.isNotBlank()) {
@@ -57,6 +67,8 @@ class EditionAiTaskPromptCustomizer @Inject constructor(
         )
     }
 }
+
+private const val MAX_TASK_SKILL_PROMPT_TOKENS = 16_000
 
 /**
  * Skill 不取代 OrigRead 内置约束。

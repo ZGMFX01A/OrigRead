@@ -36,7 +36,11 @@ class AiSettingsRepository @Inject constructor(
 
     fun provider(providerId: String?): AiProviderProfile? {
         val settings = current()
-        return settings.providers.firstOrNull { it.id == providerId } ?: settings.defaultProvider()
+        return if (providerId == null) {
+            settings.defaultProvider()
+        } else {
+            settings.providers.firstOrNull { it.id == providerId }
+        }
     }
 
     fun setEnabled(value: Boolean) = updateSettings { it.copy(enabled = value) }
@@ -106,8 +110,14 @@ class AiSettingsRepository @Inject constructor(
 
     fun setProviderEndpoint(providerId: String, value: String) =
         updateProvider(providerId) {
-            // 地址改变后旧模型列表不再可信，但保留当前手填模型作为兜底。
-            it.copy(endpoint = value, models = emptyList())
+            // 地址改变后旧模型列表和手动能力覆盖都不再可信；保留当前手填模型作为兜底。
+            it.copy(
+                endpoint = value,
+                models = emptyList(),
+                streamingCapabilityOverride = AiCapabilityOverrideMode.AUTO,
+                toolCallingCapabilityOverride = AiCapabilityOverrideMode.AUTO,
+                reasoningCapabilityOverride = AiCapabilityOverrideMode.AUTO,
+            )
         }
 
     fun setProviderDefaultModel(providerId: String, value: String) =
@@ -129,6 +139,15 @@ class AiSettingsRepository @Inject constructor(
                         ?: it.defaultModel,
             )
         }
+
+    fun setProviderStreamingCapability(providerId: String, value: AiCapabilityOverrideMode) =
+        updateProvider(providerId) { it.copy(streamingCapabilityOverride = value) }
+
+    fun setProviderToolCallingCapability(providerId: String, value: AiCapabilityOverrideMode) =
+        updateProvider(providerId) { it.copy(toolCallingCapabilityOverride = value) }
+
+    fun setProviderReasoningCapability(providerId: String, value: AiCapabilityOverrideMode) =
+        updateProvider(providerId) { it.copy(reasoningCapabilityOverride = value) }
 
     fun setApiKey(providerId: String, value: String) {
         secretStore.put(secretKey(providerId), value.trim())
@@ -189,6 +208,7 @@ class AiSettingsRepository @Inject constructor(
         apiKeys: Map<String, String> = emptyMap(),
         replaceSecrets: Boolean = false,
     ) {
+        requireUniqueProviderIds(settings.providers)
         val previousProviders = current().providers
         val previousProviderIds = previousProviders.map(AiProviderProfile::id)
         val normalized = normalizeSettings(settings)
@@ -256,12 +276,21 @@ class AiSettingsRepository @Inject constructor(
                                 .sorted(),
                     )
                 }
+                // 只用于迁移本机历史异常数据；外部备份在 restoreBackup 入口会明确拒绝重复 ID。
+                .distinctBy(AiProviderProfile::id)
                 .ifEmpty { listOf(AiProviderProfile()) }
         val defaultProviderId =
             settings.defaultProviderId.takeIf { id -> providers.any { it.id == id } }
                 ?: providers.firstOrNull { it.enabled }?.id
                 ?: providers.first().id
         return settings.copy(providers = providers, defaultProviderId = defaultProviderId)
+    }
+
+    private fun requireUniqueProviderIds(providers: List<AiProviderProfile>) {
+        require(providers.all { it.id.isNotBlank() }) { "AI 服务 Provider ID 不能为空" }
+        require(providers.map(AiProviderProfile::id).distinct().size == providers.size) {
+            "AI 服务配置包含重复 Provider ID"
+        }
     }
 
     private fun persistSettings(settings: AiSettings) {
@@ -276,6 +305,9 @@ class AiSettingsRepository @Inject constructor(
                             .put("endpoint", profile.endpoint)
                             .put("defaultModel", profile.defaultModel)
                             .put("models", JSONArray(profile.models))
+                            .put("streamingCapabilityOverride", profile.streamingCapabilityOverride.name)
+                            .put("toolCallingCapabilityOverride", profile.toolCallingCapabilityOverride.name)
+                            .put("reasoningCapabilityOverride", profile.reasoningCapabilityOverride.name)
                     )
                 }
             }
@@ -347,6 +379,12 @@ class AiSettingsRepository @Inject constructor(
                                         (models + defaultModel)
                                             .filter(String::isNotBlank)
                                             .distinct(),
+                                    streamingCapabilityOverride =
+                                        json.optCapabilityOverride("streamingCapabilityOverride"),
+                                    toolCallingCapabilityOverride =
+                                        json.optCapabilityOverride("toolCallingCapabilityOverride"),
+                                    reasoningCapabilityOverride =
+                                        json.optCapabilityOverride("reasoningCapabilityOverride"),
                                 )
                             )
                         }
@@ -382,6 +420,10 @@ class AiSettingsRepository @Inject constructor(
         // 迁移完成后必须删除旧键，否则用户清空新凭据时会被旧值重新读回。
         secretStore.remove(LEGACY_SECRET_API_KEY)
     }
+
+    private fun JSONObject.optCapabilityOverride(key: String): AiCapabilityOverrideMode =
+        runCatching { AiCapabilityOverrideMode.valueOf(optString(key)) }
+            .getOrDefault(AiCapabilityOverrideMode.AUTO)
 
     private fun normalizeEndpoint(value: String): String {
         val trimmed = value.trim().trimEnd('/')

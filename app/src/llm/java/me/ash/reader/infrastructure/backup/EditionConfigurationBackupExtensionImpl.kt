@@ -19,6 +19,8 @@ import me.ash.reader.llm.mcp.McpOAuthTokenSet
 import me.ash.reader.llm.mcp.McpServerBackupSecrets
 import me.ash.reader.llm.mcp.McpServerProfile
 import me.ash.reader.llm.mcp.McpServerRepository
+import me.ash.reader.llm.mcp.McpToolRegistry
+import me.ash.reader.llm.quickmessage.LlmQuickMessageRepository
 import me.ash.reader.llm.runtime.LlmReasoningEffort
 import me.ash.reader.llm.search.MAX_WEB_SEARCH_MAX_RESULTS
 import me.ash.reader.llm.search.MIN_WEB_SEARCH_MAX_RESULTS
@@ -29,6 +31,7 @@ import me.ash.reader.llm.search.WebSearchRepository
 import me.ash.reader.llm.search.WebSearchSettings
 import me.ash.reader.llm.settings.LlmAdvancedSettings
 import me.ash.reader.llm.settings.LlmSettingsRepository
+import me.ash.reader.llm.skill.LlmSkillRepository
 
 /** OrigRead X 的完整配置备份桥；公共备份服务本身不需要认识任何 llm 类型。 */
 @Singleton
@@ -36,15 +39,21 @@ class EditionConfigurationBackupExtensionImpl @Inject constructor(
     private val llmSettingsRepository: LlmSettingsRepository,
     private val webSearchRepository: WebSearchRepository,
     private val mcpServerRepository: McpServerRepository,
+    private val mcpToolRegistry: McpToolRegistry,
+    private val skillRepository: LlmSkillRepository,
+    private val quickMessageRepository: LlmQuickMessageRepository,
 ) : EditionConfigurationBackupExtension {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     override fun exportConfiguration(): JsonElement =
         json.encodeToJsonElement(
             LlmEditionConfigurationBackup(
+                schemaVersion = CURRENT_LLM_BACKUP_SCHEMA_VERSION,
                 settings = llmSettingsRepository.current().toBackup(),
                 webSearch = webSearchRepository.current().toBackup(),
                 mcpServers = mcpServerRepository.currentServers().map(McpServerProfile::toBackup),
+                skillState = skillRepository.exportBackupState(),
+                quickMessageState = quickMessageRepository.exportBackupState(),
             )
         )
 
@@ -69,6 +78,8 @@ class EditionConfigurationBackupExtensionImpl @Inject constructor(
     override fun validateBackup(configuration: JsonElement?, secrets: JsonElement?) {
         val decoded = configuration?.let { json.decodeFromJsonElement<LlmEditionConfigurationBackup>(it) } ?: return
         decoded.toValidatedDomain()
+        decoded.skillState?.let(skillRepository::validateBackupState)
+        decoded.quickMessageState?.let(quickMessageRepository::validateBackupState)
         secrets?.let { secretElement ->
             val decodedSecrets = json.decodeFromJsonElement<LlmEditionSecretsBackup>(secretElement)
             val searchIds = decoded.webSearch.providers.mapTo(hashSetOf(), WebSearchProviderBackup::id)
@@ -100,11 +111,20 @@ class EditionConfigurationBackupExtensionImpl @Inject constructor(
             apiKeys = decodedSecrets?.webSearchApiKeys.orEmpty(),
             replaceSecrets = replaceEditionSecrets,
         )
+        // RemoteMcpTool 会冻结 discovery 时的 Profile。恢复前必须先卸载旧 Tool 并失效旧连接，
+        // 否则相同 serverId 更换 endpoint/凭据后，当前进程仍可能继续命中旧 Server。
+        (mcpServerRepository.currentServers().map(McpServerProfile::id) +
+            domain.mcpServers.map(McpServerProfile::id))
+            .distinct()
+            .forEach(mcpToolRegistry::unloadServer)
         mcpServerRepository.restoreBackup(
             servers = domain.mcpServers,
             secrets = decodedSecrets?.mcpServers.orEmpty().mapValues { (_, value) -> value.toDomain() },
             replaceSecrets = replaceEditionSecrets,
         )
+        // v1 备份没有这两个字段；缺失时保持当前设备内容，不能误清已有用户数据。
+        decoded.skillState?.let(skillRepository::restoreBackupState)
+        decoded.quickMessageState?.let(quickMessageRepository::restoreBackupState)
     }
 }
 
@@ -119,10 +139,12 @@ abstract class EditionConfigurationBackupExtensionModule {
 
 @Serializable
 private data class LlmEditionConfigurationBackup(
-    val schemaVersion: Int = 1,
+    val schemaVersion: Int = CURRENT_LLM_BACKUP_SCHEMA_VERSION,
     val settings: LlmAdvancedSettingsBackup = LlmAdvancedSettingsBackup(),
     val webSearch: WebSearchSettingsBackup = WebSearchSettingsBackup(),
     val mcpServers: List<McpServerProfileBackup> = emptyList(),
+    val skillState: String? = null,
+    val quickMessageState: String? = null,
 )
 
 @Serializable
@@ -211,7 +233,9 @@ private data class ValidatedLlmEditionConfiguration(
 )
 
 private fun LlmEditionConfigurationBackup.toValidatedDomain(): ValidatedLlmEditionConfiguration {
-    require(schemaVersion == 1) { "不支持的 LLM 配置备份版本：$schemaVersion" }
+    require(schemaVersion in 1..CURRENT_LLM_BACKUP_SCHEMA_VERSION) {
+        "不支持的 LLM 配置备份版本：$schemaVersion"
+    }
     require(settings.contextMaxTokens in LlmSettingsRepository.MIN_CONTEXT_TOKENS..LlmSettingsRepository.MAX_CONTEXT_TOKENS) {
         "LLM Context 长度超出支持范围"
     }
@@ -276,6 +300,8 @@ private fun LlmEditionConfigurationBackup.toValidatedDomain(): ValidatedLlmEditi
         mcpServers = servers,
     )
 }
+
+private const val CURRENT_LLM_BACKUP_SCHEMA_VERSION = 2
 
 private fun LlmAdvancedSettings.toBackup() =
     LlmAdvancedSettingsBackup(

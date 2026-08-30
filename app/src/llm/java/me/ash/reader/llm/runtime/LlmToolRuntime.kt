@@ -37,7 +37,9 @@ data class LlmToolDescriptor(
     }
 
     val requiresConfirmation: Boolean
-        get() = risk != LlmToolRisk.READ_ONLY
+        // MCP annotations 来自远端 Server，只能作为风险提示，不能作为本地授权依据。
+        // 因此远端 MCP Tool 默认都需要用户确认；应用内受信任的只读 Tool 仍可自动执行。
+        get() = source == LlmToolSource.MCP || risk != LlmToolRisk.READ_ONLY
 }
 
 data class LlmToolCall(

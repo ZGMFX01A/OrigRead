@@ -725,6 +725,17 @@
     <string name="ai_provider_switch_hint">已配置 %1$d 个服务 · 当前编辑：%2$s</string>
     <string name="ai_provider_enabled">启用此服务</string>
     <string name="ai_provider_enabled_desc">关闭后不参与 AI 请求</string>
+    <string name="ai_provider_capabilities">兼容能力</string>
+    <string name="ai_provider_capabilities_desc">默认由原读自动判断。自定义 OpenAI Compatible 服务识别不准时，可按当前服务手动覆盖。</string>
+    <string name="ai_capability_streaming">流式输出</string>
+    <string name="ai_capability_streaming_desc">控制当前服务是否使用流式响应。</string>
+    <string name="ai_capability_tool_calling">Tool Calling</string>
+    <string name="ai_capability_tool_calling_desc">开启后允许支持 Function Calling 的模型自动请求已授权工具。</string>
+    <string name="ai_capability_reasoning">Reasoning</string>
+    <string name="ai_capability_reasoning_desc">开启后按 OpenAI Compatible reasoning_effort 发送 Low/Medium/High，并接收 reasoning 输出；参数格式不同的服务请保持自动或关闭。</string>
+    <string name="ai_capability_auto">自动判断</string>
+    <string name="ai_capability_supported">支持</string>
+    <string name="ai_capability_unsupported">不支持</string>
     <string name="ai_default_provider">默认</string>
     <string name="ai_provider_name">服务名称</string>
     <string name="ai_set_default_provider">设为默认</string>

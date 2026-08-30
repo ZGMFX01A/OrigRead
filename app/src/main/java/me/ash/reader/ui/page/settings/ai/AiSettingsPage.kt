@@ -43,6 +43,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import me.ash.reader.R
+import me.ash.reader.infrastructure.ai.AiCapabilityOverrideMode
 import me.ash.reader.infrastructure.ai.AiSummaryLength
 import me.ash.reader.ui.component.base.Banner
 import me.ash.reader.ui.component.base.DisplayText
@@ -55,6 +56,7 @@ import me.ash.reader.ui.ext.collectAsStateValue
 fun AiSettingsPage(
     onBack: () -> Unit,
     additionalSettingsContent: (@Composable () -> Unit)? = null,
+    showProviderCapabilityOverrides: Boolean = false,
     viewModel: AiSettingsViewModel = hiltViewModel(),
 ) {
     val state = viewModel.uiState.collectAsStateValue()
@@ -275,6 +277,36 @@ fun AiSettingsPage(
                                         Text(stringResource(R.string.ai_endpoint_desc))
                                     },
                                 )
+                                if (showProviderCapabilityOverrides) {
+                                    HorizontalDivider()
+                                    Text(
+                                        text = stringResource(R.string.ai_provider_capabilities),
+                                        style = MaterialTheme.typography.titleSmall,
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.ai_provider_capabilities_desc),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    CapabilityOverrideRow(
+                                        title = stringResource(R.string.ai_capability_streaming),
+                                        description = stringResource(R.string.ai_capability_streaming_desc),
+                                        value = profile.streamingCapabilityOverride,
+                                        onValueChange = viewModel::setStreamingCapability,
+                                    )
+                                    CapabilityOverrideRow(
+                                        title = stringResource(R.string.ai_capability_tool_calling),
+                                        description = stringResource(R.string.ai_capability_tool_calling_desc),
+                                        value = profile.toolCallingCapabilityOverride,
+                                        onValueChange = viewModel::setToolCallingCapability,
+                                    )
+                                    CapabilityOverrideRow(
+                                        title = stringResource(R.string.ai_capability_reasoning),
+                                        description = stringResource(R.string.ai_capability_reasoning_desc),
+                                        value = profile.reasoningCapabilityOverride,
+                                        onValueChange = viewModel::setReasoningCapability,
+                                    )
+                                }
                                 // 配置顺序遵循真实操作链：先确定 Endpoint 与凭据，再获取/选择模型。
                                 OutlinedTextField(
                                     value = state.apiKeyDraft,
@@ -451,6 +483,50 @@ private fun summaryLengthName(length: AiSummaryLength): String =
             AiSummaryLength.DETAILED -> R.string.ai_summary_length_detailed
         }
     )
+
+@Composable
+private fun CapabilityOverrideRow(
+    title: String,
+    description: String,
+    value: AiCapabilityOverrideMode,
+    onValueChange: (AiCapabilityOverrideMode) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(text = title, style = MaterialTheme.typography.bodyMedium)
+        Text(
+            text = description,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Box {
+            OutlinedButton(onClick = { expanded = true }) {
+                Text(stringResource(value.labelRes()))
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+            ) {
+                AiCapabilityOverrideMode.entries.forEach { mode ->
+                    DropdownMenuItem(
+                        text = { Text(stringResource(mode.labelRes())) },
+                        onClick = {
+                            expanded = false
+                            onValueChange(mode)
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun AiCapabilityOverrideMode.labelRes(): Int =
+    when (this) {
+        AiCapabilityOverrideMode.AUTO -> R.string.ai_capability_auto
+        AiCapabilityOverrideMode.ENABLED -> R.string.ai_capability_supported
+        AiCapabilityOverrideMode.DISABLED -> R.string.ai_capability_unsupported
+    }
 
 @Composable
 private fun ProviderTestResult(result: AiProviderTestResult) {

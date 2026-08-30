@@ -142,6 +142,31 @@ internal data class LlmRequestHistorySnapshot(
 )
 
 /**
+ * 最近一条有效 USER 消息定义当前 Assistant/Tool 链。
+ * 更早请求的 Tool Call 不能占用当前请求的自动调用轮次，也不能阻塞当前链恢复。
+ */
+internal fun currentToolChainCalls(
+    messages: List<LlmMessageEntity>,
+    toolCalls: List<LlmToolCallEntity>,
+): List<LlmToolCallEntity> {
+    val latestUserIndex =
+        messages.indexOfLast { message ->
+            message.historyActive &&
+                message.role == LlmChatRole.USER &&
+                message.status != LlmMessageStatus.ERROR
+        }
+    if (latestUserIndex < 0) return emptyList()
+    val assistantIds =
+        messages
+            .drop(latestUserIndex + 1)
+            .asSequence()
+            .filter { it.historyActive && it.role == LlmChatRole.ASSISTANT }
+            .map(LlmMessageEntity::id)
+            .toSet()
+    return toolCalls.filter { it.assistantMessageId in assistantIds }
+}
+
+/**
  * 从持久化消息与 ToolCall 构建一次 Provider 请求快照。
  * ERROR assistant、当前待生成 placeholder 与其他不可发送消息被过滤时，其 Tool Result 也必须同步排除。
  */
@@ -1149,7 +1174,11 @@ class LlmChatViewModel @Inject constructor(
 
     /** 所有同轮 Tool 都已落到终态后再继续请求模型，避免跳过另一个仍待审批的 Tool。 */
     private suspend fun resumeAfterResolvedToolCalls(conversationId: String) {
-        val calls = repository.getToolCalls(conversationId)
+        val calls =
+            currentToolChainCalls(
+                messages = repository.getMessages(conversationId),
+                toolCalls = repository.getToolCalls(conversationId),
+            )
         if (calls.any { it.status == LlmToolCallStatus.PENDING_APPROVAL || it.status == LlmToolCallStatus.RUNNING }) {
             return
         }
@@ -1601,6 +1630,9 @@ class LlmChatViewModel @Inject constructor(
             )
 
             if (terminalDecision == LlmGenerationTerminalDecision.ContinueWithTools) {
+                if (toolRound >= MAX_AUTOMATIC_TOOL_ROUNDS) {
+                    error("Tool Calling 已达到安全轮次上限")
+                }
                 val now = System.currentTimeMillis()
                 val calls =
                     toolCallParts.values.map { part ->
@@ -1634,7 +1666,7 @@ class LlmChatViewModel @Inject constructor(
                     }
                 repository.appendToolCalls(calls)
 
-                // 只读 Tool 可自动执行；敏感/写入 Tool 保持 Pending，等待用户明确批准。
+                // 只有本地策略明确免确认的 Tool 才自动执行；远端 MCP 默认都保持 Pending。
                 calls.filter { it.status == LlmToolCallStatus.RUNNING }.forEach { call ->
                     executePersistedToolCall(call, confirmed = false)
                 }

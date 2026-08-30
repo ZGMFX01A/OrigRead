@@ -2,6 +2,7 @@ package me.ash.reader.llm.runtime
 
 import javax.inject.Inject
 import javax.inject.Singleton
+import me.ash.reader.infrastructure.ai.AiCapabilityOverrideMode
 import me.ash.reader.infrastructure.ai.AiException
 import me.ash.reader.infrastructure.ai.AiErrorCode
 import me.ash.reader.infrastructure.ai.AiProviderProfile
@@ -56,7 +57,16 @@ class OpenAiCompatibleLlmAdapter @Inject constructor(
         provider: AiProviderProfile,
         model: String,
         override: ModelCapabilityOverride?,
-    ): ModelCapability = capabilityResolver.resolve(provider, model, override)
+    ): ModelCapability {
+        val providerResolved =
+            capabilityResolver.resolve(
+                provider = provider,
+                model = model,
+                override = provider.toCapabilityOverride(),
+            )
+        // 请求级限制（例如全局关闭流式）最后应用，不能被 Provider 持久设置反向打开。
+        return override?.applyTo(providerResolved) ?: providerResolved
+    }
 
     fun reasoningParameter(
         capability: ModelCapability,
@@ -75,6 +85,35 @@ class OpenAiCompatibleLlmAdapter @Inject constructor(
         }
     }
 }
+
+private fun AiProviderProfile.toCapabilityOverride(): ModelCapabilityOverride {
+    val reasoningEnabled = reasoningCapabilityOverride.toNullableBoolean()
+    return ModelCapabilityOverride(
+        supportsStreaming = streamingCapabilityOverride.toNullableBoolean(),
+        supportsToolCalling = toolCallingCapabilityOverride.toNullableBoolean(),
+        supportedReasoningEfforts =
+            reasoningEnabled?.let { enabled ->
+                if (enabled) {
+                    setOf(LlmReasoningEffort.LOW, LlmReasoningEffort.MEDIUM, LlmReasoningEffort.HIGH)
+                } else {
+                    emptySet()
+                }
+            },
+        reasoningParameterStyle =
+            reasoningEnabled?.let { enabled ->
+                if (enabled) ReasoningParameterStyle.OPENAI_REASONING_EFFORT
+                else ReasoningParameterStyle.NONE
+            },
+        supportsReasoningOutput = reasoningEnabled,
+    )
+}
+
+private fun AiCapabilityOverrideMode.toNullableBoolean(): Boolean? =
+    when (this) {
+        AiCapabilityOverrideMode.AUTO -> null
+        AiCapabilityOverrideMode.ENABLED -> true
+        AiCapabilityOverrideMode.DISABLED -> false
+    }
 
 private fun LlmReasoningEffort.toOpenAiReasoningValue(): String? =
     when (this) {

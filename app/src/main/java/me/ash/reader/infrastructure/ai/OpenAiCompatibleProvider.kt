@@ -31,6 +31,8 @@ data class AiCompletionResult(
 data class AiCompletionDelta(
     val content: String = "",
     val reasoning: String = "",
+    /** 非空表示 Provider 已明确给出本次流的终止原因。 */
+    val finishReason: String? = null,
 )
 
 /**
@@ -485,6 +487,7 @@ class OpenAiCompatibleProvider @Inject constructor(
             val thinkSplitter = ThinkStreamSplitter()
             val fallbackBody = StringBuilder()
             var sawSseData = false
+            var sawTerminalEvent = false
             var sawReasoning = false
             var sawContent = false
 
@@ -497,8 +500,14 @@ class OpenAiCompatibleProvider @Inject constructor(
                     }
                     val payload = line.removePrefix("data:").trim()
                     if (payload.isBlank()) continue
-                    if (payload == "[DONE]") break
+                    if (payload == "[DONE]") {
+                        sawTerminalEvent = true
+                        break
+                    }
                     val rawDelta = parseCompletionStreamPayload(payload) ?: continue
+                    if (rawDelta.finishReason != null) {
+                        sawTerminalEvent = true
+                    }
                     val splitDelta = thinkSplitter.accept(rawDelta.content)
                     val reasoningDelta = rawDelta.reasoning + splitDelta.reasoning
                     if (rawDelta.reasoning.isNotEmpty()) {
@@ -536,6 +545,13 @@ class OpenAiCompatibleProvider @Inject constructor(
 
             if (call.isCanceled()) {
                 throw java.io.IOException("AI 请求已取消")
+            }
+
+            if (sawSseData && !sawTerminalEvent) {
+                throw AiException(
+                    AiErrorCode.INVALID_RESPONSE,
+                    "AI 流式响应提前结束，未收到完成标记",
+                )
             }
 
             if (sawSseData) {
@@ -595,13 +611,20 @@ class OpenAiCompatibleProvider @Inject constructor(
             )
         }
         val first = root.optJSONArray("choices")?.optJSONObject(0) ?: return null
-        val delta = first.optJSONObject("delta") ?: first.optJSONObject("message") ?: return null
+        val finishReason =
+            first.optString("finish_reason")
+                .trim()
+                .takeIf(String::isNotBlank)
+        val delta = first.optJSONObject("delta") ?: first.optJSONObject("message") ?: JSONObject()
         return AiCompletionDelta(
             content = parseContent(delta.opt("content")),
             reasoning =
                 parseContent(delta.opt("reasoning_content"))
                     .ifBlank { parseContent(delta.opt("reasoning")) },
-        ).takeIf { it.content.isNotEmpty() || it.reasoning.isNotEmpty() }
+            finishReason = finishReason,
+        ).takeIf {
+            it.content.isNotEmpty() || it.reasoning.isNotEmpty() || it.finishReason != null
+        }
     }
 
     /** Streaming 请求非 2xx 时沿用现有错误分类，并保留服务端错误正文中的 message。 */

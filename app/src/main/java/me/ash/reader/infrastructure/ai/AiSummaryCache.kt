@@ -36,6 +36,7 @@ class AiSummaryCache @Inject constructor(
                             articleId = articleId,
                             title = title,
                             content = content,
+                            providerId = provider.id,
                             endpoint = provider.endpoint,
                             model = model,
                             outputLanguage = outputLanguage,
@@ -62,6 +63,7 @@ class AiSummaryCache @Inject constructor(
                         articleId = document.articleId,
                         title = title,
                         content = content,
+                        providerId = provider.id,
                         endpoint = provider.endpoint,
                         model = document.model,
                         outputLanguage = document.outputLanguage,
@@ -77,6 +79,7 @@ class AiSummaryCache @Inject constructor(
         articleId: String,
         title: String,
         content: String,
+        providerId: String,
         endpoint: String,
         model: String,
         outputLanguage: String,
@@ -89,6 +92,7 @@ class AiSummaryCache @Inject constructor(
                 articleId,
                 sha256(title),
                 sha256(content),
+                providerId.trim(),
                 sha256(endpoint.trim()),
                 model.trim(),
                 outputLanguage.trim(),
@@ -155,8 +159,8 @@ class AiSummaryCache @Inject constructor(
             .joinToString("") { "%02x".format(it) }
 
     companion object {
-        // v9 对应当前英文摘要 Prompt 与 v2 metadata 协议。
-        private const val CACHE_VERSION = "9"
+        // v10 把 providerId 纳入缓存身份，避免同 endpoint/model 的不同服务互相命中。
+        private const val CACHE_VERSION = "10"
     }
 }
 

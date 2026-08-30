@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import me.ash.reader.infrastructure.ai.AiProviderProfile
+import me.ash.reader.infrastructure.ai.AiCapabilityOverrideMode
 import me.ash.reader.infrastructure.ai.AiSettings
 import me.ash.reader.infrastructure.ai.AiSettingsRepository
 import me.ash.reader.infrastructure.ai.AiSummaryLength
@@ -118,6 +119,18 @@ class AiSettingsViewModel @Inject constructor(
 
     fun setProviderEnabled(value: Boolean) {
         repository.setProviderEnabled(_uiState.value.selectedProviderId, value)
+    }
+
+    fun setStreamingCapability(value: AiCapabilityOverrideMode) {
+        repository.setProviderStreamingCapability(_uiState.value.selectedProviderId, value)
+    }
+
+    fun setToolCallingCapability(value: AiCapabilityOverrideMode) {
+        repository.setProviderToolCallingCapability(_uiState.value.selectedProviderId, value)
+    }
+
+    fun setReasoningCapability(value: AiCapabilityOverrideMode) {
+        repository.setProviderReasoningCapability(_uiState.value.selectedProviderId, value)
     }
 
     fun setProviderName(value: String) {

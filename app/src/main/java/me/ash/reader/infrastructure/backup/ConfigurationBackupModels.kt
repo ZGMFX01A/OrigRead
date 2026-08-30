@@ -123,6 +123,9 @@ data class AiProviderBackup(
     val endpoint: String,
     val defaultModel: String,
     val models: List<String> = emptyList(),
+    val streamingCapabilityOverride: String = "AUTO",
+    val toolCallingCapabilityOverride: String = "AUTO",
+    val reasoningCapabilityOverride: String = "AUTO",
 )
 
 /** 使用用户备份密码加密后的敏感凭据块。 */

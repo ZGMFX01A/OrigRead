@@ -755,6 +755,17 @@
     <string name="ai_provider_switch_hint">%1$d services configured · Editing %2$s · Use the selector above to switch</string>
     <string name="ai_provider_enabled">Enable this service</string>
     <string name="ai_provider_enabled_desc">Disabled services are excluded from AI requests</string>
+    <string name="ai_provider_capabilities">Compatibility capabilities</string>
+    <string name="ai_provider_capabilities_desc">OrigRead detects these automatically by default. Override them per provider when a custom OpenAI-compatible endpoint is detected incorrectly.</string>
+    <string name="ai_capability_streaming">Streaming</string>
+    <string name="ai_capability_streaming_desc">Controls whether this provider uses streaming responses.</string>
+    <string name="ai_capability_tool_calling">Tool Calling</string>
+    <string name="ai_capability_tool_calling_desc">When enabled, models with Function Calling can automatically request authorized tools.</string>
+    <string name="ai_capability_reasoning">Reasoning</string>
+    <string name="ai_capability_reasoning_desc">When enabled, OrigRead sends OpenAI-compatible reasoning_effort Low/Medium/High and accepts reasoning output. Keep Auto or Not supported for providers using a different parameter format.</string>
+    <string name="ai_capability_auto">Auto detect</string>
+    <string name="ai_capability_supported">Supported</string>
+    <string name="ai_capability_unsupported">Not supported</string>
     <string name="ai_default_provider">Default</string>
     <string name="ai_provider_name">Service name</string>
     <string name="ai_set_default_provider">Set default</string>

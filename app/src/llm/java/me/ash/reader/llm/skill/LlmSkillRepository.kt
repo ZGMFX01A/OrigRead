@@ -27,6 +27,7 @@ class LlmSkillRepository @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
     private val stateFile = context.filesDir.resolve("llm-skills/state.json")
+    private val stateBackupFile = context.filesDir.resolve("llm-skills/state.json.bak")
     private val localSkillDir = context.filesDir.resolve("llm-skills/local")
     private val _state = MutableStateFlow(readState())
     val state: StateFlow<LlmSkillState> = _state.asStateFlow()
@@ -119,6 +120,27 @@ class LlmSkillRepository @Inject constructor(
     /** 为 Prompt 注入生成稳定内容；Skill 停用/删除时安全回退为空。 */
     fun instructionFor(skillId: String?): String? =
         activeSkill(skillId)?.instructionBundle()?.takeIf(String::isNotBlank)
+
+    /** 完整配置备份只保存可执行的结构化 Skill 状态，不依赖 app-private 原始 Markdown 文件。 */
+    fun exportBackupState(): String = encodeState(current())
+
+    fun validateBackupState(raw: String) {
+        validateState(decodeState(raw))
+    }
+
+    /**
+     * 从完整配置恢复 Skill 与任务绑定。恢复后的 Skill 不再引用旧设备私有文件名，避免留下不存在的文件句柄。
+     */
+    @Synchronized
+    fun restoreBackupState(raw: String) {
+        val decoded = decodeState(raw)
+        validateState(decoded)
+        val portable =
+            decoded.copy(
+                skills = decoded.skills.map { it.copy(sourceFileName = null) },
+            )
+        updateState(portable)
+    }
 
     private fun parseStandalone(bytes: ByteArray): ImportedSkill {
         val markdown = bytes.toString(Charsets.UTF_8)
@@ -280,12 +302,19 @@ class LlmSkillRepository @Inject constructor(
         return SAFE_TEXT_EXTENSIONS.any(lower::endsWith)
     }
 
-    private fun readState(): LlmSkillState =
-        runCatching {
-                if (!stateFile.exists()) return@runCatching LlmSkillState()
-                decodeState(stateFile.readText())
+    private fun readState(): LlmSkillState {
+        if (!stateFile.exists()) return LlmSkillState()
+        runCatching { decodeState(stateFile.readText()).also(::validateState) }
+            .getOrNull()
+            ?.let { return it }
+
+        // 主文件损坏时只读上一份可解析快照；绝不在初始化阶段拿默认值反写覆盖损坏原件。
+        return runCatching {
+                if (!stateBackupFile.exists()) return@runCatching LlmSkillState()
+                decodeState(stateBackupFile.readText()).also(::validateState)
             }
             .getOrDefault(LlmSkillState())
+    }
 
     private fun updateState(next: LlmSkillState) {
         persist(next)
@@ -293,14 +322,51 @@ class LlmSkillRepository @Inject constructor(
     }
 
     private fun persist(state: LlmSkillState) {
+        validateState(state)
         val parent = requireNotNull(stateFile.parentFile) { "Skill state file 缺少父目录" }
         parent.mkdirs()
+        if (stateFile.exists()) {
+            val previous = stateFile.readText()
+            if (runCatching { decodeState(previous).also(::validateState) }.isSuccess) {
+                stateBackupFile.writeText(previous)
+            }
+        }
         val temp = parent.resolve(stateFile.name + ".tmp")
         temp.writeText(encodeState(state))
         if (!temp.renameTo(stateFile)) {
             stateFile.writeText(temp.readText())
             temp.delete()
         }
+    }
+
+    private fun validateState(state: LlmSkillState) {
+        require(state.skills.size <= MAX_SKILLS) { "Skill 数量超过上限 $MAX_SKILLS" }
+        require(state.skills.map(LlmSkillRecord::id).distinct().size == state.skills.size) {
+            "Skill 状态包含重复 ID"
+        }
+        val ids = state.skills.mapTo(hashSetOf(), LlmSkillRecord::id)
+        state.skills.forEach { skill ->
+            require(skill.id.matches(VALID_SKILL_ID)) { "Skill ID 无效：${skill.id}" }
+            require(skill.description.length <= 1024) { "Skill description 过长：${skill.id}" }
+            require(skill.instructions.isNotBlank() && skill.instructions.length <= MAX_BACKUP_INSTRUCTION_CHARACTERS) {
+                "Skill 指令大小无效：${skill.id}"
+            }
+            require(skill.resources.size <= MAX_ARCHIVE_ENTRIES) { "Skill 文本资源数量过多：${skill.id}" }
+            require(skill.resources.sumOf { it.content.length.toLong() } <= MAX_TOTAL_RESOURCE_CHARACTERS) {
+                "Skill 文本资源过大：${skill.id}"
+            }
+            require(skill.resources.all { it.path.isNotBlank() && it.content.length <= MAX_RESOURCE_CHARACTERS }) {
+                "Skill 文本资源无效：${skill.id}"
+            }
+        }
+        listOf(
+                state.bindings.summarySkillId,
+                state.bindings.translationSkillId,
+                state.bindings.chatSkillId,
+                state.bindings.articleAnalysisSkillId,
+            )
+            .filterNotNull()
+            .forEach { binding -> require(binding in ids) { "Skill binding 指向不存在的 Skill：$binding" } }
     }
 
     private fun encodeState(state: LlmSkillState): String =
@@ -400,11 +466,14 @@ class LlmSkillRepository @Inject constructor(
 
     companion object {
         private const val STATE_VERSION = 1
+        internal const val MAX_SKILLS = 100
         private const val MAX_IMPORT_BYTES = 6_000_000
         private const val MAX_UNCOMPRESSED_BYTES = 12_000_000L
         private const val MAX_ARCHIVE_ENTRIES = 256
         private const val MAX_RESOURCE_CHARACTERS = 300_000
         private const val MAX_TOTAL_RESOURCE_CHARACTERS = 1_200_000
+        private const val MAX_BACKUP_INSTRUCTION_CHARACTERS = 500_000
+        private val VALID_SKILL_ID = Regex("^[a-z0-9]+(?:-[a-z0-9]+)*$")
         private val SAFE_TEXT_EXTENSIONS =
             listOf(".md", ".txt", ".json", ".yaml", ".yml", ".csv", ".xml")
     }

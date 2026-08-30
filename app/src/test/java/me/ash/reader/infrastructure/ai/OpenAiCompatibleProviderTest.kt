@@ -158,6 +158,50 @@ class OpenAiCompatibleProviderTest {
         assertTrue(deltas.none { it.content.contains("<think>", ignoreCase = true) })
     }
 
+    @Test
+    fun `streaming premature eof is rejected instead of returning partial completion`() = runBlocking {
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody("data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n")
+        )
+
+        try {
+            provider.streamDetailedCancellable(
+                systemPrompt = "system",
+                userPrompt = "article",
+                config = AiRuntimeConfig(server.url("/v1").toString(), "test-model", ""),
+                onDelta = {},
+            )
+            fail("premature EOF must not be treated as a completed stream")
+        } catch (error: AiException) {
+            assertEquals(AiErrorCode.INVALID_RESPONSE, error.code)
+            assertTrue(error.message.orEmpty().contains("提前结束"))
+        }
+    }
+
+    @Test
+    fun `streaming explicit finish reason is accepted without done sentinel`() = runBlocking {
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(
+                    "data: {\"choices\":[{\"delta\":{\"content\":\"complete\"}}]}\n\n" +
+                        "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
+                )
+        )
+
+        val result =
+            provider.streamDetailedCancellable(
+                systemPrompt = "system",
+                userPrompt = "article",
+                config = AiRuntimeConfig(server.url("/v1").toString(), "test-model", ""),
+                onDelta = {},
+            )
+
+        assertEquals("complete", result.content)
+    }
+
     @After
     fun tearDown() {
         server.shutdown()

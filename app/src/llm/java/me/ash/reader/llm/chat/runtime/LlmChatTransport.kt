@@ -94,6 +94,7 @@ class LlmChatTransport @Inject constructor(
                                             "AI 服务返回了空响应",
                                         )
                                 var sawSseData = false
+                                var sawTerminalEvent = false
                                 val fallbackBody = StringBuilder()
                                 var sawReasoning = false
                                 var sawContent = false
@@ -107,8 +108,14 @@ class LlmChatTransport @Inject constructor(
                                         }
                                         sawSseData = true
                                         val payload = ssePayload
-                                        if (payload == "[DONE]") break
+                                        if (payload == "[DONE]") {
+                                            sawTerminalEvent = true
+                                            break
+                                        }
                                         parseStreamPayload(payload)?.let { delta ->
+                                            if (delta.finishReason != null) {
+                                                sawTerminalEvent = true
+                                            }
                                             if (!sawReasoning && delta.reasoning.isNotEmpty()) {
                                                 sawReasoning = true
                                                 AiPerfTracer.mark(activePerfTrace, "first_reasoning_delta")
@@ -132,6 +139,13 @@ class LlmChatTransport @Inject constructor(
                                         if (fallbackBody.isNotEmpty()) fallbackBody.append('\n')
                                         fallbackBody.append(line)
                                     }
+                                }
+
+                                if (!call.isCanceled() && sawSseData && !sawTerminalEvent) {
+                                    throw AiException(
+                                        AiErrorCode.INVALID_RESPONSE,
+                                        "AI 流式响应提前结束，未收到完成标记",
+                                    )
                                 }
 
                                 if (!call.isCanceled() && !sawSseData && fallbackBody.isNotBlank()) {

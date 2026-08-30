@@ -1,6 +1,7 @@
 package me.ash.reader.llm.runtime
 
 import kotlinx.coroutines.runBlocking
+import me.ash.reader.infrastructure.ai.AiCapabilityOverrideMode
 import me.ash.reader.infrastructure.ai.AiProviderProfile
 import me.ash.reader.infrastructure.ai.AiSettingsRepository
 import org.junit.Assert.assertEquals
@@ -70,6 +71,71 @@ class LlmRuntimeFoundationTest {
         assertTrue(capability.supportsStreaming)
         assertTrue(capability.supportsToolCalling)
         assertEquals(setOf(LlmReasoningEffort.HIGH), capability.supportedReasoningEfforts)
+    }
+
+    @Test
+    fun `provider capability overrides enable tools and reasoning for arbitrary compatible endpoint`() {
+        val adapter =
+            OpenAiCompatibleLlmAdapter(
+                settingsRepository = mock<AiSettingsRepository>(),
+                capabilityResolver = ModelCapabilityResolver(),
+            )
+        val provider =
+            AiProviderProfile(
+                name = "Local Proxy",
+                endpoint = "https://arbitrary.example.net/openai/v1",
+                streamingCapabilityOverride = AiCapabilityOverrideMode.ENABLED,
+                toolCallingCapabilityOverride = AiCapabilityOverrideMode.ENABLED,
+                reasoningCapabilityOverride = AiCapabilityOverrideMode.ENABLED,
+            )
+
+        val capability = adapter.capability(provider, "custom-model", override = null)
+
+        assertTrue(capability.supportsStreaming)
+        assertTrue(capability.supportsToolCalling)
+        assertTrue(capability.supportsReasoningOutput)
+        assertEquals(
+            setOf(LlmReasoningEffort.LOW, LlmReasoningEffort.MEDIUM, LlmReasoningEffort.HIGH),
+            capability.supportedReasoningEfforts,
+        )
+        assertEquals(
+            ReasoningParameterStyle.OPENAI_REASONING_EFFORT,
+            capability.reasoningParameterStyle,
+        )
+
+        val requestRestricted =
+            adapter.capability(
+                provider,
+                "custom-model",
+                ModelCapabilityOverride(supportsStreaming = false),
+            )
+        assertFalse(requestRestricted.supportsStreaming)
+        assertTrue(requestRestricted.supportsToolCalling)
+    }
+
+    @Test
+    fun `provider disabled capability overrides suppress built in official capabilities`() {
+        val adapter =
+            OpenAiCompatibleLlmAdapter(
+                settingsRepository = mock<AiSettingsRepository>(),
+                capabilityResolver = ModelCapabilityResolver(),
+            )
+        val provider =
+            AiProviderProfile(
+                name = "OpenAI",
+                endpoint = "https://api.openai.com/v1",
+                streamingCapabilityOverride = AiCapabilityOverrideMode.DISABLED,
+                toolCallingCapabilityOverride = AiCapabilityOverrideMode.DISABLED,
+                reasoningCapabilityOverride = AiCapabilityOverrideMode.DISABLED,
+            )
+
+        val capability = adapter.capability(provider, "gpt-5", override = null)
+
+        assertFalse(capability.supportsStreaming)
+        assertFalse(capability.supportsToolCalling)
+        assertFalse(capability.supportsReasoningOutput)
+        assertTrue(capability.supportedReasoningEfforts.isEmpty())
+        assertEquals(ReasoningParameterStyle.NONE, capability.reasoningParameterStyle)
     }
 
     @Test

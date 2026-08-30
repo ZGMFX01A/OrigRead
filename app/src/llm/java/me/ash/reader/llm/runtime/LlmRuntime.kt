@@ -54,6 +54,19 @@ class LlmRuntime @Inject constructor(
             )
         }
         val skill = skillRepository.activeSkill(profile.skillId)
+        val skillInstructions = skill?.instructionBundle()?.takeIf(String::isNotBlank)
+        skillInstructions?.let { instructions ->
+            val budget =
+                (profile.contextPolicy.maxTokens / SKILL_CONTEXT_BUDGET_DIVISOR)
+                    .coerceIn(MIN_SKILL_PROMPT_TOKENS, MAX_SKILL_PROMPT_TOKENS)
+            val estimatedTokens = estimateLlmTokens(instructions)
+            if (estimatedTokens > budget) {
+                throw me.ash.reader.infrastructure.ai.AiException(
+                    me.ash.reader.infrastructure.ai.AiErrorCode.INVALID_REQUEST,
+                    "Skill ${skill.id} 内容过大：约 $estimatedTokens tokens，当前请求最多允许 $budget tokens",
+                )
+            }
+        }
 
         return LlmExecutionPlan(
             task = profile.task,
@@ -67,8 +80,14 @@ class LlmRuntime @Inject constructor(
             automaticToolCalling = capability.supportsToolCalling && tools.isNotEmpty(),
             context = context,
             skillId = skill?.id,
-            skillInstructions = skill?.instructionBundle()?.takeIf(String::isNotBlank),
+            skillInstructions = skillInstructions,
             customInstructions = profile.customInstructions?.trim()?.takeIf(String::isNotBlank),
         )
+    }
+
+    private companion object {
+        const val SKILL_CONTEXT_BUDGET_DIVISOR = 4
+        const val MIN_SKILL_PROMPT_TOKENS = 1_024
+        const val MAX_SKILL_PROMPT_TOKENS = 16_000
     }
 }

@@ -56,6 +56,7 @@ internal fun EditionAiSettingsPage(onBack: () -> Unit) {
     }
     AiSettingsPage(
         onBack = onBack,
+        showProviderCapabilityOverrides = true,
         additionalSettingsContent = {
             LlmAdvancedSettingsSection(
                 onOpenCustomInstructions = { currentSubPage = AiSettingsSubPage.CUSTOM_INSTRUCTIONS },
