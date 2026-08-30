@@ -49,6 +49,12 @@ data class AiProviderProfile(
     val streamingCapabilityOverride: AiCapabilityOverrideMode = AiCapabilityOverrideMode.AUTO,
     val toolCallingCapabilityOverride: AiCapabilityOverrideMode = AiCapabilityOverrideMode.AUTO,
     val reasoningCapabilityOverride: AiCapabilityOverrideMode = AiCapabilityOverrideMode.AUTO,
+    /** 输出 token 限制字段；AUTO 仅对官方 OpenAI 推理模型自动采用 max_completion_tokens。 */
+    val outputTokenLimitStyle: AiOutputTokenLimitStyle = AiOutputTokenLimitStyle.AUTO,
+    /** 总 Prompt 上限；Provider 未特别配置时沿用兼容的 128k 默认。 */
+    val contextWindowTokens: Int = 128_000,
+    /** 流式响应是否必须带明确完成标记；默认严格。 */
+    val strictStreamTermination: Boolean = true,
 )
 
 /** 自定义 OpenAI-compatible 服务识别不准时，允许用户按 Provider 覆盖 Runtime 能力。 */
@@ -94,6 +100,45 @@ data class AiRuntimeConfig(
     val model: String,
     val apiKey: String,
 )
+
+/** OpenAI-compatible 请求的输出 token 限制字段策略；AUTO 会结合官方 Endpoint 与模型解析。 */
+enum class AiOutputTokenLimitStyle(val requestField: String?) {
+    AUTO(null),
+    MAX_TOKENS("max_tokens"),
+    MAX_COMPLETION_TOKENS("max_completion_tokens"),
+}
+
+/** 解析持久化枚举；旧设置缺字段或包含未知值时安全回退 AUTO。 */
+internal fun parseAiOutputTokenLimitStyle(value: String?): AiOutputTokenLimitStyle =
+    runCatching { AiOutputTokenLimitStyle.valueOf(value.orEmpty()) }
+        .getOrDefault(AiOutputTokenLimitStyle.AUTO)
+
+/**
+ * 解析 Provider/Model 最终输出 token 字段。
+ * 只有官方 api.openai.com 的 o1/o3/o4/gpt-5 系列自动使用 max_completion_tokens，
+ * 自建兼容网关即使复用同名模型也保持兼容面更广的 max_tokens；用户手动选择时直接覆盖自动判断。
+ */
+fun resolveAiOutputTokenLimitStyle(
+    endpoint: String,
+    model: String,
+    configuredStyle: AiOutputTokenLimitStyle = AiOutputTokenLimitStyle.AUTO,
+): AiOutputTokenLimitStyle {
+    if (configuredStyle != AiOutputTokenLimitStyle.AUTO) return configuredStyle
+    val officialOpenAi =
+        runCatching { java.net.URI(endpoint.trim()).host.orEmpty().equals("api.openai.com", ignoreCase = true) }
+            .getOrDefault(false)
+    val normalizedModel = model.trim().lowercase()
+    val reasoningModel =
+        normalizedModel.startsWith("o1") ||
+            normalizedModel.startsWith("o3") ||
+            normalizedModel.startsWith("o4") ||
+            normalizedModel.startsWith("gpt-5")
+    return if (officialOpenAi && reasoningModel) {
+        AiOutputTokenLimitStyle.MAX_COMPLETION_TOKENS
+    } else {
+        AiOutputTokenLimitStyle.MAX_TOKENS
+    }
+}
 
 /** 非流式请求下可观测的摘要生成阶段，用于向用户反馈服务仍在工作。 */
 enum class AiSummaryProgressStage {

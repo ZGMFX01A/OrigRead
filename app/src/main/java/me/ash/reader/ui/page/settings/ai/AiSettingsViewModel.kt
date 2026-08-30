@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import me.ash.reader.infrastructure.ai.AiProviderProfile
+import me.ash.reader.infrastructure.ai.AiOutputTokenLimitStyle
 import me.ash.reader.infrastructure.ai.AiCapabilityOverrideMode
 import me.ash.reader.infrastructure.ai.AiSettings
 import me.ash.reader.infrastructure.ai.AiSettingsRepository
@@ -131,6 +132,19 @@ class AiSettingsViewModel @Inject constructor(
 
     fun setReasoningCapability(value: AiCapabilityOverrideMode) {
         repository.setProviderReasoningCapability(_uiState.value.selectedProviderId, value)
+    }
+
+    /** 设置 Chat/Summary 共用的输出 token 字段策略。 */
+    fun setOutputTokenLimitStyle(value: AiOutputTokenLimitStyle) {
+        repository.setProviderOutputTokenLimitStyle(_uiState.value.selectedProviderId, value)
+    }
+
+    fun setContextWindowTokens(value: String) {
+        value.toIntOrNull()?.let { repository.setProviderContextWindowTokens(_uiState.value.selectedProviderId, it) }
+    }
+
+    fun setStrictStreamTermination(value: Boolean) {
+        repository.setProviderStrictStreamTermination(_uiState.value.selectedProviderId, value)
     }
 
     fun setProviderName(value: String) {

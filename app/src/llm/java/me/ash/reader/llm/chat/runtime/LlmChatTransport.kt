@@ -25,7 +25,6 @@ import me.ash.reader.llm.runtime.LlmExecutionPlan
 import me.ash.reader.llm.runtime.LlmExecutionTask
 import me.ash.reader.llm.runtime.ModelCapability
 import me.ash.reader.llm.runtime.ReasoningParameterStyle
-import me.ash.reader.llm.runtime.estimateLlmTokens
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
@@ -58,6 +57,7 @@ data class LlmChatDelta(
 class LlmChatTransport @Inject constructor(
     private val httpClient: AiHttpClient,
 ) {
+    private val promptBudgetPlanner = LlmPromptBudgetPlanner()
     /**
      * 使用 Chat Completions SSE 流式接口。
      *
@@ -98,6 +98,7 @@ class LlmChatTransport @Inject constructor(
                                 val fallbackBody = StringBuilder()
                                 var sawReasoning = false
                                 var sawContent = false
+                                var sawToolCalls = false
 
                                 while (!call.isCanceled()) {
                                     val line = source.readUtf8Line() ?: break
@@ -124,6 +125,7 @@ class LlmChatTransport @Inject constructor(
                                                 sawContent = true
                                                 AiPerfTracer.mark(activePerfTrace, "first_content_delta")
                                             }
+                                            if (delta.toolCalls.isNotEmpty()) sawToolCalls = true
                                             if (
                                                 delta.content.isNotEmpty() ||
                                                     delta.reasoning.isNotEmpty() ||
@@ -141,7 +143,16 @@ class LlmChatTransport @Inject constructor(
                                     }
                                 }
 
-                                if (!call.isCanceled() && sawSseData && !sawTerminalEvent) {
+                                if (
+                                    !call.isCanceled() &&
+                                        sawSseData &&
+                                        !sawTerminalEvent &&
+                                        (
+                                            plan.capability.strictStreamTermination ||
+                                                !sawContent ||
+                                                sawToolCalls
+                                        )
+                                ) {
                                     throw AiException(
                                         AiErrorCode.INVALID_RESPONSE,
                                         "AI 流式响应提前结束，未收到完成标记",
@@ -194,26 +205,7 @@ class LlmChatTransport @Inject constructor(
         plan: LlmExecutionPlan,
         history: List<LlmChatRequestMessage>,
     ): Int {
-        var tokens = 0
-        buildLlmChatSystemPrompt(plan)?.let { systemPrompt ->
-            tokens += estimateLlmTokens(systemPrompt) + MESSAGE_OVERHEAD_TOKENS
-        }
-        history.forEach { message ->
-            tokens += estimateLlmTokens(renderLlmChatMessageContent(plan, message)) + MESSAGE_OVERHEAD_TOKENS
-            message.toolCalls.forEach { call ->
-                tokens += estimateLlmTokens(call.name) + estimateLlmTokens(call.argumentsJson)
-            }
-            message.toolCallId?.let { tokens += estimateLlmTokens(it) }
-        }
-        if (plan.automaticToolCalling) {
-            plan.tools.forEach { tool ->
-                tokens +=
-                    estimateLlmTokens(tool.name) +
-                        estimateLlmTokens(tool.description) +
-                        estimateLlmTokens(tool.inputSchemaJson)
-            }
-        }
-        return tokens.coerceAtLeast(1)
+        return promptBudgetPlanner.validate(plan, history).promptTokens.coerceAtLeast(1)
     }
 
     private fun buildRequest(
@@ -221,6 +213,7 @@ class LlmChatTransport @Inject constructor(
         history: List<LlmChatRequestMessage>,
         perfTrace: AiPerfTrace,
     ): Request {
+        val promptBudget = promptBudgetPlanner.validate(plan, history)
         val messages = JSONArray()
         // P3 的普通 Chat 不需要强制 system 消息；部分推理模型对 system role 有额外限制。
         // 只有后续从 OrigRead 注入文章/工具等应用上下文时，才增加边界清晰的 system context。
@@ -283,6 +276,13 @@ class LlmChatTransport @Inject constructor(
                 // P2 capability 明确声明不支持流式时必须发送 false；部分兼容服务会直接拒绝 stream=true。
                 .put("stream", plan.capability.supportsStreaming)
                 .put("messages", messages)
+                // 预算门计算出的输出预留必须真正落实到请求体，避免只校验上下文却允许无限输出。
+                .put(
+                    requireNotNull(plan.capability.outputTokenLimitStyle.requestField) {
+                        "发送 Chat 请求前必须先解析 AUTO 输出 token 字段"
+                    },
+                    promptBudget.outputReserveTokens,
+                )
 
         // 一些推理模型/兼容服务不接受 temperature。能力层确认是普通 Chat 模型时才发送。
         if (!plan.capability.isReasoningModel()) {
@@ -325,7 +325,9 @@ class LlmChatTransport @Inject constructor(
             perfTrace,
             "request_json_built",
             "requestChars" to bodyJson.length,
-            "estimatedPromptTokens" to estimateRequestTokens(plan, history),
+            "estimatedPromptTokens" to promptBudget.promptTokens,
+            "outputReserveTokens" to promptBudget.outputReserveTokens,
+            "contextWindowTokens" to plan.capability.contextWindowTokens,
             "stream" to plan.capability.supportsStreaming,
         )
         val requestBuilder =
@@ -727,5 +729,4 @@ private fun extractErrorDetail(body: String): String {
         .take(240)
 }
 
-private const val MESSAGE_OVERHEAD_TOKENS = 4
 private const val MAX_FINISH_REASON_LENGTH = 64

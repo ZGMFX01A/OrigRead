@@ -117,6 +117,7 @@ class AiSettingsRepository @Inject constructor(
                 streamingCapabilityOverride = AiCapabilityOverrideMode.AUTO,
                 toolCallingCapabilityOverride = AiCapabilityOverrideMode.AUTO,
                 reasoningCapabilityOverride = AiCapabilityOverrideMode.AUTO,
+                outputTokenLimitStyle = AiOutputTokenLimitStyle.AUTO,
             )
         }
 
@@ -148,6 +149,16 @@ class AiSettingsRepository @Inject constructor(
 
     fun setProviderReasoningCapability(providerId: String, value: AiCapabilityOverrideMode) =
         updateProvider(providerId) { it.copy(reasoningCapabilityOverride = value) }
+
+    /** 持久化 Provider 输出 token 字段策略，供 Chat 与 Summary 共用。 */
+    fun setProviderOutputTokenLimitStyle(providerId: String, value: AiOutputTokenLimitStyle) =
+        updateProvider(providerId) { it.copy(outputTokenLimitStyle = value) }
+
+    fun setProviderContextWindowTokens(providerId: String, value: Int) =
+        updateProvider(providerId) { it.copy(contextWindowTokens = normalizeContextWindowTokens(value)) }
+
+    fun setProviderStrictStreamTermination(providerId: String, value: Boolean) =
+        updateProvider(providerId) { it.copy(strictStreamTermination = value) }
 
     fun setApiKey(providerId: String, value: String) {
         secretStore.put(secretKey(providerId), value.trim())
@@ -274,6 +285,7 @@ class AiSettingsRepository @Inject constructor(
                                 .filter(String::isNotBlank)
                                 .distinct()
                                 .sorted(),
+                        contextWindowTokens = normalizeContextWindowTokens(profile.contextWindowTokens),
                     )
                 }
                 // 只用于迁移本机历史异常数据；外部备份在 restoreBackup 入口会明确拒绝重复 ID。
@@ -308,6 +320,9 @@ class AiSettingsRepository @Inject constructor(
                             .put("streamingCapabilityOverride", profile.streamingCapabilityOverride.name)
                             .put("toolCallingCapabilityOverride", profile.toolCallingCapabilityOverride.name)
                             .put("reasoningCapabilityOverride", profile.reasoningCapabilityOverride.name)
+                            .put("outputTokenLimitStyle", profile.outputTokenLimitStyle.name)
+                            .put("contextWindowTokens", profile.contextWindowTokens)
+                            .put("strictStreamTermination", profile.strictStreamTermination)
                     )
                 }
             }
@@ -385,6 +400,12 @@ class AiSettingsRepository @Inject constructor(
                                         json.optCapabilityOverride("toolCallingCapabilityOverride"),
                                     reasoningCapabilityOverride =
                                         json.optCapabilityOverride("reasoningCapabilityOverride"),
+                                    outputTokenLimitStyle = json.optOutputTokenLimitStyle("outputTokenLimitStyle"),
+                                    contextWindowTokens =
+                                        normalizeContextWindowTokens(
+                                            json.optInt("contextWindowTokens", DEFAULT_PROVIDER_CONTEXT_WINDOW_TOKENS)
+                                        ),
+                                    strictStreamTermination = json.optBoolean("strictStreamTermination", true),
                                 )
                             )
                         }
@@ -425,6 +446,10 @@ class AiSettingsRepository @Inject constructor(
         runCatching { AiCapabilityOverrideMode.valueOf(optString(key)) }
             .getOrDefault(AiCapabilityOverrideMode.AUTO)
 
+    /** 旧设置没有该字段时保持 AUTO，由真实 Endpoint/Model resolver 决定请求字段。 */
+    private fun JSONObject.optOutputTokenLimitStyle(key: String): AiOutputTokenLimitStyle =
+        parseAiOutputTokenLimitStyle(optString(key).takeIf(String::isNotBlank))
+
     private fun normalizeEndpoint(value: String): String {
         val trimmed = value.trim().trimEnd('/')
         if (trimmed.isBlank()) return ""
@@ -434,6 +459,10 @@ class AiSettingsRepository @Inject constructor(
             "https://$trimmed"
         }
     }
+
+    /** 只夹取异常值，不吸附模型档位；Provider 可按官方文档填写真实窗口。 */
+    private fun normalizeContextWindowTokens(value: Int): Int =
+        value.coerceIn(MIN_PROVIDER_CONTEXT_WINDOW_TOKENS, MAX_PROVIDER_CONTEXT_WINDOW_TOKENS)
 
     private fun secretKey(providerId: String): String = "$SECRET_API_KEY_PREFIX$providerId"
 
@@ -459,6 +488,10 @@ class AiSettingsRepository @Inject constructor(
         private const val LEGACY_SECRET_API_KEY = "ai_openai_compatible_api_key"
         private const val SECRET_API_KEY_PREFIX = "ai_provider_api_key_"
         private const val MAX_PROVIDER_NAME_LENGTH = 40
+        const val DEFAULT_PROVIDER_CONTEXT_WINDOW_TOKENS = 128_000
+        /** 允许常见 4K 模型，避免配置/恢复时静默抬高为 8K。 */
+        const val MIN_PROVIDER_CONTEXT_WINDOW_TOKENS = 4_096
+        const val MAX_PROVIDER_CONTEXT_WINDOW_TOKENS = 4_000_000
     }
 }
 

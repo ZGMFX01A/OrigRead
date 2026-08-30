@@ -1,5 +1,6 @@
 package me.ash.reader.infrastructure.editionsync
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -15,6 +16,7 @@ import me.ash.reader.infrastructure.preference.SyncOnlyOnWiFiPreference
 import me.ash.reader.infrastructure.preference.SyncOnlyWhenChargingPreference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.eq
@@ -133,6 +135,66 @@ class EditionSyncServiceRollbackTest {
             verify(readingSnapshotService).replaceCurrentAccount(rollbackReading)
             verify(accountResolver).restoreOriginalAccount(resolution)
             verify(accountResolver).switchTo(1)
+        }
+    }
+
+    @Test
+    fun `cancelled restore still completes rollback before rethrowing cancellation`() {
+        runBlocking {
+            val configurationBackupService = mock<ConfigurationBackupService>()
+            val readingSnapshotService = mock<EditionSyncReadingSnapshotService>()
+            val accountResolver = mock<EditionSyncAccountResolver>()
+            val service = EditionSyncService(configurationBackupService, readingSnapshotService, accountResolver)
+            val sourceReading = readingSnapshot(accountName = "Source")
+            val rollbackReading = readingSnapshot(accountName = "Target before sync")
+            val targetAccount = Account(id = 1, name = "Target", type = AccountType.Local)
+            val resolution =
+                EditionSyncAccountResolution(
+                    account = targetAccount.copy(name = "Source"),
+                    previousAccountId = 1,
+                    originalAccount = targetAccount,
+                    created = false,
+                )
+            val sourcePassword = "source-password"
+            val sourceConfig = "source-config"
+            val rollbackConfig = "rollback-config"
+            val cancellation = CancellationException("user cancelled restore")
+            var rollbackCompleted = false
+
+            whenever(configurationBackupService.inspectBackup(sourceConfig)).thenReturn(mock())
+            whenever(configurationBackupService.exportBackup(eq(true), any())).thenReturn(rollbackConfig)
+            whenever(readingSnapshotService.exportCurrentAccount()).thenReturn(rollbackReading)
+            whenever(accountResolver.resolveOrCreate(sourceReading.sourceAccount)).thenReturn(resolution)
+            whenever(configurationBackupService.restoreBackup(sourceConfig, sourcePassword)).thenReturn(mock())
+            whenever(readingSnapshotService.restoreCurrentAccount(sourceReading)).thenThrow(cancellation)
+            whenever(configurationBackupService.restoreBackup(eq(rollbackConfig), any())).thenReturn(mock())
+            whenever(readingSnapshotService.replaceCurrentAccount(rollbackReading)).thenAnswer {
+                rollbackCompleted = true
+                EditionSyncReadingRestoreResult(1, 1, 0, 0, 0)
+            }
+
+            val bundle =
+                EditionSyncBundle(
+                    sourceEdition = EditionSyncEdition.fromBuildConfig(BuildConfig.EDITION).opposite().buildConfigValue,
+                    sourcePackageName = EditionSyncContract.peerPackageName(),
+                    sourceVersion = "test",
+                    createdAtEpochMillis = 1L,
+                    configurationBackupJson = sourceConfig,
+                    configurationBackupPassword = sourcePassword,
+                    reading = sourceReading,
+                )
+
+            var thrown: Throwable? = null
+            try {
+                service.restoreBundle(Json { encodeDefaults = true }.encodeToString(bundle))
+            } catch (error: Throwable) {
+                thrown = error
+            }
+
+            assertEquals(cancellation, thrown)
+            assertTrue("取消后仍必须完整执行 rollback", rollbackCompleted)
+            verify(configurationBackupService).restoreBackup(eq(rollbackConfig), any())
+            verify(readingSnapshotService).replaceCurrentAccount(rollbackReading)
         }
     }
 

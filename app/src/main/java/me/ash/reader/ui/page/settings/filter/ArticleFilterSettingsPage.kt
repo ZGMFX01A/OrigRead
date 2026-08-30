@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.FilterAlt
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -56,6 +58,7 @@ fun ArticleFilterSettingsPage(
     val context = LocalContext.current
     val uiState = viewModel.uiState.collectAsStateValue()
     var showAddDialog by remember { mutableStateOf(false) }
+    var showFilteredArticles by remember { mutableStateOf(false) }
     var pattern by remember { mutableStateOf("") }
     var type by remember { mutableStateOf(ArticleFilterRuleType.KEYWORD) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -100,6 +103,15 @@ fun ArticleFilterSettingsPage(
                         icon = Icons.Outlined.FilterAlt,
                         enabled = false,
                         onClick = {},
+                    )
+                    SettingItem(
+                        title = stringResource(R.string.view_filtered_articles),
+                        desc = stringResource(R.string.view_filtered_articles_desc),
+                        icon = Icons.Outlined.History,
+                        onClick = {
+                            viewModel.loadFilteredArticles()
+                            showFilteredArticles = true
+                        },
                     )
                     SettingItem(
                         title = stringResource(R.string.add_filter_rule),
@@ -204,6 +216,45 @@ fun ArticleFilterSettingsPage(
             },
             dismissButton = {
                 TextButton(onClick = { showAddDialog = false }) { Text(stringResource(R.string.cancel)) }
+            },
+        )
+    }
+
+    if (showFilteredArticles) {
+        AlertDialog(
+            onDismissRequest = { showFilteredArticles = false },
+            title = { Text(stringResource(R.string.filtered_articles_title)) },
+            text = {
+                when {
+                    uiState.filteredArticlesLoading -> Text(stringResource(R.string.loading))
+                    uiState.filteredArticles.isEmpty() -> Text(stringResource(R.string.no_filtered_articles))
+                    else -> {
+                        LazyColumn(modifier = Modifier.heightIn(max = 420.dp)) {
+                            items(
+                                items = uiState.filteredArticles,
+                                key = { "${it.feedId}:${it.articleId}" },
+                            ) { record ->
+                                Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                                    Text(
+                                        text = record.title,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                    )
+                                    Text(
+                                        text = record.sourceName,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(top = 4.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showFilteredArticles = false }) {
+                    Text(stringResource(R.string.confirm))
+                }
             },
         )
     }

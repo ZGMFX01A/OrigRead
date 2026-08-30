@@ -1,845 +1,1545 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="origread">OrigRead</string>
+  <string name="origread">OrigRead</string>
     <string name="article_filter_settings">Article filters</string>
-    <string name="article_filter_settings_desc">Filter articles by title keywords or regex</string>
-    <string name="add_filter_keyword">Add keyword</string>
-    <string name="add_filter_keyword_desc">Applies to all sources, hides existing matches immediately, and filters new articles before saving</string>
-    <string name="filter_keyword">Keyword</string>
+    <string
+    name="article_filter_settings_desc">Filter articles by title keywords or regex</string>
+    <string
+    name="add_filter_keyword">Add keyword</string>
+    <string name="add_filter_keyword_desc">Applies to
+  all sources, hides existing matches immediately, and filters new articles before saving</string>
+    <string
+    name="filter_keyword">Keyword</string>
     <string name="no_filter_rules">No filter rules</string>
-    <string name="no_filter_rules_desc">Add a keyword to hide matching article titles</string>
-    <string name="global_filter_rule">Global rule</string>
+    <string
+    name="no_filter_rules_desc">Add a keyword to hide matching article titles</string>
+    <string
+    name="global_filter_rule">Global rule</string>
     <string name="source_filter_rule">Source rule</string>
-    <string name="read_original">Read original</string>
+    <string
+    name="read_original">Read original</string>
     <string name="original_title">Original title</string>
-    <string name="full_content_failed">Full content extraction failed</string>
-    <string name="full_content_failure_no_content">No readable article body was found on this page.</string>
-    <string name="full_content_failure_dynamic">This page loads its content dynamically and cannot be parsed from static HTML.</string>
-    <string name="full_content_failure_access_restricted">The website blocked access or requires verification or sign-in.</string>
-    <string name="verify_and_parse">Verify and parse</string>
+    <string
+    name="full_content_failed">Full content extraction failed</string>
+    <string
+    name="full_content_failure_no_content">No readable article body was found on this page.</string>
+    <string
+    name="full_content_failure_dynamic">This page loads its content dynamically and cannot be parsed
+  from static HTML.</string>
+    <string name="full_content_failure_access_restricted">The website
+  blocked access or requires verification or sign-in.</string>
+    <string name="verify_and_parse">Verify
+  and parse</string>
     <string name="web_verification">Web verification</string>
-    <string name="parse_current_page">Parse page</string>
-    <string name="wechat_verification_hint">WeChat requires a security check. After verification, the article will be parsed automatically.</string>
-    <string name="wechat_article_parsing">Returned to the WeChat article. Detecting article content…</string>
-    <string name="full_content_failure_page_unavailable">The article page is unavailable or returned an error.</string>
-    <string name="full_content_failure_invalid_url">The article link is invalid or unsupported.</string>
-    <string name="full_content_failure_network">The article could not be loaded because of a network error.</string>
-    <string name="full_content_failure_unknown">The article could not be parsed for an unknown reason.</string>
+    <string
+    name="parse_current_page">Parse page</string>
+    <string name="wechat_verification_hint">WeChat
+  requires a security check. After verification, the article will be parsed automatically.</string>
+    <string
+    name="wechat_article_parsing">Returned to the WeChat article. Detecting article content…</string>
+    <string
+    name="full_content_failure_page_unavailable">The article page is unavailable or returned an
+  error.</string>
+    <string name="full_content_failure_invalid_url">The article link is invalid or
+  unsupported.</string>
+    <string name="full_content_failure_network">The article could not be loaded
+  because of a network error.</string>
+    <string name="full_content_failure_unknown">The article could
+  not be parsed for an unknown reason.</string>
     <string name="add_filter_rule">Add filter rule</string>
-    <string name="filter_pattern">Keyword or regex</string>
+    <string
+    name="filter_pattern">Keyword or regex</string>
     <string name="filter_type_keyword">Keyword</string>
-    <string name="filter_type_regex">Regular expression</string>
-    <string name="import_filter_rules">Import filter rules</string>
+    <string
+    name="filter_type_regex">Regular expression</string>
+    <string name="import_filter_rules">Import
+  filter rules</string>
     <string name="export_filter_rules">Export filter rules</string>
-    <string name="filter_rules_imported">Imported %1$d filter rules</string>
-    <string name="filter_rule_error">Invalid filter rule</string>
+    <string
+    name="filter_rules_imported">Imported %1$d filter rules</string>
+    <string name="filter_rule_error">Invalid
+  filter rule</string>
     <string name="filter_stats_title">Filtering statistics</string>
-    <string name="filter_stats_desc">Filtered %1$d articles in total</string>
+    <string
+    name="filter_stats_desc">Filtered %1$d articles in total</string>
+    <string
+    name="view_filtered_articles">View filtered articles</string>
+    <string
+    name="view_filtered_articles_desc">Source and title only, up to 200 recent items</string>
+    <string
+    name="filtered_articles_title">Filtered articles</string>
+    <string name="no_filtered_articles">No
+  filtered articles yet</string>
     <string name="source_filter_current">Source filter rules (%1$d)</string>
-    <string name="source_filter_entry_desc">Manage keywords &amp; regex for this source</string>
-    <string name="source_filter_rules">Source filter rules</string>
+    <string
+    name="source_filter_entry_desc">Manage keywords &amp; regex for this source</string>
+    <string
+    name="source_filter_rules">Source filter rules</string>
     <string name="all">All</string>
-    <plurals name="all_desc">
-        <item quantity="one">%1$d archived item</item>
-        <item quantity="other">%1$d archived items</item>
-    </plurals>
+    <plurals
+    name="all_desc">
+    <item quantity="one">%1$d archived item</item>
+    <item quantity="other">%1$d archived items</item>
+  </plurals>
     <string name="unread">Unread</string>
-    <plurals name="unread_desc">
-        <item quantity="one">%1$d unread item</item>
-        <item quantity="other">%1$d unread items</item>
-    </plurals>
+    <plurals
+    name="unread_desc">
+    <item quantity="one">%1$d unread item</item>
+    <item quantity="other">%1$d unread items</item>
+  </plurals>
     <string name="starred">Starred</string>
-    <plurals name="starred_desc">
-        <item quantity="one">%1$d starred item</item>
-        <item quantity="other">%1$d starred items</item>
-    </plurals>
+    <plurals
+    name="starred_desc">
+    <item quantity="one">%1$d starred item</item>
+    <item quantity="other">%1$d starred items</item>
+  </plurals>
     <string name="feeds">Feeds</string>
-    <string name="syncing">Syncing…</string>
+    <string
+    name="syncing">Syncing…</string>
     <string name="loading">Loading…</string>
-    <string name="expand_less">Collapse</string>
+    <string
+    name="expand_less">Collapse</string>
     <string name="expand_more">Expand</string>
-    <string name="unfold_more">Expand all</string>
+    <string
+    name="unfold_more">Expand all</string>
     <string name="unfold_less">Collapse all</string>
-    <string name="confirm">Confirm</string>
+    <string
+    name="confirm">Confirm</string>
     <string name="cancel">Cancel</string>
     <string name="allow">Allow</string>
-    <string name="deny">Deny</string>
+    <string
+    name="deny">Deny</string>
     <string name="defaults">Default</string>
     <string name="unknown">Unknown</string>
-    <string name="empty">Empty</string>
+    <string
+    name="empty">Empty</string>
     <string name="back">Back</string>
     <string name="go_to">Go to</string>
-    <string name="settings">Settings</string>
+    <string
+    name="settings">Settings</string>
     <string name="refresh">Refresh</string>
-    <string name="search">Search</string>
+    <string name="search">
+  Search</string>
     <string name="searching">Searching…</string>
     <string name="subscribe">Subscribe</string>
-    <string name="already_subscribed">Already subscribed</string>
+    <string
+    name="already_subscribed">Already subscribed</string>
     <string name="clear">Clear</string>
-    <string name="paste">Paste</string>
+    <string
+    name="paste">Paste</string>
     <string name="feed_or_site_url">Feed or site URL</string>
-    <string name="import_from_opml">Import from OPML</string>
+    <string
+    name="import_from_opml">Import from OPML</string>
     <string name="preset">Preset</string>
-    <string name="selected">Selected</string>
+    <string
+    name="selected">Selected</string>
     <string name="allow_notification">Allow notifications</string>
-    <string name="all_allow_notification_tips">Allow all feeds in the \"%1$s\" group to send notifications</string>
-    <string name="all_allow_notification_toast">Allowed notifications for \"%1$s\"</string>
-    <string name="all_deny_notification_toast">Disabled notifications for \"%1$s\"</string>
-    <string name="parse_full_content">Parse full content</string>
-    <string name="source_reading_mode">Open articles</string>
+    <string
+    name="all_allow_notification_tips">Allow all feeds in the \"%1$s\" group to send notifications</string>
+    <string
+    name="all_allow_notification_toast">Allowed notifications for \"%1$s\"</string>
+    <string
+    name="all_deny_notification_toast">Disabled notifications for \"%1$s\"</string>
+    <string
+    name="parse_full_content">Parse full content</string>
+    <string name="source_reading_mode">Open
+  articles</string>
     <string name="read_inside_origread">Read in app (recommended)</string>
-    <string name="read_inside_origread_desc">Immersive layout, full-text search and AI summaries</string>
-    <string name="current">Current</string>
+    <string
+    name="read_inside_origread_desc">Immersive layout, full-text search and AI summaries</string>
+    <string
+    name="current">Current</string>
     <string name="rss_subscription_content">Use feed content</string>
-    <string name="rss_subscription_content_desc">Use RSS/Atom content without opening the article webpage.</string>
-    <string name="advanced_reading_options">Advanced reading options</string>
-    <string name="advanced_reading_options_desc">Only needed when a feed provides a short excerpt instead of the article body.</string>
-    <string name="fetch_original_full_content">Try to fetch the original webpage</string>
-    <string name="fetch_original_full_content_desc">Visits each article webpage and extracts its body. Sites that require sign-in, verification, or block automated access may fail.</string>
-    <string name="website_content_reading">Parse website articles in OrigRead</string>
-    <string name="website_content_reading_desc">Use the selected website parser for article lists and content.</string>
-    <string name="website_full_content_desc">When opening an article, also fetch its detail page to extract a more complete body. This may fail on protected websites.</string>
-    <string name="json_content_reading">Use JSON/API content</string>
-    <string name="json_content_reading_desc">Use the configured JSON/API rule without fetching the webpage again.</string>
+    <string
+    name="rss_subscription_content_desc">Use RSS/Atom content without opening the article webpage.</string>
+    <string
+    name="advanced_reading_options">Advanced reading options</string>
+    <string
+    name="advanced_reading_options_desc">Only needed when a feed provides a short excerpt instead of
+  the article body.</string>
+    <string name="fetch_original_full_content">Try to fetch the original
+  webpage</string>
+    <string name="fetch_original_full_content_desc">Visits each article webpage and
+  extracts its body. Sites that require sign-in, verification, or block automated access may fail.</string>
+    <string
+    name="website_content_reading">Parse website articles in OrigRead</string>
+    <string
+    name="website_content_reading_desc">Use the selected website parser for article lists and
+  content.</string>
+    <string name="website_full_content_desc">When opening an article, also fetch its
+  detail page to extract a more complete body. This may fail on protected websites.</string>
+    <string
+    name="json_content_reading">Use JSON/API content</string>
+    <string
+    name="json_content_reading_desc">Use the configured JSON/API rule without fetching the webpage
+  again.</string>
     <string name="open_original_in_browser">Open in browser</string>
-    <string name="open_original_in_browser_desc">Go directly to the external webpage</string>
-    <string name="website_parser_setting_desc">Choose how this website source discovers articles. Automatic selection is recommended.</string>
-    <string name="all_parse_full_content_tips">Full content parsing of all articles in the \"%1$s\" group</string>
-    <string name="all_parse_full_content_toast">Enabled full content for \"%1$s\"</string>
-    <string name="all_deny_parse_full_content_toast">Disabled full content for \"%1$s\"</string>
+    <string
+    name="open_original_in_browser_desc">Go directly to the external webpage</string>
+    <string
+    name="website_parser_setting_desc">Choose how this website source discovers articles. Automatic
+  selection is recommended.</string>
+    <string name="all_parse_full_content_tips">Full content parsing
+  of all articles in the \"%1$s\" group</string>
+    <string name="all_parse_full_content_toast">Enabled
+  full content for \"%1$s\"</string>
+    <string name="all_deny_parse_full_content_toast">Disabled full
+  content for \"%1$s\"</string>
     <string name="open_in_browser">Open in browser</string>
-    <string name="all_open_in_browser_tips">Open all articles in the \"%1$s\" group using the default browser</string>
+    <string
+    name="all_open_in_browser_tips">Open all articles in the \"%1$s\" group using the default
+  browser</string>
     <string name="all_open_in_browser_toast">Enabled browser open for \"%1$s\"</string>
-    <string name="all_deny_open_in_browser_toast">Disabled browser open for \"%1$s\"</string>
-    <string name="clear_articles">Clear articles</string>
-    <string name="clear_articles_in_feed_toast">Cleared all archived articles in the \"%1$s\" feed</string>
-    <string name="clear_articles_in_group_toast">Cleared all archived articles in the \"%1$s\" group</string>
-    <string name="clear_articles_feed_tips">Clear all archived articles in the \"%1$s\" feed</string>
-    <string name="clear_articles_group_tips">Clear all archived articles in \"%1$s\" group</string>
+    <string
+    name="all_deny_open_in_browser_toast">Disabled browser open for \"%1$s\"</string>
+    <string
+    name="clear_articles">Clear articles</string>
+    <string name="clear_articles_in_feed_toast">Cleared
+  all archived articles in the \"%1$s\" feed</string>
+    <string name="clear_articles_in_group_toast">Cleared
+  all archived articles in the \"%1$s\" group</string>
+    <string name="clear_articles_feed_tips">Clear
+  all archived articles in the \"%1$s\" feed</string>
+    <string name="clear_articles_group_tips">Clear
+  all archived articles in \"%1$s\" group</string>
     <string name="add_to_group">Add to group</string>
-    <string name="move_to_group">Move to group</string>
-    <string name="all_move_to_group_tips">Move all feeds in the \"%1$s\" group to the \"%2$s\" group</string>
-    <string name="all_move_to_group_toast">Moved feeds to \"%1$s\"</string>
+    <string
+    name="move_to_group">Move to group</string>
+    <string name="all_move_to_group_tips">Move all feeds
+  in the \"%1$s\" group to the \"%2$s\" group</string>
+    <string name="all_move_to_group_toast">Moved
+  feeds to \"%1$s\"</string>
     <string name="rename">Rename</string>
-    <string name="change_url">Change URL</string>
+    <string name="change_url">Change
+  URL</string>
     <string name="feed_url_placeholder" translatable="false">http://example.com/feed.rss</string>
-    <string name="rename_toast">Renamed to \"%1$s\"</string>
+    <string
+    name="rename_toast">Renamed to \"%1$s\"</string>
     <string name="create_new_group">Create new group</string>
-    <string name="name">Name</string>
+    <string
+    name="name">Name</string>
     <string name="open_with">Open %1$s</string>
-    <string name="options">Options</string>
+    <string name="options">
+  Options</string>
     <string name="delete">Delete</string>
     <string name="delete_toast">Deleted \"%1$s\"</string>
-    <string name="unsubscribe">Unsubscribe</string>
-    <string name="unsubscribe_tips">Unsubscribe from \"%1$s\" and delete all archived articles in it</string>
+    <string
+    name="unsubscribe">Unsubscribe</string>
+    <string name="unsubscribe_tips">Unsubscribe from \"%1$s\"
+  and delete all archived articles in it</string>
     <string name="delete_group">Delete group</string>
-    <string name="delete_group_tips">Delete the \"%1$s\" group and all of the feeds and archived articles it contains</string>
-    <string name="group_option_tips">The following options apply to all feeds in this group</string>
+    <string
+    name="delete_group_tips">Delete the \"%1$s\" group and all of the feeds and archived articles it
+  contains</string>
+    <string name="group_option_tips">The following options apply to all feeds in this
+  group</string>
     <string name="today">Today</string>
     <string name="yesterday">Yesterday</string>
-    <string name="date_at_time">%1$s at %2$s</string>
-    <string name="search_for_in">Search for %1$s items in \"%2$s\"</string>
+    <string
+    name="date_at_time">%1$s at %2$s</string>
+    <string name="search_for_in">Search for %1$s items in
+  \"%2$s\"</string>
     <string name="search_for">Search for %1$s items</string>
-    <string name="mark_as_read">Mark as read</string>
+    <string
+    name="mark_as_read">Mark as read</string>
     <string name="mark_all_as_read">Mark all as read</string>
-    <string name="mark_as_unread">Mark as unread</string>
+    <string
+    name="mark_as_unread">Mark as unread</string>
     <string name="mark_as_starred">Mark as starred</string>
-    <string name="mark_as_unstar">Unstar</string>
-    <string name="mark_as_read_one_day">Mark as read older than 1 day</string>
+    <string
+    name="mark_as_unstar">Unstar</string>
+    <string name="mark_as_read_one_day">Mark as read older than
+  1 day</string>
     <string name="mark_as_read_three_days">Mark as read older than 3 days</string>
-    <string name="mark_as_read_seven_days">Mark as read older than 7 days</string>
+    <string
+    name="mark_as_read_seven_days">Mark as read older than 7 days</string>
     <string name="one_day">1d</string>
-    <string name="three_days">3d</string>
+    <string
+    name="three_days">3d</string>
     <string name="seven_days">7d</string>
     <string name="close">Close</string>
-    <string name="get_new_updates">Get new updates</string>
-    <string name="get_new_updates_desc">New version %1$s is available</string>
+    <string
+    name="get_new_updates">Get new updates</string>
+    <string name="get_new_updates_desc">New version
+  %1$s is available</string>
     <string name="in_coding">In development</string>
-    <string name="coming_soon">Coming soon</string>
+    <string
+    name="coming_soon">Coming soon</string>
     <string name="accounts">Accounts</string>
-    <string name="accounts_desc">Local, services, self-hosted</string>
-    <string name="color_and_style">Color &amp; style</string>
+    <string
+    name="accounts_desc">Local, services, self-hosted</string>
+    <string name="color_and_style">Color
+  &amp; style</string>
     <string name="color_and_style_desc">Theme, color style, font size</string>
-    <string name="interaction">Interaction</string>
+    <string
+    name="interaction">Interaction</string>
     <string name="interaction_desc">Startup page, gestures</string>
-    <string name="languages">Languages</string>
+    <string
+    name="languages">Languages</string>
     <string name="help_translate">Help translate</string>
-    <string name="translatable_url" translatable="false">https://github.com/ZGMFX01A/OrigRead</string>
-    <string name="use_device_languages">Use device language</string>
-    <string name="english" translatable="false">English</string>
+    <string
+    name="translatable_url" translatable="false">https://github.com/ZGMFX01A/OrigRead</string>
+    <string
+    name="use_device_languages">Use device language</string>
+    <string name="english"
+    translatable="false">English</string>
     <string name="chinese_simplified" translatable="false">简体中文</string>
-    <string name="german" translatable="false">Deutsch</string>
-    <string name="french" translatable="false">Français</string>
+    <string
+    name="german" translatable="false">Deutsch</string>
+    <string name="french" translatable="false">
+  Français</string>
     <string name="czech" translatable="false">Čeština</string>
-    <string name="italian" translatable="false">Italiano</string>
+    <string name="italian"
+    translatable="false">Italiano</string>
     <string name="hindi" translatable="false">हिंदी</string>
-    <string name="spanish" translatable="false">Español</string>
-    <string name="polish" translatable="false">Polski</string>
+    <string
+    name="spanish" translatable="false">Español</string>
+    <string name="polish" translatable="false">
+  Polski</string>
     <string name="russian" translatable="false">Русский</string>
-    <string name="basque" translatable="false">Euskara</string>
-    <string name="indonesian" translatable="false">Bahasa Indonesia</string>
+    <string name="basque"
+    translatable="false">Euskara</string>
+    <string name="indonesian" translatable="false">Bahasa
+  Indonesia</string>
     <string name="chinese_traditional" translatable="false">繁體中文</string>
-    <string name="tips_and_support">Tips &amp; support</string>
-    <string name="tips_and_support_desc">GitHub repository and open source licenses</string>
+    <string
+    name="tips_and_support">Tips &amp; support</string>
+    <string name="tips_and_support_desc">GitHub
+  repository and open source licenses</string>
     <string name="user_guide_title">User guide</string>
-    <string name="user_guide_desc">Guide for sources, rules, AI generation &amp; troubleshooting</string>
-    <string name="welcome">Welcome</string>
-    <string name="tos_tips">Please read and agree to OrigRead\'s user agreement and privacy policy to continue.</string>
-    <string name="browse_tos_tips">View the <i><u>user agreement and privacy policy</u></i></string>
-    <string name="terms_of_service">User agreement and privacy policy</string>
-    <string name="tos_content"><h5>About OrigRead</h5><br/><p><b>OrigRead</b> is a personal information reader developed and maintained by ZGMFX01A. The project is based on the open-source Read You application and continues to comply with the GNU GPL v3 license.</p><br/><h5>Privacy</h5><br/><p>OrigRead does not operate an account server and does not actively collect, upload, sell, or share your personal data. Subscriptions, reading history, favorites, website parsing rules, AI configuration, and account credentials are stored locally on your device unless you explicitly use a third-party synchronization or AI service.</p><br/><h5>Network and third-party services</h5><br/><p>The app accesses websites, RSS services, GitHub, synchronization services, browsers, and AI providers only when required by the features you use. Those services are governed by their own terms and privacy policies. API keys and credentials are provided by you, and you are responsible for selecting trusted service providers.</p><br/><h5>Content and responsibility</h5><br/><p>OrigRead is a content aggregation and reading tool. Copyright and responsibility for third-party content belong to the corresponding websites and authors. You must comply with applicable laws, website terms, and service restrictions when subscribing to, parsing, storing, translating, or summarizing content.</p><br/><h5>Open-source attribution</h5><br/><p>This project is a derivative work based on Read You. We respect and thank the original Read You authors and contributors. Source code and issue tracking for OrigRead are available at [1]. The original Read You project is available at [2].</p><br/><h5>Links</h5><br/><p>[1] https://github.com/ZGMFX01A/OrigRead</p><p>[2] https://github.com/ReadYouApp/ReadYou</p><p>[3] https://www.gnu.org/licenses/gpl-3.0.html</p></string>
+    <string
+    name="user_guide_desc">Guide for sources, rules, AI generation &amp; troubleshooting</string>
+    <string
+    name="welcome">Welcome</string>
+    <string name="tos_tips">Please read and agree to OrigRead\'s user
+  agreement and privacy policy to continue.</string>
+    <string name="browse_tos_tips">View the <i>
+      <u>user agreement and privacy policy</u>
+    </i></string>
+    <string name="terms_of_service">User
+  agreement and privacy policy</string>
+    <string name="tos_content">
+    <h5>About OrigRead</h5>
+    <br />
+    <p><b>OrigRead</b> is a personal information reader developed and maintained by ZGMFX01A. The
+  project is based on the open-source Read You application and continues to comply with the GNU GPL
+  v3 license.</p>
+    <br />
+    <h5>Privacy</h5>
+    <br />
+    <p>OrigRead does not operate an account server and does not actively collect, upload, sell, or
+  share your personal data. Subscriptions, reading history, favorites, website parsing rules, AI
+  configuration, and account credentials are stored locally on your device unless you explicitly use
+  a third-party synchronization or AI service.</p>
+    <br />
+    <h5>Network and third-party services</h5>
+    <br />
+    <p>The app accesses websites, RSS services, GitHub, synchronization services, browsers, and AI
+  providers only when required by the features you use. Those services are governed by their own
+  terms and privacy policies. API keys and credentials are provided by you, and you are responsible
+  for selecting trusted service providers.</p>
+    <br />
+    <h5>Content and responsibility</h5>
+    <br />
+    <p>OrigRead is a content aggregation and reading tool. Copyright and responsibility for
+  third-party content belong to the corresponding websites and authors. You must comply with
+  applicable laws, website terms, and service restrictions when subscribing to, parsing, storing,
+  translating, or summarizing content.</p>
+    <br />
+    <h5>Open-source attribution</h5>
+    <br />
+    <p>This project is a derivative work based on Read You. We respect and thank the original Read
+  You authors and contributors. Source code and issue tracking for OrigRead are available at [1].
+  The original Read You project is available at [2].</p>
+    <br />
+    <h5>Links</h5>
+    <br />
+    <p>[1] https://github.com/ZGMFX01A/OrigRead</p>
+    <p>[2] https://github.com/ReadYouApp/ReadYou</p>
+    <p>[3] https://www.gnu.org/licenses/gpl-3.0.html</p>
+  </string>
     <string name="agree">Agree</string>
-    <string name="wallpaper_colors">Wallpaper colors</string>
+    <string
+    name="wallpaper_colors">Wallpaper colors</string>
     <string name="no_palettes">No palettes</string>
-    <string name="only_android_8.1_plus">Only Android 8.1+</string>
+    <string
+    name="only_android_8.1_plus">Only Android 8.1+</string>
     <string name="basic_colors">Basic colors</string>
-    <string name="primary_color">Primary color</string>
-    <string name="primary_color_hint">Like #666666 or 666666</string>
+    <string
+    name="primary_color">Primary color</string>
+    <string name="primary_color_hint">Like #666666 or
+  666666</string>
     <string name="appearance">Appearance</string>
     <string name="style">Style</string>
-    <string name="dark_theme">Dark theme</string>
+    <string
+    name="dark_theme">Dark theme</string>
     <string name="use_device_theme">Use device theme</string>
-    <string name="on">On</string>
+    <string
+    name="on">On</string>
     <string name="off">Off</string>
     <string name="other">Other</string>
-    <string name="amoled_dark_theme">AMOLED black theme</string>
-    <string name="tonal_elevation">Tonal elevation</string>
+    <string
+    name="amoled_dark_theme">AMOLED black theme</string>
+    <string name="tonal_elevation">Tonal
+  elevation</string>
     <string name="reading_fonts">Reading font</string>
-    <string name="basic_fonts">System font</string>
+    <string name="basic_fonts">System
+  font</string>
     <string name="google_sans" translatable="false">Google Sans Flex</string>
-    <string name="feeds_page">Feeds page</string>
+    <string
+    name="feeds_page">Feeds page</string>
     <string name="flow_page">Flow page</string>
-    <string name="reading_page">Reading page</string>
+    <string
+    name="reading_page">Reading page</string>
     <string name="sponsor">Sponsor</string>
-    <string name="open_source_licenses">Open source licenses</string>
-    <string name="github_link" translatable="false">https://github.com/ZGMFX01A/OrigRead</string>
-    <string name="desktop_github_link" translatable="false">https://github.com/ZGMFX01A/OrigRead-Desktop</string>
-    <string name="origread_multiplatform_title">OrigRead on multiple platforms</string>
-    <string name="origread_multiplatform_desc">OrigRead provides independent Android and Desktop clients with the same source-first reading direction.</string>
-    <string name="origread_android_project">Android</string>
+    <string
+    name="open_source_licenses">Open source licenses</string>
+    <string name="github_link"
+    translatable="false">https://github.com/ZGMFX01A/OrigRead</string>
+    <string
+    name="desktop_github_link" translatable="false">https://github.com/ZGMFX01A/OrigRead-Desktop</string>
+    <string
+    name="origread_multiplatform_title">OrigRead on multiple platforms</string>
+    <string
+    name="origread_multiplatform_desc">OrigRead provides independent Android and Desktop clients
+  with the same source-first reading direction.</string>
+    <string name="origread_android_project">
+  Android</string>
     <string name="origread_desktop_project">Desktop</string>
-    <string name="origread_tagline">A source-first reader</string>
-    <string name="origread_github_repository">GitHub repository</string>
+    <string
+    name="origread_tagline">A source-first reader</string>
+    <string name="origread_github_repository">GitHub
+  repository</string>
     <string name="origread_open_source_footer">Designed for focus · Open source</string>
-    <string name="update_link" translatable="false">https://api.github.com/repos/ZGMFX01A/OrigRead/releases/latest</string>
-    <string name="change_log">Changelog</string>
+    <string
+    name="update_link" translatable="false">
+  https://api.github.com/repos/ZGMFX01A/OrigRead/releases/latest</string>
+    <string name="change_log">
+  Changelog</string>
     <string name="update">Update</string>
-    <string name="software_update">Software update</string>
+    <string name="software_update">Software
+  update</string>
     <string name="software_update_desc">Configure GitHub Release update checks</string>
-    <string name="auto_check_updates">Check for updates on startup</string>
-    <string name="auto_check_updates_desc">Silently check GitHub Releases on startup</string>
-    <string name="check_updates_now">Check for updates now</string>
-    <string name="current_version_value">Current version: %1$s</string>
+    <string
+    name="auto_check_updates">Check for updates on startup</string>
+    <string
+    name="auto_check_updates_desc">Silently check GitHub Releases on startup</string>
+    <string
+    name="check_updates_now">Check for updates now</string>
+    <string name="current_version_value">Current
+  version: %1$s</string>
     <string name="skip_this_version">Skip this version</string>
-    <string name="checking_updates">Checking for updates…</string>
-    <string name="is_latest_version">This is the latest version of the app</string>
+    <string
+    name="checking_updates">Checking for updates…</string>
+    <string name="is_latest_version">This is
+  the latest version of the app</string>
     <string name="check_failure">Failed to check for updates</string>
-    <string name="download_failure">Could not download updates</string>
+    <string
+    name="download_failure">Could not download updates</string>
     <string name="install_update">Install</string>
-    <string name="retry_update">Retry</string>
+    <string
+    name="retry_update">Retry</string>
     <string name="download_release_apk">Download APK</string>
-    <string name="open_release_page">Open GitHub Release</string>
-    <string name="ai_generate_website_rule">Generate website rule with AI</string>
+    <string
+    name="open_release_page">Open GitHub Release</string>
+    <string name="ai_generate_website_rule">Generate
+  website rule with AI</string>
     <string name="ai_generate_json_rule">Generate JSON rule with AI</string>
-    <string name="ai_generate_rule_desc">Choose an AI service and model, generate a rule, then verify it locally before saving</string>
-    <string name="ai_rule_generation_unavailable_desc">Under development; unavailable in this build</string>
-    <string name="ai_rule_generation_unavailable_message">AI rule generation is not finished yet. Please use rule templates, import, and testing for now.</string>
+    <string
+    name="ai_generate_rule_desc">Choose an AI service and model, generate a rule, then verify it
+  locally before saving</string>
+    <string name="ai_rule_generation_unavailable_desc">Under
+  development; unavailable in this build</string>
+    <string
+    name="ai_rule_generation_unavailable_message">AI rule generation is not finished yet. Please use
+  rule templates, import, and testing for now.</string>
     <string name="ai_rule_target_url">Target URL</string>
-    <string name="ai_rule_dialog_subtitle">Choose an AI service and model; the generated rule is verified locally</string>
+    <string
+    name="ai_rule_dialog_subtitle">Choose an AI service and model; the generated rule is verified
+  locally</string>
     <string name="ai_rule_step_target">Target</string>
-    <string name="ai_rule_step_service">AI service</string>
+    <string
+    name="ai_rule_step_service">AI service</string>
     <string name="ai_rule_step_generate">Generate</string>
-    <string name="ai_rule_target_url_hint">Use the page or API endpoint that contains the list you want to subscribe to</string>
+    <string
+    name="ai_rule_target_url_hint">Use the page or API endpoint that contains the list you want to
+  subscribe to</string>
     <string name="ai_rule_invalid_url">Enter a valid http:// or https:// address</string>
-    <string name="ai_rule_provider">AI service</string>
-    <string name="ai_rule_no_provider">No AI service configured</string>
+    <string
+    name="ai_rule_provider">AI service</string>
+    <string name="ai_rule_no_provider">No AI service
+  configured</string>
     <string name="ai_rule_default_badge">default</string>
-    <string name="ai_rule_model">Model</string>
-    <string name="ai_rule_model_manual_hint">Enter model ID or fetch in AI settings</string>
-    <string name="ai_rule_model_choices">%1$d saved model(s); ID is editable</string>
+    <string
+    name="ai_rule_model">Model</string>
+    <string name="ai_rule_model_manual_hint">Enter model ID or
+  fetch in AI settings</string>
+    <string name="ai_rule_model_choices">%1$d saved model(s); ID is
+  editable</string>
     <string name="ai_rule_model_select_hint">Select a model from the configured list</string>
-    <string name="ai_rule_model_custom_hint">Custom model ID; use list to switch back</string>
-    <string name="ai_rule_model_search">Search models</string>
-    <string name="ai_rule_model_no_match">No matching model</string>
+    <string
+    name="ai_rule_model_custom_hint">Custom model ID; use list to switch back</string>
+    <string
+    name="ai_rule_model_search">Search models</string>
+    <string name="ai_rule_model_no_match">No
+  matching model</string>
     <string name="ai_rule_model_use_custom">Enter a custom model ID</string>
-    <string name="ai_rule_model_choose_from_list">Choose from configured models</string>
-    <string name="ai_rule_generate">Generate</string>
+    <string
+    name="ai_rule_model_choose_from_list">Choose from configured models</string>
+    <string
+    name="ai_rule_generate">Generate</string>
     <string name="ai_rule_generating">Generating</string>
-    <string name="ai_rule_attempt">attempt %1$d</string>
-    <string name="ai_rule_stage_preparing">Preparing generation</string>
+    <string
+    name="ai_rule_attempt">attempt %1$d</string>
+    <string name="ai_rule_stage_preparing">Preparing
+  generation</string>
     <string name="ai_rule_stage_fetching">Fetching target</string>
-    <string name="ai_rule_stage_analyzing">Analyzing source structure</string>
-    <string name="ai_rule_stage_generating">Generating candidate</string>
-    <string name="ai_rule_stage_validating">Validating with local parser</string>
-    <string name="ai_rule_stage_repairing">Repairing candidate with model</string>
-    <string name="ai_rule_stage_fetching_content">Fetching article samples</string>
-    <string name="ai_rule_stage_generating_content">Generating content rule</string>
-    <string name="ai_rule_stage_validating_content">Validating content rule</string>
-    <string name="ai_rule_stage_completed">Candidate ready</string>
-    <string name="ai_rule_stage_failed">Generation failed</string>
+    <string
+    name="ai_rule_stage_analyzing">Analyzing source structure</string>
+    <string
+    name="ai_rule_stage_generating">Generating candidate</string>
+    <string
+    name="ai_rule_stage_validating">Validating with local parser</string>
+    <string
+    name="ai_rule_stage_repairing">Repairing candidate with model</string>
+    <string
+    name="ai_rule_stage_fetching_content">Fetching article samples</string>
+    <string
+    name="ai_rule_stage_generating_content">Generating content rule</string>
+    <string
+    name="ai_rule_stage_validating_content">Validating content rule</string>
+    <string
+    name="ai_rule_stage_completed">Candidate ready</string>
+    <string name="ai_rule_stage_failed">Generation
+  failed</string>
     <string name="ai_rule_preview_title">AI rule candidate</string>
-    <string name="ai_rule_preview_subtitle">Review the real local test result before saving</string>
-    <string name="ai_rule_local_validation_passed">List rule passed local validation</string>
-    <string name="ai_rule_preview_validation_hint">The list rule returned usable articles; content validation is shown below</string>
+    <string
+    name="ai_rule_preview_subtitle">Review the real local test result before saving</string>
+    <string
+    name="ai_rule_local_validation_passed">List rule passed local validation</string>
+    <string
+    name="ai_rule_preview_validation_hint">The list rule returned usable articles; content
+  validation is shown below</string>
     <string name="ai_rule_preview_articles">Articles</string>
-    <string name="ai_rule_preview_score">Score</string>
+    <string
+    name="ai_rule_preview_score">Score</string>
     <string name="ai_rule_preview_attempts">Attempts</string>
-    <string name="ai_rule_preview_metrics">Parsed articles: %1$d · Score: %2$d</string>
-    <string name="ai_rule_preview_runtime">Service: %1$s · Model: %2$s · Attempts: %3$d</string>
-    <string name="ai_rule_preview_final_url">Final URL after redirect: %1$s</string>
-    <string name="ai_rule_preview_source_kind">Detected source: %1$s</string>
-    <string name="ai_rule_sample_articles">Sample articles</string>
-    <string name="ai_rule_content_title">Content rule (separate stage)</string>
-    <string name="ai_rule_content_verified">Verified against %1$d article page(s); this rule will be preferred when reading</string>
-    <string name="ai_rule_content_skipped">Content rule not generated: %1$s</string>
-    <string name="ai_rule_content_failed">Content rule generation or validation failed: %1$s; the list rule can still be saved</string>
+    <string
+    name="ai_rule_preview_metrics">Parsed articles: %1$d · Score: %2$d</string>
+    <string
+    name="ai_rule_preview_runtime">Service: %1$s · Model: %2$s · Attempts: %3$d</string>
+    <string
+    name="ai_rule_preview_final_url">Final URL after redirect: %1$s</string>
+    <string
+    name="ai_rule_preview_source_kind">Detected source: %1$s</string>
+    <string
+    name="ai_rule_sample_articles">Sample articles</string>
+    <string name="ai_rule_content_title">Content
+  rule (separate stage)</string>
+    <string name="ai_rule_content_verified">Verified against %1$d
+  article page(s); this rule will be preferred when reading</string>
+    <string
+    name="ai_rule_content_skipped">Content rule not generated: %1$s</string>
+    <string
+    name="ai_rule_content_failed">Content rule generation or validation failed: %1$s; the list rule
+  can still be saved</string>
     <string name="rule_capability_list_and_content">List + content rule</string>
-    <string name="rule_capability_list_generic_content">List rule + generic content fallback</string>
-    <string name="ai_rule_json_preview">Generated rule JSON</string>
+    <string
+    name="rule_capability_list_generic_content">List rule + generic content fallback</string>
+    <string
+    name="ai_rule_json_preview">Generated rule JSON</string>
     <string name="ai_rule_save">Save rule</string>
-    <string name="ai_rule_generation_failed">AI rule generation failed</string>
-    <string name="ai_rule_retry_with_browser">Retry with browser rendering</string>
-    <string name="rate_limit">The request rate is limited</string>
+    <string
+    name="ai_rule_generation_failed">AI rule generation failed</string>
+    <string
+    name="ai_rule_retry_with_browser">Retry with browser rendering</string>
+    <string name="rate_limit">The
+  request rate is limited</string>
     <string name="help">Help</string>
     <string name="on_start">On start</string>
-    <string name="initial_page">Startup page</string>
+    <string
+    name="initial_page">Startup page</string>
     <string name="initial_filter">Default filter</string>
-    <string name="preview_article_title">The novel "Lord of the Mysteries" has finally come to an end</string>
-    <string name="preview_article_desc">The Fool is the eighth and final volume of the Lord of the Mysteries series
-        written by Cuttlefish That Loves Diving.
-    </string>
-    <string name="preview_feed_name">Reddit</string>
+    <string
+    name="preview_article_title">The novel "Lord of the Mysteries" has finally come to an end</string>
+    <string
+    name="preview_article_desc">The Fool is the eighth and final volume of the Lord of the Mysteries
+  series
+    written by Cuttlefish That Loves Diving.
+  </string>
+    <string
+    name="preview_feed_name">Reddit</string>
     <string name="value">value</string>
-    <string name="horizontal_padding">Horizontal padding</string>
-    <string name="article_date">Article publication time</string>
+    <string
+    name="horizontal_padding">Horizontal padding</string>
+    <string name="article_date">Article
+  publication time</string>
     <string name="article_desc">Article previews</string>
-    <string name="article_images">Article images</string>
+    <string
+    name="article_images">Article images</string>
     <string name="feed_names">Feed names</string>
-    <string name="feed_favicons">Feed favicons</string>
-    <string name="article_date_sticky_header">Sticky publication date header</string>
+    <string
+    name="feed_favicons">Feed favicons</string>
+    <string name="article_date_sticky_header">Sticky
+  publication date header</string>
     <string name="article_list">Article list</string>
-    <string name="group_list">Group list</string>
+    <string
+    name="group_list">Group list</string>
     <string name="always_expand">Always expand</string>
-    <string name="top">Top</string>
-    <string name="mark_as_read_button_position">\"Mark as read\" button position</string>
+    <string
+    name="top">Top</string>
+    <string name="mark_as_read_button_position">\"Mark as read\" button
+  position</string>
     <string name="top_bar">Top bar</string>
-    <string name="fill_selected_icon">Fill current filter icon</string>
+    <string name="fill_selected_icon">Fill
+  current filter icon</string>
     <string name="filter_bar">Filter bar</string>
-    <string name="icons">Icons</string>
+    <string name="icons">
+  Icons</string>
     <string name="icons_and_labels">Icons and labels</string>
-    <string name="icons_and_label_only_selected">Icons and label (only active)</string>
-    <string name="tips_top_bar_tonal_elevation">Tonal elevation for the top bar list is only available when scrolling</string>
-    <string name="tips_article_list_tonal_elevation">Tonal elevation for the article list is only available in the light theme</string>
-    <string name="tips_group_list_tonal_elevation">Tonal elevation for the group list is only available in the light theme</string>
-    <string name="share">Share</string>
+    <string
+    name="icons_and_label_only_selected">Icons and label (only active)</string>
+    <string
+    name="tips_top_bar_tonal_elevation">Tonal elevation for the top bar list is only available when
+  scrolling</string>
+    <string name="tips_article_list_tonal_elevation">Tonal elevation for the article
+  list is only available in the light theme</string>
+    <string name="tips_group_list_tonal_elevation">Tonal
+  elevation for the group list is only available in the light theme</string>
+    <string name="share">
+  Share</string>
     <string name="reading_share_config_title">Reading page sharing</string>
-    <string name="reading_share_config_desc">Choose what to send to note apps. The original URL is always included.</string>
+    <string
+    name="reading_share_config_desc">Choose what to send to note apps. The original URL is always
+  included.</string>
     <string name="reading_share_first_use_title">Set up reading page sharing</string>
-    <string name="reading_share_first_use_desc">Choose the content sent when you tap Share in an article. You can change this later by long-pressing the button.</string>
-    <string name="reading_share_use_default">Use title and link</string>
-    <string name="reading_share_customize">Customize</string>
-    <string name="reading_share_title_option">Article title</string>
+    <string
+    name="reading_share_first_use_desc">Choose the content sent when you tap Share in an article.
+  You can change this later by long-pressing the button.</string>
+    <string
+    name="reading_share_use_default">Use title and link</string>
+    <string
+    name="reading_share_customize">Customize</string>
+    <string name="reading_share_title_option">Article
+  title</string>
     <string name="reading_share_body_option">Original body</string>
-    <string name="reading_share_translation_option">Generated translation</string>
-    <string name="reading_share_summary_option">Summary</string>
-    <string name="reading_share_source_always">Original URL is always included</string>
+    <string
+    name="reading_share_translation_option">Generated translation</string>
+    <string
+    name="reading_share_summary_option">Summary</string>
+    <string name="reading_share_source_always">Original
+  URL is always included</string>
     <string name="reading_share_source_url">Original URL</string>
-    <string name="reading_share_html_note">Rich HTML is sent first, with Android styled text and plain text as fallbacks.</string>
+    <string
+    name="reading_share_html_note">Rich HTML is sent first, with Android styled text and plain text
+  as fallbacks.</string>
     <string name="reading_share_target_title">Share target</string>
-    <string name="reading_share_target_system">System share (choose an app)</string>
-    <string name="reading_share_target_obsidian">Obsidian (create a new note automatically)</string>
-    <string name="reading_share_target_siyuan">SiYuan (send Markdown)</string>
-    <string name="reading_share_target_logseq">Logseq (Quick Capture)</string>
-    <string name="reading_share_target_notion">Notion (API rich page)</string>
-    <string name="reading_share_target_unavailable">No usable entry point was detected on this device</string>
-    <string name="reading_share_target_unavailable_fallback">Could not open %1$s. Using system share instead.</string>
-    <string name="reading_share_notion_config_title">Notion API · personal access token</string>
-    <string name="reading_share_notion_config_desc">Paste a Notion personal access token. OrigRead creates private workspace pages and stores the token encrypted on this device.</string>
-    <string name="reading_share_notion_tokens_url">notion.so/developers/tokens</string>
-    <string name="reading_share_notion_token">Personal access token</string>
-    <string name="reading_share_notion_token_saved">Saved; paste a new token to replace it</string>
-    <string name="reading_share_notion_token_placeholder">Paste your Notion personal access token</string>
-    <string name="reading_share_notion_not_configured">Configure the Notion personal access token first.</string>
-    <string name="reading_share_notion_token_required">Enter a Notion personal access token first.</string>
-    <string name="reading_share_notion_in_progress">Creating the Notion page… please wait.</string>
-    <string name="reading_share_notion_success">Created in Notion: %1$s</string>
-    <string name="reading_share_notion_failure">Notion share failed: %1$s</string>
-    <string name="reading_share_save">Save and share</string>
+    <string
+    name="reading_share_target_system">System share (choose an app)</string>
+    <string
+    name="reading_share_target_obsidian">Obsidian (create a new note automatically)</string>
+    <string
+    name="reading_share_target_siyuan">SiYuan (send Markdown)</string>
+    <string
+    name="reading_share_target_logseq">Logseq (Quick Capture)</string>
+    <string
+    name="reading_share_target_notion">Notion (API rich page)</string>
+    <string
+    name="reading_share_target_unavailable">No usable entry point was detected on this device</string>
+    <string
+    name="reading_share_target_unavailable_fallback">Could not open %1$s. Using system share
+  instead.</string>
+    <string name="reading_share_notion_config_title">Notion API · personal access
+  token</string>
+    <string name="reading_share_notion_config_desc">Paste a Notion personal access
+  token. OrigRead creates private workspace pages and stores the token encrypted on this device.</string>
+    <string
+    name="reading_share_notion_tokens_url">notion.so/developers/tokens</string>
+    <string
+    name="reading_share_notion_token">Personal access token</string>
+    <string
+    name="reading_share_notion_token_saved">Saved; paste a new token to replace it</string>
+    <string
+    name="reading_share_notion_token_placeholder">Paste your Notion personal access token</string>
+    <string
+    name="reading_share_notion_not_configured">Configure the Notion personal access token first.</string>
+    <string
+    name="reading_share_notion_token_required">Enter a Notion personal access token first.</string>
+    <string
+    name="reading_share_notion_in_progress">Creating the Notion page… please wait.</string>
+    <string
+    name="reading_share_notion_success">Created in Notion: %1$s</string>
+    <string
+    name="reading_share_notion_failure">Notion share failed: %1$s</string>
+    <string
+    name="reading_share_save">Save and share</string>
     <string name="reading_share_save_only">Save</string>
-    <string name="touch_to_play_video">Tap to play video</string>
+    <string
+    name="touch_to_play_video">Tap to play video</string>
     <string name="text">Text</string>
-    <string name="font_size">Font size</string>
+    <string
+    name="font_size">Font size</string>
     <string name="letter_spacing">Letter spacing</string>
-    <string name="line_spacing">Line spacing</string>
+    <string
+    name="line_spacing">Line spacing</string>
     <string name="alignment">Alignment</string>
-    <string name="general">General</string>
+    <string
+    name="general">General</string>
     <string name="auto_hide_toolbars">Auto-hide toolbars</string>
-    <string name="rearrange_buttons">Rearrange buttons</string>
+    <string
+    name="rearrange_buttons">Rearrange buttons</string>
     <string name="images">Images</string>
-    <string name="rounded_corners">Rounded corners</string>
+    <string
+    name="rounded_corners">Rounded corners</string>
     <string name="videos">Videos</string>
-    <string name="align_start">Align start</string>
+    <string
+    name="align_start">Align start</string>
     <string name="align_end">Align end</string>
-    <string name="center_text">Center text</string>
+    <string
+    name="center_text">Center text</string>
     <string name="justify">Justify</string>
-    <string name="external_fonts">External fonts</string>
+    <string
+    name="external_fonts">External fonts</string>
     <string name="title">Title</string>
-    <string name="bold">Bold</string>
+    <string
+    name="bold">Bold</string>
     <string name="upper_case">Upper case</string>
-    <string name="subhead">Subheading</string>
+    <string name="subhead">
+  Subheading</string>
     <string name="use_app_theme">Use app theme</string>
-    <string name="advanced">Advanced</string>
+    <string name="advanced">
+  Advanced</string>
     <string name="dark_reading_theme">Dark reading theme</string>
-    <string name="title_desc">Bold, upper case, alignment</string>
-    <string name="text_desc">Font size, letter spacing, alignment</string>
+    <string
+    name="title_desc">Bold, upper case, alignment</string>
+    <string name="text_desc">Font size, letter
+  spacing, alignment</string>
     <string name="images_desc">Rounded corners, horizontal padding</string>
-    <string name="videos_desc">Rounded corners, horizontal padding</string>
+    <string
+    name="videos_desc">Rounded corners, horizontal padding</string>
     <string name="maximize">Maximize</string>
-    <string name="every_15_minutes">Every 15 minutes</string>
-    <string name="every_30_minutes">Every 30 minutes</string>
+    <string
+    name="every_15_minutes">Every 15 minutes</string>
+    <string name="every_30_minutes">Every 30
+  minutes</string>
     <string name="every_1_hour">Every hour</string>
-    <string name="every_2_hours">Every 2 hours</string>
+    <string name="every_2_hours">Every
+  2 hours</string>
     <string name="every_3_hours">Every 3 hours</string>
-    <string name="every_6_hours">Every 6 hours</string>
+    <string name="every_6_hours">Every
+  6 hours</string>
     <string name="every_12_hours">Every 12 hours</string>
-    <string name="every_1_day">Every day</string>
+    <string name="every_1_day">Every
+  day</string>
     <string name="manually">Manually</string>
     <string name="always">Always</string>
-    <string name="for_1_day">1 day</string>
+    <string
+    name="for_1_day">1 day</string>
     <string name="for_2_days">2 days</string>
-    <string name="for_3_days">3 days</string>
+    <string
+    name="for_3_days">3 days</string>
     <string name="for_1_week">1 week</string>
-    <string name="for_2_weeks">2 weeks</string>
+    <string
+    name="for_2_weeks">2 weeks</string>
     <string name="for_1_month">1 month</string>
-    <string name="local">Local</string>
+    <string
+    name="local">Local</string>
     <string name="fever" translatable="false">Fever</string>
-    <string name="google_reader" translatable="false">Google Reader</string>
-    <string name="fresh_rss" translatable="false">FreshRSS</string>
+    <string
+    name="google_reader" translatable="false">Google Reader</string>
+    <string name="fresh_rss"
+    translatable="false">FreshRSS</string>
     <string name="feedly" translatable="false">Feedly</string>
-    <string name="inoreader" translatable="false">Inoreader</string>
+    <string
+    name="inoreader" translatable="false">Inoreader</string>
     <string name="local_desc">On this device</string>
-    <string name="services">Services</string>
+    <string
+    name="services">Services</string>
     <string name="feedly_desc" translatable="false">feedly.com</string>
-    <string name="inoreader_desc" translatable="false">inoreader.com</string>
-    <string name="self_hosted">Self-hosted</string>
+    <string
+    name="inoreader_desc" translatable="false">inoreader.com</string>
+    <string name="self_hosted">
+  Self-hosted</string>
     <string name="fresh_rss_desc" translatable="false">freshrss.org</string>
-    <string name="google_reader_desc" translatable="false">Google Reader API</string>
-    <string name="fever_desc">Deprecated. Not recommended.</string>
+    <string
+    name="google_reader_desc" translatable="false">Google Reader API</string>
+    <string
+    name="fever_desc">Deprecated. Not recommended.</string>
     <string name="more">More</string>
-    <string name="add_accounts">Add accounts</string>
+    <string
+    name="add_accounts">Add accounts</string>
     <string name="list">List</string>
-    <string name="add_accounts_desc">Local, services, self-hosted</string>
+    <string
+    name="add_accounts_desc">Local, services, self-hosted</string>
     <string name="display">Display</string>
-    <string name="synchronous">Sync</string>
+    <string
+    name="synchronous">Sync</string>
     <string name="sync_interval">Sync frequency</string>
-    <string name="sync_once_on_start">Sync on launch</string>
+    <string
+    name="sync_once_on_start">Sync on launch</string>
     <string name="only_on_wifi">Wi-Fi only</string>
-    <string name="only_when_charging">Charging only</string>
-    <string name="keep_archived_articles">Keep archived articles</string>
+    <string
+    name="only_when_charging">Charging only</string>
+    <string name="keep_archived_articles">Keep
+  archived articles</string>
     <string name="block_list">Block list</string>
-    <string name="export_as_opml">Export as OPML</string>
-    <string name="clear_all_articles">Clear all articles</string>
+    <string
+    name="export_as_opml">Export as OPML</string>
+    <string name="clear_all_articles">Clear all
+  articles</string>
     <string name="delete_account">Delete account</string>
-    <string name="clear_all_articles_tips">Are you sure you want to clear the articles list for this account?</string>
+    <string
+    name="clear_all_articles_tips">Are you sure you want to clear the articles list for this
+  account?</string>
     <string name="delete_account_tips">Are you sure you want to delete this account?</string>
-    <string name="must_have_an_account">You must have at least 1 account</string>
-    <string name="clear_all_articles_toast">Article list cleared</string>
-    <string name="delete_account_toast">Account deleted</string>
+    <string
+    name="must_have_an_account">You must have at least 1 account</string>
+    <string
+    name="clear_all_articles_toast">Article list cleared</string>
+    <string name="delete_account_toast">Account
+  deleted</string>
     <string name="synchronous_tips">Restart required for changes to take effect</string>
-    <string name="keep_archived_tips">Archived items are articles which are marked as read, not starred and not tagged. The \"Keep archived articles\" setting is only effective on this device. Older archived articles will be deleted from this device. The deletion of articles cannot be undone.</string>
-    <string name="switch_account">Switch</string>
+    <string
+    name="keep_archived_tips">Archived items are articles which are marked as read, not starred and
+  not tagged. The \"Keep archived articles\" setting is only effective on this device. Older
+  archived articles will be deleted from this device. The deletion of articles cannot be undone.</string>
+    <string
+    name="switch_account">Switch</string>
     <string name="add">Add</string>
-    <string name="accounts_tips">You can switch accounts by tapping on the account name on the feed page</string>
-    <string name="server_url">Server URL</string>
+    <string name="accounts_tips">You
+  can switch accounts by tapping on the account name on the feed page</string>
+    <string
+    name="server_url">Server URL</string>
     <string name="username">Username</string>
-    <string name="password">Password</string>
+    <string
+    name="password">Password</string>
     <string name="client_certificate">Client certificate (optional)</string>
-    <string name="connection">Connection</string>
+    <string
+    name="connection">Connection</string>
     <string name="system_default">System</string>
-    <string name="initial_open_app">App when link is clicked</string>
-    <string name="open_link_specific_browser_not_selected">None</string>
-    <string name="auto_customtabs">Auto (prefer custom tabs)</string>
+    <string
+    name="initial_open_app">App when link is clicked</string>
+    <string
+    name="open_link_specific_browser_not_selected">None</string>
+    <string name="auto_customtabs">Auto
+  (prefer custom tabs)</string>
     <string name="auto_default_browser">Auto (prefer default browser)</string>
-    <string name="custom_tabs">Force custom tabs</string>
-    <string name="specific_browser">Force specific browser</string>
+    <string
+    name="custom_tabs">Force custom tabs</string>
+    <string name="specific_browser">Force specific
+  browser</string>
     <string name="specific_browser_name">Browser: %1$s</string>
-    <string name="default_browser">Force default browser</string>
+    <string
+    name="default_browser">Force default browser</string>
     <string name="always_ask">Always ask</string>
-    <string name="open_link_specific_browser">Browser</string>
-    <string name="open_link_something_wrong">Failed to apply open link setting</string>
+    <string
+    name="open_link_specific_browser">Browser</string>
+    <string name="open_link_something_wrong">Failed
+  to apply open link setting</string>
     <string name="open_link_ask_dialog_title">Open with…</string>
-    <string name="include_additional_info">Include additional info</string>
+    <string
+    name="include_additional_info">Include additional info</string>
     <string name="exclude">Exclude</string>
-    <string name="additional_info_desc">Includes per-feed options such as notifications and full-content parsing. Choose \"Exclude\" for better compatibility with other readers.</string>
-    <string name="grey_out_articles">Dim read articles</string>
+    <string
+    name="additional_info_desc">Includes per-feed options such as notifications and full-content
+  parsing. Choose \"Exclude\" for better compatibility with other readers.</string>
+    <string
+    name="grey_out_articles">Dim read articles</string>
     <string name="all_read">All read</string>
-    <string name="read_excluding_starred">Read, excluding starred</string>
-    <string name="external_links">External links</string>
+    <string
+    name="read_excluding_starred">Read, excluding starred</string>
+    <string name="external_links">External
+  links</string>
     <string name="unexpected_error_title">Oops! Something went wrong…</string>
-    <string name="copy_error_report">Copy error report</string>
-    <string name="submit_bug_report">Submit a bug report on GitHub</string>
-    <string name="unexpected_error_msg">The app encountered an unexpected error and closed.\n\nTo help us identify and fix this issue quickly, you can %1$s with the stack trace below.</string>
+    <string
+    name="copy_error_report">Copy error report</string>
+    <string name="submit_bug_report">Submit a bug
+  report on GitHub</string>
+    <string name="unexpected_error_msg">The app encountered an unexpected
+  error and closed.\n\nTo help us identify and fix this issue quickly, you can %1$s with the stack
+  trace below.</string>
     <string name="next_article">Next article</string>
-    <string name="swipe_to_start">Swipe left</string>
+    <string
+    name="swipe_to_start">Swipe left</string>
     <string name="swipe_to_end">Swipe right</string>
-    <string name="none">None</string>
+    <string
+    name="none">None</string>
     <string name="toggle_read">Toggle read</string>
-    <string name="toggle_starred">Toggle starred</string>
-    <string name="line_height_multiple">Line height multiple</string>
+    <string
+    name="toggle_starred">Toggle starred</string>
+    <string name="line_height_multiple">Line height
+  multiple</string>
     <string name="export">Export</string>
-    <string name="pull_to_switch_article">Pull to switch articles</string>
+    <string name="pull_to_switch_article">Pull
+  to switch articles</string>
     <string name="mark_above_as_read">Mark above as read</string>
-    <string name="mark_below_as_read">Mark below as read</string>
+    <string
+    name="mark_below_as_read">Mark below as read</string>
     <string name="save">Save</string>
-    <string name="image_saved">Image saved</string>
+    <string
+    name="image_saved">Image saved</string>
     <string name="permission_denied">Permission denied</string>
-    <string name="shared_content">Shared content</string>
+    <string
+    name="shared_content">Shared content</string>
     <string name="only_link">Only link</string>
-    <string name="title_and_link">Title and link</string>
+    <string
+    name="title_and_link">Title and link</string>
     <string name="troubleshooting">Troubleshooting</string>
-    <string name="troubleshooting_desc">View synchronization error logs</string>
-    <string name="troubleshooting_show">Show troubleshooting</string>
-    <string name="troubleshooting_hide">Hide troubleshooting</string>
+    <string
+    name="troubleshooting_desc">View synchronization error logs</string>
+    <string
+    name="troubleshooting_show">Show troubleshooting</string>
+    <string name="troubleshooting_hide">Hide
+  troubleshooting</string>
     <string name="sync_error_logs">Synchronization error logs</string>
-    <string name="sync_error_logs_empty">No synchronization error logs</string>
-    <string name="bug_report">Bug report</string>
-    <string name="issue_tracer_url" translatable="false">https://github.com/ZGMFX01A/OrigRead/issues</string>
+    <string
+    name="sync_error_logs_empty">No synchronization error logs</string>
+    <string name="bug_report">Bug
+  report</string>
+    <string name="issue_tracer_url" translatable="false">
+  https://github.com/ZGMFX01A/OrigRead/issues</string>
     <string name="app_preferences">App preferences</string>
-    <string name="import_from_protobuf_file">Import from protobuf file</string>
-    <string name="export_as_protobuf_file">Export as protobuf file</string>
-    <string name="invalid_protobuf_file_warning">This file may not be a valid protobuf file. Importing it could potentially corrupt the app and result in the loss of current preferences. Are you sure you want to proceed?</string>
+    <string
+    name="import_from_protobuf_file">Import from protobuf file</string>
+    <string
+    name="export_as_protobuf_file">Export as protobuf file</string>
+    <string
+    name="invalid_protobuf_file_warning">This file may not be a valid protobuf file. Importing it
+  could potentially corrupt the app and result in the loss of current preferences. Are you sure you
+  want to proceed?</string>
     <string name="import_from_json">Import from JSON</string>
-    <string name="export_as_json">Export as JSON</string>
-    <string name="import_website_rules">Import website parsing rules</string>
+    <string
+    name="export_as_json">Export as JSON</string>
+    <string name="import_website_rules">Import website
+  parsing rules</string>
     <string name="website_rules">Website parsing rules</string>
-    <string name="website_rules_desc">Import, enable, export and test website rules</string>
-    <string name="invalid_json_file_warning">This file may not be a valid JSON file. Importing it could potentially corrupt the app and result in the loss of current preferences. Are you sure you want to proceed?</string>
+    <string
+    name="website_rules_desc">Import, enable, export and test website rules</string>
+    <string
+    name="invalid_json_file_warning">This file may not be a valid JSON file. Importing it could
+  potentially corrupt the app and result in the loss of current preferences. Are you sure you want
+  to proceed?</string>
     <string name="export_website_rules">Export website parsing rules</string>
-    <string name="test_website_rule">Test website parsing rule</string>
-    <string name="website_rule_test_success">Parsed %1$d articles successfully</string>
-    <string name="website_rule_test_failed">Rule test failed: %1$s</string>
-    <string name="website_rules_imported">Imported %1$d website parsing rule(s)</string>
-    <string name="website_rules_import_failed">Failed to import website rules: %1$s</string>
-    <string name="website_rule_error_title">Website rule error</string>
-    <string name="website_rule_tutorial">Website rule guide</string>
+    <string
+    name="test_website_rule">Test website parsing rule</string>
+    <string
+    name="website_rule_test_success">Parsed %1$d articles successfully</string>
+    <string
+    name="website_rule_test_failed">Rule test failed: %1$s</string>
+    <string
+    name="website_rules_imported">Imported %1$d website parsing rule(s)</string>
+    <string
+    name="website_rules_import_failed">Failed to import website rules: %1$s</string>
+    <string
+    name="website_rule_error_title">Website rule error</string>
+    <string name="website_rule_tutorial">Website
+  rule guide</string>
     <string name="export_website_rule_template">Export rule template</string>
-    <string name="website_rule_tutorial_content">1. Export the fixed template and open the JSON file in a text editor.\n\n2. Replace id, name and hosts with values for the target website. id must be unique.\n\n3. articleSelectors selects each article row. titleSelector and linkSelector run relative to each row.\n\n4. dateRules extracts publication time. imageSelector and imageAttributes are optional.\n\n5. includeUrlRegex keeps valid article links; excludeTitleRegexes filters advertisements or fixed navigation entries.\n\n6. Import the edited JSON, then use “Test website parsing rule” with the website URL. Only subscribe after the test returns articles.\n\nCSS selectors follow Jsoup syntax. Date patterns follow Java date formats such as yyyy-MM-dd HH:mm, MM-dd and HH:mm.</string>
+    <string
+    name="website_rule_tutorial_content">1. Export the fixed template and open the JSON file in a
+  text editor.\n\n2. Replace id, name and hosts with values for the target website. id must be
+  unique.\n\n3. articleSelectors selects each article row. titleSelector and linkSelector run
+  relative to each row.\n\n4. dateRules extracts publication time. imageSelector and imageAttributes
+  are optional.\n\n5. includeUrlRegex keeps valid article links; excludeTitleRegexes filters
+  advertisements or fixed navigation entries.\n\n6. Import the edited JSON, then use “Test website
+  parsing rule” with the website URL. Only subscribe after the test returns articles.\n\nCSS
+  selectors follow Jsoup syntax. Date patterns follow Java date formats such as yyyy-MM-dd HH:mm,
+  MM-dd and HH:mm.</string>
     <string name="website_rule_ithome">IT Home</string>
-    <string name="website_parser_title">Website parsing method</string>
-    <string name="website_parser_current">Parsing method: %1$s</string>
+    <string
+    name="website_parser_title">Website parsing method</string>
+    <string name="website_parser_current">Parsing
+  method: %1$s</string>
     <string name="website_parser_auto">Automatic selection</string>
-    <string name="website_parser_auto_with_type">Auto · Automatic strategy</string>
-    <string name="website_parser_auto_desc">Automatic strategy · Use the highest-scoring available parser and fall back automatically when it fails</string>
-    <string name="website_parser_smart_detection">Smart detection</string>
+    <string
+    name="website_parser_auto_with_type">Auto · Automatic strategy</string>
+    <string
+    name="website_parser_auto_desc">Automatic strategy · Use the highest-scoring available parser
+  and fall back automatically when it fails</string>
+    <string name="website_parser_smart_detection">Smart
+  detection</string>
     <string name="website_parser_smart_detection_named">Smart detection · %1$s</string>
-    <string name="website_parser_smart_detection_with_type">Smart detection · Built-in algorithm</string>
-    <string name="website_parser_rule_name_with_type">%1$s · Website rule</string>
-    <string name="website_parser_candidate_desc">%1$d articles · score %2$d · %3$s</string>
-    <string name="website_parser_available">Available</string>
-    <string name="website_parser_unavailable">Unavailable</string>
+    <string
+    name="website_parser_smart_detection_with_type">Smart detection · Built-in algorithm</string>
+    <string
+    name="website_parser_rule_name_with_type">%1$s · Website rule</string>
+    <string
+    name="website_parser_candidate_desc">%1$d articles · score %2$d · %3$s</string>
+    <string
+    name="website_parser_available">Available</string>
+    <string name="website_parser_unavailable">
+  Unavailable</string>
     <string name="website_parser_rule_enabled">Enabled</string>
-    <string name="website_parser_rule_disabled">Disabled · tap to enable</string>
-    <string name="website_parser_section_selection">Selection mode</string>
-    <string name="website_parser_section_rules_with_count">Website rules (%1$d)</string>
-    <string name="website_parser_section_builtin_with_count">Built-in smart detection (%1$d)</string>
-    <string name="website_parser_builtin_candidate_title">Candidate %1$d · %2$s</string>
-    <string name="website_parser_no_configured_rules">No matching website rules are configured</string>
-    <string name="website_parser_no_builtin_candidates">No smart-detection result is available</string>
-    <string name="website_parser_current_badge">In use</string>
-    <string name="website_parser_page_too_complex">This page is too large for safe smart detection. Automatic analysis was skipped.</string>
+    <string
+    name="website_parser_rule_disabled">Disabled · tap to enable</string>
+    <string
+    name="website_parser_section_selection">Selection mode</string>
+    <string
+    name="website_parser_section_rules_with_count">Website rules (%1$d)</string>
+    <string
+    name="website_parser_section_builtin_with_count">Built-in smart detection (%1$d)</string>
+    <string
+    name="website_parser_builtin_candidate_title">Candidate %1$d · %2$s</string>
+    <string
+    name="website_parser_no_configured_rules">No matching website rules are configured</string>
+    <string
+    name="website_parser_no_builtin_candidates">No smart-detection result is available</string>
+    <string
+    name="website_parser_current_badge">In use</string>
+    <string
+    name="website_parser_page_too_complex">This page is too large for safe smart detection.
+  Automatic analysis was skipped.</string>
     <string name="json_parser_title">JSON parsing rules</string>
-    <string name="json_parser_current">JSON parsing rules: %1$s</string>
-    <string name="json_parser_current_name">%1$d enabled</string>
-    <string name="json_parser_setting_desc">These rules match the current JSON source. Checked means enabled and will be used on the next sync.</string>
-    <string name="json_parser_desc">Only matching JSON rules are shown here. You can enable more than one rule; the checked state is the actual enabled state.</string>
-    <string name="json_parser_no_rules">No JSON rules match this source.</string>
-    <string name="json_parser_rule_enabled">Enabled · used on the next sync</string>
+    <string
+    name="json_parser_current">JSON parsing rules: %1$s</string>
+    <string
+    name="json_parser_current_name">%1$d enabled</string>
+    <string name="json_parser_setting_desc">These
+  rules match the current JSON source. Checked means enabled and will be used on the next sync.</string>
+    <string
+    name="json_parser_desc">Only matching JSON rules are shown here. You can enable more than one
+  rule; the checked state is the actual enabled state.</string>
+    <string name="json_parser_no_rules">No
+  JSON rules match this source.</string>
+    <string name="json_parser_rule_enabled">Enabled · used on
+  the next sync</string>
     <string name="json_parser_rule_disabled">Disabled · not used</string>
-    <string name="website_reparse_articles">Reparse existing articles</string>
-    <string name="website_reparse_articles_desc">Update article list data and clear full-content cache so the body is fetched again when opened</string>
-    <string name="website_reparse_articles_success">Reparsed %1$d existing articles and cleared their full-content cache</string>
-    <string name="website_reparse_articles_failed">Reparse failed: %1$s</string>
-    <string name="unknown_error">Unknown error</string>
+    <string
+    name="website_reparse_articles">Reparse existing articles</string>
+    <string
+    name="website_reparse_articles_desc">Update article list data and clear full-content cache so
+  the body is fetched again when opened</string>
+    <string name="website_reparse_articles_success">Reparsed
+  %1$d existing articles and cleared their full-content cache</string>
+    <string
+    name="website_reparse_articles_failed">Reparse failed: %1$s</string>
+    <string name="unknown_error">Unknown
+  error</string>
     <string name="search_stage_rss">Checking RSS/Atom and common feed addresses…</string>
-    <string name="search_stage_rsshub">Checking RSSHub routes…</string>
-    <string name="search_stage_json">Checking JSON API rules…</string>
-    <string name="search_stage_website">Checking website metadata and static content…</string>
+    <string
+    name="search_stage_rsshub">Checking RSSHub routes…</string>
+    <string name="search_stage_json">Checking
+  JSON API rules…</string>
+    <string name="search_stage_website">Checking website metadata and static
+  content…</string>
     <string name="search_stage_dynamic_website">Rendering dynamic website content…</string>
-    <string name="website_request_failed">Unable to read this website. Please try again later.</string>
-    <string name="rsshub_source_notice">Matched RSSHub route: %1$s</string>
-    <string name="dynamic_website_source_notice">This source requires restricted WebView rendering during refresh.</string>
-    <string name="dynamic_website_low_confidence_notice">This source requires WebView rendering, but the current parse did not pass the health check. OrigRead may not be able to read its articles correctly. You can still add it and try.</string>
-    <string name="available_sources">Available sources</string>
+    <string
+    name="website_request_failed">Unable to read this website. Please try again later.</string>
+    <string
+    name="rsshub_source_notice">Matched RSSHub route: %1$s</string>
+    <string
+    name="dynamic_website_source_notice">This source requires restricted WebView rendering during
+  refresh.</string>
+    <string name="dynamic_website_low_confidence_notice">This source requires WebView
+  rendering, but the current parse did not pass the health check. OrigRead may not be able to read
+  its articles correctly. You can still add it and try.</string>
+    <string name="available_sources">Available
+  sources</string>
     <string name="source_candidate_recommended">Recommended</string>
-    <string name="source_candidate_summary">Score %1$d · %2$d items</string>
-    <string name="source_candidate_article_count">%1$d articles</string>
-    <string name="rsshub_multi_select_hint">RSSHub channels can be selected together. You can remove unwanted channels later.</string>
+    <string
+    name="source_candidate_summary">Score %1$d · %2$d items</string>
+    <string
+    name="source_candidate_article_count">%1$d articles</string>
+    <string
+    name="rsshub_multi_select_hint">RSSHub channels can be selected together. You can remove
+  unwanted channels later.</string>
     <string name="rsshub_matched_channels">RSSHub channels</string>
-    <string name="rsshub_matched_channels_desc">%1$d channels matched locally. Available channels can be selected together.</string>
+    <string
+    name="rsshub_matched_channels_desc">%1$d channels matched locally. Available channels can be
+  selected together.</string>
     <string name="rsshub_route_available">Available · %1$d articles</string>
-    <string name="rsshub_route_timeout">Matched · instance timed out</string>
-    <string name="rsshub_route_network_unavailable">Matched · instance unreachable</string>
-    <string name="rsshub_route_disabled">Matched · RSSHub is disabled or no instance is enabled</string>
-    <string name="rsshub_route_invalid_content">Matched · instance returned no valid Feed</string>
-    <string name="rsshub_route_quality_rejected">Matched · Feed content did not pass quality checks</string>
-    <string name="rsshub_route_needs_input">Matched · a more specific page URL is required</string>
-    <string name="rsshub_retry_detection">Check again</string>
-    <string name="rsshub_invalid_response_notice">RSSHub routes were matched, but the current instances returned no valid Feed. Other methods were kept available.</string>
+    <string
+    name="rsshub_route_timeout">Matched · instance timed out</string>
+    <string
+    name="rsshub_route_network_unavailable">Matched · instance unreachable</string>
+    <string
+    name="rsshub_route_disabled">Matched · RSSHub is disabled or no instance is enabled</string>
+    <string
+    name="rsshub_route_invalid_content">Matched · instance returned no valid Feed</string>
+    <string
+    name="rsshub_route_quality_rejected">Matched · Feed content did not pass quality checks</string>
+    <string
+    name="rsshub_route_needs_input">Matched · a more specific page URL is required</string>
+    <string
+    name="rsshub_retry_detection">Check again</string>
+    <string name="rsshub_invalid_response_notice">RSSHub
+  routes were matched, but the current instances returned no valid Feed. Other methods were kept
+  available.</string>
     <string name="other_available_sources">Other available methods</string>
-    <string name="confirm_subscribe">Confirm subscription</string>
-    <string name="source_kind_rss_direct">RSS/Atom</string>
+    <string
+    name="confirm_subscribe">Confirm subscription</string>
+    <string name="source_kind_rss_direct">
+  RSS/Atom</string>
     <string name="source_kind_rss_discovered">Discovered RSS</string>
-    <string name="source_kind_rsshub">RSSHub</string>
+    <string
+    name="source_kind_rsshub">RSSHub</string>
     <string name="source_kind_json">JSON/API</string>
-    <string name="source_kind_website">Website parsing</string>
-    <string name="source_kind_website_dynamic">Dynamic website</string>
+    <string
+    name="source_kind_website">Website parsing</string>
+    <string name="source_kind_website_dynamic">Dynamic
+  website</string>
     <string name="rsshub_settings">RSSHub</string>
-    <string name="rsshub_settings_desc">Route discovery and instance settings</string>
+    <string name="rsshub_settings_desc">Route
+  discovery and instance settings</string>
     <string name="rsshub_enable">Enable RSSHub</string>
-    <string name="rsshub_enable_desc">Try RSSHub routes before website parsing</string>
-    <string name="rsshub_instance_url">Instance URL</string>
+    <string
+    name="rsshub_enable_desc">Try RSSHub routes before website parsing</string>
+    <string
+    name="rsshub_instance_url">Instance URL</string>
     <string name="rsshub_instance_list">Instances</string>
-    <string name="rsshub_instance_list_desc">Enabled instances are tried automatically. A successful health check does not guarantee every route is available.</string>
-    <string name="rsshub_add_instance">Add instance URL</string>
-    <string name="rsshub_instance_desc">Enter a trusted public or self-hosted instance</string>
+    <string
+    name="rsshub_instance_list_desc">Enabled instances are tried automatically. A successful health
+  check does not guarantee every route is available.</string>
+    <string name="rsshub_add_instance">Add
+  instance URL</string>
+    <string name="rsshub_instance_desc">Enter a trusted public or self-hosted
+  instance</string>
     <string name="rsshub_save_and_test">Test and add</string>
-    <string name="rsshub_test_connection">Save and test connection</string>
-    <string name="rsshub_test_instance">Test</string>
+    <string
+    name="rsshub_test_connection">Save and test connection</string>
+    <string
+    name="rsshub_test_instance">Test</string>
     <string name="rsshub_delete_instance">Delete instance</string>
-    <string name="rsshub_test_success">Instance is reachable. Individual routes may still fail.</string>
-    <string name="rsshub_test_failed">Connection failed: </string>
-    <string name="restore_defaults">Restore defaults</string>
-    <string name="rsshub_timeout_notice">RSSHub timed out and was skipped. Website parsing continued.</string>
-    <string name="rsshub_network_unavailable_notice">RSSHub is unavailable on the current network and was skipped. Website parsing continued.</string>
-    <string name="rsshub_missing_parameters_notice">RSSHub route “%1$s” requires parameters (%2$s). Use a URL that contains them.</string>
+    <string
+    name="rsshub_test_success">Instance is reachable. Individual routes may still fail.</string>
+    <string
+    name="rsshub_test_failed">Connection failed: </string>
+    <string name="restore_defaults">Restore
+  defaults</string>
+    <string name="rsshub_timeout_notice">RSSHub timed out and was skipped. Website
+  parsing continued.</string>
+    <string name="rsshub_network_unavailable_notice">RSSHub is unavailable
+  on the current network and was skipped. Website parsing continued.</string>
+    <string
+    name="rsshub_missing_parameters_notice">RSSHub route “%1$s” requires parameters (%2$s). Use a
+  URL that contains them.</string>
     <string name="webview" translatable="false">WebView</string>
-    <string name="native_component">Native component</string>
-    <string name="content_renderer">Content renderer</string>
+    <string
+    name="native_component">Native component</string>
+    <string name="content_renderer">Content
+  renderer</string>
     <string name="read_aloud">Read aloud</string>
-    <string name="only_available_on_webview">Only available when using the WebView content renderer</string>
-    <string name="about">About</string>
+    <string
+    name="only_available_on_webview">Only available when using the WebView content renderer</string>
+    <string
+    name="about">About</string>
     <string name="mark_as_read_on_scroll">Mark as read on scroll</string>
-    <string name="hide_empty_groups">Hide empty groups</string>
-    <string name="become_a_sponsor">Become a sponsor</string>
-    <string name="sponsor_desc">We build and maintain this free, open source app in our free time. If you enjoy it, please consider supporting us with a small donation! ☕️</string>
-    <string name="toolbars">Toolbars</string>
+    <string
+    name="hide_empty_groups">Hide empty groups</string>
+    <string name="become_a_sponsor">Become a
+  sponsor</string>
+    <string name="sponsor_desc">We build and maintain this free, open source app in
+  our free time. If you enjoy it, please consider supporting us with a small donation! ☕️</string>
+    <string
+    name="toolbars">Toolbars</string>
     <string name="sort_unread_articles">Sort unread articles</string>
-    <string name="latest">Latest</string>
+    <string
+    name="latest">Latest</string>
     <string name="earliest">Earliest</string>
-    <string name="short_desc">Short</string>
+    <string name="short_desc">
+  Short</string>
     <string name="long_desc">Long</string>
     <string name="none_desc">None</string>
-    <string name="pull_to_switch_feed">Pull to load next feed</string>
-    <string name="bold_characters">Bold characters</string>
+    <string
+    name="pull_to_switch_feed">Pull to load next feed</string>
+    <string name="bold_characters">Bold
+  characters</string>
     <string name="use_bold_characters">Use bold characters</string>
-    <string name="bold_characters_preview">Bold the first few characters of words in an article</string>
-    <string name="load_next_feed">Load next feed</string>
-    <string name="mark_all_as_read_and_load_next_feed">Mark all as read and load next feed</string>
+    <string
+    name="bold_characters_preview">Bold the first few characters of words in an article</string>
+    <string
+    name="load_next_feed">Load next feed</string>
+    <string name="mark_all_as_read_and_load_next_feed">Mark
+  all as read and load next feed</string>
     <string name="pull_from_bottom">Pull from bottom</string>
-    <string name="account">Account</string>
+    <string
+    name="account">Account</string>
     <string name="feed">Feed</string>
     <string name="folder">Folder</string>
-    <string name="data_source">Data source</string>
+    <string
+    name="data_source">Data source</string>
     <string name="theme">Theme</string>
-    <string name="widget_settings">Widget settings</string>
+    <string
+    name="widget_settings">Widget settings</string>
     <string name="done">Done</string>
-    <string name="last_updated">Last updated</string>
+    <string
+    name="last_updated">Last updated</string>
     <string name="no_unread_articles">No unread articles</string>
-    <string name="list_widget_label">List view</string>
-    <string name="card_widget_label">Card view</string>"
-    <string name="widget_description">View latest unread articles from selected sources</string>
-    <string name="apply">Apply</string>
+    <string
+    name="list_widget_label">List view</string>
+    <string name="card_widget_label">Card view</string>" <string
+    name="widget_description">View latest unread articles from selected sources</string>
+    <string
+    name="apply">Apply</string>
     <string name="notifications">Notifications</string>
-    <string name="group_configuration_description">Configure \"%1$s\" for feeds in \"%2$s\"</string>
-    <string name="disabled">Disabled</string>
+    <string
+    name="group_configuration_description">Configure \"%1$s\" for feeds in \"%2$s\"</string>
+    <string
+    name="disabled">Disabled</string>
     <string name="enabled">Enabled</string>
-    <string name="notifications_desc">Get notifications when new unread articles are available</string>
-    <string name="open_in_browser_desc">Open articles in the browser</string>
-    <string name="parse_full_content_desc">Fetch full articles from webpages</string>
-    <string name="enable">Enable</string>
+    <string
+    name="notifications_desc">Get notifications when new unread articles are available</string>
+    <string
+    name="open_in_browser_desc">Open articles in the browser</string>
+    <string
+    name="parse_full_content_desc">Fetch full articles from webpages</string>
+    <string name="enable">
+  Enable</string>
     <string name="disable">Disable</string>
     <string name="json_rules">JSON rules</string>
-    <string name="json_rules_desc">Manage JSON API, Next.js, and Nuxt source rules</string>
-    <string name="json_rules_tutorial_title">How to use JSON rules</string>
-    <string name="json_rules_tutorial_summary">View template fields, JSONPath syntax, and import behavior</string>
-    <string name="json_rules_tutorial_desc">1. Export your current rules as a backup, then export the template and edit it in a text editor.\n\n2. Keep schemaVersion at 1. The rules array may contain multiple rules. Each id must be unique; importing the same id replaces the existing rule. hosts must contain domain names only.\n\n3. sourceKind supports API, NEXT_DATA, and NUXT_DATA. endpoint may be an absolute URL or a relative path.\n\n4. itemsPath locates the article array. titlePath and linkPath are required. datePath, authorPath, descriptionPath, imagePath, idPath, and dateFormat are optional.\n\n5. JSONPath supports only $.a.b, array indexes, and [*]. Save the file as UTF-8 JSON, import it, then enable, disable, or delete rules from the list.</string>
-    <string name="export_json_rule_template">Export JSON rule template</string>
-    <string name="import_json_rules">Import JSON rules</string>
-    <string name="export_json_rules">Export JSON rules</string>
+    <string
+    name="json_rules_desc">Manage JSON API, Next.js, and Nuxt source rules</string>
+    <string
+    name="json_rules_tutorial_title">How to use JSON rules</string>
+    <string
+    name="json_rules_tutorial_summary">View template fields, JSONPath syntax, and import behavior</string>
+    <string
+    name="json_rules_tutorial_desc">1. Export your current rules as a backup, then export the
+  template and edit it in a text editor.\n\n2. Keep schemaVersion at 1. The rules array may contain
+  multiple rules. Each id must be unique; importing the same id replaces the existing rule. hosts
+  must contain domain names only.\n\n3. sourceKind supports API, NEXT_DATA, and NUXT_DATA. endpoint
+  may be an absolute URL or a relative path.\n\n4. itemsPath locates the article array. titlePath
+  and linkPath are required. datePath, authorPath, descriptionPath, imagePath, idPath, and
+  dateFormat are optional.\n\n5. JSONPath supports only $.a.b, array indexes, and [*]. Save the file
+  as UTF-8 JSON, import it, then enable, disable, or delete rules from the list.</string>
+    <string
+    name="export_json_rule_template">Export JSON rule template</string>
+    <string
+    name="import_json_rules">Import JSON rules</string>
+    <string name="export_json_rules">Export JSON
+  rules</string>
     <string name="json_rules_imported">Imported %1$d JSON rules</string>
-    <string name="json_rules_import_failed">Failed to import JSON rules: %1$s</string>
-    <string name="json_rule_error_title">JSON rule error</string>
-    <string name="translation_settings">Translation</string>
-    <string name="translation_settings_desc">Configure on-device, cloud, and self-hosted translation providers</string>
-    <string name="translation_target_language">Target language</string>
-    <string name="translation_target_language_desc">Use a language tag such as zh-CN, zh-TW, en, ja, or de</string>
+    <string
+    name="json_rules_import_failed">Failed to import JSON rules: %1$s</string>
+    <string
+    name="json_rule_error_title">JSON rule error</string>
+    <string name="translation_settings">
+  Translation</string>
+    <string name="translation_settings_desc">Configure on-device, cloud, and
+  self-hosted translation providers</string>
+    <string name="translation_target_language">Target
+  language</string>
+    <string name="translation_target_language_desc">Use a language tag such as zh-CN,
+  zh-TW, en, ja, or de</string>
     <string name="translation_display_mode">Translation display</string>
-    <string name="translation_only">Translated text</string>
-    <string name="translation_bilingual">Original and translation</string>
+    <string
+    name="translation_only">Translated text</string>
+    <string name="translation_bilingual">Original
+  and translation</string>
     <string name="translation_privacy_title">Privacy and credentials</string>
-    <string name="translation_privacy_desc">ML Kit runs on-device. Cloud providers receive article text. API keys are encrypted locally and exported only when credential backup is explicitly enabled.</string>
-    <string name="translation_provider_selection_title">Enabled and default providers</string>
-    <string name="translation_provider_selection_desc">Enable multiple providers and choose a default. Tap Translate to use it; long-press to choose another enabled provider.</string>
-    <string name="translation_provider_default_item">%1$s (default)</string>
-    <string name="translation_choose_method">Choose translation method</string>
-    <string name="translation_traditional_section">Traditional translation</string>
-    <string name="translation_ai_section">AI full translation</string>
-    <string name="translation_default_method">Default translation method</string>
-    <string name="translation_set_default_method">Set default</string>
-    <string name="translation_ai_model_count">%1$d models</string>
-    <string name="source_discovery_title">Discover sources</string>
-    <string name="source_discovery_search_hint">Search names, websites, RSS URLs, or categories</string>
+    <string
+    name="translation_privacy_desc">ML Kit runs on-device. Cloud providers receive article text. API
+  keys are encrypted locally and exported only when credential backup is explicitly enabled.</string>
+    <string
+    name="translation_provider_selection_title">Enabled and default providers</string>
+    <string
+    name="translation_provider_selection_desc">Enable multiple providers and choose a default. Tap
+  Translate to use it; long-press to choose another enabled provider.</string>
+    <string
+    name="translation_provider_default_item">%1$s (default)</string>
+    <string
+    name="translation_choose_method">Choose translation method</string>
+    <string
+    name="translation_traditional_section">Traditional translation</string>
+    <string
+    name="translation_ai_section">AI full translation</string>
+    <string
+    name="translation_default_method">Default translation method</string>
+    <string
+    name="translation_set_default_method">Set default</string>
+    <string
+    name="translation_ai_model_count">%1$d models</string>
+    <string name="source_discovery_title">Discover
+  sources</string>
+    <string name="source_discovery_search_hint">Search names, websites, RSS URLs, or
+  categories</string>
     <string name="source_discovery_all">All</string>
-    <string name="source_discovery_all_categories">All categories</string>
-    <string name="source_discovery_choose_category">Choose a category</string>
-    <string name="source_discovery_category_sheet_hint">%1$d categories · simplified from upstream groups</string>
-    <string name="source_discovery_clear_filter">Clear</string>
-    <string name="source_discovery_count">%1$d sources</string>
+    <string
+    name="source_discovery_all_categories">All categories</string>
+    <string
+    name="source_discovery_choose_category">Choose a category</string>
+    <string
+    name="source_discovery_category_sheet_hint">%1$d categories · simplified from upstream groups</string>
+    <string
+    name="source_discovery_clear_filter">Clear</string>
+    <string name="source_discovery_count">%1$d
+  sources</string>
     <string name="source_discovery_no_results">No matching sources</string>
-    <string name="source_discovery_no_results_hint">Try another keyword or category</string>
-    <string name="source_catalog_matches_title">Known sources for this address</string>
-    <string name="source_catalog_matches_desc">%1$d known source(s) match. Select one to validate it before subscribing.</string>
-    <string name="source_catalog_matches_desc_truncated">%1$d known sources match; showing %2$d. Select one to validate it.</string>
-    <string name="source_catalog_match_validate">Validate</string>
-    <string name="translation_endpoint">Service endpoint</string>
+    <string
+    name="source_discovery_no_results_hint">Try another keyword or category</string>
+    <string
+    name="source_catalog_matches_title">Known sources for this address</string>
+    <string
+    name="source_catalog_matches_desc">%1$d known source(s) match. Select one to validate it before
+  subscribing.</string>
+    <string name="source_catalog_matches_desc_truncated">%1$d known sources
+  match; showing %2$d. Select one to validate it.</string>
+    <string
+    name="source_catalog_match_validate">Validate</string>
+    <string name="translation_endpoint">Service
+  endpoint</string>
     <string name="translation_region">Azure region</string>
-    <string name="translation_region_desc">Required for regional or multi-service Azure resources</string>
-    <string name="translation_api_key">API key</string>
-    <string name="translation_optional_token">Optional access token</string>
-    <string name="translation_optional_token_desc">Leave blank to call without a token. Clear a saved token and tap Remove credential to delete it.</string>
-    <string name="translation_key_saved">An encrypted credential is already saved</string>
-    <string name="translation_save_key">Save credential</string>
-    <string name="translation_test_provider">Test provider</string>
+    <string
+    name="translation_region_desc">Required for regional or multi-service Azure resources</string>
+    <string
+    name="translation_api_key">API key</string>
+    <string name="translation_optional_token">Optional
+  access token</string>
+    <string name="translation_optional_token_desc">Leave blank to call without a
+  token. Clear a saved token and tap Remove credential to delete it.</string>
+    <string
+    name="translation_key_saved">An encrypted credential is already saved</string>
+    <string
+    name="translation_save_key">Save credential</string>
+    <string name="translation_test_provider">Test
+  provider</string>
     <string name="translation_test_success">Test successful</string>
-    <string name="translation_test_failed">Test failed:</string>
-    <string name="translation_remove_key">Remove credential</string>
+    <string
+    name="translation_test_failed">Test failed:</string>
+    <string name="translation_remove_key">Remove
+  credential</string>
     <string name="translation_deepl_usage_title">DeepL character quota</string>
-    <string name="translation_deepl_usage_refresh">Check quota</string>
-    <string name="translation_deepl_usage_value">Used %1$s / %2$s characters, %3$s remaining (%4$s)</string>
-    <string name="translation_deepl_usage_failed">Failed to load quota: %1$s</string>
-    <string name="translate_article">Translate article</string>
+    <string
+    name="translation_deepl_usage_refresh">Check quota</string>
+    <string
+    name="translation_deepl_usage_value">Used %1$s / %2$s characters, %3$s remaining (%4$s)</string>
+    <string
+    name="translation_deepl_usage_failed">Failed to load quota: %1$s</string>
+    <string
+    name="translate_article">Translate article</string>
     <string name="show_original">Show original</string>
-    <string name="translation_provider_mlkit_desc">On-device models with no cloud API key</string>
-    <string name="translation_provider_microsoft_desc">Uses your own Azure Translator credentials</string>
-    <string name="translation_provider_deepl_desc">Uses your own DeepL API Free or Pro credentials</string>
-    <string name="translation_provider_google_cloud_desc">Uses your own Google Cloud Translation API key</string>
-    <string name="translation_provider_dlx_desc">Connects only to your self-hosted instance</string>
-    <string name="ai_settings">AI Reading</string>
-    <string name="ai_settings_desc">Configure AI services, models, and summary preferences</string>
+    <string
+    name="translation_provider_mlkit_desc">On-device models with no cloud API key</string>
+    <string
+    name="translation_provider_microsoft_desc">Uses your own Azure Translator credentials</string>
+    <string
+    name="translation_provider_deepl_desc">Uses your own DeepL API Free or Pro credentials</string>
+    <string
+    name="translation_provider_google_cloud_desc">Uses your own Google Cloud Translation API key</string>
+    <string
+    name="translation_provider_dlx_desc">Connects only to your self-hosted instance</string>
+    <string
+    name="ai_settings">AI Reading</string>
+    <string name="ai_settings_desc">Configure AI services,
+  models, and summary preferences</string>
     <string name="ai_enable">Enable AI reading</string>
-    <string name="ai_enable_desc">Enable AI summaries in the reader</string>
-    <string name="ai_endpoint">Base URL or full endpoint</string>
-    <string name="ai_endpoint_desc">Base URL (such as /v1) or a full endpoint</string>
+    <string
+    name="ai_enable_desc">Enable AI summaries in the reader</string>
+    <string name="ai_endpoint">Base
+  URL or full endpoint</string>
+    <string name="ai_endpoint_desc">Base URL (such as /v1) or a full
+  endpoint</string>
     <string name="ai_model">Model name</string>
-    <string name="ai_model_desc">Enter a model ID or fetch models from the current service.</string>
-    <string name="ai_default_model">Default model</string>
+    <string name="ai_model_desc">Enter a
+  model ID or fetch models from the current service.</string>
+    <string name="ai_default_model">Default
+  model</string>
     <string name="ai_default_model_desc">Default model</string>
-    <string name="ai_fetch_models">Fetch models</string>
+    <string
+    name="ai_fetch_models">Fetch models</string>
     <string name="ai_choose_model">Choose model (%1$d)</string>
-    <string name="ai_model_default_item">%1$s (default)</string>
-    <string name="ai_provider_models_summary">This provider has %1$d saved models. You can switch models when regenerating a summary.</string>
-    <string name="ai_fetch_models_failed">Failed to fetch models: %1$s. You can still enter a model manually.</string>
+    <string
+    name="ai_model_default_item">%1$s (default)</string>
+    <string name="ai_provider_models_summary">This
+  provider has %1$d saved models. You can switch models when regenerating a summary.</string>
+    <string
+    name="ai_fetch_models_failed">Failed to fetch models: %1$s. You can still enter a model
+  manually.</string>
     <string name="ai_output_language">Summary language</string>
-    <string name="ai_output_language_desc">For example zh-CN, en-US, or a language name</string>
-    <string name="ai_summary_length">Default summary length</string>
-    <string name="ai_summary_length_brief">Brief</string>
+    <string
+    name="ai_output_language_desc">For example zh-CN, en-US, or a language name</string>
+    <string
+    name="ai_summary_length">Default summary length</string>
+    <string name="ai_summary_length_brief">
+  Brief</string>
     <string name="ai_summary_length_standard">Standard</string>
-    <string name="ai_summary_length_detailed">Detailed</string>
-    <string name="ai_summary_length_brief_desc">One dense paragraph, roughly 120–220 Chinese characters when applicable, with no bullet list</string>
-    <string name="ai_summary_length_standard_desc">1–2 summary paragraphs plus 4–6 main points, each with key evidence, mechanism, or impact</string>
-    <string name="ai_summary_length_detailed_desc">2–3 summary paragraphs plus argument structure, 5–8 main points, and explicit risks, limits, or follow-ups from the source</string>
+    <string
+    name="ai_summary_length_detailed">Detailed</string>
+    <string name="ai_summary_length_brief_desc">One
+  dense paragraph, roughly 120–220 Chinese characters when applicable, with no bullet list</string>
+    <string
+    name="ai_summary_length_standard_desc">1–2 summary paragraphs plus 4–6 main points, each with
+  key evidence, mechanism, or impact</string>
+    <string name="ai_summary_length_detailed_desc">2–3
+  summary paragraphs plus argument structure, 5–8 main points, and explicit risks, limits, or
+  follow-ups from the source</string>
     <string name="ai_providers">AI services</string>
-    <string name="ai_providers_desc">Manage multiple AI services</string>
+    <string
+    name="ai_providers_desc">Manage multiple AI services</string>
     <string name="ai_add_provider">Add</string>
-    <string name="ai_provider_default_item">%1$s (default)</string>
-    <string name="ai_provider_switch_hint">%1$d services configured · Editing %2$s · Use the selector above to switch</string>
-    <string name="ai_provider_enabled">Enable this service</string>
-    <string name="ai_provider_enabled_desc">Disabled services are excluded from AI requests</string>
-    <string name="ai_provider_capabilities">Compatibility capabilities</string>
-    <string name="ai_provider_capabilities_desc">OrigRead detects these automatically by default. Override them per provider when a custom OpenAI-compatible endpoint is detected incorrectly.</string>
+    <string
+    name="ai_provider_default_item">%1$s (default)</string>
+    <string name="ai_provider_switch_hint">%1$d
+  services configured · Editing %2$s · Use the selector above to switch</string>
+    <string
+    name="ai_provider_enabled">Enable this service</string>
+    <string name="ai_provider_enabled_desc">Disabled
+  services are excluded from AI requests</string>
+    <string name="ai_provider_capabilities">Compatibility
+  capabilities</string>
+    <string name="ai_provider_capabilities_desc">Usually best left on Auto. Change an option only if this service behaves differently.</string>
     <string name="ai_capability_streaming">Streaming</string>
-    <string name="ai_capability_streaming_desc">Controls whether this provider uses streaming responses.</string>
-    <string name="ai_capability_tool_calling">Tool Calling</string>
-    <string name="ai_capability_tool_calling_desc">When enabled, models with Function Calling can automatically request authorized tools.</string>
+    <string
+    name="ai_capability_streaming_desc">Show replies as they are generated.</string>
+    <string
+    name="ai_capability_tool_calling">Tool Calling</string>
+    <string
+    name="ai_capability_tool_calling_desc">Let the model use tools you have enabled.</string>
     <string name="ai_capability_reasoning">Reasoning</string>
-    <string name="ai_capability_reasoning_desc">When enabled, OrigRead sends OpenAI-compatible reasoning_effort Low/Medium/High and accepts reasoning output. Keep Auto or Not supported for providers using a different parameter format.</string>
-    <string name="ai_capability_auto">Auto detect</string>
+    <string
+    name="ai_capability_reasoning_desc">Enable reasoning controls and reasoning output.</string>
+    <string name="ai_capability_auto">Auto
+  detect</string>
     <string name="ai_capability_supported">Supported</string>
-    <string name="ai_capability_unsupported">Not supported</string>
-    <string name="ai_default_provider">Default</string>
+    <string
+    name="ai_capability_unsupported">Not supported</string>
+    <string name="ai_default_provider">
+  Default</string>
     <string name="ai_provider_name">Service name</string>
-    <string name="ai_set_default_provider">Set default</string>
+    <string
+    name="ai_set_default_provider">Set default</string>
     <string name="ai_delete_provider">Delete</string>
-    <string name="ai_optional_api_key">API Key (optional)</string>
-    <string name="ai_optional_api_key_desc">Leave blank when authentication is not required</string>
+    <string
+    name="ai_optional_api_key">API Key (optional)</string>
+    <string name="ai_optional_api_key_desc">Leave
+  blank when authentication is not required</string>
     <string name="ai_save_key">Save credential</string>
-    <string name="ai_remove_key">Remove credential</string>
-    <string name="ai_privacy_title">Article upload notice</string>
-    <string name="ai_privacy_desc">Summaries send the current article to the AI service. API keys are encrypted locally.</string>
+    <string
+    name="ai_remove_key">Remove credential</string>
+    <string name="ai_privacy_title">Article upload
+  notice</string>
+    <string name="ai_privacy_desc">Summaries send the current article to the AI
+  service. API keys are encrypted locally.</string>
     <string name="ai_test_provider">Test service</string>
-    <string name="ai_test_success">Test successful</string>
+    <string
+    name="ai_test_success">Test successful</string>
     <string name="ai_test_failed">Test failed:</string>
-    <string name="ai_summary">AI Summary</string>
+    <string
+    name="ai_summary">AI Summary</string>
     <string name="ai_reasoning">Model reasoning</string>
-    <string name="ai_reasoning_expand">Show model reasoning</string>
-    <string name="ai_reasoning_collapse">Hide model reasoning</string>
-    <string name="ai_reasoning_disclaimer">This is reasoning text explicitly returned by the configured model API. It is not inferred or generated by OrigRead.</string>
-    <string name="ai_summary_generate">Generate AI summary</string>
-    <string name="ai_summary_stop">Stop generating summary</string>
+    <string
+    name="ai_reasoning_expand">Show model reasoning</string>
+    <string name="ai_reasoning_collapse">Hide
+  model reasoning</string>
+    <string name="ai_reasoning_disclaimer">This is reasoning text explicitly
+  returned by the configured model API. It is not inferred or generated by OrigRead.</string>
+    <string
+    name="ai_summary_generate">Generate AI summary</string>
+    <string name="ai_summary_stop">Stop
+  generating summary</string>
     <string name="ai_summary_regenerate">Regenerate</string>
-    <string name="ai_summary_close">Close</string>
+    <string
+    name="ai_summary_close">Close</string>
     <string name="ai_summary_preparing">Preparing article</string>
-    <string name="ai_summary_generating">Waiting for model generation</string>
-    <string name="ai_summary_finalizing">Finalizing summary</string>
-    <string name="ai_summary_elapsed">Waiting for %1$d s</string>
+    <string
+    name="ai_summary_generating">Waiting for model generation</string>
+    <string
+    name="ai_summary_finalizing">Finalizing summary</string>
+    <string name="ai_summary_elapsed">Waiting
+  for %1$d s</string>
     <string name="ai_summary_not_needed_title">No summary needed</string>
-    <string name="ai_summary_not_needed_local">The article is already very short, so further compression would only repeat it. No AI request was sent.</string>
-    <string name="ai_summary_regenerate_options">Regenerate summary</string>
+    <string
+    name="ai_summary_not_needed_local">The article is already very short, so further compression
+  would only repeat it. No AI request was sent.</string>
+    <string name="ai_summary_regenerate_options">Regenerate
+  summary</string>
     <string name="ai_summary_choose_provider">AI service</string>
-    <string name="ai_summary_choose_model">Model</string>
-    <string name="ai_summary_length_this_time">Summary length for this run</string>
+    <string
+    name="ai_summary_choose_model">Model</string>
+    <string name="ai_summary_length_this_time">Summary
+  length for this run</string>
     <string name="ai_summary_generate_with">Generate</string>
-    <string name="ai_summary_model_manual_hint">Choose a fetched model or enter a model ID directly</string>
-    <string name="ai_reading_actions">AI Reading</string>
+    <string
+    name="ai_summary_model_manual_hint">Choose a fetched model or enter a model ID directly</string>
+    <string
+    name="ai_reading_actions">AI Reading</string>
     <string name="ai_ask_article">Ask this article</string>
-    <string name="ai_analyze_article">Deep analysis</string>
-    <string name="configuration_backup_title">Backup &amp; restore</string>
-    <string name="edition_sync_receive_title">Sync from the other OrigRead edition?</string>
-    <string name="edition_sync_receive_desc">Account: %1$s\nSubscriptions: %2$d\nArticles: %3$d\n\nMatching settings and reading data will be updated. Data that exists only in this edition will be kept.</string>
+    <string
+    name="ai_analyze_article">Deep analysis</string>
+    <string name="configuration_backup_title">Backup
+  &amp; restore</string>
+    <string name="edition_sync_receive_title">Sync from the other OrigRead
+  edition?</string>
+    <string name="edition_sync_receive_desc">Account: %1$s\nSubscriptions:
+  %2$d\nArticles: %3$d\n\nMatching settings and reading data will be updated. Data that exists only
+  in this edition will be kept.</string>
     <string name="edition_sync_confirm">Sync</string>
-    <string name="edition_sync_success">Sync completed: %1$d subscriptions and %2$d articles</string>
-    <string name="edition_sync_failed">Edition sync failed</string>
-    <string name="edition_sync_standard_name">OrigRead</string>
+    <string
+    name="edition_sync_success">Sync completed: %1$d subscriptions and %2$d articles</string>
+    <string
+    name="edition_sync_failed">Edition sync failed</string>
+    <string name="edition_sync_standard_name">
+  OrigRead</string>
     <string name="edition_sync_llm_name">OrigRead X</string>
-    <string name="edition_sync_send_title">Sync to %1$s</string>
-    <string name="edition_sync_send_desc">Send shared settings and the current account’s subscriptions, articles, read/starred/read-later state to the other installed edition. Data that exists only in the target edition is kept. Supported credentials are included automatically.</string>
-    <string name="configuration_backup_desc">Export subscriptions, rules, reading preferences, translation, AI and supported edition-specific settings</string>
-    <string name="configuration_backup_scope_title">Portable configuration backup</string>
-    <string name="configuration_backup_scope_desc">Includes the current account’s subscriptions and groups, source rules, filters, RSSHub settings, app preferences, translation/AI providers and supported edition-specific settings. Articles, read/starred state, generated summaries, translations and caches are not included.</string>
-    <string name="configuration_backup_include_secrets">Include credentials</string>
-    <string name="configuration_backup_include_secrets_desc">Off by default. When enabled, supported API keys and other credentials are encrypted in backup files and may also be included in same-signature edition sync.</string>
-    <string name="configuration_backup_include_secrets_desc_portable_only">Off by default. When enabled, supported API keys and other credentials are encrypted in the backup file using your backup password.</string>
+    <string
+    name="edition_sync_send_title">Sync to %1$s</string>
+    <string name="edition_sync_send_desc">Send
+  shared settings and the current account’s subscriptions, articles, read/starred/read-later state
+  to the other installed edition. Data that exists only in the target edition is kept. Supported
+  credentials are included automatically.</string>
+    <string name="configuration_backup_desc">Export
+  subscriptions, rules, reading preferences, translation, AI and supported edition-specific settings</string>
+    <string
+    name="configuration_backup_scope_title">Portable configuration backup</string>
+    <string
+    name="configuration_backup_scope_desc">Includes the current account’s subscriptions and groups,
+  source rules, filters, RSSHub settings, app preferences, translation/AI providers and supported
+  edition-specific settings. Articles, read/starred state, generated summaries, translations and
+  caches are not included.</string>
+    <string name="configuration_backup_include_secrets">Include
+  credentials</string>
+    <string name="configuration_backup_include_secrets_desc">Off by default. When
+  enabled, supported API keys and other credentials are encrypted in backup files and may also be
+  included in same-signature edition sync.</string>
+    <string
+    name="configuration_backup_include_secrets_desc_portable_only">Off by default. When enabled,
+  supported API keys and other credentials are encrypted in the backup file using your backup
+  password.</string>
     <string name="configuration_backup_password">Backup password</string>
-    <string name="configuration_backup_password_desc">At least 6 characters. This password is not saved by OrigRead and is required to restore encrypted credentials on another device.</string>
-    <string name="configuration_backup_password_too_short">Backup password must be at least 6 characters</string>
-    <string name="configuration_backup_export">Export full configuration</string>
-    <string name="configuration_backup_export_desc">Create a versioned JSON backup that can be restored on another device</string>
+    <string
+    name="configuration_backup_password_desc">At least 6 characters. This password is not saved by
+  OrigRead and is required to restore encrypted credentials on another device.</string>
+    <string
+    name="configuration_backup_password_too_short">Backup password must be at least 6 characters</string>
+    <string
+    name="configuration_backup_export">Export full configuration</string>
+    <string
+    name="configuration_backup_export_desc">Create a versioned JSON backup that can be restored on
+  another device</string>
     <string name="configuration_backup_restore">Restore configuration</string>
-    <string name="configuration_backup_restore_desc">Import an OrigRead configuration backup and merge subscriptions safely</string>
-    <string name="configuration_backup_restore_confirm_title">Restore this configuration?</string>
-    <string name="configuration_backup_restore_summary">Source version: %1$s\nGroups: %2$d\nSubscriptions: %3$d</string>
-    <string name="configuration_backup_merge_notice">Existing subscriptions with the same URL will be updated and reused. Missing subscriptions will be added. Extra subscriptions already on this device will not be deleted, so restoring configuration will not remove article history.</string>
-    <string name="configuration_backup_restore_password_desc">This backup contains encrypted credentials. Enter the password used when the backup was created.</string>
-    <string name="configuration_backup_export_success">Configuration backup exported</string>
-    <string name="configuration_backup_restore_success">Configuration restored. %1$d subscriptions were processed. Some appearance or language changes may fully apply after restarting the app.</string>
-    <string name="configuration_backup_restore_failed">Restore failed: %1$s</string>
-    <string name="configuration_backup_invalid">Invalid configuration backup: %1$s</string>
-    <string name="configuration_backup_write_failed">Unable to write the backup file</string>
-    <string name="configuration_backup_read_failed">Unable to read the backup file</string>
-    <string name="ai_reading_assistant">AI reading assistant</string>
+    <string
+    name="configuration_backup_restore_desc">Import an OrigRead configuration backup and merge
+  subscriptions safely</string>
+    <string name="configuration_backup_restore_confirm_title">Restore
+  this configuration?</string>
+    <string name="configuration_backup_restore_summary">Source version:
+  %1$s\nGroups: %2$d\nSubscriptions: %3$d</string>
+    <string name="configuration_backup_merge_notice">Existing
+  subscriptions with the same URL will be updated and reused. Missing subscriptions will be added.
+  Extra subscriptions already on this device will not be deleted, so restoring configuration will
+  not remove article history.</string>
+    <string name="configuration_backup_restore_password_desc">This
+  backup contains encrypted credentials. Enter the password used when the backup was created.</string>
+    <string
+    name="configuration_backup_export_success">Configuration backup exported</string>
+    <string
+    name="configuration_backup_restore_success">Configuration restored. %1$d subscriptions were
+  processed. Some appearance or language changes may fully apply after restarting the app.</string>
+    <string
+    name="configuration_backup_restore_failed">Restore failed: %1$s</string>
+    <string
+    name="configuration_backup_invalid">Invalid configuration backup: %1$s</string>
+    <string
+    name="configuration_backup_write_failed">Unable to write the backup file</string>
+    <string
+    name="configuration_backup_read_failed">Unable to read the backup file</string>
+    <string
+    name="ai_reading_assistant">AI reading assistant</string>
     <string name="ai_markdown_code">Code</string>
-    <string name="ai_markdown_table">Table</string>
+    <string
+    name="ai_markdown_table">Table</string>
     <string name="ai_markdown_latex">LaTeX</string>
-    <string name="ai_markdown_copy_block">Copy %1$s</string>
+    <string
+    name="ai_markdown_copy_block">Copy %1$s</string>
     <string name="selected_text_ai">AI</string>
 </resources>

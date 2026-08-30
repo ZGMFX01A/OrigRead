@@ -4,6 +4,9 @@ import java.io.InterruptedIOException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
+import okhttp3.mockwebserver.SocketPolicy
 import me.ash.reader.infrastructure.ai.AiHttpClient
 import me.ash.reader.llm.runtime.LlmContextType
 import okhttp3.mockwebserver.MockResponse
@@ -319,6 +322,35 @@ class WebSearchFoundationTest {
     }
 
     @Test
+    fun `web search cancellation cancels blocked provider call`() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
+        server.start()
+        try {
+            val provider = ExaWebSearchProvider(AiHttpClient(), Dispatchers.IO)
+            val job =
+                launch(Dispatchers.IO) {
+                    provider.search(
+                        profile =
+                            WebSearchProviderProfile(
+                                id = "exa-cancel",
+                                kind = WebSearchProviderKind.EXA,
+                                endpoint = server.url("/search").toString(),
+                            ),
+                        apiKey = "exa-secret",
+                        request = WebSearchRequest(query = "cancel me", timeoutMillis = 10_000L),
+                    )
+                }
+
+            assertTrue(server.takeRequest(2, TimeUnit.SECONDS) != null)
+            job.cancelAndJoin()
+            assertTrue(job.isCancelled)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
     fun `linkup response normalizes sourced search results`() {
         val profile = WebSearchProviderProfile(id = "linkup", kind = WebSearchProviderKind.LINKUP)
         val response =
@@ -611,7 +643,7 @@ class WebSearchFoundationTest {
     }
 
     @Test
-    fun `search success exposes provider and response`() {
+    fun `empty search response maps auto to fallback and force to required failure`() {
         val response =
             WebSearchResponse(
                 providerId = "exa",
@@ -619,11 +651,41 @@ class WebSearchFoundationTest {
                 backendKind = WebSearchBackendKind.RAW_SEARCH,
                 results = emptyList(),
             )
-        val result = buildWebSearchSuccessResult(response)
-        assertEquals(WebSearchRequestStatus.SUCCESS, result.status)
-        assertEquals("Exa", result.providerName)
-        assertEquals(response, result.response)
-        assertFalse(result.requiredFailure)
+        val auto = buildWebSearchResult(response = response, required = false)
+        val force = buildWebSearchResult(response = response, required = true)
+
+        assertEquals(WebSearchRequestStatus.EMPTY_RESULT, auto.status)
+        assertFalse(auto.requiredFailure)
+        assertEquals(response, auto.response)
+        assertEquals(WebSearchRequestStatus.FAILED_REQUIRED, force.status)
+        assertTrue(force.requiredFailure)
+        assertEquals(null, force.response)
+    }
+
+    @Test
+    fun `search response conservatively deduplicates equivalent urls`() {
+        val response =
+            WebSearchResponse(
+                providerId = "exa",
+                providerName = "Exa",
+                backendKind = WebSearchBackendKind.RAW_SEARCH,
+                results =
+                    listOf(
+                        WebSearchResult("First", " HTTPS://EXAMPLE.COM:443/story/?utm_source=app#section "),
+                        WebSearchResult("Duplicate", "https://example.com/story?fbclid=abc"),
+                        WebSearchResult("Http remains distinct", "http://example.com/story"),
+                        WebSearchResult("Www remains distinct", "https://www.example.com/story"),
+                        WebSearchResult("Business query remains distinct", "https://example.com/story?lang=zh"),
+                    ),
+            )
+
+        val normalized = response.deduplicateResultsByUrl()
+
+        assertEquals(4, normalized.results.size)
+        assertEquals(" HTTPS://EXAMPLE.COM:443/story/?utm_source=app#section ", normalized.results.first().url)
+        assertTrue(normalized.results.any { it.url == "http://example.com/story" })
+        assertTrue(normalized.results.any { it.url == "https://www.example.com/story" })
+        assertTrue(normalized.results.any { it.url.endsWith("?lang=zh") })
     }
 
     @Test
@@ -865,4 +927,3 @@ class WebSearchFoundationTest {
         assertTrue(context.content.contains("source evidence"))
     }
 }
-

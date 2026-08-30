@@ -60,6 +60,20 @@ class AppUpdateDownloader @Inject constructor(
                             }
 
                             override fun onSuccess(file: File) {
+                                if (!context.isExpectedUpdateApk(file)) {
+                                    Log.w(
+                                        "RLog",
+                                        "downloadUpdate candidate returned a non-installable APK: $candidate",
+                                    )
+                                    file.delete()
+                                    if (index + 1 < candidates.size) {
+                                        startCandidate(index + 1)
+                                    } else {
+                                        trySend(Download.Error(context.getString(R.string.download_failure)))
+                                        close()
+                                    }
+                                    return
+                                }
                                 runCatching {
                                     val target = context.getLatestApk()
                                     if (file.absolutePath != target.absolutePath) {
@@ -103,4 +117,16 @@ class AppUpdateDownloader @Inject constructor(
             // 下载任务由库内 Service 管理；Flow 关闭仅结束 UI 状态桥接。
             awaitClose { }
         }
+}
+
+/**
+ * 公共 GitHub 镜像偶尔会用 HTTP 200 返回 HTML 错误页；不能仅凭下载库的 onSuccess 判定成功。
+ * 这里交给 Android PackageManager 解析，并要求包名与当前 Edition 一致，失败时继续下一个候选地址。
+ */
+@Suppress("DEPRECATION")
+private fun Context.isExpectedUpdateApk(file: File): Boolean {
+    if (!file.isFile || file.length() <= 0L) return false
+    return runCatching {
+        packageManager.getPackageArchiveInfo(file.absolutePath, 0)?.packageName == packageName
+    }.getOrDefault(false)
 }

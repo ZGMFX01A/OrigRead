@@ -69,4 +69,5 @@ class EditionConfigurationBackupExtensionTest {
         verify(skillRepository, never()).restoreBackupState(org.mockito.kotlin.any())
         verify(quickMessageRepository, never()).restoreBackupState(org.mockito.kotlin.any())
     }
+
 }

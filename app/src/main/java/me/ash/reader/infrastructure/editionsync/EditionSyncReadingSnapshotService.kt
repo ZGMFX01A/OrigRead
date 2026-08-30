@@ -15,6 +15,7 @@ import me.ash.reader.domain.repository.FeedDao
 import me.ash.reader.domain.repository.GroupDao
 import me.ash.reader.domain.service.AccountService
 import me.ash.reader.infrastructure.db.AndroidDatabase
+import me.ash.reader.infrastructure.source.findFeedByComparisonUrl
 import me.ash.reader.ui.ext.dollarLast
 import me.ash.reader.ui.ext.getDefaultGroupId
 import me.ash.reader.ui.ext.spacerDollar
@@ -238,7 +239,8 @@ class EditionSyncReadingSnapshotService @Inject constructor(
                 val desiredId = targetAccountId.spacerDollar(source.key)
                 val existing =
                     existingFeeds.firstOrNull { it.id == desiredId }
-                        ?: existingFeeds.firstOrNull { it.url.trim() == source.url.trim() }
+                        // 可移植 ID 不一致时，复用统一比较键避免大小写、默认端口、fragment、tracking 等产生重复 Feed。
+                        ?: findFeedByComparisonUrl(existingFeeds, source.url)
                 val targetFeedId = existing?.id ?: desiredId
                 val targetGroupId =
                     if (source.groupIsDefault) {

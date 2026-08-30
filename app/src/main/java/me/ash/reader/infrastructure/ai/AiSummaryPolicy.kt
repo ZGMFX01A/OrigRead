@@ -20,6 +20,9 @@ data class AiSummaryModelDecision(
 )
 
 private const val SUMMARY_META_V2_PREFIX = "<!-- origread-summary-v2:"
+private const val SUMMARY_META_VERSION = 2
+private const val MAX_SUMMARY_DOMAIN_LENGTH = 24
+private val SUMMARY_DOMAIN_PATTERN = Regex("^[a-z0-9]+(?:[-_][a-z0-9]+)*$")
 
 private data class SummaryMetaPrefix(
     val json: String,
@@ -134,12 +137,19 @@ fun parseAiSummaryModelOutput(content: String): AiSummaryModelDecision {
         ?: return AiSummaryModelDecision(null, null, content.trim())
     return runCatching {
             val meta = JSONObject(metaPrefix.json)
+            require(meta.optInt("v", -1) == SUMMARY_META_VERSION && meta.get("v") is Number) {
+                "AI 摘要元数据版本无效"
+            }
             val form =
                 meta.optString("form")
                     .takeIf(String::isNotBlank)
                     ?.uppercase()
                     ?.let { value -> runCatching { AiArticleForm.valueOf(value) }.getOrNull() }
-            val domain = meta.optString("domain").trim().take(48).takeIf(String::isNotBlank)
+            requireNotNull(form) { "AI 摘要文章形态无效" }
+            val domain = meta.optString("domain").trim()
+            require(domain.length in 1..MAX_SUMMARY_DOMAIN_LENGTH && SUMMARY_DOMAIN_PATTERN.matches(domain)) {
+                "AI 摘要领域标签无效"
+            }
             val summary = content.substring(metaPrefix.bodyStartIndex).trim()
             require(summary.isNotBlank()) { "AI 摘要元数据后没有返回摘要正文" }
             AiSummaryModelDecision(

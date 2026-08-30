@@ -176,6 +176,13 @@ class OpenAiCompatibleProvider @Inject constructor(
         config: AiRuntimeConfig,
     ): String = completeDetailed(systemPrompt, userPrompt, config).content
 
+    /** AI 翻译等协程调用共享的可取消完整响应入口。 */
+    suspend fun completeCancellable(
+        systemPrompt: String,
+        userPrompt: String,
+        config: AiRuntimeConfig,
+    ): String = completeDetailedCancellable(systemPrompt, userPrompt, config).content
+
     /**
      * 调用 OpenAI Chat Completions 兼容接口并保留供应商显式返回的 reasoning。
      * 支持 DeepSeek 等常见 `reasoning_content`，同时兼容 `reasoning` 与 `<think>` 文本格式。
@@ -185,6 +192,8 @@ class OpenAiCompatibleProvider @Inject constructor(
         userPrompt: String,
         config: AiRuntimeConfig,
         temperature: Double = DEFAULT_COMPLETION_TEMPERATURE,
+        maxOutputTokens: Int? = null,
+        outputTokenLimitStyle: AiOutputTokenLimitStyle = AiOutputTokenLimitStyle.MAX_TOKENS,
     ): AiCompletionResult {
         val responseText =
             execute(
@@ -193,6 +202,8 @@ class OpenAiCompatibleProvider @Inject constructor(
                     userPrompt = userPrompt,
                     config = config,
                     temperature = temperature,
+                    maxOutputTokens = maxOutputTokens,
+                    outputTokenLimitStyle = outputTokenLimitStyle,
                 )
             )
         return parseCompletionResponse(responseText)
@@ -207,6 +218,8 @@ class OpenAiCompatibleProvider @Inject constructor(
         userPrompt: String,
         config: AiRuntimeConfig,
         temperature: Double = DEFAULT_COMPLETION_TEMPERATURE,
+        maxOutputTokens: Int? = null,
+        outputTokenLimitStyle: AiOutputTokenLimitStyle = AiOutputTokenLimitStyle.MAX_TOKENS,
         perfTrace: AiPerfTrace? = null,
     ): AiCompletionResult {
         val trace = perfTrace ?: AiPerfTracer.start("ai-completion")
@@ -217,6 +230,8 @@ class OpenAiCompatibleProvider @Inject constructor(
                     userPrompt = userPrompt,
                     config = config,
                     temperature = temperature,
+                    maxOutputTokens = maxOutputTokens,
+                    outputTokenLimitStyle = outputTokenLimitStyle,
                     perfTrace = trace,
                 )
             )
@@ -241,6 +256,8 @@ class OpenAiCompatibleProvider @Inject constructor(
         userPrompt: String,
         config: AiRuntimeConfig,
         temperature: Double = DEFAULT_COMPLETION_TEMPERATURE,
+        maxOutputTokens: Int? = null,
+        outputTokenLimitStyle: AiOutputTokenLimitStyle = AiOutputTokenLimitStyle.MAX_TOKENS,
         perfTrace: AiPerfTrace? = null,
         onDelta: (AiCompletionDelta) -> Unit,
     ): AiCompletionResult {
@@ -251,6 +268,8 @@ class OpenAiCompatibleProvider @Inject constructor(
                 userPrompt = userPrompt,
                 config = config,
                 temperature = temperature,
+                maxOutputTokens = maxOutputTokens,
+                outputTokenLimitStyle = outputTokenLimitStyle,
                 perfTrace = trace,
                 stream = true,
             )
@@ -262,10 +281,12 @@ class OpenAiCompatibleProvider @Inject constructor(
         userPrompt: String,
         config: AiRuntimeConfig,
         temperature: Double = DEFAULT_COMPLETION_TEMPERATURE,
+        maxOutputTokens: Int? = null,
+        outputTokenLimitStyle: AiOutputTokenLimitStyle = AiOutputTokenLimitStyle.MAX_TOKENS,
         perfTrace: AiPerfTrace? = null,
         stream: Boolean = false,
     ): Request {
-        val bodyJson =
+        val bodyObject =
             JSONObject()
                 .put("model", config.model)
                 .put("stream", stream)
@@ -276,7 +297,13 @@ class OpenAiCompatibleProvider @Inject constructor(
                         .put(JSONObject().put("role", "system").put("content", systemPrompt))
                         .put(JSONObject().put("role", "user").put("content", userPrompt)),
                 )
-                .toString()
+        // 默认不双发两个兼容性不同的字段；调用方可按 Provider 能力切换参数风格。
+        maxOutputTokens?.takeIf { it > 0 }?.let { limit ->
+            val requestField = outputTokenLimitStyle.requestField
+                ?: error("发送请求前必须先解析 AUTO 输出 token 字段")
+            bodyObject.put(requestField, limit)
+        }
+        val bodyJson = bodyObject.toString()
         perfTrace?.let { trace ->
             AiPerfTracer.mark(
                 trace,
@@ -405,27 +432,12 @@ class OpenAiCompatibleProvider @Inject constructor(
     }
 
     private suspend fun executeCancellable(request: Request): String =
-        suspendCancellableCoroutine { continuation ->
-            val call = httpClient.client.newCall(request)
-            continuation.invokeOnCancellation { call.cancel() }
-            call.enqueue(
-                object : Callback {
-                    override fun onFailure(call: Call, e: java.io.IOException) {
-                        if (!continuation.isActive) return
-                        continuation.resumeWith(Result.failure(classifyNetworkError(e)))
-                    }
-
-                    override fun onResponse(call: Call, response: Response) {
-                        if (!continuation.isActive) {
-                            response.close()
-                            return
-                        }
-                        continuation.resumeWith(
-                            runCatching { readResponse(response) },
-                        )
-                    }
-                }
-            )
+        try {
+            httpClient.client.newCall(request).awaitResponseAndUse(::readResponse)
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            throw classifyNetworkError(error)
         }
 
     /** 真正消费 SSE 的可取消请求；最终仍返回完整结果，供既有摘要解析和缓存链复用。 */

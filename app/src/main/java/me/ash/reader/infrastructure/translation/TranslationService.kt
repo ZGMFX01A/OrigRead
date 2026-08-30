@@ -222,7 +222,7 @@ class TranslationService @Inject constructor(
             }
             val raw =
                 try {
-                    aiProvider.complete(
+                    aiProvider.completeCancellable(
                         systemPrompt = systemPrompt,
                         userPrompt =
                             buildAiTranslationUserPrompt(

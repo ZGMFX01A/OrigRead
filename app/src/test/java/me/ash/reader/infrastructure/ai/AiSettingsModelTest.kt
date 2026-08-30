@@ -5,6 +5,17 @@ import org.junit.Test
 
 class AiSettingsModelTest {
     @Test
+    fun `legacy provider settings default output token style to auto`() {
+        assertEquals(AiOutputTokenLimitStyle.AUTO, parseAiOutputTokenLimitStyle(null))
+        assertEquals(AiOutputTokenLimitStyle.AUTO, parseAiOutputTokenLimitStyle(""))
+        assertEquals(AiOutputTokenLimitStyle.AUTO, parseAiOutputTokenLimitStyle("UNKNOWN_LEGACY_VALUE"))
+        assertEquals(
+            AiOutputTokenLimitStyle.MAX_COMPLETION_TOKENS,
+            parseAiOutputTokenLimitStyle("MAX_COMPLETION_TOKENS"),
+        )
+    }
+
+    @Test
     fun `disabled default provider falls back to enabled provider`() {
         val settings =
             AiSettings(

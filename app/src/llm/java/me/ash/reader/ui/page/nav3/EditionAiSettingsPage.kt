@@ -6,6 +6,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
+import me.ash.reader.R
 import me.ash.reader.llm.mcp.McpSettingsPage
 import me.ash.reader.llm.quickmessage.LlmQuickMessageSettingsPage
 import me.ash.reader.llm.search.WebSearchSettingsPage
@@ -57,6 +59,7 @@ internal fun EditionAiSettingsPage(onBack: () -> Unit) {
     AiSettingsPage(
         onBack = onBack,
         showProviderCapabilityOverrides = true,
+        providerConfigurationTitle = stringResource(R.string.llm_ai_provider_configuration),
         additionalSettingsContent = {
             LlmAdvancedSettingsSection(
                 onOpenCustomInstructions = { currentSubPage = AiSettingsSubPage.CUSTOM_INSTRUCTIONS },

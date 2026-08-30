@@ -11,6 +11,7 @@ import me.ash.reader.llm.search.WebSearchRequestStatus
 internal enum class WebSearchActivityUiState {
     SEARCHING,
     SUCCESS,
+    EMPTY_RESULT,
     FAILED_FALLBACK,
     FORCE_FAILURE,
     CANCELLED,
@@ -57,6 +58,7 @@ internal fun projectWebSearchMessage(
                     else -> return null
                 }
             WebSearchRequestStatus.SUCCESS -> WebSearchActivityUiState.SUCCESS
+            WebSearchRequestStatus.EMPTY_RESULT -> WebSearchActivityUiState.EMPTY_RESULT
             WebSearchRequestStatus.FAILED_FALLBACK -> WebSearchActivityUiState.FAILED_FALLBACK
             WebSearchRequestStatus.FAILED_REQUIRED -> WebSearchActivityUiState.FORCE_FAILURE
             WebSearchRequestStatus.CANCELLED -> WebSearchActivityUiState.CANCELLED
@@ -84,6 +86,7 @@ internal fun projectWebSearchMessage(
         errorState =
             when (state) {
                 WebSearchActivityUiState.FAILED_FALLBACK -> WebSearchMessageErrorState.AUTO_FALLBACK
+                WebSearchActivityUiState.EMPTY_RESULT -> WebSearchMessageErrorState.AUTO_FALLBACK
                 WebSearchActivityUiState.FORCE_FAILURE -> WebSearchMessageErrorState.FORCE_FAILURE
                 else -> WebSearchMessageErrorState.NONE
             },

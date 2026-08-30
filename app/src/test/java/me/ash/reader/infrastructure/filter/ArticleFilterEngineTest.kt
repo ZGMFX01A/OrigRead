@@ -23,10 +23,37 @@ class ArticleFilterEngineTest {
             val blocked = article(id = "blocked", title = "BLOCKED breaking news")
             val allowed = article(id = "allowed", title = "Normal article")
 
-            val result = engine.filterBeforeInsert(listOf(blocked, allowed))
+            val result = engine.filterBeforeInsert(listOf(blocked, allowed), sourceName = "Test Feed")
 
             assertEquals(listOf("allowed"), result.map { it.id })
             assertEquals(1L, repository.getStats().totalFiltered)
+            assertEquals(1, repository.getFilteredArticles().size)
+            assertEquals("Test Feed", repository.getFilteredArticles().single().sourceName)
+            assertEquals("BLOCKED breaking news", repository.getFilteredArticles().single().title)
+        } finally {
+            filesDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `filtered article history is deduplicated and capped at 200 records`() {
+        val filesDir = Files.createTempDirectory("origread-filter-history").toFile()
+        try {
+            val context = mock<Context>()
+            whenever(context.filesDir).thenReturn(filesDir)
+            val repository = ArticleFilterRepository(context)
+            repository.add(keyword = "blocked")
+            val engine = ArticleFilterEngine(repository)
+            val articles =
+                (0 until 205).map { index ->
+                    article(id = "blocked-$index", title = "blocked article $index")
+                }
+
+            engine.filterBeforeInsert(articles, sourceName = "Test Feed")
+            engine.filterBeforeInsert(listOf(articles.last()), sourceName = "Test Feed")
+
+            assertEquals(200, repository.getFilteredArticles().size)
+            assertEquals(200, repository.getFilteredArticles().map { it.articleId }.distinct().size)
         } finally {
             filesDir.deleteRecursively()
         }

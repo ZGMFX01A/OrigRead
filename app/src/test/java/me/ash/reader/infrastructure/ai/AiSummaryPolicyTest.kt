@@ -87,4 +87,40 @@ class AiSummaryPolicyTest {
         assertNull(result.domain)
         assertEquals("普通 Markdown 摘要", result.summary)
     }
+
+    @Test
+    fun `invalid v2 metadata fails open to body and clears metadata`() {
+        val invalidHeaders =
+            listOf(
+                "{\"v\":1,\"form\":\"news\",\"domain\":\"technology\"}",
+                "{\"v\":2,\"form\":\"unknown\",\"domain\":\"technology\"}",
+                "{\"v\":2,\"form\":\"news\",\"domain\":\"Technology\"}",
+                "{\"v\":2,\"form\":\"news\",\"domain\":\"tech news\"}",
+                "{\"v\":2,\"form\":\"news\",\"domain\":\"technology-and-science-and-business\"}",
+                "{\"v\":2,\"form\":\"news\",\"domain\":\"技术\"}",
+                "{\"v\":\"2\",\"form\":\"news\",\"domain\":\"technology\"}",
+            )
+
+        invalidHeaders.forEachIndexed { index, header ->
+            val result = parseAiSummaryModelOutput("<!-- origread-summary-v2: $header -->\n正文-$index")
+            assertNull("header=$header", result.articleForm)
+            assertNull("header=$header", result.domain)
+            assertEquals("正文-$index", result.summary)
+        }
+    }
+
+    @Test
+    fun `valid metadata accepts only short lowercase english domain labels`() {
+        val validDomains = listOf("ai", "technology", "mobile-apps", "open_source", "web3")
+
+        validDomains.forEach { domain ->
+            val result =
+                parseAiSummaryModelOutput(
+                    "<!-- origread-summary-v2: {\"v\":2,\"form\":\"news\",\"domain\":\"$domain\"} -->\n正文"
+                )
+            assertEquals(AiArticleForm.NEWS, result.articleForm)
+            assertEquals(domain, result.domain)
+            assertEquals("正文", result.summary)
+        }
+    }
 }

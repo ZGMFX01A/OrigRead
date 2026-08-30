@@ -15,6 +15,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import me.ash.reader.infrastructure.ai.awaitResponseAndUse
 
 private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
@@ -63,6 +64,50 @@ abstract class BaseHttpTranslationProvider(
                     error,
                 )
             }
+
+    /** 协程路径使用真取消，且保持既有 timeout 和错误分类。 */
+    protected suspend fun executeJsonCancellable(request: Request): String =
+        try {
+            httpClient.client.newCall(request).awaitResponseAndUse { response ->
+                val body = response.body.string()
+                when {
+                    response.code == 401 || response.code == 403 ->
+                        throw TranslationException(
+                            TranslationErrorCode.AUTHENTICATION,
+                            responseMessage("翻译服务鉴权失败", response.code, body),
+                        )
+                    response.code == 429 || response.code == 456 ->
+                        throw TranslationException(
+                            TranslationErrorCode.RATE_LIMITED,
+                            responseMessage("翻译服务请求过于频繁或额度已用尽", response.code, body),
+                        )
+                    response.code == 404 || response.code == 405 ->
+                        throw TranslationException(
+                            TranslationErrorCode.PROVIDER_NOT_CONFIGURED,
+                            responseMessage("翻译服务地址或接口路径不正确", response.code, body),
+                        )
+                    response.code == 400 || response.code == 422 ->
+                        throw TranslationException(
+                            TranslationErrorCode.INVALID_RESPONSE,
+                            responseMessage("翻译服务拒绝了当前请求参数", response.code, body),
+                        )
+                    !response.isSuccessful ->
+                        throw TranslationException(
+                            TranslationErrorCode.NETWORK,
+                            responseMessage("翻译服务请求失败", response.code, body),
+                        )
+                }
+                body
+            }
+        } catch (error: Throwable) {
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            if (error is TranslationException) throw error
+            throw TranslationException(
+                TranslationErrorCode.NETWORK,
+                networkErrorMessage(error, request.url.host),
+                error,
+            )
+        }
 
     /** 尽可能保留服务端返回的短错误信息，避免所有问题都只显示为“网络失败”。 */
     private fun responseMessage(prefix: String, status: Int, body: String): String {
@@ -224,7 +269,7 @@ class MicrosoftTranslationProvider @Inject constructor(
         if (config.region.isNotBlank()) {
             builder.header("Ocp-Apim-Subscription-Region", config.region)
         }
-        val response = JSONArray(executeJson(builder.build()))
+        val response = JSONArray(executeJsonCancellable(builder.build()))
         val translated =
             List(response.length()) { index ->
                 response
@@ -266,7 +311,7 @@ class DeepLTranslationProvider @Inject constructor(
                 .header("Authorization", "DeepL-Auth-Key $apiKey")
                 .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
                 .build()
-        val translations = JSONObject(executeJson(request)).getJSONArray("translations")
+        val translations = JSONObject(executeJsonCancellable(request)).getJSONArray("translations")
         val translated =
             List(translations.length()) { index -> translations.getJSONObject(index).getString("text") }
         val detected =
@@ -331,7 +376,7 @@ class GoogleCloudTranslationProvider @Inject constructor(
                 .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
                 .build()
         val translations =
-            JSONObject(executeJson(request))
+            JSONObject(executeJsonCancellable(request))
                 .getJSONObject("data")
                 .getJSONArray("translations")
         val translated =
@@ -374,7 +419,7 @@ class DlxTranslationProvider @Inject constructor(
                 if (config.apiKey.isNotBlank()) {
                     builder.header("Authorization", "Bearer ${config.apiKey}")
                 }
-                parseDlxResponse(executeJson(builder.build()))
+                parseDlxResponse(executeJsonCancellable(builder.build()))
             }
         return TranslationBatchResult(output, sourceLanguage)
     }

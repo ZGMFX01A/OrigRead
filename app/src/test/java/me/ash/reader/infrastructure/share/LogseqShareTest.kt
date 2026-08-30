@@ -23,14 +23,17 @@ class LogseqShareTest {
     }
 
     @Test
-    fun `quick capture uri keeps long markdown intact`() {
+    fun `long article does not use quick capture uri fallback`() {
         val markdown = buildString {
             repeat(4_000) { index -> append("第$index 行：AI & Kotlin #tag\n") }
         }
 
-        val uri = LogseqShare.buildQuickCaptureUri("长文", "https://example.com", markdown)
+        assertTrue(!LogseqShare.shouldUseQuickCaptureFallback(markdown))
+    }
 
-        assertEquals(markdown, decodeQuery(uri)["content"])
+    @Test
+    fun `short text can still use quick capture fallback for old logseq`() {
+        assertTrue(LogseqShare.shouldUseQuickCaptureFallback("短文本"))
     }
 
     /** 将测试 URI 的查询参数还原，验证编码后的参数边界与原始内容完全一致。 */

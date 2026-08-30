@@ -11,6 +11,7 @@ import okhttp3.mockwebserver.SocketPolicy
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -204,7 +205,7 @@ class OpenAiCompatibleProviderTest {
 
     @After
     fun tearDown() {
-        server.shutdown()
+        runCatching { server.shutdown() }
     }
 
     @Test
@@ -326,6 +327,80 @@ class OpenAiCompatibleProviderTest {
     }
 
     @Test
+    fun `completion request writes configured output limit without double sending fields`() {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"choices":[{"message":{"role":"assistant","content":"受限输出"}}]}"""
+            )
+        )
+
+        provider.completeDetailed(
+            systemPrompt = "system",
+            userPrompt = "user",
+            config = AiRuntimeConfig(server.url("/v1").toString(), "model", ""),
+            maxOutputTokens = 1_536,
+            outputTokenLimitStyle = AiOutputTokenLimitStyle.MAX_COMPLETION_TOKENS,
+        )
+
+        val body = JSONObject(server.takeRequest().body.readUtf8())
+        assertEquals(1_536, body.getInt("max_completion_tokens"))
+        assertFalse(body.has("max_tokens"))
+    }
+
+    @Test
+    fun `summary resolver sends max completion tokens for official reasoning models`() {
+        server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"content":"summary"}}]}"""))
+        val runtime = AiRuntimeConfig(server.url("/v1").toString(), "gpt-5", "")
+        val style =
+            resolveAiOutputTokenLimitStyle(
+                endpoint = "https://api.openai.com/v1",
+                model = runtime.model,
+                configuredStyle = AiOutputTokenLimitStyle.AUTO,
+            )
+
+        provider.completeDetailed(
+            systemPrompt = "system",
+            userPrompt = "article",
+            config = runtime,
+            maxOutputTokens = 1_024,
+            outputTokenLimitStyle = style,
+        )
+
+        val body = JSONObject(server.takeRequest().body.readUtf8())
+        assertEquals(1_024, body.getInt("max_completion_tokens"))
+        assertFalse(body.has("max_tokens"))
+    }
+
+    @Test
+    fun `summary resolver keeps self hosted default and honors manual override`() {
+        server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"content":"summary"}}]}"""))
+        server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"content":"summary"}}]}"""))
+        val runtime = AiRuntimeConfig(server.url("/v1").toString(), "gpt-5", "")
+        val automatic =
+            resolveAiOutputTokenLimitStyle(
+                endpoint = "https://gateway.example.com/v1",
+                model = runtime.model,
+                configuredStyle = AiOutputTokenLimitStyle.AUTO,
+            )
+        val overridden =
+            resolveAiOutputTokenLimitStyle(
+                endpoint = "https://gateway.example.com/v1",
+                model = runtime.model,
+                configuredStyle = AiOutputTokenLimitStyle.MAX_COMPLETION_TOKENS,
+            )
+
+        provider.completeDetailed("system", "article", runtime, maxOutputTokens = 512, outputTokenLimitStyle = automatic)
+        provider.completeDetailed("system", "article", runtime, maxOutputTokens = 768, outputTokenLimitStyle = overridden)
+
+        val automaticBody = JSONObject(server.takeRequest().body.readUtf8())
+        val overriddenBody = JSONObject(server.takeRequest().body.readUtf8())
+        assertEquals(512, automaticBody.getInt("max_tokens"))
+        assertFalse(automaticBody.has("max_completion_tokens"))
+        assertEquals(768, overriddenBody.getInt("max_completion_tokens"))
+        assertFalse(overriddenBody.has("max_tokens"))
+    }
+
+    @Test
     fun `supports keyless service and array content response`() {
         server.enqueue(
             MockResponse().setBody(
@@ -390,6 +465,35 @@ class OpenAiCompatibleProviderTest {
         assertTrue(server.takeRequest(2, TimeUnit.SECONDS) != null)
         job.cancelAndJoin()
         assertTrue(job.isCancelled)
+    }
+
+    @Test
+    fun `cancellable completion cancels call while response body is still blocked`() = runBlocking {
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "application/json")
+                .setBody("""{"choices":[{"message":{"content":"slow body"}}]}""")
+                // 响应头会立即到达，但响应体延迟发送，用于覆盖 body.string() 阻塞阶段。
+                .setBodyDelay(10, TimeUnit.SECONDS)
+        )
+        val job =
+            launch(Dispatchers.IO) {
+                provider.completeDetailedCancellable(
+                    systemPrompt = "system",
+                    userPrompt = "article",
+                    config = AiRuntimeConfig(server.url("/v1").toString(), "slow-body-model", ""),
+                )
+            }
+
+        assertTrue(server.takeRequest(5, TimeUnit.SECONDS) != null)
+        // 等待服务端写出响应头并进入慢速 body 读取，再验证取消不会等到 read timeout。
+        kotlinx.coroutines.delay(250)
+        val startedAt = System.nanoTime()
+        job.cancelAndJoin()
+        val elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
+
+        assertTrue(job.isCancelled)
+        assertTrue("body 阶段取消耗时 ${elapsedMillis}ms", elapsedMillis < 2_000)
     }
 }
 

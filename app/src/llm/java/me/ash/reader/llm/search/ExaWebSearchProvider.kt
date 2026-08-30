@@ -47,7 +47,7 @@ class ExaWebSearchProvider @Inject constructor(
                     .header("Accept", "application/json")
                     .post(body.toString().toRequestBody(EXA_JSON_MEDIA_TYPE))
                     .build()
-            httpClient.newWebSearchCall(httpRequest, request).execute().use { response ->
+            httpClient.executeWebSearchCall(httpRequest, request) { response ->
                 val payload = response.body?.string().orEmpty()
                 request.perfTrace?.let { trace ->
                     AiPerfTracer.mark(
@@ -126,4 +126,3 @@ private fun exaErrorSuffix(payload: String): String {
 
 private val EXA_JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 private const val MAX_EXA_SNIPPET_LENGTH = 1_500
-

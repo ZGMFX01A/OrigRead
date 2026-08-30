@@ -30,7 +30,18 @@ class ArticleFilterRepositoryFlowTest {
             repository.add(keyword = "blocked")
             yield()
             val addedRule = repository.getAll().single()
-            repository.recordMatches(count = 1, lastRule = addedRule)
+            repository.recordFilteredArticles(
+                listOf(
+                    FilteredArticleRecord(
+                        articleId = "article-1",
+                        feedId = "feed-1",
+                        sourceName = "Test Feed",
+                        title = "blocked article",
+                        matchedRule = addedRule.keyword,
+                        filteredAt = 1L,
+                    )
+                )
+            )
             yield()
             repository.delete(addedRule)
             yield()

@@ -6,6 +6,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
+import me.ash.reader.infrastructure.ai.awaitResponseAndUse
 import me.ash.reader.BuildConfig
 import me.ash.reader.infrastructure.ai.AiHttpClient
 import me.ash.reader.infrastructure.di.IODispatcher
@@ -36,15 +37,17 @@ class McpRemoteClient @Inject constructor(
      */
     suspend fun authorizationChallenge(profile: McpServerProfile): McpAuthorizationChallenge =
         withContext(ioDispatcher) {
+            val id = nextId()
             val response =
                 send(
                     profile = profile.copy(authType = McpAuthType.NONE),
                     bearerToken = "",
                     customHeaders = emptyMap(),
-                    body = rpcRequest(nextId(), "server/discover", JSONObject().put("_meta", modernMeta())),
+                    body = rpcRequest(id, "server/discover", JSONObject().put("_meta", modernMeta())),
                     protocolVersion = MODERN_PROTOCOL_VERSION,
                     method = "server/discover",
                     name = null,
+                    expectedId = id,
                 )
             McpAuthorizationChallenge(response.statusCode, response.wwwAuthenticate)
         }
@@ -93,7 +96,7 @@ class McpRemoteClient @Inject constructor(
         connections.remove(serverId)
     }
 
-    private fun connect(
+    private suspend fun connect(
         profile: McpServerProfile,
         bearerToken: String,
         customHeaders: Map<String, String>,
@@ -119,7 +122,7 @@ class McpRemoteClient @Inject constructor(
     }
 
     /** 返回 null 仅表示“服务端不支持现代 era”，认证/网络/服务端 5xx 不允许伪装成协议降级。 */
-    private fun modernDiscover(
+    private suspend fun modernDiscover(
         profile: McpServerProfile,
         bearerToken: String,
         customHeaders: Map<String, String>,
@@ -135,6 +138,7 @@ class McpRemoteClient @Inject constructor(
                 protocolVersion = MODERN_PROTOCOL_VERSION,
                 method = "server/discover",
                 name = null,
+                expectedId = id,
             )
         if (response.statusCode == 401 || response.statusCode == 403) {
             throw McpAuthorizationException(response.statusCode, response.wwwAuthenticate)
@@ -159,7 +163,7 @@ class McpRemoteClient @Inject constructor(
         return ModernDiscovery(serverName = serverInfo?.optString("name")?.takeIf(String::isNotBlank))
     }
 
-    private fun initializeLegacy(
+    private suspend fun initializeLegacy(
         profile: McpServerProfile,
         bearerToken: String,
         customHeaders: Map<String, String>,
@@ -179,6 +183,7 @@ class McpRemoteClient @Inject constructor(
                 protocolVersion = null,
                 method = null,
                 name = null,
+                expectedId = id,
             )
         if (response.statusCode == 401 || response.statusCode == 403) {
             throw McpAuthorizationException(response.statusCode, response.wwwAuthenticate)
@@ -205,7 +210,7 @@ class McpRemoteClient @Inject constructor(
         return connection
     }
 
-    private fun listAllTools(
+    private suspend fun listAllTools(
         profile: McpServerProfile,
         bearerToken: String,
         customHeaders: Map<String, String>,
@@ -248,7 +253,7 @@ class McpRemoteClient @Inject constructor(
         throw McpException("MCP tools/list 分页超过安全上限 $MAX_LIST_PAGES")
     }
 
-    private fun request(
+    private suspend fun request(
         profile: McpServerProfile,
         bearerToken: String,
         customHeaders: Map<String, String>,
@@ -270,10 +275,11 @@ class McpRemoteClient @Inject constructor(
             method = if (connection.era == McpProtocolEra.MODERN) method else null,
             name = if (connection.era == McpProtocolEra.MODERN) name else null,
             sessionId = connection.sessionId,
+            expectedId = id,
         )
     }
 
-    private fun sendNotification(
+    private suspend fun sendNotification(
         profile: McpServerProfile,
         bearerToken: String,
         customHeaders: Map<String, String>,
@@ -298,7 +304,7 @@ class McpRemoteClient @Inject constructor(
         }
     }
 
-    private fun send(
+    private suspend fun send(
         profile: McpServerProfile,
         bearerToken: String,
         customHeaders: Map<String, String>,
@@ -307,6 +313,7 @@ class McpRemoteClient @Inject constructor(
         method: String?,
         name: String?,
         sessionId: String? = null,
+        expectedId: Any? = null,
     ): McpHttpResponse {
         val request =
             Request.Builder()
@@ -332,17 +339,22 @@ class McpRemoteClient @Inject constructor(
                 }
                 .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
                 .build()
-        return httpClient.client.newCall(request).execute().use { response -> parseHttpResponse(response) }
+        // MCP 写操作取消只承诺停止等待并取消 Call；远端已执行的副作用无法由客户端撤销。
+        return httpClient.client.newCall(request).awaitResponseAndUse { response ->
+            parseHttpResponse(response, expectedId)
+        }
     }
 
-    private fun parseHttpResponse(response: Response): McpHttpResponse {
+    private fun parseHttpResponse(response: Response, expectedId: Any?): McpHttpResponse {
         val raw = response.body?.string().orEmpty()
         val payload =
             when {
                 raw.isBlank() -> null
                 response.header("Content-Type").orEmpty().contains("text/event-stream", ignoreCase = true) ->
-                    parseSseJsonRpc(raw)
-                else -> runCatching { JSONObject(raw) }.getOrNull()
+                    parseSseJsonRpc(raw, expectedId)
+                else ->
+                    runCatching { JSONObject(raw) }.getOrNull()
+                        ?.takeIf { payload -> expectedId == null || jsonRpcIdMatches(payload.opt("id"), expectedId) }
             }
         return McpHttpResponse(
             statusCode = response.code,
@@ -465,14 +477,26 @@ private fun normalizeCallToolResult(result: JSONObject): McpCallToolResult {
 }
 
 /** Streamable HTTP 的 POST 可能返回 SSE；只抽取最后一个 JSON-RPC data 事件作为当前响应。 */
-internal fun parseSseJsonRpc(raw: String): JSONObject? =
+internal fun parseSseJsonRpc(raw: String, expectedId: Any? = null): JSONObject? =
     raw.lineSequence()
         .map(String::trim)
         .filter { it.startsWith("data:") }
         .map { it.removePrefix("data:").trim() }
         .filter(String::isNotBlank)
         .mapNotNull { runCatching { JSONObject(it) }.getOrNull() }
+        .filter { payload ->
+            // notification/progress 没有 id；其他请求的响应也不能抢占当前 request。
+            expectedId == null || jsonRpcIdMatches(payload.opt("id"), expectedId)
+        }
         .lastOrNull()
+
+/** JSON-RPC id 允许 number/string，但不把不同类型的同形文本视为相同 id。 */
+private fun jsonRpcIdMatches(actual: Any?, expected: Any): Boolean =
+    when {
+        actual is Number && expected is Number -> actual.toLong() == expected.toLong()
+        actual is String && expected is String -> actual == expected
+        else -> false
+    }
 
 private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 internal const val MODERN_PROTOCOL_VERSION = "2026-07-28"
@@ -498,4 +522,3 @@ private fun isAllowedCustomHeader(name: String): Boolean =
             "mcp-name",
             "mcp-session-id",
         )
-

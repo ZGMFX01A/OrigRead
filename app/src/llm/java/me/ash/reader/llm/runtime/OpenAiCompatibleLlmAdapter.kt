@@ -5,6 +5,7 @@ import javax.inject.Singleton
 import me.ash.reader.infrastructure.ai.AiCapabilityOverrideMode
 import me.ash.reader.infrastructure.ai.AiException
 import me.ash.reader.infrastructure.ai.AiErrorCode
+import me.ash.reader.infrastructure.ai.AiOutputTokenLimitStyle
 import me.ash.reader.infrastructure.ai.AiProviderProfile
 import me.ash.reader.infrastructure.ai.AiRuntimeConfig
 import me.ash.reader.infrastructure.ai.AiSettingsRepository
@@ -105,6 +106,10 @@ private fun AiProviderProfile.toCapabilityOverride(): ModelCapabilityOverride {
                 else ReasoningParameterStyle.NONE
             },
         supportsReasoningOutput = reasoningEnabled,
+        contextWindowTokens = contextWindowTokens,
+        // AUTO 已由 ModelCapabilityResolver 根据 Provider/Model 解析；手动值作为持久 override 注入。
+        outputTokenLimitStyle = outputTokenLimitStyle.takeUnless { it == AiOutputTokenLimitStyle.AUTO },
+        strictStreamTermination = strictStreamTermination,
     )
 }
 

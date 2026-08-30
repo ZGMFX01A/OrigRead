@@ -1,6 +1,7 @@
 package me.ash.reader.llm.runtime
 
 import me.ash.reader.infrastructure.ai.AiRuntimeConfig
+import me.ash.reader.infrastructure.ai.AiOutputTokenLimitStyle
 
 enum class LlmReasoningEffort {
     AUTO,
@@ -29,6 +30,12 @@ data class ModelCapability(
     val supportedReasoningEfforts: Set<LlmReasoningEffort> = emptySet(),
     val reasoningParameterStyle: ReasoningParameterStyle = ReasoningParameterStyle.NONE,
     val supportsReasoningOutput: Boolean = false,
+    /** Provider/Model 可用的总上下文窗口；用于请求发送前的统一 Prompt 门。 */
+    val contextWindowTokens: Int = DEFAULT_LLM_CONTEXT_WINDOW_TOKENS,
+    /** 默认采用兼容面最广的 max_tokens；新推理模型可由能力覆盖为 max_completion_tokens。 */
+    val outputTokenLimitStyle: AiOutputTokenLimitStyle = AiOutputTokenLimitStyle.MAX_TOKENS,
+    /** 默认要求明确终止标记；false 仅兼容正文已完成但网关直接正常 EOF 的服务。 */
+    val strictStreamTermination: Boolean = true,
 )
 
 /**
@@ -42,6 +49,9 @@ data class ModelCapabilityOverride(
     val supportedReasoningEfforts: Set<LlmReasoningEffort>? = null,
     val reasoningParameterStyle: ReasoningParameterStyle? = null,
     val supportsReasoningOutput: Boolean? = null,
+    val contextWindowTokens: Int? = null,
+    val outputTokenLimitStyle: AiOutputTokenLimitStyle? = null,
+    val strictStreamTermination: Boolean? = null,
 ) {
     fun applyTo(base: ModelCapability): ModelCapability =
         base.copy(
@@ -51,6 +61,9 @@ data class ModelCapabilityOverride(
             supportedReasoningEfforts = supportedReasoningEfforts ?: base.supportedReasoningEfforts,
             reasoningParameterStyle = reasoningParameterStyle ?: base.reasoningParameterStyle,
             supportsReasoningOutput = supportsReasoningOutput ?: base.supportsReasoningOutput,
+            contextWindowTokens = contextWindowTokens ?: base.contextWindowTokens,
+            outputTokenLimitStyle = outputTokenLimitStyle ?: base.outputTokenLimitStyle,
+            strictStreamTermination = strictStreamTermination ?: base.strictStreamTermination,
         )
 }
 
@@ -156,3 +169,6 @@ data class LlmExecutionPlan(
     /** P6.6 请求级引用映射；由 Chat 在 ContextRef 冻结后注入，不由 Runtime/Provider 推断。 */
     val citations: List<LlmCitationReference> = emptyList(),
 )
+
+/** 保守默认值与现有 128k Context 设置一致，避免常规请求升级后大面积失败。 */
+const val DEFAULT_LLM_CONTEXT_WINDOW_TOKENS = 128_000

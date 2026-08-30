@@ -1,6 +1,7 @@
 package me.ash.reader.infrastructure.source
 
 import java.net.URI
+import me.ash.reader.domain.model.feed.Feed
 
 /**
  * 来源 URL 的比较键。仅用于查重/候选去重，不改写真正保存和请求的 URL。
@@ -59,4 +60,13 @@ object SourceUrlNormalizer {
             }
             .joinToString("&")
     }
+}
+
+/** Feed merge 共用的 URL 匹配入口，确保配置恢复与 Edition Sync 使用完全相同的去重语义。 */
+internal fun findFeedByComparisonUrl(
+    existingFeeds: List<Feed>,
+    candidateUrl: String,
+): Feed? {
+    val candidateKey = SourceUrlNormalizer.comparisonKey(candidateUrl)
+    return existingFeeds.firstOrNull { SourceUrlNormalizer.comparisonKey(it.url) == candidateKey }
 }

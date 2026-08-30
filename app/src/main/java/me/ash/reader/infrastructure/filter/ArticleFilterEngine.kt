@@ -35,19 +35,25 @@ class ArticleFilterEngine @Inject constructor(
      * 该方法只负责“新文章不入库”的既有语义；已经存在的历史文章由时间线查询层
      * 动态过滤，从而保证删除或停用规则后历史文章可以重新出现。
      */
-    fun filterBeforeInsert(articles: List<Article>): List<Article> {
-        val matches = mutableListOf<ArticleFilterMatch>()
+    fun filterBeforeInsert(articles: List<Article>, sourceName: String): List<Article> {
+        val filteredRecords = mutableListOf<FilteredArticleRecord>()
         val filteredArticles =
             articles.filterNot { article ->
-                match(article)?.also(matches::add) != null
+                match(article)?.let { match ->
+                    filteredRecords +=
+                        FilteredArticleRecord(
+                            articleId = article.id,
+                            feedId = article.feedId,
+                            sourceName = sourceName,
+                            title = article.title,
+                            matchedRule = match.rule.keyword,
+                            filteredAt = System.currentTimeMillis(),
+                        )
+                    true
+                } ?: false
             }
-        recordMatches(matches)
+        repository.recordFilteredArticles(filteredRecords)
         return filteredArticles
-    }
-
-    /** 同步完成筛选后批量记录统计，避免逐篇文章写文件。 */
-    fun recordMatches(matches: List<ArticleFilterMatch>) {
-        repository.recordMatches(matches.size, matches.lastOrNull()?.rule)
     }
 }
 

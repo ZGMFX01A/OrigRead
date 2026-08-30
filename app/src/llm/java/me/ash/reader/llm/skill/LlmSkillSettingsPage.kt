@@ -151,6 +151,8 @@ fun LlmSkillSettingsPage(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val clipboardEmptyMessage = stringResource(R.string.llm_skill_clipboard_empty)
+    val invalidSkillMessage = stringResource(R.string.llm_skill_invalid)
     val coroutineScope = rememberCoroutineScope()
     var previewSkill by remember { mutableStateOf<LlmSkillRecord?>(null) }
     var createSkillVisible by remember { mutableStateOf(false) }
@@ -284,7 +286,7 @@ fun LlmSkillSettingsPage(
             onPaste = {
                 val clipboardText = readClipboardText(context)
                 if (clipboardText.isNullOrBlank()) {
-                    draftError = context.getString(R.string.llm_skill_clipboard_empty)
+                    draftError = clipboardEmptyMessage
                 } else {
                     createDraft = clipboardText
                     draftError = null
@@ -303,7 +305,7 @@ fun LlmSkillSettingsPage(
                         saveFileNameVisible = true
                     }
                     .onFailure { error ->
-                        draftError = error.message ?: context.getString(R.string.llm_skill_invalid)
+                        draftError = error.message ?: invalidSkillMessage
                     }
             },
         )

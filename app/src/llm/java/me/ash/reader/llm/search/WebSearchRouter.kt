@@ -109,7 +109,7 @@ class WebSearchRouter @Inject constructor(
         val providerName = prepared.providerName ?: error("已触发 Web Search 但缺少 Provider 名称")
         return try {
             val response = service.searchPrepared(request, providerSnapshot)
-            buildWebSearchSuccessResult(response)
+            buildWebSearchResult(response = response, required = prepared.required)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
@@ -280,13 +280,34 @@ internal fun buildWebSearchFailureResult(
         requiredFailure = required,
     )
 
-/** 将已完成的 Provider 响应映射为稳定 SUCCESS 状态，供 Router 与回归测试共同使用。 */
-internal fun buildWebSearchSuccessResult(response: WebSearchResponse): WebSearchRouteResult =
-    WebSearchRouteResult(
-        status = WebSearchRequestStatus.SUCCESS,
-        response = response,
-        providerName = response.providerName,
+/** 将 Provider 响应去重后映射为成功、AUTO 空结果软降级或 FORCE 必须失败。 */
+internal fun buildWebSearchResult(
+    response: WebSearchResponse,
+    required: Boolean,
+): WebSearchRouteResult {
+    val normalized = response.deduplicateResultsByUrl()
+    if (normalized.results.isNotEmpty()) {
+        return WebSearchRouteResult(
+            status = WebSearchRequestStatus.SUCCESS,
+            response = normalized,
+            providerName = normalized.providerName,
+        )
+    }
+    if (required) {
+        return WebSearchRouteResult(
+            status = WebSearchRequestStatus.FAILED_REQUIRED,
+            providerName = normalized.providerName,
+            errorMessage = "${normalized.providerName} 没有返回可用搜索结果",
+            requiredFailure = true,
+        )
+    }
+    return WebSearchRouteResult(
+        status = WebSearchRequestStatus.EMPTY_RESULT,
+        response = normalized,
+        providerName = normalized.providerName,
+        errorMessage = "${normalized.providerName} 没有返回可用搜索结果",
     )
+}
 
 /** 将外部搜索资料转换为明确的 reference-data Context，而不是 system instructions。 */
 internal fun WebSearchResponse.toContextItems(): List<LlmContextItem> =
@@ -365,4 +386,3 @@ private const val AUTO_SEARCH_TIMEOUT_MILLIS = 3_000L
 private const val FORCE_SEARCH_TIMEOUT_MILLIS = 12_000L
 // 搜索资料是阅读辅助：排在摘要(130)/当前译文(120)之后、长原文(100)之前。
 private const val SEARCH_CONTEXT_PRIORITY = 110
-

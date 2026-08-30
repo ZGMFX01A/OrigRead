@@ -1,5 +1,6 @@
 package me.ash.reader.llm.chat.ui
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -187,6 +188,7 @@ fun LlmArticleAssistantSheet(
                 ChatAutoFollowObservation(
                     autoFollow = autoFollow,
                     userScrollControlActive = userScrollControlActive,
+                    isGenerating = uiState.isGenerating,
                     layout = listState.chatAutoFollowLayoutSnapshot(),
                 )
             }
@@ -197,9 +199,10 @@ fun LlmArticleAssistantSheet(
                 }
                 if (shouldIssueChatAutoFollowScroll(observation)) {
                     latestLastAssistantId.value?.let(LlmChatPerfTracker::recordAutoFollowScroll)
-                    // 最后一条消息后存在稳定锚点；只有锚点确实离开 viewport 才执行一次追尾，
-                    // 避免短回答或布局未变化时每次 Room 更新都重复 scrollToItem()。
-                    listState.scrollToItem(observation.layout.totalItemsCount - 1)
+                    // 流式内容正在增长时不再 suspend + scrollToItem() 硬跳。
+                    // requestScrollToItem 会把目标位置合并到下一次 LazyList remeasure，
+                    // 避免 reasoning 每增长一段就先布局、再瞬移一次造成肉眼可见的上下抖动。
+                    listState.requestScrollToItem(observation.layout.totalItemsCount - 1)
                 }
             }
         }
@@ -214,6 +217,10 @@ fun LlmArticleAssistantSheet(
     ModalBottomSheet(
         onDismissRequest = dismissAssistant,
         sheetState = sheetState,
+        // 主 Chat 内部已经有可滚动 LazyColumn。禁用 Sheet 自身纵向拖拽，避免列表快速 fling 到边界后
+        // 剩余 nested-scroll velocity 被 ModalBottomSheet 接管，导致整个聊天窗口上下弹动。
+        sheetGesturesEnabled = false,
+        dragHandle = null,
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
         Column(
@@ -678,6 +685,7 @@ internal data class ChatAutoFollowLayoutSnapshot(
 internal data class ChatAutoFollowObservation(
     val autoFollow: Boolean,
     val userScrollControlActive: Boolean,
+    val isGenerating: Boolean = false,
     val layout: ChatAutoFollowLayoutSnapshot,
 )
 
@@ -701,6 +709,7 @@ internal fun shouldResumeChatAutoFollow(observation: ChatAutoFollowObservation):
 internal fun shouldIssueChatAutoFollowScroll(observation: ChatAutoFollowObservation): Boolean =
     observation.autoFollow &&
         !observation.userScrollControlActive &&
+        observation.isGenerating &&
         !observation.layout.isScrollInProgress &&
         observation.layout.totalItemsCount > 0 &&
         !isChatBottomAnchorFullyVisible(observation.layout)
@@ -826,6 +835,7 @@ private fun AssistantMessage(
             ReasoningBlock(
                 reasoning = displayReasoning,
                 stateKey = message.id,
+                streaming = message.status == LlmMessageStatus.STREAMING,
             )
             Spacer(Modifier.size(8.dp))
         }
@@ -959,6 +969,8 @@ private fun WebSearchActivityCard(
                                 stringResource(R.string.llm_web_search_request_running)
                             WebSearchActivityUiState.SUCCESS ->
                                 stringResource(R.string.llm_web_search_activity_title)
+                            WebSearchActivityUiState.EMPTY_RESULT ->
+                                stringResource(R.string.llm_web_search_activity_no_results)
                             WebSearchActivityUiState.FAILED_FALLBACK ->
                                 stringResource(R.string.llm_web_search_activity_failed)
                             WebSearchActivityUiState.FORCE_FAILURE ->
@@ -992,6 +1004,11 @@ private fun WebSearchActivityCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    WebSearchActivityUiState.EMPTY_RESULT ->
+                        Text(
+                            text = stringResource(R.string.llm_web_search_activity_no_results),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     else ->
                         model.providerName?.let { provider ->
                             Text(
@@ -1059,6 +1076,7 @@ private fun WebSearchActivityCard(
                         }
                     }
                 }
+                WebSearchActivityUiState.EMPTY_RESULT -> Unit
                 WebSearchActivityUiState.FAILED_FALLBACK ->
                     Text(
                         text = stringResource(R.string.llm_web_search_request_failed_fallback),
@@ -1222,11 +1240,12 @@ private fun ToolCallCard(
 private fun ReasoningBlock(
     reasoning: String,
     stateKey: String,
+    streaming: Boolean,
 ) {
     // 以消息 ID 保存展开状态，避免流式 reasoning 每次追加文本时 hash 改变导致 UI 自动折叠。
     var expanded by rememberSaveable(stateKey) { mutableStateOf(false) }
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().animateContentSize(),
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1268,15 +1287,27 @@ private fun ReasoningBlock(
                     modifier = Modifier.padding(horizontal = 12.dp),
                     color = MaterialTheme.colorScheme.outlineVariant,
                 )
-                LlmRichMarkdown(
-                    markdown = reasoning,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    perfMessageId = stateKey,
-                )
+                if (streaming) {
+                    // 与 RikkaHub 一样，流式 thinking 完整实时展示；这里只换成轻量 Text，
+                    // 避免每个 delta 都重新解析整段富 Markdown，不截断、不限行、不限高度。
+                    Text(
+                        text = reasoning,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    LlmRichMarkdown(
+                        markdown = reasoning,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        perfMessageId = stateKey,
+                    )
+                }
             }
         }
     }
 }
+
 
 @Composable
 private fun MessageUsageRow(message: LlmMessageEntity) {

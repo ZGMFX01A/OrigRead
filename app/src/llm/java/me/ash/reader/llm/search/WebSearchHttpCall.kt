@@ -6,6 +6,8 @@ import me.ash.reader.infrastructure.ai.AiPerfRequestTag
 import me.ash.reader.infrastructure.ai.AiPerfTracer
 import okhttp3.Call
 import okhttp3.Request
+import okhttp3.Response
+import me.ash.reader.infrastructure.ai.awaitResponseAndUse
 
 /**
  * 创建 Dedicated Search 专用 Call。
@@ -34,3 +36,10 @@ internal fun AiHttpClient.newWebSearchCall(
     }
     return call
 }
+
+/** 保留 Dedicated Search 的短 timeout，并让取消覆盖响应体读取与关闭。 */
+internal suspend fun <T> AiHttpClient.executeWebSearchCall(
+    httpRequest: Request,
+    searchRequest: WebSearchRequest,
+    block: (Response) -> T,
+): T = newWebSearchCall(httpRequest, searchRequest).awaitResponseAndUse(block)

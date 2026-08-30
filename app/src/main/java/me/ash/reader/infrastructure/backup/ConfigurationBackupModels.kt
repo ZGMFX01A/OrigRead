@@ -126,6 +126,9 @@ data class AiProviderBackup(
     val streamingCapabilityOverride: String = "AUTO",
     val toolCallingCapabilityOverride: String = "AUTO",
     val reasoningCapabilityOverride: String = "AUTO",
+    val outputTokenLimitStyle: String = "AUTO",
+    val contextWindowTokens: Int = 128_000,
+    val strictStreamTermination: Boolean = true,
 )
 
 /** 使用用户备份密码加密后的敏感凭据块。 */

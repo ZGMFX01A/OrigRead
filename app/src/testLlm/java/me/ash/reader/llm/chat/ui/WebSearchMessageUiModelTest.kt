@@ -204,6 +204,27 @@ class WebSearchMessageUiModelTest {
     }
 
     @Test
+    fun `auto empty result projects explicit soft degradation state`() {
+        val model =
+            requireNotNull(
+                projectWebSearchMessage(
+                    assistantMessage(
+                        webSearchStatus = WebSearchRequestStatus.EMPTY_RESULT,
+                        query = "rare query",
+                        provider = "Exa",
+                        webSearchError = "Exa 没有返回可用搜索结果",
+                    ),
+                    emptyList(),
+                )
+            )
+
+        assertEquals(WebSearchActivityUiState.EMPTY_RESULT, model.state)
+        assertEquals(WebSearchMessageErrorState.AUTO_FALLBACK, model.errorState)
+        assertEquals(0, model.resultCount)
+        assertFalse(model.canShowResults)
+    }
+
+    @Test
     fun `force failure keeps search card when assistant is error`() {
         val model =
             requireNotNull(

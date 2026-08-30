@@ -26,6 +26,8 @@ enum class WebSearchRequestStatus {
     NOT_NEEDED,
     TRIGGERED,
     SUCCESS,
+    /** Provider 正常返回但没有可用 URL；AUTO 软降级，FORCE 在 Router 层映射为 required failure。 */
+    EMPTY_RESULT,
     FAILED_FALLBACK,
     FAILED_REQUIRED,
     CANCELLED,
@@ -205,6 +207,21 @@ data class WebSearchResponse(
 )
 
 /**
+ * 按统一来源比较键保守去重搜索结果。
+ *
+ * 保留第一条结果的原始 URL 与展示信息，仅忽略 fragment、默认端口、尾斜杠和明确 tracking 参数；
+ * scheme、host（含 www）、业务 path/query 继续区分。
+ */
+internal fun WebSearchResponse.deduplicateResultsByUrl(): WebSearchResponse {
+    val seen = hashSetOf<String>()
+    val deduplicated = results.filter { result ->
+        val key = me.ash.reader.infrastructure.source.SourceUrlNormalizer.comparisonKey(result.url)
+        key.isNotBlank() && seen.add(key)
+    }
+    return if (deduplicated.size == results.size) this else copy(results = deduplicated)
+}
+
+/**
  * 用户主动执行一次 Search Provider 测活后的结果。
  *
  * 测活使用真实最小搜索请求，因此不仅验证 DNS/TLS，还会同时验证 Endpoint、认证和响应解析链路。
@@ -226,4 +243,3 @@ internal const val MAX_WEB_SEARCH_MAX_RESULTS = 20
 
 internal fun normalizeWebSearchMaxResults(value: Int): Int =
     value.coerceIn(MIN_WEB_SEARCH_MAX_RESULTS, MAX_WEB_SEARCH_MAX_RESULTS)
-

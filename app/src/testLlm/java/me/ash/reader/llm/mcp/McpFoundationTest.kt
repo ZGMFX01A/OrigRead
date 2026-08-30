@@ -6,6 +6,10 @@ import java.net.Socket
 import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
+import java.util.concurrent.TimeUnit
+import okhttp3.mockwebserver.SocketPolicy
 import me.ash.reader.infrastructure.ai.AiHttpClient
 import me.ash.reader.llm.runtime.LlmToolDescriptor
 import me.ash.reader.llm.runtime.LlmToolRisk
@@ -308,7 +312,7 @@ class McpFoundationTest {
     }
 
     @Test
-    fun `streamable http sse parser keeps final json rpc event`() {
+    fun `streamable http sse parser keeps only matching json rpc response`() {
         val parsed =
             parseSseJsonRpc(
                 """
@@ -318,11 +322,50 @@ class McpFoundationTest {
                 event: message
                 data: {"jsonrpc":"2.0","id":7,"result":{"tools":[]}}
 
+                event: message
+                data: {"jsonrpc":"2.0","id":8,"result":{"tools":[{"name":"wrong"}]}}
+
                 """.trimIndent()
+                , expectedId = 7L
             )
 
         assertEquals(7, parsed?.getInt("id"))
         assertTrue(parsed?.getJSONObject("result")?.has("tools") == true)
+    }
+
+    @Test
+    fun `streamable http sse parser ignores notifications progress and other ids`() {
+        val parsed =
+            parseSseJsonRpc(
+                """
+                data: {"jsonrpc":"2.0","method":"notifications/progress","params":{"progress":1}}
+
+                data: {"jsonrpc":"2.0","id":"other","result":{"value":"wrong"}}
+
+                data: {"jsonrpc":"2.0","id":"request-9","result":{"value":"right"}}
+                """.trimIndent(),
+                expectedId = "request-9",
+            )
+
+        assertEquals("right", parsed?.getJSONObject("result")?.getString("value"))
+    }
+
+    @Test
+    fun `remote mcp cancellation cancels blocked okhttp call`() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
+        server.start()
+        try {
+            val client = McpRemoteClient(AiHttpClient(), Dispatchers.IO)
+            val profile = McpServerProfile(name = "Slow", endpoint = server.url("/mcp").toString())
+            val job = launch(Dispatchers.IO) { client.discoverTools(profile, bearerToken = "") }
+
+            assertTrue(server.takeRequest(2, TimeUnit.SECONDS) != null)
+            job.cancelAndJoin()
+            assertTrue(job.isCancelled)
+        } finally {
+            server.shutdown()
+        }
     }
 
     @Test

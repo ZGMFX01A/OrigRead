@@ -5,6 +5,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import me.ash.reader.BuildConfig
@@ -18,6 +20,7 @@ import me.ash.reader.domain.repository.AccountDao
 import me.ash.reader.domain.service.AccountService
 import me.ash.reader.infrastructure.ai.AiProviderProfile
 import me.ash.reader.infrastructure.ai.AiCapabilityOverrideMode
+import me.ash.reader.infrastructure.ai.AiOutputTokenLimitStyle
 import me.ash.reader.infrastructure.ai.AiSettings
 import me.ash.reader.infrastructure.ai.AiSettingsRepository
 import me.ash.reader.infrastructure.ai.AiSummaryLength
@@ -32,6 +35,7 @@ import me.ash.reader.infrastructure.rsshub.RssHubInstance
 import me.ash.reader.infrastructure.rsshub.RssHubSettings
 import me.ash.reader.infrastructure.rsshub.RssHubSettingsRepository
 import me.ash.reader.infrastructure.rsshub.RssHubSubscriptionRepository
+import me.ash.reader.infrastructure.source.findFeedByComparisonUrl
 import me.ash.reader.infrastructure.translation.TranslationDisplayMode
 import me.ash.reader.infrastructure.translation.TranslationProviderSettings
 import me.ash.reader.infrastructure.translation.TranslationProviderType
@@ -179,11 +183,14 @@ class ConfigurationBackupService @Inject constructor(
         return try {
             applyPreparedRestore(prepared)
         } catch (restoreError: Throwable) {
-            runCatching {
-                val rollbackPrepared = prepareRestore(rollback.configurationBackupJson, rollback.password)
-                applyPreparedRestore(rollbackPrepared)
-                restoreRoomRollbackSnapshot(rollback)
-            }.exceptionOrNull()?.let(restoreError::addSuppressed)
+            // 原恢复可能由取消触发；补偿必须脱离已取消上下文完整跑完，再把原异常（含 CancellationException）交还上层。
+            withContext(NonCancellable) {
+                runCatching {
+                    val rollbackPrepared = prepareRestore(rollback.configurationBackupJson, rollback.password)
+                    applyPreparedRestore(rollbackPrepared)
+                    restoreRoomRollbackSnapshot(rollback)
+                }.exceptionOrNull()?.let(restoreError::addSuppressed)
+            }
             throw restoreError
         }
     }
@@ -396,7 +403,7 @@ class ConfigurationBackupService @Inject constructor(
         val feedIdMap = linkedMapOf<String, String>()
         subscriptions.feeds.forEach { backupFeed ->
             val targetGroupId = groupIdMap.getValue(backupFeed.groupId)
-            val existing = existingFeeds.firstOrNull { it.url.trim() == backupFeed.url.trim() }
+            val existing = findFeedByComparisonUrl(existingFeeds, backupFeed.url)
             val sourceType = SourceType.valueOf(backupFeed.sourceType)
             val target =
                 if (existing != null) {
@@ -631,6 +638,9 @@ class ConfigurationBackupService @Inject constructor(
                         streamingCapabilityOverride = provider.streamingCapabilityOverride.name,
                         toolCallingCapabilityOverride = provider.toolCallingCapabilityOverride.name,
                         reasoningCapabilityOverride = provider.reasoningCapabilityOverride.name,
+                        outputTokenLimitStyle = provider.outputTokenLimitStyle.name,
+                        contextWindowTokens = provider.contextWindowTokens,
+                        strictStreamTermination = provider.strictStreamTermination,
                     )
                 },
         )
@@ -656,6 +666,10 @@ class ConfigurationBackupService @Inject constructor(
                         AiCapabilityOverrideMode.valueOf(provider.toolCallingCapabilityOverride),
                     reasoningCapabilityOverride =
                         AiCapabilityOverrideMode.valueOf(provider.reasoningCapabilityOverride),
+                    outputTokenLimitStyle =
+                        AiOutputTokenLimitStyle.valueOf(provider.outputTokenLimitStyle),
+                    contextWindowTokens = provider.contextWindowTokens,
+                    strictStreamTermination = provider.strictStreamTermination,
                 )
             }
         return AiSettings(

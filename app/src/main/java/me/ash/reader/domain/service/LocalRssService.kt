@@ -27,7 +27,6 @@ import me.ash.reader.infrastructure.android.NotificationHelper
 import me.ash.reader.infrastructure.di.DefaultDispatcher
 import me.ash.reader.infrastructure.di.IODispatcher
 import me.ash.reader.infrastructure.filter.ArticleFilterEngine
-import me.ash.reader.infrastructure.filter.ArticleFilterMatch
 import me.ash.reader.infrastructure.rss.RssHelper
 import me.ash.reader.infrastructure.rss.RssHttpCache
 import me.ash.reader.infrastructure.rss.RssHttpCacheDao
@@ -128,7 +127,7 @@ constructor(
                     accountId = accountId,
                     entries = searchedFeed.entries,
                 )
-            val filteredArticles = articleFilterEngine.filterBeforeInsert(articles)
+            val filteredArticles = articleFilterEngine.filterBeforeInsert(articles, feed.name)
             insertFeedAndArticles(feed, filteredArticles)
             if (!etag.isNullOrBlank() || !lastModified.isNullOrBlank()) {
                 rssHttpCacheDao.upsert(
@@ -178,12 +177,7 @@ constructor(
                     accountId = accountId,
                     entries = searchedFeed.entries,
                 )
-            val filterMatches = mutableListOf<ArticleFilterMatch>()
-            val filteredArticles =
-                articles.filterNot { article ->
-                    articleFilterEngine.match(article)?.also(filterMatches::add) != null
-                }
-            articleFilterEngine.recordMatches(filterMatches)
+            val filteredArticles = articleFilterEngine.filterBeforeInsert(articles, feed.name)
 
             // 网站探测阶段已经成功拿到了这一批文章。首次订阅直接复用，不能先写空 Feed
             // 再立刻二次请求；二次请求被 418/429/动态验证拦截时会造成“预览有文章、添加后为空”。
@@ -228,7 +222,7 @@ constructor(
                     accountId = accountId,
                     entries = searchedFeed.entries,
                 )
-            val filteredArticles = articleFilterEngine.filterBeforeInsert(articles)
+            val filteredArticles = articleFilterEngine.filterBeforeInsert(articles, feed.name)
             insertFeedAndArticles(
                 feed = feed,
                 articles = filteredArticles.map { article -> article.copy(feedId = feedId) },
@@ -277,12 +271,7 @@ constructor(
                     accountId = accountId,
                     entries = searchedFeed.entries,
                 )
-            val filterMatches = mutableListOf<ArticleFilterMatch>()
-            val filteredArticles =
-                articles.filterNot { article ->
-                    articleFilterEngine.match(article)?.also(filterMatches::add) != null
-                }
-            articleFilterEngine.recordMatches(filterMatches)
+            val filteredArticles = articleFilterEngine.filterBeforeInsert(articles, feed.name)
 
             // JSON 探测阶段已经成功请求并解析过一次；首次订阅直接复用这批数据。
             // 不再先保存空 Feed 再立即发第二次网络请求，避免“预览有文章、订阅后空来源”。
@@ -351,14 +340,14 @@ constructor(
                                     articleDao.deleteByIds(obsoleteArticleIds)
                                 }
                             }
-                            val filterMatches = mutableListOf<ArticleFilterMatch>()
                             val fetchedArticles =
-                                fetchedFeed.articles.filterNot {
-                                    archivedArticles.contains(it.link)
-                                }.filterNot { article ->
-                                    articleFilterEngine.match(article)?.also(filterMatches::add) != null
-                                }
-                            articleFilterEngine.recordMatches(filterMatches)
+                                articleFilterEngine.filterBeforeInsert(
+                                    articles =
+                                        fetchedFeed.articles.filterNot {
+                                            archivedArticles.contains(it.link)
+                                        },
+                                    sourceName = effectiveFeed.name,
+                                )
 
                             val newArticles =
                                 if (effectiveFeed.sourceType == SourceType.JSON) {

@@ -31,7 +31,7 @@ import java.util.*
         ArchivedArticle::class,
         RssHttpCache::class,
     ],
-    version = 11,
+    version = 12,
     autoMigrations = [
         AutoMigration(from = 5, to = 6),
         AutoMigration(from = 5, to = 7),
@@ -98,6 +98,7 @@ val allMigrations = arrayOf(
     MIGRATION_4_5,
     MIGRATION_9_10,
     MIGRATION_10_11,
+    MIGRATION_11_12,
 )
 
 @Suppress("ClassName")
@@ -200,8 +201,10 @@ object MIGRATION_9_10 : Migration(9, 10) {
 /**
  * 将早期 Read You 派生的默认分组稳定 ID 正式迁移为 OrigRead ID。
  *
- * `feed.groupId -> group.id` 声明了 ON UPDATE CASCADE，因此更新默认分组主键时，
- * 现有订阅的 groupId 会由 SQLite 在同一事务内同步更新。
+ * 注意：不能依赖 `feed.groupId -> group.id` 的 ON UPDATE CASCADE。
+ * Room 当前是在 migration 完成后的 onOpen 才执行 `PRAGMA foreign_keys = ON`，因此正式版 v10
+ * 升级时 migration 连接上的外键可能尚未启用。这里必须显式同时迁移 group.id 与 feed.groupId，
+ * 并且 SQL 顺序要同时兼容“外键已启用”和“外键未启用”两种运行环境。
  *
  * 该 Migration 属于历史升级链。后续可以删除运行时品牌迁移，但不要删除本迁移，
  * 否则仍停留在 DB v10 的用户将无法直接跨版本升级。
@@ -229,8 +232,23 @@ object MIGRATION_10_11 : Migration(10, 11) {
             """.trimIndent()
         )
 
-        // 极少数开发版/测试版可能已经提前生成了新 ID。先把旧分组下的 Feed 合并到新分组，
-        // 再删除旧分组，避免后续主键 UPDATE 命中 UNIQUE 冲突。
+        // 先迁移不存在新 ID 冲突的旧默认分组。
+        // 外键开启时 SQLite 会级联更新 Feed；外键关闭时 Feed 暂时仍保留旧 groupId，下一步显式修正。
+        database.execSQL(
+            """
+            UPDATE `group`
+            SET `id` = CAST(`accountId` AS TEXT) || '$' || 'origread_app_default_group'
+            WHERE `id` = CAST(`accountId` AS TEXT) || '$' || 'read_you_app_default_group'
+              AND NOT EXISTS (
+                  SELECT 1 FROM `group`
+                  AS `new_group`
+                  WHERE `new_group`.`id` = CAST(`group`.`accountId` AS TEXT) || '$' || 'origread_app_default_group'
+              )
+            """.trimIndent()
+        )
+
+        // 无论 migration 阶段外键是否开启，都显式把仍指向旧默认分组 ID 的 Feed 重挂到新 ID。
+        // 这一步也覆盖“极少数开发版已同时存在旧/新默认分组”的冲突数据。
         database.execSQL(
             """
             UPDATE `feed`
@@ -242,6 +260,8 @@ object MIGRATION_10_11 : Migration(10, 11) {
               )
             """.trimIndent()
         )
+
+        // 若旧/新默认分组曾同时存在，Feed 已在上一步安全迁出，此时再删除重复旧分组。
         database.execSQL(
             """
             DELETE FROM `group`
@@ -252,11 +272,57 @@ object MIGRATION_10_11 : Migration(10, 11) {
               )
             """.trimIndent()
         )
+    }
+}
+
+/**
+ * 修复曾安装过缺陷版 DB v11 测试包的数据库。
+ *
+ * 缺陷版 MIGRATION_10_11 在 migration 阶段外键未开启时只修改了 group.id，可能遗留：
+ * - group.id = `<account>$origread_app_default_group`
+ * - feed.groupId 仍为 `<account>$read_you_app_default_group`
+ *
+ * 这种 Feed 行本身仍存在，所以旧文章仍能通过 feedId 显示来源；但来源列表按 Group -> Feed Relation
+ * 组装，因此这些孤儿 Feed 会完全消失。v12 只修复这一已知默认分组引用，不碰用户自建分组。
+ */
+@Suppress("ClassName")
+object MIGRATION_11_12 : Migration(11, 12) {
+
+    override fun migrate(database: SupportSQLiteDatabase) {
+        // 同样兼容少量异常数据：若旧默认分组仍存在且新 ID 尚不存在，先安全改名。
         database.execSQL(
             """
             UPDATE `group`
             SET `id` = CAST(`accountId` AS TEXT) || '$' || 'origread_app_default_group'
             WHERE `id` = CAST(`accountId` AS TEXT) || '$' || 'read_you_app_default_group'
+              AND NOT EXISTS (
+                  SELECT 1 FROM `group` AS `new_group`
+                  WHERE `new_group`.`id` = CAST(`group`.`accountId` AS TEXT) || '$' || 'origread_app_default_group'
+              )
+            """.trimIndent()
+        )
+
+        // 核心修复：把缺陷版 v11 遗留的孤儿 Feed 重新挂回当前默认分组。
+        database.execSQL(
+            """
+            UPDATE `feed`
+            SET `groupId` = CAST(`accountId` AS TEXT) || '$' || 'origread_app_default_group'
+            WHERE `groupId` = CAST(`accountId` AS TEXT) || '$' || 'read_you_app_default_group'
+              AND EXISTS (
+                  SELECT 1 FROM `group`
+                  WHERE `group`.`id` = CAST(`feed`.`accountId` AS TEXT) || '$' || 'origread_app_default_group'
+              )
+            """.trimIndent()
+        )
+
+        database.execSQL(
+            """
+            DELETE FROM `group`
+            WHERE `id` = CAST(`accountId` AS TEXT) || '$' || 'read_you_app_default_group'
+              AND EXISTS (
+                  SELECT 1 FROM `group` AS `new_group`
+                  WHERE `new_group`.`id` = CAST(`group`.`accountId` AS TEXT) || '$' || 'origread_app_default_group'
+              )
             """.trimIndent()
         )
     }

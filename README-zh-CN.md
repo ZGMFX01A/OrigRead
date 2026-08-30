@@ -30,9 +30,24 @@
 
 原读是一款面向 Android 的个人信息阅读器。它不把“推荐算法”作为核心，而是希望让用户自己决定**看什么来源、按什么方式解析、哪些内容需要过滤、什么时候需要翻译或 AI**。
 
-项目基于 [Read You](https://github.com/ReadYouApp/ReadYou) 继续开发，保留其成熟的 RSS 阅读基础，在此之上把来源范围从传统 RSS / Atom 扩展到 RSSHub、普通网页、JSON/API、WordPress REST、Next.js / Nuxt 内嵌数据以及必要时的动态 WebView 页面。
+在传统 RSS / Atom 之外，原读还把来源范围扩展到了 RSSHub、普通网页、JSON/API、WordPress REST、Next.js / Nuxt 内嵌数据，以及必要时的动态 WebView 页面。
 
 原读的目标很直接：**订阅来源、保留原文、尽可能提取可读正文、本地过滤噪音，并把翻译和 AI 作为可选的阅读辅助，而不是让 AI 反过来成为阅读器本身。**
+
+## 我该下载普通版还是原读 X？
+
+原读现在提供两个 Android 版本。**两者的订阅、阅读、全文提取、过滤、翻译和 AI 摘要等基础体验是一致的；原读 X 是在这些能力上继续增加更完整的 AI 阅读助手。**
+
+| 版本 | 适合谁 | APK 文件名 |
+| --- | --- | --- |
+| **原读（OrigRead）** | 主要想订阅、读文章、提取全文、过滤内容、翻译或生成摘要，希望功能直接、配置更少 | `OrigRead-vX.Y.Z.apk` |
+| **原读 X（OrigRead X）** | 除了上面的功能，还想围绕文章继续提问、组合多篇文章、联网搜索、使用 MCP 工具、Skills 和快捷消息 | `OrigRead-X-vX.Y.Z.apk` |
+
+如果你拿不准，**先装普通版就行**。以后想用 X 的功能，可以直接再安装原读 X，不需要先卸载普通版。
+
+普通版和 X 版使用不同的应用包名，因此可以在同一台手机上同时安装。两边可以通过版本间同步迁移共同的数据和设置；X 独有的配置不会因为同步到普通版就把普通版变成 X，也不会被普通版无故清掉。
+
+> 注意：较早的历史 Release 可能只有普通版 APK，因为当时还没有发布 X 包。下载时请直接看 Release 里的文件名，不要把普通版 APK 改名当成 X 版。
 
 ## 为什么做原读？
 
@@ -56,11 +71,21 @@
 | --- | --- | --- |
 | <img src="assets/readme/screenshots/zh-CN/translation.png" width="280" alt="原读翻译" /> | <img src="assets/readme/screenshots/zh-CN/rules.png" width="280" alt="原读解析规则" /> | <img src="assets/readme/screenshots/zh-CN/settings-backup.png" width="280" alt="原读设置与备份" /> |
 
+### 原读 X
+
+| AI 阅读助手 | 多文章与回答上下文 |
+| --- | --- |
+| **待补截图**：打开一篇文章进入“询问这篇文章”，保留一轮真实问答，并让输入框、当前模型和回答区域同时可见。<br><br>建议文件：`assets/readme/screenshots/zh-CN/x-assistant.png` | **待补截图**：附加 1～2 篇相关文章后打开“本次回答的上下文”，让当前文章、相关文章以及已使用/截断/未纳入状态尽量同时可见。<br><br>建议文件：`assets/readme/screenshots/zh-CN/x-context.png` |
+
+| Web Search | X 版 AI 设置 |
+| --- | --- |
+| **待补截图**：发送一个需要最新信息的问题，截到联网搜索过程或结果列表，最好同时能看到地球按钮和搜索来源。<br><br>建议文件：`assets/readme/screenshots/zh-CN/x-web-search.png` | **待补截图**：截 X 版 AI 设置页，尽量同时露出 Web Search、MCP、Skills、快捷消息等入口，让用户一眼看出 X 版新增了什么。<br><br>建议文件：`assets/readme/screenshots/zh-CN/x-ai-settings.png` |
+
 ## 文档与其他平台
 
-| 📖 操作手册 | 🖥️ Desktop 版本 |
+| 📖 Android 操作手册 | 🖥️ Desktop 版本 |
 | --- | --- |
-| [查看 Android 操作手册](USER_GUIDE-zh-CN.md)，从添加来源、阅读、AI/翻译到备份迁移按实际操作查找。 | [前往 OrigRead Desktop](https://github.com/ZGMFX01A/OrigRead-Desktop)，支持 Windows、macOS 与 Linux。 |
+| [查看 Android 操作手册](USER_GUIDE-zh-CN.md)，普通版和原读 X 共用一份手册；X 独有功能已经单独分节，不使用 X 的用户可以直接跳过。 | [前往 OrigRead Desktop](https://github.com/ZGMFX01A/OrigRead-Desktop)，支持 Windows、macOS 与 Linux。 |
 
 ## 来源发现：一个 URL，多种解析路径
 
@@ -165,7 +190,7 @@ JSON / API / WordPress / Next.js / Nuxt
 - 一键打开原始网页。
 - TTS 朗读。
 - Material You / Jetpack Compose 界面。
-- 本地账户，以及继承自 Read You 的可选第三方同步方式。
+- 本地账户，以及可选的第三方同步方式。
 
 ## 本地文章过滤
 
@@ -240,6 +265,22 @@ AI 是完全可选能力，只有用户配置并主动使用时才会调用。
 
 AI 辅助 WebsiteRule / JsonRule 生成已经接入确认式流程：抓取目标地址后可选择已配置的 Provider 和模型，由模型生成候选，再使用现有本地解析器和健康检查真实试跑，只有用户明确确认后才保存。过程中会显示抓取、分析、生成、校验和修复阶段，并展示解析文章数、评分、实际模型与尝试次数；网站结构变化后仍应重新测试规则。
 
+## 原读 X：把 AI 放在文章旁边，而不是另外做一个聊天软件
+
+原读 X 包含普通版的全部阅读能力，区别主要在于：**读完一篇文章后，你还可以继续围绕这篇文章追问、查资料和组合上下文。**
+
+- **询问当前文章**：从阅读页直接进入 AI 阅读助手，问题默认围绕当前文章，而不是从空白聊天开始。
+- **选中文字直接问**：正文里选中一句或一段后，可以把这段内容直接带进阅读助手。
+- **一次带上多篇文章**：需要对比报道或补充背景时，可以手动附加相关文章；只有你明确选中的文章才会进入上下文。
+- **Web Search**：问题涉及“最新、今天、近期、当前进展”等信息时，可以自动或手动联网搜索，并查看实际搜索过程和结果。
+- **MCP 工具**：可以连接自己配置的 MCP Server。敏感或写入型 Tool 在执行前需要明确确认。
+- **Skills、快捷消息和 Custom Instructions**：把常用分析方式、固定问题和长期回答偏好保存下来，不必每次重新输入。
+- **流式输出、Reasoning 与 Context Budget**：适配更复杂的模型和长文章场景；正常使用保持默认设置即可。
+
+这些功能都不是使用原读 X 的前置条件。**如果你只想使用 X 版的界面和普通阅读功能，也不需要把 Web Search、MCP、Skills 全部配置一遍。**
+
+具体怎么打开阅读助手、添加多篇文章、配置 Web Search / MCP / Skills，请看 [Android 操作手册第二部分“原读 X”](USER_GUIDE-zh-CN.md#origread-x-guide)。
+
 ## 完整配置备份与恢复
 
 原读使用带版本号的 JSON 配置备份，而不是直接复制 Room 数据库或系统偏好文件。
@@ -268,9 +309,9 @@ GitHub 渠道支持通过 GitHub Releases 在应用内检查和安装新版本�
 
 - “启动时检查更新”可独立开关。
 - 支持手动“立即检查更新”。
-- 展示 Release 更新日志并自动选择合适的 APK Asset。
+- 展示 Release 更新日志，并按当前版本自动选择普通版或 X 版对应的 APK Asset。
 - 下载进度、失败重试和系统安装流程。
-- Android 8+ 的“安装未知应用”通过系统设置页正常授权。。
+- Android 8+ 的“安装未知应用”通过系统设置页正常授权。
 
 ## 安全与隐私设计
 
@@ -284,7 +325,14 @@ GitHub 渠道支持通过 GitHub Releases 在应用内检查和安装新版本�
 
 ## 安装
 
-从 [GitHub Releases](https://github.com/ZGMFX01A/OrigRead/releases) 下载最新 APK。
+从 [GitHub Releases](https://github.com/ZGMFX01A/OrigRead/releases) 下载 APK：
+
+- 普通版选择 `OrigRead-vX.Y.Z.apk`。
+- 原读 X 选择 `OrigRead-X-vX.Y.Z.apk`。
+
+如果某个历史版本只看到 `OrigRead-vX.Y.Z.apk`，说明那个版本当时没有发布 X 包，不是下载页面漏掉了文件。
+
+不知道选哪个时，建议先装普通版；之后可以把 X 版直接装在同一台手机上，再使用应用内的版本间同步迁移共同数据。
 
 当前 GitHub Release 构建目标：
 

@@ -11,6 +11,7 @@
     <queries>
         <package android:name="md.obsidian" />
         <package android:name="org.b3log.siyuan" />
+        <package android:name="com.logseq.app" />
         <package android:name="notion.id" />
         <!-- P7：同设备 Standard / LLM 互相发现；Google Play flavor 使用独立 applicationId 后缀。 -->
         <package android:name="me.ash.reader" />

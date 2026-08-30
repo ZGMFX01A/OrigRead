@@ -41,7 +41,7 @@ class PerplexityWebSearchProvider @Inject constructor(
                     .header("Accept", "application/json")
                     .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
                     .build()
-            httpClient.newWebSearchCall(httpRequest, request).execute().use { response ->
+            httpClient.executeWebSearchCall(httpRequest, request) { response ->
                 val payload = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
                     throw WebSearchException("Perplexity 搜索失败：HTTP ${response.code}")

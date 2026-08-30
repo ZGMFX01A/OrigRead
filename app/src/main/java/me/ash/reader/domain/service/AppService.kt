@@ -12,8 +12,10 @@ import me.ash.reader.infrastructure.di.IODispatcher
 import me.ash.reader.infrastructure.di.MainDispatcher
 import me.ash.reader.infrastructure.net.Download
 import me.ash.reader.infrastructure.net.NetworkDataSource
-import me.ash.reader.infrastructure.net.getTrustedLatestRelease
+import me.ash.reader.infrastructure.net.getReliableLatestRelease
 import me.ash.reader.infrastructure.net.githubReleaseCheckCandidates
+import me.ash.reader.infrastructure.net.githubReleaseVersionCandidates
+import me.ash.reader.infrastructure.net.isMainlandChinaSystemRegion
 import me.ash.reader.infrastructure.net.preferredTrustedApkAsset
 import me.ash.reader.infrastructure.preference.*
 import me.ash.reader.infrastructure.preference.NewVersionSizePreference.formatSize
@@ -37,10 +39,18 @@ class AppService @Inject constructor(
     suspend fun checkUpdate(showToast: Boolean = true): Boolean? = withContext(ioDispatcher) {
         try {
             val repositoryUrl = context.getString(R.string.github_link)
+            val preferVersionIndex = isMainlandChinaSystemRegion()
             val checkResult =
-                networkDataSource.getTrustedLatestRelease(
-                    urls = githubReleaseCheckCandidates(context.getString(R.string.update_link)),
+                networkDataSource.getReliableLatestRelease(
+                    apiUrls =
+                        githubReleaseCheckCandidates(
+                            context.getString(R.string.update_link),
+                            preferMirror = preferVersionIndex,
+                        ),
+                    versionUrls = githubReleaseVersionCandidates(repositoryUrl),
                     repositoryUrl = repositoryUrl,
+                    llmEdition = isLlmEdition,
+                    preferVersionIndex = preferVersionIndex,
                 )
             val latest = checkResult.release ?: run {
                 withContext(mainDispatcher) {

@@ -10,9 +10,13 @@ class GitHubDownloadMirrorTest {
         "https://api.github.com/repos/ZGMFX01A/OrigRead/releases/latest"
 
     @Test
-    fun `mainland order prefers mirror and always falls back to github`() {
+    fun `downloads try github first so vpn users do not get forced through public mirrors`() {
         assertEquals(
-            listOf("https://gh-proxy.com/$releaseUrl", releaseUrl),
+            listOf(
+                releaseUrl,
+                "https://ghfast.top/$releaseUrl",
+                "https://gh.zwy.one/$releaseUrl",
+            ),
             githubReleaseDownloadCandidates(releaseUrl, preferMirror = true),
         )
     }
@@ -37,10 +41,18 @@ class GitHubDownloadMirrorTest {
     }
 
     @Test
-    fun `mainland update checks prefer mirror and fall back to github`() {
+    fun `update checks never proxy github api`() {
         assertEquals(
-            listOf("https://gh-proxy.com/$latestApiUrl", latestApiUrl),
+            listOf(latestApiUrl),
             githubReleaseCheckCandidates(latestApiUrl, preferMirror = true),
+        )
+    }
+
+    @Test
+    fun `github repository maps to jsdelivr version index`() {
+        assertEquals(
+            listOf("https://data.jsdelivr.com/v1/package/gh/ZGMFX01A/OrigRead"),
+            githubReleaseVersionCandidates("https://github.com/ZGMFX01A/OrigRead/"),
         )
     }
 

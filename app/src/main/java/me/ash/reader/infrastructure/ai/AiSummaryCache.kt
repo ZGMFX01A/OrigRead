@@ -41,10 +41,19 @@ class AiSummaryCache @Inject constructor(
                             model = model,
                             outputLanguage = outputLanguage,
                             length = length,
+                            contextWindowTokens = provider.contextWindowTokens,
                             promptVariant = promptVariant,
                         )
                     if (!file.exists()) return@withContext null
-                    decode(file.readText())
+                    val document = decode(file.readText())
+                    // reasoning-only 回归曾可能写入 GENERATED + 空 summary。摘要缓存可再生成，
+                    // 直接丢弃坏缓存，避免修复后继续命中“已完成但正文空白”的旧结果。
+                    if (document.status == AiSummaryStatus.GENERATED && document.summary.isBlank()) {
+                        file.delete()
+                        null
+                    } else {
+                        document
+                    }
                 }
                 .getOrNull()
         }
@@ -68,6 +77,7 @@ class AiSummaryCache @Inject constructor(
                         model = document.model,
                         outputLanguage = document.outputLanguage,
                         length = document.length,
+                        contextWindowTokens = provider.contextWindowTokens,
                         promptVariant = promptVariant,
                     )
                 file.parentFile?.mkdirs()
@@ -84,6 +94,7 @@ class AiSummaryCache @Inject constructor(
         model: String,
         outputLanguage: String,
         length: AiSummaryLength,
+        contextWindowTokens: Int,
         promptVariant: String,
     ): File {
         val keyParts =
@@ -97,6 +108,7 @@ class AiSummaryCache @Inject constructor(
                 model.trim(),
                 outputLanguage.trim(),
                 length.name,
+                contextWindowTokens.toString(),
             )
         // 默认 Prompt 必须保持 P4 前完全相同的缓存 Key，避免 Standard/未绑定 Skill 的用户无故丢失旧摘要缓存。
         if (promptVariant != AiTaskPromptCustomization.DEFAULT_CACHE_VARIANT) {
@@ -159,8 +171,8 @@ class AiSummaryCache @Inject constructor(
             .joinToString("") { "%02x".format(it) }
 
     companion object {
-        // v10 把 providerId 纳入缓存身份，避免同 endpoint/model 的不同服务互相命中。
-        private const val CACHE_VERSION = "10"
+        // v12 纳入 Provider 窗口并隔离结构安全采样/动态输入预算，避免窗口变化命中旧摘要。
+        private const val CACHE_VERSION = "12"
     }
 }
 

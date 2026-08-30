@@ -3,12 +3,15 @@ package me.ash.reader.ui.page.settings.ai
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -40,10 +43,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import me.ash.reader.R
 import me.ash.reader.infrastructure.ai.AiCapabilityOverrideMode
+import me.ash.reader.infrastructure.ai.AiOutputTokenLimitStyle
 import me.ash.reader.infrastructure.ai.AiSummaryLength
 import me.ash.reader.ui.component.base.Banner
 import me.ash.reader.ui.component.base.DisplayText
@@ -52,11 +57,18 @@ import me.ash.reader.ui.component.base.OrigReadScaffold
 import me.ash.reader.ui.component.base.OrigReadSwitch
 import me.ash.reader.ui.ext.collectAsStateValue
 
+/**
+ * 展示公共 AI 阅读设置。
+ *
+ * Standard 版沿用默认结构；LLM 版可传入供应商配置标题并展示兼容能力卡片，
+ * 并将专属运行参数、扩展内容追加在供应商相关配置之后。
+ */
 @Composable
 fun AiSettingsPage(
     onBack: () -> Unit,
     additionalSettingsContent: (@Composable () -> Unit)? = null,
     showProviderCapabilityOverrides: Boolean = false,
+    providerConfigurationTitle: String? = null,
     viewModel: AiSettingsViewModel = hiltViewModel(),
 ) {
     val state = viewModel.uiState.collectAsStateValue()
@@ -144,9 +156,6 @@ fun AiSettingsPage(
                         }
                     }
                 }
-                additionalSettingsContent?.let { content ->
-                    item { content() }
-                }
                 item {
                     OutlinedCard(
                         modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
@@ -223,6 +232,12 @@ fun AiSettingsPage(
                             modifier = Modifier.padding(18.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp),
                         ) {
+                                if (providerConfigurationTitle != null) {
+                                    Text(
+                                        text = providerConfigurationTitle,
+                                        style = MaterialTheme.typography.titleMedium,
+                                    )
+                                }
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -277,36 +292,6 @@ fun AiSettingsPage(
                                         Text(stringResource(R.string.ai_endpoint_desc))
                                     },
                                 )
-                                if (showProviderCapabilityOverrides) {
-                                    HorizontalDivider()
-                                    Text(
-                                        text = stringResource(R.string.ai_provider_capabilities),
-                                        style = MaterialTheme.typography.titleSmall,
-                                    )
-                                    Text(
-                                        text = stringResource(R.string.ai_provider_capabilities_desc),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                    CapabilityOverrideRow(
-                                        title = stringResource(R.string.ai_capability_streaming),
-                                        description = stringResource(R.string.ai_capability_streaming_desc),
-                                        value = profile.streamingCapabilityOverride,
-                                        onValueChange = viewModel::setStreamingCapability,
-                                    )
-                                    CapabilityOverrideRow(
-                                        title = stringResource(R.string.ai_capability_tool_calling),
-                                        description = stringResource(R.string.ai_capability_tool_calling_desc),
-                                        value = profile.toolCallingCapabilityOverride,
-                                        onValueChange = viewModel::setToolCallingCapability,
-                                    )
-                                    CapabilityOverrideRow(
-                                        title = stringResource(R.string.ai_capability_reasoning),
-                                        description = stringResource(R.string.ai_capability_reasoning_desc),
-                                        value = profile.reasoningCapabilityOverride,
-                                        onValueChange = viewModel::setReasoningCapability,
-                                    )
-                                }
                                 // 配置顺序遵循真实操作链：先确定 Endpoint 与凭据，再获取/选择模型。
                                 OutlinedTextField(
                                     value = state.apiKeyDraft,
@@ -444,6 +429,79 @@ fun AiSettingsPage(
                         }
                     }
                 }
+                if (showProviderCapabilityOverrides) {
+                    item {
+                        OutlinedCard(
+                            modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.ai_provider_capabilities),
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
+                                Text(
+                                    text = stringResource(R.string.ai_provider_capabilities_desc),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                HorizontalDivider()
+                                CapabilityOverrideRow(
+                                    title = stringResource(R.string.ai_capability_streaming),
+                                    description = stringResource(R.string.ai_capability_streaming_desc),
+                                    value = profile.streamingCapabilityOverride,
+                                    onValueChange = viewModel::setStreamingCapability,
+                                )
+                                CapabilityOverrideRow(
+                                    title = stringResource(R.string.ai_capability_tool_calling),
+                                    description = stringResource(R.string.ai_capability_tool_calling_desc),
+                                    value = profile.toolCallingCapabilityOverride,
+                                    onValueChange = viewModel::setToolCallingCapability,
+                                )
+                                CapabilityOverrideRow(
+                                    title = stringResource(R.string.ai_capability_reasoning),
+                                    description = stringResource(R.string.ai_capability_reasoning_desc),
+                                    value = profile.reasoningCapabilityOverride,
+                                    onValueChange = viewModel::setReasoningCapability,
+                                )
+                                OutputTokenLimitStyleRow(
+                                    value = profile.outputTokenLimitStyle,
+                                    onValueChange = viewModel::setOutputTokenLimitStyle,
+                                )
+                                CompactTextFieldSettingRow(
+                                    title = stringResource(R.string.ai_context_window_tokens),
+                                    description = stringResource(R.string.ai_context_window_tokens_desc),
+                                    value = profile.contextWindowTokens.toString(),
+                                    onValueChange = viewModel::setContextWindowTokens,
+                                )
+                                HorizontalDivider()
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(stringResource(R.string.ai_strict_stream_termination))
+                                        Text(
+                                            text = stringResource(R.string.ai_strict_stream_termination_desc),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    OrigReadSwitch(
+                                        activated = profile.strictStreamTermination,
+                                        onClick = { viewModel.setStrictStreamTermination(!profile.strictStreamTermination) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                additionalSettingsContent?.let { content ->
+                    item { content() }
+                }
                 item {
                     Banner(
                         title = stringResource(R.string.ai_privacy_title),
@@ -492,30 +550,35 @@ private fun CapabilityOverrideRow(
     onValueChange: (AiCapabilityOverrideMode) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(text = title, style = MaterialTheme.typography.bodyMedium)
-        Text(
-            text = description,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Box {
-            OutlinedButton(onClick = { expanded = true }) {
-                Text(stringResource(value.labelRes()))
-            }
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false },
-            ) {
-                AiCapabilityOverrideMode.entries.forEach { mode ->
-                    DropdownMenuItem(
-                        text = { Text(stringResource(mode.labelRes())) },
-                        onClick = {
-                            expanded = false
-                            onValueChange(mode)
-                        },
-                    )
-                }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(text = title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        CompactDropdownButton(
+            label = stringResource(value.labelRes()),
+            expanded = expanded,
+            onExpandedChange = { expanded = it },
+        ) {
+            AiCapabilityOverrideMode.entries.forEach { mode ->
+                DropdownMenuItem(
+                    text = { Text(stringResource(mode.labelRes())) },
+                    onClick = {
+                        expanded = false
+                        onValueChange(mode)
+                    },
+                )
             }
         }
     }
@@ -526,6 +589,118 @@ private fun AiCapabilityOverrideMode.labelRes(): Int =
         AiCapabilityOverrideMode.AUTO -> R.string.ai_capability_auto
         AiCapabilityOverrideMode.ENABLED -> R.string.ai_capability_supported
         AiCapabilityOverrideMode.DISABLED -> R.string.ai_capability_unsupported
+    }
+
+/** Provider 输出 token 字段设置；AUTO 保留官方模型识别，自建服务默认仍发送 max_tokens。 */
+@Composable
+private fun OutputTokenLimitStyleRow(
+    value: AiOutputTokenLimitStyle,
+    onValueChange: (AiOutputTokenLimitStyle) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.ai_output_token_limit_style),
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            Text(
+                text = stringResource(R.string.ai_output_token_limit_style_desc),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        CompactDropdownButton(
+            label = stringResource(value.labelRes()),
+            expanded = expanded,
+            onExpandedChange = { expanded = it },
+        ) {
+            AiOutputTokenLimitStyle.entries.forEach { style ->
+                DropdownMenuItem(
+                    text = { Text(stringResource(style.labelRes())) },
+                    onClick = {
+                        expanded = false
+                        onValueChange(style)
+                    },
+                )
+            }
+        }
+    }
+}
+
+/** 将设置说明和当前枚举值并排展示，减少重复按钮造成的纵向留白。 */
+@Composable
+private fun CompactDropdownButton(
+    label: String,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    menuContent: @Composable ColumnScope.() -> Unit,
+) {
+    Box {
+        OutlinedButton(
+            onClick = { onExpandedChange(true) },
+            modifier = Modifier.widthIn(max = 136.dp),
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+        ) {
+            Text(
+                text = label,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { onExpandedChange(false) },
+            content = menuContent,
+        )
+    }
+}
+
+/** 上下文窗口属于单值高级配置，以尾随输入框保留可直接编辑能力。 */
+@Composable
+private fun CompactTextFieldSettingRow(
+    title: String,
+    description: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(text = title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier.weight(0.72f),
+            singleLine = true,
+        )
+    }
+}
+
+private fun AiOutputTokenLimitStyle.labelRes(): Int =
+    when (this) {
+        AiOutputTokenLimitStyle.AUTO -> R.string.ai_output_token_limit_auto
+        AiOutputTokenLimitStyle.MAX_TOKENS -> R.string.ai_output_token_limit_max_tokens
+        AiOutputTokenLimitStyle.MAX_COMPLETION_TOKENS -> R.string.ai_output_token_limit_max_completion_tokens
     }
 
 @Composable

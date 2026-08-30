@@ -42,7 +42,7 @@ class TavilyWebSearchProvider @Inject constructor(
                     .header("Accept", "application/json")
                     .post(body.toString().toRequestBody(TAVILY_JSON_MEDIA_TYPE))
                     .build()
-            httpClient.newWebSearchCall(httpRequest, request).execute().use { response ->
+            httpClient.executeWebSearchCall(httpRequest, request) { response ->
                 val payload = response.body?.string().orEmpty()
                 request.perfTrace?.let { trace ->
                     AiPerfTracer.mark(
@@ -113,4 +113,3 @@ private fun tavilyErrorSuffix(payload: String): String {
 }
 
 private val TAVILY_JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
-

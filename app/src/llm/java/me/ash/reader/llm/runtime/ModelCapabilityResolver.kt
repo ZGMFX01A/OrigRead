@@ -4,6 +4,7 @@ import java.net.URI
 import javax.inject.Inject
 import javax.inject.Singleton
 import me.ash.reader.infrastructure.ai.AiProviderProfile
+import me.ash.reader.infrastructure.ai.resolveAiOutputTokenLimitStyle
 
 @Singleton
 class ModelCapabilityResolver @Inject constructor() {
@@ -23,7 +24,7 @@ class ModelCapabilityResolver @Inject constructor() {
                 .getOrDefault("")
         val normalizedModel = model.lowercase()
 
-        return when {
+        val capability = when {
             endpointHost == "api.openai.com" ->
                 openAiCapability(normalizedModel)
 
@@ -32,6 +33,14 @@ class ModelCapabilityResolver @Inject constructor() {
 
             else -> ModelCapability(supportsStreaming = true)
         }
+        return capability.copy(
+            outputTokenLimitStyle =
+                resolveAiOutputTokenLimitStyle(
+                    endpoint = provider.endpoint,
+                    model = model,
+                    configuredStyle = provider.outputTokenLimitStyle,
+                )
+        )
     }
 
     private fun openAiCapability(model: String): ModelCapability {

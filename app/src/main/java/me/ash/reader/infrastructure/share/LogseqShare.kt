@@ -5,18 +5,31 @@ import android.content.Intent
 import android.net.Uri
 import java.net.URLEncoder
 
-/** 使用 Logseq 官方 x-callback-url quickCapture 协议写入阅读页 Markdown。 */
+/** Logseq Android 定向分享：优先系统文本分享，短文本保留官方 quickCapture URI 兼容。 */
 object LogseqShare {
+    const val packageName = "com.logseq.app"
     private const val QUICK_CAPTURE_BASE = "logseq://x-callback-url/quickCapture"
+    private const val QUICK_CAPTURE_FALLBACK_MAX_CHARS = 4_096
 
-    /** Logseq 没有依赖包名判断；能解析官方 quickCapture URI 即视为可用。 */
+    /** 优先识别 Android 官方文本分享入口；旧版只暴露 URI 时再保留 quickCapture 兼容。 */
     fun availability(context: Context): ShareTargetAvailability {
-        val intent = createIntent(buildQuickCaptureUri("OrigRead", "https://example.com", "OrigRead"))
-        val available = context.canResolveShareIntent(intent)
-        return ShareTargetAvailability(detected = available, available = available)
+        val textShareAvailable = context.canResolveShareIntent(createTextShareIntent("OrigRead", "OrigRead"))
+        val quickCaptureAvailable =
+            context.canResolveShareIntent(
+                createQuickCaptureIntent(buildQuickCaptureUri("OrigRead", "https://example.com", "OrigRead"))
+            )
+        return ShareTargetAvailability(
+            detected = context.isVisiblePackage(packageName) || textShareAvailable || quickCaptureAvailable,
+            available = textShareAvailable || quickCaptureAvailable,
+        )
     }
 
-    /** 打开 Logseq quickCapture；启动失败时返回 false，由调用方回退系统分享。 */
+    /**
+     * Android 上整篇文章优先走 Logseq 自己的 ACTION_SEND 文本入口。
+     *
+     * quickCapture URI 官方定位是短文本/链接，不适合把整篇 Markdown 编进 URL；仅为旧版 Logseq
+     * 保留短文本兼容。两种方式都失败时返回 false，由阅读页回退系统分享面板。
+     */
     fun share(
         context: Context,
         title: String?,
@@ -24,10 +37,20 @@ object LogseqShare {
         markdown: String,
     ): Boolean {
         if (markdown.isBlank()) return false
-        val intent = createIntent(buildQuickCaptureUri(title, url, markdown))
-        if (!context.canResolveShareIntent(intent)) return false
+        val textShareIntent = createTextShareIntent(title, markdown)
+        if (context.canResolveShareIntent(textShareIntent)) {
+            val sent = runCatching {
+                context.startActivity(textShareIntent)
+                true
+            }.getOrDefault(false)
+            if (sent) return true
+        }
+
+        if (!shouldUseQuickCaptureFallback(markdown)) return false
+        val quickCaptureIntent = createQuickCaptureIntent(buildQuickCaptureUri(title, url, markdown))
+        if (!context.canResolveShareIntent(quickCaptureIntent)) return false
         return runCatching {
-            context.startActivity(intent)
+            context.startActivity(quickCaptureIntent)
             true
         }.getOrDefault(false)
     }
@@ -50,10 +73,22 @@ object LogseqShare {
             append(encodeQueryParameter(markdown))
         }
 
-    private fun createIntent(uri: String): Intent =
+    private fun createTextShareIntent(title: String?, markdown: String): Intent =
+        Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            setPackage(packageName)
+            putExtra(Intent.EXTRA_TEXT, markdown)
+            title?.takeIf { it.isNotBlank() }?.let { putExtra(Intent.EXTRA_SUBJECT, it) }
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
+    private fun createQuickCaptureIntent(uri: String): Intent =
         Intent(Intent.ACTION_VIEW, Uri.parse(uri)).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
+
+    internal fun shouldUseQuickCaptureFallback(markdown: String): Boolean =
+        markdown.length <= QUICK_CAPTURE_FALLBACK_MAX_CHARS
 
     /** URLEncoder 的 `+` 更偏表单语义，这里改成 URI 查询参数更明确的 `%20`。 */
     private fun encodeQueryParameter(value: String): String =

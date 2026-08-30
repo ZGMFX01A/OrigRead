@@ -4,6 +4,8 @@ import java.security.SecureRandom
 import java.util.Base64
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -105,13 +107,16 @@ class EditionSyncService @Inject constructor(
                 restoredConfiguration = true,
             )
         } catch (restoreError: Throwable) {
-            runCatching {
-                rollbackFailedRestore(
-                    resolution = resolution,
-                    previousAccountRollback = previousAccountRollback,
-                    targetAccountRollback = targetAccountRollback,
-                )
-            }.exceptionOrNull()?.let(restoreError::addSuppressed)
+            // 取消也是恢复失败的一种；先在不可取消上下文完成跨账户补偿，再原样抛出 CancellationException。
+            withContext(NonCancellable) {
+                runCatching {
+                    rollbackFailedRestore(
+                        resolution = resolution,
+                        previousAccountRollback = previousAccountRollback,
+                        targetAccountRollback = targetAccountRollback,
+                    )
+                }.exceptionOrNull()?.let(restoreError::addSuppressed)
+            }
             throw restoreError
         }
     }

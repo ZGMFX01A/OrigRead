@@ -1,6 +1,11 @@
 package me.ash.reader.infrastructure.translation
 
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import java.util.concurrent.TimeUnit
+import okhttp3.mockwebserver.SocketPolicy
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.json.JSONArray
@@ -253,5 +258,29 @@ class CloudTranslationProvidersTest {
             )
 
         assertEquals("你好", result.texts.single())
+    }
+
+    @Test
+    fun `translation cancellation cancels blocked provider call`() = runBlocking {
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
+        val provider = MicrosoftTranslationProvider(httpClient)
+        val job =
+            launch(Dispatchers.IO) {
+                provider.translate(
+                    texts = listOf("Hello"),
+                    sourceLanguage = null,
+                    targetLanguage = "zh-CN",
+                    config =
+                        TranslationRuntimeConfig(
+                            endpoint = server.url("/").toString().trimEnd('/'),
+                            region = "",
+                            apiKey = "secret",
+                        ),
+                )
+            }
+
+        assertTrue(server.takeRequest(2, TimeUnit.SECONDS) != null)
+        job.cancelAndJoin()
+        assertTrue(job.isCancelled)
     }
 }

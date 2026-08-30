@@ -2,6 +2,7 @@ package me.ash.reader.llm.runtime
 
 import kotlinx.coroutines.runBlocking
 import me.ash.reader.infrastructure.ai.AiCapabilityOverrideMode
+import me.ash.reader.infrastructure.ai.AiOutputTokenLimitStyle
 import me.ash.reader.infrastructure.ai.AiProviderProfile
 import me.ash.reader.infrastructure.ai.AiSettingsRepository
 import org.junit.Assert.assertEquals
@@ -29,6 +30,76 @@ class LlmRuntimeFoundationTest {
         assertFalse(capability.supportsToolCalling)
         assertTrue(capability.supportedReasoningEfforts.isEmpty())
         assertEquals(ReasoningParameterStyle.NONE, capability.reasoningParameterStyle)
+        assertTrue(capability.strictStreamTermination)
+        assertEquals(DEFAULT_LLM_CONTEXT_WINDOW_TOKENS, capability.contextWindowTokens)
+        assertEquals(AiOutputTokenLimitStyle.MAX_TOKENS, capability.outputTokenLimitStyle)
+    }
+
+    @Test
+    fun `official openai reasoning models use max completion tokens while normal and self hosted use max tokens`() {
+        val resolver = ModelCapabilityResolver()
+
+        listOf("o1", "o3-mini", "o4-mini", "gpt-5").forEach { model ->
+            val capability =
+                resolver.resolve(
+                    provider = AiProviderProfile(endpoint = "https://api.openai.com/v1"),
+                    model = model,
+                )
+            assertEquals(model, AiOutputTokenLimitStyle.MAX_COMPLETION_TOKENS, capability.outputTokenLimitStyle)
+        }
+        assertEquals(
+            AiOutputTokenLimitStyle.MAX_TOKENS,
+            resolver.resolve(AiProviderProfile(endpoint = "https://api.openai.com/v1"), "gpt-4o").outputTokenLimitStyle,
+        )
+        assertEquals(
+            AiOutputTokenLimitStyle.MAX_TOKENS,
+            resolver.resolve(AiProviderProfile(endpoint = "https://gateway.example.com/v1"), "gpt-5").outputTokenLimitStyle,
+        )
+    }
+
+    @Test
+    fun `manual output token style overrides automatic model resolution`() {
+        val resolver = ModelCapabilityResolver()
+        val officialForcedLegacy =
+            resolver.resolve(
+                AiProviderProfile(
+                    endpoint = "https://api.openai.com/v1",
+                    outputTokenLimitStyle = AiOutputTokenLimitStyle.MAX_TOKENS,
+                ),
+                "gpt-5",
+            )
+        val selfHostedForcedCompletion =
+            resolver.resolve(
+                AiProviderProfile(
+                    endpoint = "https://gateway.example.com/v1",
+                    outputTokenLimitStyle = AiOutputTokenLimitStyle.MAX_COMPLETION_TOKENS,
+                ),
+                "custom-model",
+            )
+
+        assertEquals(AiOutputTokenLimitStyle.MAX_TOKENS, officialForcedLegacy.outputTokenLimitStyle)
+        assertEquals(AiOutputTokenLimitStyle.MAX_COMPLETION_TOKENS, selfHostedForcedCompletion.outputTokenLimitStyle)
+    }
+
+    @Test
+    fun `provider overrides expose context window and compatible stream termination`() {
+        val adapter =
+            OpenAiCompatibleLlmAdapter(
+                settingsRepository = mock<AiSettingsRepository>(),
+                capabilityResolver = ModelCapabilityResolver(),
+            )
+        val provider =
+            AiProviderProfile(
+                name = "Compatibility gateway",
+                endpoint = "https://gateway.example.com/v1",
+                contextWindowTokens = 4_096,
+                strictStreamTermination = false,
+            )
+
+        val capability = adapter.capability(provider, "custom-model", override = null)
+
+        assertEquals(4_096, capability.contextWindowTokens)
+        assertFalse(capability.strictStreamTermination)
     }
 
     @Test
@@ -136,6 +207,8 @@ class LlmRuntimeFoundationTest {
         assertFalse(capability.supportsReasoningOutput)
         assertTrue(capability.supportedReasoningEfforts.isEmpty())
         assertEquals(ReasoningParameterStyle.NONE, capability.reasoningParameterStyle)
+        assertTrue(capability.strictStreamTermination)
+        assertEquals(DEFAULT_LLM_CONTEXT_WINDOW_TOKENS, capability.contextWindowTokens)
     }
 
     @Test

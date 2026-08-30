@@ -42,7 +42,7 @@ class KeenableWebSearchProvider @Inject constructor(
             // 公共端点要求应用标识；缺失时 Keenable 会返回 400。
             builder.header("X-Keenable-Title", KEENABLE_APP_TITLE)
         }
-        httpClient.newWebSearchCall(builder.build(), request).execute().use { response ->
+        httpClient.executeWebSearchCall(builder.build(), request) { response ->
             val payload = response.body?.string().orEmpty()
             request.perfTrace?.let { trace ->
                 AiPerfTracer.mark(

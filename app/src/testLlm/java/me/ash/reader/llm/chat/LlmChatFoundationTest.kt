@@ -3,11 +3,13 @@ package me.ash.reader.llm.chat
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import me.ash.reader.infrastructure.ai.AiException
 import me.ash.reader.infrastructure.ai.AiHttpClient
+import me.ash.reader.infrastructure.ai.AiOutputTokenLimitStyle
 import me.ash.reader.infrastructure.ai.AiRuntimeConfig
 import me.ash.reader.llm.chat.data.LlmChatRole
 import me.ash.reader.llm.chat.data.LlmChatConverters
@@ -24,6 +26,7 @@ import me.ash.reader.llm.chat.runtime.extractSseDataPayload
 import me.ash.reader.llm.chat.runtime.parseNonStreamingPayload
 import me.ash.reader.llm.chat.runtime.parseOpenAiCompatibleFinishReason
 import me.ash.reader.llm.chat.runtime.parseStreamPayload
+import me.ash.reader.llm.chat.runtime.LlmPromptBudgetPlanner
 import me.ash.reader.llm.chat.runtime.renderLlmChatMessageContent
 import me.ash.reader.llm.chat.runtime.resolveLlmGenerationTerminalDecision
 import me.ash.reader.llm.chat.data.deriveConversationTitle
@@ -173,6 +176,17 @@ class LlmChatFoundationTest {
                 ChatAutoFollowObservation(
                     autoFollow = true,
                     userScrollControlActive = false,
+                    isGenerating = true,
+                    layout = detachedBottom,
+                )
+            )
+        )
+        assertFalse(
+            shouldIssueChatAutoFollowScroll(
+                ChatAutoFollowObservation(
+                    autoFollow = true,
+                    userScrollControlActive = false,
+                    isGenerating = false,
                     layout = detachedBottom,
                 )
             )
@@ -182,6 +196,7 @@ class LlmChatFoundationTest {
                 ChatAutoFollowObservation(
                     autoFollow = false,
                     userScrollControlActive = false,
+                    isGenerating = true,
                     layout = detachedBottom,
                 )
             )
@@ -191,6 +206,7 @@ class LlmChatFoundationTest {
                 ChatAutoFollowObservation(
                     autoFollow = true,
                     userScrollControlActive = true,
+                    isGenerating = true,
                     layout = detachedBottom,
                 )
             )
@@ -200,6 +216,7 @@ class LlmChatFoundationTest {
                 ChatAutoFollowObservation(
                     autoFollow = true,
                     userScrollControlActive = false,
+                    isGenerating = true,
                     layout = detachedBottom.copy(isScrollInProgress = true),
                 )
             )
@@ -209,6 +226,7 @@ class LlmChatFoundationTest {
                 ChatAutoFollowObservation(
                     autoFollow = true,
                     userScrollControlActive = false,
+                    isGenerating = true,
                     layout =
                         detachedBottom.copy(
                             lastVisibleItemIndex = 3,
@@ -895,6 +913,10 @@ class LlmChatFoundationTest {
         assertEquals("FAILED_FALLBACK", encoded)
         assertEquals(WebSearchRequestStatus.FAILED_FALLBACK, converters.stringToWebSearchStatus(encoded))
         assertEquals(
+            WebSearchRequestStatus.EMPTY_RESULT,
+            converters.stringToWebSearchStatus("EMPTY_RESULT"),
+        )
+        assertEquals(
             WebSearchRequestStatus.FAILED_REQUIRED,
             converters.stringToWebSearchStatus("FAILED_REQUIRED"),
         )
@@ -1316,6 +1338,127 @@ class LlmChatFoundationTest {
             assertTrue(body.contains("\"tool_calls\""))
             assertTrue(body.contains("\"role\":\"tool\""))
             assertTrue(body.contains("\"tool_call_id\":\"call_1\""))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `prompt budget counts system history tool schema and output reserve before network`() {
+        val plan =
+            LlmExecutionPlan(
+                providerId = "test-provider",
+                providerName = "Test",
+                runtimeConfig = AiRuntimeConfig("https://example.com/v1", "test-model", ""),
+                capability =
+                    ModelCapability(
+                        supportsToolCalling = true,
+                        contextWindowTokens = 180,
+                    ),
+                reasoningParameter = null,
+                tools =
+                    listOf(
+                        LlmToolDescriptor(
+                            id = "search",
+                            name = "search",
+                            description = "D".repeat(100),
+                            source = LlmToolSource.ORIGREAD_INTERNAL,
+                            inputSchemaJson = "{\"type\":\"object\",\"properties\":{\"q\":{\"type\":\"string\"}}}",
+                        )
+                    ),
+                automaticToolCalling = true,
+                context = ComposedLlmContext("C".repeat(120), emptyList(), emptyList(), false),
+                skillId = "long-skill",
+                skillInstructions = "S".repeat(120),
+                customInstructions = "U".repeat(80),
+            )
+        val history =
+            listOf(
+                LlmChatRequestMessage(LlmChatRole.USER, "H".repeat(120)),
+                LlmChatRequestMessage(
+                    role = LlmChatRole.ASSISTANT,
+                    content = "",
+                    toolCalls =
+                        listOf(
+                            LlmChatRequestToolCall("call-1", "search", "{\"q\":\"android\"}"),
+                        ),
+                ),
+                LlmChatRequestMessage(LlmChatRole.TOOL, "R".repeat(80), toolCallId = "call-1"),
+            )
+
+        val error = runCatching { LlmPromptBudgetPlanner().validate(plan, history) }.exceptionOrNull()
+
+        assertTrue(error is AiException)
+        assertTrue(error?.message.orEmpty().contains("上下文窗口"))
+    }
+
+    @Test
+    fun `chat request writes planner output reserve into exactly one token limit field`() = runBlocking {
+        val server = MockWebServer()
+        try {
+            server.enqueue(MockResponse().setBody("data: [DONE]\n\n"))
+            val plan =
+                LlmExecutionPlan(
+                    providerId = "test-provider",
+                    providerName = "Test",
+                    runtimeConfig = AiRuntimeConfig(server.url("/v1").toString(), "test-model", ""),
+                    capability = ModelCapability(contextWindowTokens = 16_000),
+                    reasoningParameter = null,
+                    tools = emptyList(),
+                    automaticToolCalling = false,
+                    context = ComposedLlmContext("", emptyList(), emptyList(), false),
+                    skillId = null,
+                )
+            val expectedReserve =
+                LlmPromptBudgetPlanner()
+                    .validate(plan, listOf(LlmChatRequestMessage(LlmChatRole.USER, "hello")))
+                    .outputReserveTokens
+
+            LlmChatTransport(AiHttpClient())
+                .stream(plan, listOf(LlmChatRequestMessage(LlmChatRole.USER, "hello")))
+                .collect()
+
+            val body = JSONObject(server.takeRequest().body.readUtf8())
+            assertEquals(expectedReserve, body.getInt("max_tokens"))
+            assertFalse(body.has("max_completion_tokens"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `chat request writes max completion tokens when resolver selects completion style`() = runBlocking {
+        val server = MockWebServer()
+        try {
+            server.enqueue(MockResponse().setBody("data: [DONE]\n\n"))
+            val plan =
+                LlmExecutionPlan(
+                    providerId = "openai",
+                    providerName = "OpenAI",
+                    runtimeConfig = AiRuntimeConfig(server.url("/v1").toString(), "gpt-5", ""),
+                    capability =
+                        ModelCapability(
+                            contextWindowTokens = 16_000,
+                            outputTokenLimitStyle = AiOutputTokenLimitStyle.MAX_COMPLETION_TOKENS,
+                        ),
+                    reasoningParameter = null,
+                    tools = emptyList(),
+                    automaticToolCalling = false,
+                    context = ComposedLlmContext("", emptyList(), emptyList(), false),
+                    skillId = null,
+                )
+            val expectedReserve =
+                LlmPromptBudgetPlanner()
+                    .validate(plan, listOf(LlmChatRequestMessage(LlmChatRole.USER, "hello")))
+                    .outputReserveTokens
+
+            LlmChatTransport(AiHttpClient())
+                .stream(plan, listOf(LlmChatRequestMessage(LlmChatRole.USER, "hello")))
+                .collect()
+
+            val body = JSONObject(server.takeRequest().body.readUtf8())
+            assertEquals(expectedReserve, body.getInt("max_completion_tokens"))
+            assertFalse(body.has("max_tokens"))
         } finally {
             server.shutdown()
         }
@@ -2110,6 +2253,78 @@ class LlmChatFoundationTest {
             } catch (error: AiException) {
                 assertTrue(error.message.orEmpty().contains("提前结束"))
             }
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `compatible stream termination accepts normal eof only after visible content`() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody("data: {\"choices\":[{\"delta\":{\"content\":\"compatible\"}}]}\n\n")
+        )
+        server.start()
+        try {
+            val plan =
+                LlmExecutionPlan(
+                    providerId = "test-provider",
+                    providerName = "Test",
+                    runtimeConfig = AiRuntimeConfig(server.url("/v1").toString(), "test-model", ""),
+                    capability = ModelCapability(strictStreamTermination = false),
+                    reasoningParameter = null,
+                    tools = emptyList(),
+                    automaticToolCalling = false,
+                    context = ComposedLlmContext("", emptyList(), emptyList(), false),
+                    skillId = null,
+                )
+
+            val deltas =
+                LlmChatTransport(AiHttpClient())
+                    .stream(plan, listOf(LlmChatRequestMessage(LlmChatRole.USER, "hello")))
+                    .toList()
+
+            assertEquals("compatible", deltas.joinToString("") { it.content })
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `compatible stream termination still rejects eof after tool call`() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(
+                    "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-1\",\"function\":{\"name\":\"search\",\"arguments\":\"{}\"}}]}}]}\n\n"
+                )
+        )
+        server.start()
+        try {
+            val plan =
+                LlmExecutionPlan(
+                    providerId = "test-provider",
+                    providerName = "Test",
+                    runtimeConfig = AiRuntimeConfig(server.url("/v1").toString(), "test-model", ""),
+                    capability = ModelCapability(supportsToolCalling = true, strictStreamTermination = false),
+                    reasoningParameter = null,
+                    tools = emptyList(),
+                    automaticToolCalling = false,
+                    context = ComposedLlmContext("", emptyList(), emptyList(), false),
+                    skillId = null,
+                )
+
+            val error =
+                runCatching {
+                    LlmChatTransport(AiHttpClient())
+                        .stream(plan, listOf(LlmChatRequestMessage(LlmChatRole.USER, "hello")))
+                        .toList()
+                }.exceptionOrNull()
+
+            assertTrue(error is AiException)
         } finally {
             server.shutdown()
         }

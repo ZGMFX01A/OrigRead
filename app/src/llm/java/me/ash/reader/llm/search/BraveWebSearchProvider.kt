@@ -41,7 +41,7 @@ class BraveWebSearchProvider @Inject constructor(
                     .header("Accept", "application/json")
                     .get()
                     .build()
-            httpClient.newWebSearchCall(httpRequest, request).execute().use { response ->
+            httpClient.executeWebSearchCall(httpRequest, request) { response ->
                 val payload = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
                     throw WebSearchException("Brave 搜索失败：HTTP ${response.code}")

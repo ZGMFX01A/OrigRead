@@ -58,6 +58,7 @@ class LlmSettingsRepository @Inject constructor(
 
     fun setMcpEnabled(value: Boolean) = update { it.copy(mcpEnabled = value) }
 
+
     /** 完整配置备份恢复入口；沿用与设置页相同的边界归一化，不保留旧实验字段。 */
     fun restoreBackup(settings: LlmAdvancedSettings) {
         val normalized =
@@ -143,7 +144,8 @@ class LlmSettingsRepository @Inject constructor(
 
     companion object {
         const val DEFAULT_CONTEXT_TOKENS = 128_000
-        const val MIN_CONTEXT_TOKENS = 8_000
+        /** LLM Context Budget 与 Provider 最小窗口保持一致，支持常见 4K 模型。 */
+        const val MIN_CONTEXT_TOKENS = 4_096
         const val MAX_CONTEXT_TOKENS = 4_000_000
         const val MAX_CUSTOM_INSTRUCTIONS_LENGTH = 8_000
 

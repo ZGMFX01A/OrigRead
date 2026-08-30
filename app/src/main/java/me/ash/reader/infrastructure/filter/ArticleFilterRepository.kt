@@ -13,6 +13,8 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
+private const val ARTICLE_FILTER_HISTORY_LIMIT = 200
+
 @Serializable
 enum class ArticleFilterRuleType {
     KEYWORD,
@@ -37,11 +39,28 @@ data class ArticleFilterStats(
     val lastMatchedRule: String? = null,
 )
 
+/** 仅用于查看过滤结果的轻量记录，不保存正文、图片或原始响应。 */
+@Serializable
+data class FilteredArticleRecord(
+    val articleId: String,
+    val feedId: String,
+    val sourceName: String,
+    val title: String,
+    val matchedRule: String,
+    val filteredAt: Long,
+)
+
 @Serializable
 private data class ArticleFilterRuleBundle(
     val schemaVersion: Int = 1,
     val rules: List<ArticleFilterRule> = emptyList(),
     val stats: ArticleFilterStats = ArticleFilterStats(),
+)
+
+@Serializable
+private data class ArticleFilterHistoryBundle(
+    val schemaVersion: Int = 1,
+    val entries: List<FilteredArticleRecord> = emptyList(),
 )
 
 /** 使用独立 JSON 文件保存文章过滤规则与轻量统计，不引入数据库迁移。 */
@@ -58,12 +77,18 @@ class ArticleFilterRepository @Inject constructor(
     private val ruleFile
         get() = context.filesDir.resolve("article-filter-rules.json")
 
+    private val historyFile
+        get() = context.filesDir.resolve("article-filter-history.json")
+
     /** 规则读取频率远高于写入频率；启动时加载一次，后续读操作只访问内存。 */
     @Volatile
     private var cachedBundle = load()
 
     @Volatile
     private var cachedCompiledRules = ArticleFilterMatcher.compile(cachedBundle.rules)
+
+    @Volatile
+    private var cachedHistory = loadHistory()
 
     /**
      * 当前过滤规则快照。
@@ -82,6 +107,8 @@ class ArticleFilterRepository @Inject constructor(
         cachedBundle.rules.filter { it.feedId == feedId }
 
     fun getStats(): ArticleFilterStats = cachedBundle.stats
+
+    fun getFilteredArticles(): List<FilteredArticleRecord> = cachedHistory.entries
 
     /** 新增规则；普通关键词按忽略大小写去重，正则按原表达式去重。 */
     @Synchronized
@@ -123,17 +150,24 @@ class ArticleFilterRepository @Inject constructor(
     }
 
     @Synchronized
-    fun recordMatches(count: Int, lastRule: ArticleFilterRule?) {
-        if (count <= 0) return
+    fun recordFilteredArticles(records: List<FilteredArticleRecord>) {
+        if (records.isEmpty()) return
         update(
             cachedBundle.copy(
                 stats = cachedBundle.stats.copy(
-                    totalFiltered = cachedBundle.stats.totalFiltered + count,
-                    lastFilteredAt = System.currentTimeMillis(),
-                    lastMatchedRule = lastRule?.keyword,
+                    totalFiltered = cachedBundle.stats.totalFiltered + records.size,
+                    lastFilteredAt = records.maxOf { it.filteredAt },
+                    lastMatchedRule = records.last().matchedRule,
                 )
             )
         )
+        val merged =
+            (records.asReversed() + cachedHistory.entries)
+                .distinctBy { it.feedId to it.articleId }
+                .sortedByDescending { it.filteredAt }
+                .take(ARTICLE_FILTER_HISTORY_LIMIT)
+        cachedHistory = ArticleFilterHistoryBundle(entries = merged)
+        writeHistory(cachedHistory)
     }
 
     @Synchronized
@@ -218,6 +252,10 @@ class ArticleFilterRepository @Inject constructor(
         ruleFile.writeText(json.encodeToString(bundle))
     }
 
+    private fun writeHistory(bundle: ArticleFilterHistoryBundle) {
+        historyFile.writeText(json.encodeToString(bundle))
+    }
+
     /** 兼容旧版仅包含 keyword/feedId/enabled 的规则文件。 */
     private fun load(): ArticleFilterRuleBundle =
         runCatching {
@@ -225,6 +263,14 @@ class ArticleFilterRepository @Inject constructor(
             else json.decodeFromString<ArticleFilterRuleBundle>(ruleFile.readText())
         }.getOrDefault(ArticleFilterRuleBundle()).let { bundle ->
             bundle.copy(rules = immutableRules(bundle.rules))
+        }
+
+    private fun loadHistory(): ArticleFilterHistoryBundle =
+        runCatching {
+            if (!historyFile.exists()) ArticleFilterHistoryBundle()
+            else json.decodeFromString<ArticleFilterHistoryBundle>(historyFile.readText())
+        }.getOrDefault(ArticleFilterHistoryBundle()).let { bundle ->
+            bundle.copy(entries = bundle.entries.take(ARTICLE_FILTER_HISTORY_LIMIT))
         }
 
     private fun immutableRules(rules: List<ArticleFilterRule>): List<ArticleFilterRule> =
