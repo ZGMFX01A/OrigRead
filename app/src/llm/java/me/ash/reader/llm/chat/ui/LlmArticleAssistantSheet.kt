@@ -4,7 +4,6 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,14 +19,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListItemInfo
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.FormatListBulleted
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.outlined.Lightbulb
@@ -49,6 +53,7 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -76,7 +81,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
@@ -87,6 +91,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -147,10 +153,7 @@ fun LlmArticleAssistantSheet(
     var webSearchResultsAssistantId by remember { mutableStateOf<String?>(null) }
     var renameTarget by remember { mutableStateOf<LlmConversationEntity?>(null) }
     var deleteTarget by remember { mutableStateOf<LlmConversationEntity?>(null) }
-    var autoFollow by remember(uiState.currentConversationId) { mutableStateOf(true) }
-    var userScrollControlActive by remember(uiState.currentConversationId) { mutableStateOf(false) }
-    val latestLastAssistantId =
-        rememberUpdatedState(uiState.messages.lastOrNull { it.role == LlmChatRole.ASSISTANT }?.id)
+    var previewMode by rememberSaveable { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
     val canScrollUp by remember { derivedStateOf { listState.canScrollBackward } }
     val canScrollDown by remember { derivedStateOf { listState.canScrollForward } }
@@ -167,45 +170,24 @@ fun LlmArticleAssistantSheet(
             viewModel.analyzeArticle(articleAnalysisPrompt)
         }
     }
-    LaunchedEffect(listState, uiState.currentConversationId) {
-        // 只有真实拖拽才关闭自动跟随；程序自己的 scrollToItem 不会被误判成用户意图。
-        // 显式记录 Drag 生命周期，避免 Drag.Start 与 LazyList isScrollInProgress 更新存在一帧时序差时又被错误恢复。
-        listState.interactionSource.interactions.collect { interaction ->
-            when (interaction) {
-                is DragInteraction.Start -> {
-                    userScrollControlActive = true
-                    autoFollow = false
+    LaunchedEffect(listState, uiState.currentConversationId, uiState.isGenerating) {
+        // 直接采用 RikkaHub ChatList 的自动跟随模型：
+        // 只有“当前本来就在底部 + 列表没有滚动 + 正在生成”时，才在下一次 remeasure 继续锚定到底部。
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo }
+            .collect { visibleItemsInfo ->
+                if (
+                    !listState.isScrollInProgress &&
+                        uiState.isGenerating &&
+                        visibleItemsInfo.isAtChatBottom(listState)
+                ) {
+                    uiState.messages
+                        .lastOrNull { it.role == LlmChatRole.ASSISTANT }
+                        ?.id
+                        ?.let(LlmChatPerfTracker::recordAutoFollowScroll)
+                    listState.requestScrollToItem(uiState.messages.size)
                 }
-                is DragInteraction.Stop,
-                is DragInteraction.Cancel -> userScrollControlActive = false
             }
-        }
     }
-    LaunchedEffect(listState, uiState.currentConversationId) {
-        // 用真实尾部锚点的可见性统一驱动“恢复跟随”和“需要追尾”，不再依赖 canScrollForward 的瞬时值。
-        // 这样顶部 overscroll / BottomSheet nested scroll 不会把一次边界状态误判成“已经回到底部”。
-        snapshotFlow {
-                ChatAutoFollowObservation(
-                    autoFollow = autoFollow,
-                    userScrollControlActive = userScrollControlActive,
-                    isGenerating = uiState.isGenerating,
-                    layout = listState.chatAutoFollowLayoutSnapshot(),
-                )
-            }
-            .collect { observation ->
-                if (shouldResumeChatAutoFollow(observation)) {
-                    autoFollow = true
-                    return@collect
-                }
-                if (shouldIssueChatAutoFollowScroll(observation)) {
-                    latestLastAssistantId.value?.let(LlmChatPerfTracker::recordAutoFollowScroll)
-                    // 流式内容正在增长时不再 suspend + scrollToItem() 硬跳。
-                    // requestScrollToItem 会把目标位置合并到下一次 LazyList remeasure，
-                    // 避免 reasoning 每增长一段就先布局、再瞬移一次造成肉眼可见的上下抖动。
-                    listState.requestScrollToItem(observation.layout.totalItemsCount - 1)
-                }
-            }
-        }
 
     val dismissAssistant = {
         viewModel.stopGeneration()
@@ -238,17 +220,38 @@ fun LlmArticleAssistantSheet(
                 historyExpanded = historyExpanded,
                 conversationMenuExpanded = conversationMenuExpanded,
                 currentConversation = currentConversation,
+                previewMode = previewMode,
+                previewEnabled = uiState.messages.isNotEmpty(),
                 onHistoryExpandedChange = { historyExpanded = it },
                 onConversationMenuExpandedChange = { conversationMenuExpanded = it },
-                onNewConversation = viewModel::newConversation,
-                onSelectConversation = viewModel::selectConversation,
+                onPreviewModeChange = { previewMode = it },
+                onNewConversation = {
+                    previewMode = false
+                    viewModel.newConversation()
+                },
+                onSelectConversation = {
+                    previewMode = false
+                    viewModel.selectConversation(it)
+                },
                 onRenameConversation = { renameTarget = it },
                 onDeleteConversation = { deleteTarget = it },
             )
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-            if (uiState.messages.isEmpty()) {
+            if (previewMode && uiState.messages.isNotEmpty()) {
+                ChatMessagePreviewList(
+                    messages = uiState.messages,
+                    conversationId = uiState.currentConversationId,
+                    modifier = Modifier.weight(1f),
+                    onJumpToMessage = { index ->
+                        previewMode = false
+                        coroutineScope.launch {
+                            listState.requestScrollToItem(index)
+                        }
+                    },
+                )
+            } else if (uiState.messages.isEmpty()) {
                 ArticleAssistantEmptyState(
                     configured = uiState.selectedProviderId != null && uiState.selectedModel != null,
                     modifier = Modifier.weight(1f),
@@ -314,14 +317,8 @@ fun LlmArticleAssistantSheet(
                                     icon = Icons.Rounded.KeyboardArrowUp,
                                     contentDescription = stringResource(R.string.llm_chat_scroll_top),
                                     onClick = {
-                                        userScrollControlActive = true
-                                        autoFollow = false
                                         coroutineScope.launch {
-                                            try {
-                                                listState.animateScrollToItem(0)
-                                            } finally {
-                                                userScrollControlActive = false
-                                            }
+                                            listState.animateScrollToItem(0)
                                         }
                                     },
                                 )
@@ -331,14 +328,8 @@ fun LlmArticleAssistantSheet(
                                     icon = Icons.Rounded.KeyboardArrowDown,
                                     contentDescription = stringResource(R.string.llm_chat_scroll_bottom),
                                     onClick = {
-                                        userScrollControlActive = true
-                                        autoFollow = true
                                         coroutineScope.launch {
-                                            try {
-                                                listState.animateScrollToItem(uiState.messages.size)
-                                            } finally {
-                                                userScrollControlActive = false
-                                            }
+                                            listState.animateScrollToItem(uiState.messages.size)
                                         }
                                     },
                                 )
@@ -348,7 +339,7 @@ fun LlmArticleAssistantSheet(
                 }
             }
 
-            uiState.transientError?.let { message ->
+            if (!previewMode) uiState.transientError?.let { message ->
                 Surface(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp),
                     shape = RoundedCornerShape(14.dp),
@@ -371,31 +362,33 @@ fun LlmArticleAssistantSheet(
                 }
             }
 
-            AssistantComposer(
-                input = input,
-                uiState = uiState,
-                onInputChange = { input = it },
-                onOpenModelPicker = { modelPickerVisible = true },
-                onOpenManualTool = {
-                    viewModel.refreshManualTools()
-                    manualToolSheetVisible = true
-                },
-                onRemoveManualToolContext = viewModel::removeManualToolContext,
-                onLoadArticleCandidates = viewModel::loadArticleCandidates,
-                onAttachArticleCandidate = viewModel::attachArticleCandidate,
-                onRemoveAdditionalArticle = viewModel::removeAdditionalArticle,
-                onWebSearchModeChange = viewModel::setWebSearchMode,
-                onReasoningEffortChange = viewModel::setReasoningEffort,
-                onQuickMessage = viewModel::sendQuickMessage,
-                onSend = {
-                    val text = input.trim()
-                    if (text.isNotBlank()) {
-                        input = ""
-                        viewModel.sendMessage(text)
-                    }
-                },
-                onStop = viewModel::stopGeneration,
-            )
+            if (!previewMode) {
+                AssistantComposer(
+                    input = input,
+                    uiState = uiState,
+                    onInputChange = { input = it },
+                    onOpenModelPicker = { modelPickerVisible = true },
+                    onOpenManualTool = {
+                        viewModel.refreshManualTools()
+                        manualToolSheetVisible = true
+                    },
+                    onRemoveManualToolContext = viewModel::removeManualToolContext,
+                    onLoadArticleCandidates = viewModel::loadArticleCandidates,
+                    onAttachArticleCandidate = viewModel::attachArticleCandidate,
+                    onRemoveAdditionalArticle = viewModel::removeAdditionalArticle,
+                    onWebSearchModeChange = viewModel::setWebSearchMode,
+                    onReasoningEffortChange = viewModel::setReasoningEffort,
+                    onQuickMessage = viewModel::sendQuickMessage,
+                    onSend = {
+                        val text = input.trim()
+                        if (text.isNotBlank()) {
+                            input = ""
+                            viewModel.sendMessage(text)
+                        }
+                    },
+                    onStop = viewModel::stopGeneration,
+                )
+            }
         }
     }
 
@@ -519,8 +512,11 @@ private fun AssistantHeader(
     historyExpanded: Boolean,
     conversationMenuExpanded: Boolean,
     currentConversation: LlmConversationEntity?,
+    previewMode: Boolean,
+    previewEnabled: Boolean,
     onHistoryExpandedChange: (Boolean) -> Unit,
     onConversationMenuExpandedChange: (Boolean) -> Unit,
+    onPreviewModeChange: (Boolean) -> Unit,
     onNewConversation: () -> Unit,
     onSelectConversation: (String) -> Unit,
     onRenameConversation: (LlmConversationEntity) -> Unit,
@@ -541,6 +537,8 @@ private fun AssistantHeader(
                 text = stringResource(R.string.llm_article_assistant_title),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = providerName,
@@ -548,6 +546,22 @@ private fun AssistantHeader(
                 overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        IconButton(
+            onClick = { onPreviewModeChange(!previewMode) },
+            enabled = previewEnabled,
+        ) {
+            Icon(
+                imageVector =
+                    if (previewMode) Icons.Rounded.Close
+                    else Icons.AutoMirrored.Rounded.FormatListBulleted,
+                contentDescription =
+                    stringResource(
+                        if (previewMode) R.string.llm_chat_preview_close
+                        else R.string.llm_chat_preview_open
+                    ),
             )
         }
 
@@ -634,6 +648,161 @@ private fun AssistantHeader(
 }
 
 @Composable
+private fun ChatMessagePreviewList(
+    messages: List<LlmMessageEntity>,
+    conversationId: String?,
+    modifier: Modifier = Modifier,
+    onJumpToMessage: (Int) -> Unit,
+) {
+    var searchQuery by rememberSaveable(conversationId) { mutableStateOf("") }
+    val filteredMessages =
+        remember(messages, searchQuery) {
+            messages.mapIndexed { index, message -> index to message }
+                .filter { (_, message) ->
+                    searchQuery.isBlank() ||
+                        chatPreviewSearchText(message).contains(searchQuery, ignoreCase = true)
+                }
+        }
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            placeholder = { Text(stringResource(R.string.llm_chat_preview_search)) },
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Rounded.Search,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                )
+            },
+            trailingIcon = {
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(onClick = { searchQuery = "" }) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = stringResource(R.string.llm_chat_preview_clear_search),
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+            },
+            singleLine = true,
+            shape = CircleShape,
+        )
+
+        if (filteredMessages.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    text = stringResource(R.string.llm_chat_preview_empty),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                itemsIndexed(
+                    items = filteredMessages,
+                    key = { _, item -> item.second.id },
+                ) { _, (originalIndex, message) ->
+                    val isUser = message.role == LlmChatRole.USER
+                    val snippet =
+                        remember(message.content, message.reasoning, searchQuery) {
+                            chatPreviewSnippet(
+                                text = chatPreviewSearchText(message),
+                                query = searchQuery,
+                            )
+                        }
+                    val highlightColor = MaterialTheme.colorScheme.tertiaryContainer
+                    val highlighted =
+                        remember(snippet, searchQuery, highlightColor) {
+                            buildChatPreviewHighlightedText(
+                                text = snippet,
+                                query = searchQuery,
+                                highlightColor = highlightColor,
+                            )
+                        }
+
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
+                    ) {
+                        Surface(
+                            modifier = Modifier.widthIn(max = 520.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            color =
+                                if (isUser) MaterialTheme.colorScheme.primaryContainer
+                                else MaterialTheme.colorScheme.surfaceContainerHigh,
+                            onClick = { onJumpToMessage(originalIndex) },
+                        ) {
+                            Text(
+                                text = highlighted,
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun chatPreviewSearchText(message: LlmMessageEntity): String =
+    message.content.takeIf(String::isNotBlank)
+        ?: message.reasoning?.takeIf(String::isNotBlank)
+        ?: "…"
+
+internal fun chatPreviewSnippet(
+    text: String,
+    query: String,
+    maxLength: Int = 180,
+): String {
+    val normalized = text.replace(Regex("\\s+"), " ").trim().ifBlank { "…" }
+    if (normalized.length <= maxLength) return normalized
+    if (query.isBlank()) return normalized.take(maxLength - 1) + "…"
+
+    val matchIndex = normalized.indexOf(query, ignoreCase = true)
+    if (matchIndex < 0) return normalized.take(maxLength - 1) + "…"
+
+    val contextBefore = ((maxLength - query.length) / 3).coerceAtLeast(0)
+    val start = (matchIndex - contextBefore).coerceAtLeast(0)
+    val end = (start + maxLength).coerceAtMost(normalized.length)
+    val clippedStart = (end - maxLength).coerceAtLeast(0)
+    return buildString {
+        if (clippedStart > 0) append('…')
+        append(normalized.substring(clippedStart, end))
+        if (end < normalized.length) append('…')
+    }
+}
+
+private fun buildChatPreviewHighlightedText(
+    text: String,
+    query: String,
+    highlightColor: androidx.compose.ui.graphics.Color,
+): AnnotatedString =
+    buildAnnotatedString {
+        append(text)
+        if (query.isBlank()) return@buildAnnotatedString
+        var startIndex = text.indexOf(query, ignoreCase = true)
+        while (startIndex >= 0) {
+            addStyle(
+                style = SpanStyle(background = highlightColor),
+                start = startIndex,
+                end = startIndex + query.length,
+            )
+            startIndex = text.indexOf(query, startIndex + query.length, ignoreCase = true)
+        }
+    }
+
+@Composable
 private fun ArticleAssistantEmptyState(
     configured: Boolean,
     modifier: Modifier = Modifier,
@@ -667,64 +836,11 @@ private fun ArticleAssistantEmptyState(
  */
 internal fun shouldShowArticleAssistantConfigurationHint(configured: Boolean): Boolean = !configured
 
-/**
- * Chat 列表当前与尾部锚点相关的最小布局快照。
- *
- * 不把 LazyListState 本身带进业务判断，既方便纯 JVM 回归，也避免继续用 canScrollForward 这种边界瞬时值
- * 直接决定 auto-follow 状态。
- */
-internal data class ChatAutoFollowLayoutSnapshot(
-    val isScrollInProgress: Boolean,
-    val totalItemsCount: Int,
-    val lastVisibleItemIndex: Int?,
-    val lastVisibleItemEndOffset: Int?,
-    val viewportEndOffset: Int,
-)
-
-/** 一次 auto-follow 决策需要的 UI 状态；显式用户滚动控制单独保存以覆盖 Drag/动画启动的一帧时序差。 */
-internal data class ChatAutoFollowObservation(
-    val autoFollow: Boolean,
-    val userScrollControlActive: Boolean,
-    val isGenerating: Boolean = false,
-    val layout: ChatAutoFollowLayoutSnapshot,
-)
-
-/** 只有真正的最后一个 item（conversation-bottom-anchor）完整进入 viewport 才算回到底部。 */
-internal fun isChatBottomAnchorFullyVisible(layout: ChatAutoFollowLayoutSnapshot): Boolean {
-    if (layout.totalItemsCount <= 0) return false
-    val lastVisibleIndex = layout.lastVisibleItemIndex ?: return false
-    val lastVisibleEnd = layout.lastVisibleItemEndOffset ?: return false
-    return lastVisibleIndex == layout.totalItemsCount - 1 &&
-        lastVisibleEnd <= layout.viewportEndOffset
-}
-
-/** 用户已经主动脱离跟随时，只有拖拽/惯性滚动都结束且尾部锚点完整可见才恢复。 */
-internal fun shouldResumeChatAutoFollow(observation: ChatAutoFollowObservation): Boolean =
-    !observation.autoFollow &&
-        !observation.userScrollControlActive &&
-        !observation.layout.isScrollInProgress &&
-        isChatBottomAnchorFullyVisible(observation.layout)
-
-/** 已处于跟随态时，仅在列表静止且尾部锚点确实离开 viewport 后执行一次程序追尾。 */
-internal fun shouldIssueChatAutoFollowScroll(observation: ChatAutoFollowObservation): Boolean =
-    observation.autoFollow &&
-        !observation.userScrollControlActive &&
-        observation.isGenerating &&
-        !observation.layout.isScrollInProgress &&
-        observation.layout.totalItemsCount > 0 &&
-        !isChatBottomAnchorFullyVisible(observation.layout)
-
-/** 将 Compose LazyList 布局压缩成稳定、无正文内容的 auto-follow 快照。 */
-private fun LazyListState.chatAutoFollowLayoutSnapshot(): ChatAutoFollowLayoutSnapshot {
-    val layout = layoutInfo
-    val lastVisibleItem = layout.visibleItemsInfo.lastOrNull()
-    return ChatAutoFollowLayoutSnapshot(
-        isScrollInProgress = isScrollInProgress,
-        totalItemsCount = layout.totalItemsCount,
-        lastVisibleItemIndex = lastVisibleItem?.index,
-        lastVisibleItemEndOffset = lastVisibleItem?.let { it.offset + it.size },
-        viewportEndOffset = layout.viewportEndOffset,
-    )
+/** 与 RikkaHub ChatList 一致：只有最后一个可见 item 已经落在 viewport 底部以内，才继续自动跟随。 */
+private fun List<LazyListItemInfo>.isAtChatBottom(state: LazyListState): Boolean {
+    val lastItem = lastOrNull() ?: return false
+    val lastPos = lastItem.offset + lastItem.size
+    return lastPos <= state.layoutInfo.viewportEndOffset - 8
 }
 
 /** 长对话中的轻量跳转按钮，不占用输入区，也不把导航动作做成新的主视觉。 */
@@ -1242,8 +1358,18 @@ private fun ReasoningBlock(
     stateKey: String,
     streaming: Boolean,
 ) {
-    // 以消息 ID 保存展开状态，避免流式 reasoning 每次追加文本时 hash 改变导致 UI 自动折叠。
+    // 与 RikkaHub ChatMessageReasoning 保持同一结构：流式阶段默认显示固定高度 Preview，
+    // 完整 reasoning 持续追加并在卡片内部滚到底，避免外层 LazyColumn item 每个 token 都继续增高。
     var expanded by rememberSaveable(stateKey) { mutableStateOf(false) }
+    val reasoningScrollState = rememberScrollState()
+
+    LaunchedEffect(reasoning, streaming, expanded) {
+        if (streaming && !expanded) {
+            reasoningScrollState.animateScrollTo(reasoningScrollState.maxValue)
+        }
+    }
+
+    val contentVisible = streaming || expanded
     Surface(
         modifier = Modifier.fillMaxWidth().animateContentSize(),
         shape = RoundedCornerShape(12.dp),
@@ -1282,21 +1408,24 @@ private fun ReasoningBlock(
                     modifier = Modifier.size(18.dp),
                 )
             }
-            if (expanded) {
+            if (contentVisible) {
                 HorizontalDivider(
                     modifier = Modifier.padding(horizontal = 12.dp),
                     color = MaterialTheme.colorScheme.outlineVariant,
                 )
-                if (streaming) {
-                    // 与 RikkaHub 一样，流式 thinking 完整实时展示；这里只换成轻量 Text，
-                    // 避免每个 delta 都重新解析整段富 Markdown，不截断、不限行、不限高度。
-                    Text(
-                        text = reasoning,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
+                Box(
+                    modifier =
+                        Modifier.fillMaxWidth()
+                            .let { contentModifier ->
+                                if (streaming && !expanded) {
+                                    contentModifier
+                                        .heightIn(max = 100.dp)
+                                        .verticalScroll(reasoningScrollState)
+                                } else {
+                                    contentModifier
+                                }
+                            }
+                ) {
                     LlmRichMarkdown(
                         markdown = reasoning,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -1373,8 +1502,7 @@ private fun tokenValue(value: Int, estimated: Boolean): String =
 private fun formatCompactNumber(value: Int): String =
     when {
         value >= 1_000_000 -> String.format(java.util.Locale.US, "%.1fM", value / 1_000_000.0)
-        value >= 1_000 -> String.format(java.util.Locale.US, "%.1fK", value / 1_000.0)
-        else -> value.toString()
+        else -> String.format(java.util.Locale.US, "%.1fK", value / 1_000.0)
     }
 
 private fun formatDuration(durationMs: Long): String =

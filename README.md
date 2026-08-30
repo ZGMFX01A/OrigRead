@@ -76,11 +76,11 @@ The two editions use different Android package names, so they can be installed s
 
 | AI reading assistant | Multi-article & answer context |
 | --- | --- |
-| **Screenshot to add**: open an article in “Ask this article”, keep one real Q&A visible, and include the composer, current model and answer area in the same shot.<br><br>Suggested file: `assets/readme/screenshots/en-US/x-assistant.png` | **Screenshot to add**: attach 1–2 related articles, then open “Context for this answer” so the current article, related articles and Used / truncated / omitted states are visible together when possible.<br><br>Suggested file: `assets/readme/screenshots/en-US/x-context.png` |
+| <img src="assets/readme/screenshots/en-US/x-assistant.png" width="280" alt="OrigRead assistant" /> | <img src="assets/readme/screenshots/en-US/x-context.png" width="280" alt="OrigRead plural context" /> |
 
 | Web Search | X AI settings |
 | --- | --- |
-| **Screenshot to add**: ask a question that clearly needs current information and capture the search progress or results, preferably with the globe button and result sources visible.<br><br>Suggested file: `assets/readme/screenshots/en-US/x-web-search.png` | **Screenshot to add**: capture the X AI settings page with Web Search, MCP, Skills and Quick Messages entries visible together so the X-specific additions are obvious at a glance.<br><br>Suggested file: `assets/readme/screenshots/en-US/x-ai-settings.png` |
+| <img src="assets/readme/screenshots/en-US/x-web-search.png" width="280" alt="OrigRead web search" /> | <img src="assets/readme/screenshots/en-US/x-ai-settings.png" width="280" alt="OrigRead ai settings" /> |
 
 ## Documentation and other platforms
 

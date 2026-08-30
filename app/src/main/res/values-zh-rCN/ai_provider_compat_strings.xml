@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="ai_context_window_tokens">上下文窗口（tokens）</string>
+  <string name="ai_context_window_tokens_desc">填写模型支持的最大上下文长度。</string>
+  <string name="ai_strict_stream_termination">严格校验流式终止</string>
+  <string name="ai_strict_stream_termination_desc">检查流式回复是否正常结束。正常回复被误判失败时再关闭。</string>
+  <string name="ai_output_token_limit_style">输出 token 限制字段</string>
+  <string name="ai_output_token_limit_style_desc">选择服务接收回复长度限制的字段。</string>
+  <string name="ai_output_token_limit_auto">自动</string>
+  <string name="ai_output_token_limit_max_tokens" translatable="false">max_tokens</string>
+  <string name="ai_output_token_limit_max_completion_tokens" translatable="false">
+    max_completion_tokens</string>
+</resources>

@@ -1,12 +1,15 @@
 package me.ash.reader.ui.page.settings
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.HorizontalDivider
@@ -16,15 +19,20 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import kotlinx.coroutines.launch
 import me.ash.reader.ui.page.home.reading.AiMarkdown
 import java.util.Locale
 
@@ -58,6 +66,33 @@ internal fun RuleMarkdownGuideDialog(
                 "# $title\n\n$message: ${it.message.orEmpty()}"
             }
         }
+    val sections = remember(markdown) { splitMarkdownGuideSections(markdown) }
+    val anchorToIndex =
+        remember(sections) {
+            buildMap {
+                sections.forEachIndexed { index, section ->
+                    section.anchor?.let { anchor -> putIfAbsent(anchor, index) }
+                    section.anchorAliases.forEach { anchor -> putIfAbsent(anchor, index) }
+                }
+            }
+        }
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+    val externalUriHandler = LocalUriHandler.current
+    val guideUriHandler =
+        remember(anchorToIndex, externalUriHandler, listState, coroutineScope) {
+            object : UriHandler {
+                override fun openUri(uri: String) {
+                    val anchor = normalizeMarkdownGuideFragment(uri)
+                    val targetIndex = anchor?.let(anchorToIndex::get)
+                    if (targetIndex != null) {
+                        coroutineScope.launch { listState.animateScrollToItem(targetIndex) }
+                    } else {
+                        externalUriHandler.openUri(uri)
+                    }
+                }
+            }
+        }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -85,14 +120,20 @@ internal fun RuleMarkdownGuideDialog(
                     }
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                Column(
-                    modifier =
-                        Modifier.fillMaxWidth()
-                            .weight(1f)
-                            .verticalScroll(rememberScrollState())
-                            .padding(horizontal = 20.dp, vertical = 16.dp),
-                ) {
-                    AiMarkdown(markdown)
+                CompositionLocalProvider(LocalUriHandler provides guideUriHandler) {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        state = listState,
+                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        itemsIndexed(
+                            items = sections,
+                            key = { index, _ -> "guide-section-$index" },
+                        ) { _, section ->
+                            AiMarkdown(section.markdown)
+                        }
+                    }
                 }
             }
         }

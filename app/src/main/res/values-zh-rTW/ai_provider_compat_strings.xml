@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="ai_context_window_tokens">上下文視窗（tokens）</string>
+  <string name="ai_context_window_tokens_desc">填寫模型支援的最大上下文長度。</string>
+  <string name="ai_strict_stream_termination">嚴格驗證串流終止</string>
+  <string name="ai_strict_stream_termination_desc">檢查串流回覆是否正常結束。正常回覆被誤判失敗時再關閉。</string>
+  <string name="ai_output_token_limit_style">輸出 token 限制欄位</string>
+  <string name="ai_output_token_limit_style_desc">選擇服務接收回覆長度限制的欄位。</string>
+  <string name="ai_output_token_limit_auto">自動</string>
+  <string name="ai_output_token_limit_max_tokens" translatable="false">max_tokens</string>
+  <string name="ai_output_token_limit_max_completion_tokens" translatable="false">
+    max_completion_tokens</string>
+</resources>

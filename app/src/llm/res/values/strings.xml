@@ -22,6 +22,11 @@
   <string name="llm_chat_duration">Request duration</string>
   <string name="llm_chat_scroll_top">Scroll to top</string>
   <string name="llm_chat_scroll_bottom">Scroll to bottom</string>
+  <string name="llm_chat_preview_open">Open message navigator</string>
+  <string name="llm_chat_preview_close">Close message navigator</string>
+  <string name="llm_chat_preview_search">Search this chat</string>
+  <string name="llm_chat_preview_clear_search">Clear search</string>
+  <string name="llm_chat_preview_empty">No matching messages</string>
   <string name="llm_chat_empty_title">Start a conversation</string>
   <string name="llm_chat_empty_desc">Choose a service and model, then send a message.</string>
   <string name="llm_chat_not_configured">Configure an enabled AI service and model in AI Reading
@@ -29,7 +34,7 @@
   <string name="llm_chat_rename_title">Rename chat</string>
   <string name="llm_chat_delete_title">Delete chat?</string>
   <string name="llm_chat_delete_message">Delete “%1$s” and all of its messages?</string>
-  <string name="llm_article_assistant_title">AI Reading Assistant</string>
+  <string name="llm_article_assistant_title">AI Assistant</string>
   <string name="llm_article_assistant_empty_title">Ask about this article</string>
   <string name="llm_article_input_hint">Ask about this article…</string>
   <string name="llm_related_articles_add">Add related articles</string>

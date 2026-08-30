@@ -75,11 +75,11 @@
 
 | AI 阅读助手 | 多文章与回答上下文 |
 | --- | --- |
-| **待补截图**：打开一篇文章进入“询问这篇文章”，保留一轮真实问答，并让输入框、当前模型和回答区域同时可见。<br><br>建议文件：`assets/readme/screenshots/zh-CN/x-assistant.png` | **待补截图**：附加 1～2 篇相关文章后打开“本次回答的上下文”，让当前文章、相关文章以及已使用/截断/未纳入状态尽量同时可见。<br><br>建议文件：`assets/readme/screenshots/zh-CN/x-context.png` |
+| <img src="assets/readme/screenshots/zh-CN/x-assistant.png" width="280" alt="AI 助手" /> | <img src="assets/readme/screenshots/zh-CN/x-context.png" width="280" alt="多文章" /> |
 
 | Web Search | X 版 AI 设置 |
 | --- | --- |
-| **待补截图**：发送一个需要最新信息的问题，截到联网搜索过程或结果列表，最好同时能看到地球按钮和搜索来源。<br><br>建议文件：`assets/readme/screenshots/zh-CN/x-web-search.png` | **待补截图**：截 X 版 AI 设置页，尽量同时露出 Web Search、MCP、Skills、快捷消息等入口，让用户一眼看出 X 版新增了什么。<br><br>建议文件：`assets/readme/screenshots/zh-CN/x-ai-settings.png` |
+| <img src="assets/readme/screenshots/zh-CN/x-web-search.png" width="280" alt="网络搜索" /> | <img src="assets/readme/screenshots/zh-CN/x-ai-settings.png" width="280" alt="AI 设置" /> |
 
 ## 文档与其他平台
 

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.outlined.Add
@@ -230,19 +231,20 @@ fun ArticleFilterSettingsPage(
                     uiState.filteredArticles.isEmpty() -> Text(stringResource(R.string.no_filtered_articles))
                     else -> {
                         LazyColumn(modifier = Modifier.heightIn(max = 420.dp)) {
-                            items(
+                            itemsIndexed(
                                 items = uiState.filteredArticles,
-                                key = { "${it.feedId}:${it.articleId}" },
-                            ) { record ->
+                                key = { _, item -> "${item.feedId}:${item.articleId}" },
+                            ) { index, record ->
                                 Column(modifier = Modifier.padding(vertical = 8.dp)) {
                                     Text(
-                                        text = record.title,
-                                        style = MaterialTheme.typography.bodyLarge,
+                                        text = "${index + 1}. ${record.title}",
+                                        style = MaterialTheme.typography.bodyMedium,
                                     )
                                     Text(
                                         text = record.sourceName,
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        color =
+                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.62f),
                                         modifier = Modifier.padding(top = 4.dp),
                                     )
                                 }

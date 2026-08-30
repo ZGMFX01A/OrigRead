@@ -44,8 +44,6 @@ import me.ash.reader.llm.chat.ui.buildAdditionalArticleContextItems
 import me.ash.reader.llm.chat.ui.buildRequestArticleContextItems
 import me.ash.reader.llm.chat.ui.LlmArticleAttachment
 import me.ash.reader.llm.chat.ui.MAX_ADDITIONAL_ARTICLES
-import me.ash.reader.llm.chat.ui.ChatAutoFollowLayoutSnapshot
-import me.ash.reader.llm.chat.ui.ChatAutoFollowObservation
 import me.ash.reader.llm.chat.ui.normalizedAdditionalArticleAttachments
 import me.ash.reader.llm.chat.ui.toArticleAttachment
 import me.ash.reader.llm.chat.ui.toConversationArticleEntity
@@ -54,12 +52,11 @@ import me.ash.reader.llm.chat.ui.buildRequestHistorySnapshot
 import me.ash.reader.llm.chat.ui.currentToolChainCalls
 import me.ash.reader.llm.chat.ui.regenerationSupersededAssistantIds
 import me.ash.reader.llm.chat.ui.buildLlmCitationLink
+import me.ash.reader.llm.chat.ui.chatPreviewSnippet
 import me.ash.reader.llm.chat.ui.acknowledgedChatTransientMessageIds
 import me.ash.reader.llm.chat.ui.mergeChatMessagesWithTransientOverrides
 import me.ash.reader.llm.chat.ui.parseLlmCitationUri
 import me.ash.reader.llm.chat.ui.resolveRequestSkillId
-import me.ash.reader.llm.chat.ui.shouldIssueChatAutoFollowScroll
-import me.ash.reader.llm.chat.ui.shouldResumeChatAutoFollow
 import me.ash.reader.llm.chat.ui.shouldShowArticleAssistantConfigurationHint
 import me.ash.reader.llm.chat.ui.shouldExposeManualToolFallback
 import me.ash.reader.llm.runtime.LlmCitationReference
@@ -91,150 +88,21 @@ import org.junit.Test
 
 class LlmChatFoundationTest {
     @Test
+    fun `chat preview snippet keeps matching text visible in long messages`() {
+        val source = "A".repeat(240) + " important keyword " + "B".repeat(240)
+
+        val snippet = chatPreviewSnippet(source, query = "keyword", maxLength = 120)
+
+        assertTrue(snippet.contains("keyword", ignoreCase = true))
+        assertTrue(snippet.length <= 122)
+        assertTrue(snippet.startsWith("…"))
+        assertTrue(snippet.endsWith("…"))
+    }
+
+    @Test
     fun `configured article chat empty state hides explanatory copy`() {
         assertFalse(shouldShowArticleAssistantConfigurationHint(configured = true))
         assertTrue(shouldShowArticleAssistantConfigurationHint(configured = false))
-    }
-
-    @Test
-    fun `chat auto follow only resumes when bottom anchor is fully visible and user is idle`() {
-        val atTop =
-            ChatAutoFollowLayoutSnapshot(
-                isScrollInProgress = false,
-                totalItemsCount = 6,
-                lastVisibleItemIndex = 2,
-                lastVisibleItemEndOffset = 900,
-                viewportEndOffset = 1000,
-            )
-        assertFalse(
-            shouldResumeChatAutoFollow(
-                ChatAutoFollowObservation(
-                    autoFollow = false,
-                    userScrollControlActive = false,
-                    layout = atTop,
-                )
-            )
-        )
-
-        val bottomPartiallyVisible =
-            atTop.copy(
-                lastVisibleItemIndex = 5,
-                lastVisibleItemEndOffset = 1001,
-            )
-        assertFalse(
-            shouldResumeChatAutoFollow(
-                ChatAutoFollowObservation(
-                    autoFollow = false,
-                    userScrollControlActive = false,
-                    layout = bottomPartiallyVisible,
-                )
-            )
-        )
-
-        val bottomFullyVisible = bottomPartiallyVisible.copy(lastVisibleItemEndOffset = 1000)
-        assertTrue(
-            shouldResumeChatAutoFollow(
-                ChatAutoFollowObservation(
-                    autoFollow = false,
-                    userScrollControlActive = false,
-                    layout = bottomFullyVisible,
-                )
-            )
-        )
-        assertFalse(
-            shouldResumeChatAutoFollow(
-                ChatAutoFollowObservation(
-                    autoFollow = false,
-                    userScrollControlActive = true,
-                    layout = bottomFullyVisible,
-                )
-            )
-        )
-        assertFalse(
-            shouldResumeChatAutoFollow(
-                ChatAutoFollowObservation(
-                    autoFollow = false,
-                    userScrollControlActive = false,
-                    layout = bottomFullyVisible.copy(isScrollInProgress = true),
-                )
-            )
-        )
-    }
-
-    @Test
-    fun `chat auto follow scrolls only when following and bottom anchor left viewport`() {
-        val detachedBottom =
-            ChatAutoFollowLayoutSnapshot(
-                isScrollInProgress = false,
-                totalItemsCount = 4,
-                lastVisibleItemIndex = 2,
-                lastVisibleItemEndOffset = 980,
-                viewportEndOffset = 1000,
-            )
-        assertTrue(
-            shouldIssueChatAutoFollowScroll(
-                ChatAutoFollowObservation(
-                    autoFollow = true,
-                    userScrollControlActive = false,
-                    isGenerating = true,
-                    layout = detachedBottom,
-                )
-            )
-        )
-        assertFalse(
-            shouldIssueChatAutoFollowScroll(
-                ChatAutoFollowObservation(
-                    autoFollow = true,
-                    userScrollControlActive = false,
-                    isGenerating = false,
-                    layout = detachedBottom,
-                )
-            )
-        )
-        assertFalse(
-            shouldIssueChatAutoFollowScroll(
-                ChatAutoFollowObservation(
-                    autoFollow = false,
-                    userScrollControlActive = false,
-                    isGenerating = true,
-                    layout = detachedBottom,
-                )
-            )
-        )
-        assertFalse(
-            shouldIssueChatAutoFollowScroll(
-                ChatAutoFollowObservation(
-                    autoFollow = true,
-                    userScrollControlActive = true,
-                    isGenerating = true,
-                    layout = detachedBottom,
-                )
-            )
-        )
-        assertFalse(
-            shouldIssueChatAutoFollowScroll(
-                ChatAutoFollowObservation(
-                    autoFollow = true,
-                    userScrollControlActive = false,
-                    isGenerating = true,
-                    layout = detachedBottom.copy(isScrollInProgress = true),
-                )
-            )
-        )
-        assertFalse(
-            shouldIssueChatAutoFollowScroll(
-                ChatAutoFollowObservation(
-                    autoFollow = true,
-                    userScrollControlActive = false,
-                    isGenerating = true,
-                    layout =
-                        detachedBottom.copy(
-                            lastVisibleItemIndex = 3,
-                            lastVisibleItemEndOffset = 1000,
-                        ),
-                )
-            )
-        )
     }
 
     @Test
