@@ -55,6 +55,9 @@ class LocalRssServiceWebsiteSubscriptionTest {
         whenever(accountService.getCurrentAccountId()).thenReturn(accountId)
         whenever(feedDao.queryByLink(eq(accountId), any())).thenReturn(emptyList())
         whenever(feedDao.queryAll(accountId)).thenReturn(emptyList())
+        whenever(articleFilterEngine.filterBeforeInsert(any(), eq("Example News"))).thenAnswer { invocation ->
+            invocation.getArgument<List<Article>>(0)
+        }
         whenever(
             rssHelper.buildArticlesFromSyndEntries(any(), eq(accountId), eq(listOf(entry)), any())
         ).thenAnswer { invocation ->
@@ -110,6 +113,7 @@ class LocalRssServiceWebsiteSubscriptionTest {
             )
 
         val articles = argumentCaptor<List<Article>>()
+        verify(articleFilterEngine).filterBeforeInsert(any(), eq("Example News"))
         verify(localSubscriptionDao).insertFeedWithArticles(any(), articles.capture())
         assertEquals(1, articles.firstValue.size)
         assertEquals(feedId, articles.firstValue.single().feedId)
