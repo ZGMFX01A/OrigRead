@@ -1,13 +1,16 @@
-# OrigRead Android User Guide
+# OrigRead / OrigRead X Android User Guide
 
 
 Language: English. The Chinese version is available as `USER_GUIDE-zh-CN.md` in the GitHub repository.
+
+This guide covers both **OrigRead** and **OrigRead X**. Shared reading, subscription, translation and summary features are documented together. Features that exist only in OrigRead X are grouped in a separate section so Standard users can simply skip it.
 
 ## Quick index
 
 - [Add your first source](#add-your-first-source)
 - [Read an article](#read-an-article)
 - [Use AI summaries](#use-ai-summaries)
+- [OrigRead X features](#origread-x-features)
 - [Translate an article](#translate-an-article)
 - [Share an article to note apps](#share-an-article-to-note-apps)
 - [Read an article aloud](#read-an-article-aloud)
@@ -116,6 +119,138 @@ The long-press menu lets you choose, for this generation only:
 - brief, standard or detailed summary mode.
 
 This is useful when you occasionally want another model without changing global defaults.
+
+---
+
+## OrigRead X features
+
+OrigRead X keeps the normal OrigRead reading experience and adds article-focused chat, web search, tool use and multi-article context. The assistant is still centered on **the article you are reading and the context you explicitly attach**; it is not intended to turn the reader into a separate general-purpose chat app.
+
+If you only need subscriptions, reading, summaries and translation, those features work as usual and you do not need to configure every X extension below.
+
+### Open the AI reading assistant
+
+Configure at least one working AI service and model first, then open an article.
+
+The main entry points are:
+
+1. **Long press the AI button**, then choose **Ask this article** to open the AI reading assistant.
+2. From the same AI Reading panel, choose **Deep analysis** to start an article analysis immediately.
+3. If a summary is already open, its panel also provides a shortcut to ask questions about the article.
+
+You can also select text in the article and choose **AI** from the selection menu. The selected text is carried into the reading assistant, which is useful for questions such as “What does this sentence mean?” or “Is this argument sound?”
+
+### Conversations, services and models
+
+Assistant conversations are stored per article. Conversation history lets you switch to older conversations, create a new one, rename one or delete one.
+
+The composer lets you switch the **AI service and model** used by the current conversation without returning to Settings just to make a temporary change.
+
+You can stop a generation in progress, copy a completed answer or regenerate it. If the model/service explicitly returns reasoning and you allow it to be shown, the reasoning can be expanded. OrigRead X does not invent reasoning when the service did not return any.
+
+### Add several articles to one question
+
+Some questions need more than the current article, such as comparing two reports or checking a follow-up against an older story.
+
+1. Tap **+** in the assistant composer.
+2. Pick from recent articles or search by article title.
+3. Attach the articles you need. You can currently add up to **5 extra articles**.
+4. Remove individual attachments or clear them when they are no longer needed.
+
+Opening the related-article picker does not send every candidate to the model. **Only articles you explicitly attach become active context.**
+
+### See what the answer actually used
+
+Open **Context for this answer** beside an assistant response. It lists the current article, related articles, summary, translation, selected text, web-search results and Tool results, with statuses such as:
+
+- **Used** — actually included in the model request;
+- **Used · truncated** — included, but shortened to fit the request budget;
+- **Omitted** — not sent to the model for that answer.
+
+If you attach several long articles, search results or Tool outputs, the request can exceed the Context Budget. Check this panel first when an answer appears to be missing material; it is more useful than blindly increasing the budget.
+
+### Quick Messages: reusable reading prompts
+
+Open **Settings → AI Reading → Manage Quick Messages** to create, edit, enable, reorder or delete prompts you use often, such as “Explain the difficult parts” or “Check the evidence”.
+
+Use the **⋮** button in the assistant composer to open enabled Quick Messages. Selecting one sends it as an ordinary user message. It does not secretly change the system prompt or grant MCP/Tool permissions.
+
+Custom Quick Messages may use variables for the current article title, URL, selected text or existing summary. If a required value is unavailable, OrigRead X tells you instead of sending a broken template.
+
+### Custom Instructions: set long-term response preferences
+
+Open **Settings → AI Reading → Edit Custom Instructions** for preferences such as:
+
+- answer in concise Chinese;
+- keep English technical terms;
+- separate facts from inference;
+- prefer compact Markdown.
+
+These preferences can affect article chat, AI summaries and AI translation, but **they do not grant Tool, MCP or other permissions**.
+
+### Reasoning effort, streaming and Context Budget
+
+OrigRead X adds these controls under **Settings → AI Reading**:
+
+- **Reasoning Effort** — Auto / Low / Medium / High; it only works when the model and service support it;
+- **Streaming** — show an answer as it is generated;
+- **Show reasoning returned by the service** — display only explicit reasoning from the service;
+- **Context Budget** — reserve space for article context in one request, with a default of 128K tokens.
+
+These are not “higher is always better” performance switches. The defaults are appropriate for normal use; change them mainly when you regularly combine very long articles and external material.
+
+### Web Search: go online when the question needs fresh information
+
+Open **Settings → AI Reading → Web Search → Manage Web Search**:
+
+1. add a search service;
+2. enter its API key or self-hosted endpoint when required;
+3. use **Health check** to make sure it actually returns results;
+4. choose the default service and the number of results if needed.
+
+Once configured, a globe button appears in the assistant composer. It provides three modes:
+
+- **Off** — no dedicated web search;
+- **Auto** — search only when the question clearly asks for fresh/current information or explicitly asks to search the web;
+- **Force next message online** — force search for the next message only, then return to the previous default mode.
+
+Search activity and results stay attached to the corresponding answer. You can open the result list and use the answer-context panel to see which search results actually entered the model request.
+
+Auto mode is intentionally conservative so an ordinary question about the current article does not consume search quota for no reason.
+
+### MCP: let the assistant use tools you configure
+
+If you do not use MCP, leave it disabled; summaries, translation, article chat and Web Search continue to work without it.
+
+To configure it, open **Settings → AI Reading → MCP → Manage MCP**:
+
+1. add an MCP Server and enter its name and endpoint;
+2. choose no authentication or OAuth 2.1 as required; Custom Headers are available for gateways that need them;
+3. complete OAuth authorization when required;
+4. use **Health check / Refresh** to verify the connection and discover Tools.
+
+When the model supports standard Tool Calling, the assistant can request a Tool as needed. Sensitive or write-capable Tools require an explicit **Allow / Deny** decision before execution.
+
+If the current model does not support standard Tool Calling, OrigRead X may expose a manual **MCP Tool** entry. You choose the Tool and parameters yourself, run it, then attach the result as context.
+
+### Skills: reusable instructions for specific tasks
+
+Open **Settings → AI Reading → Skills** to import or create a Skill. Think of a Skill as a task-specific instruction/reference package, for example a fixed way to analyze an article.
+
+- single-file Skills can be imported or edited as `SKILL.md`;
+- folder-style Skills can be imported as a ZIP of the whole Skill directory;
+- after enabling Skills, article chat can automatically match an installed Skill to a request;
+- supported fixed tasks can also be bound to a chosen Skill.
+
+Skills provide instructions and reference material to the model. Scripts contained in an imported package are not treated as arbitrary local programs for OrigRead X to execute.
+
+### What moves between OrigRead and OrigRead X
+
+The Standard and X editions can coexist. Use the existing edition-sync flow; you do not need to uninstall one edition first.
+
+OrigRead X now includes its own advanced settings in configuration migration, including Custom Instructions, runtime settings, Web Search configuration and MCP Server configuration. API keys, MCP tokens, Custom Headers and OAuth credentials are included only when the backup/sync explicitly includes credentials, and they stay inside the encrypted credentials payload.
+
+The Standard edition does not gain X-only features just because it receives a sync from X. In the other direction, syncing Standard data into X does not erase X-only credentials merely because Standard has no matching fields.
 
 ---
 
@@ -322,6 +457,7 @@ If you are an ordinary user, you do not need to learn rule syntax before adding 
 | Move standard feed subscriptions to/from another RSS reader | **OPML** |
 | Move OrigRead-specific configuration between Android and Desktop | **Configuration backup** |
 | Move Website/JSON rules, filters, RSSHub, AI/translation settings | **Configuration backup** |
+| Move OrigRead X Custom Instructions, Web Search, MCP and other X settings | **Configuration backup** |
 | Export only standard RSS subscriptions | **OPML** |
 
 ### Export configuration
@@ -330,7 +466,7 @@ Open **Settings → Backup & restore** and choose configuration export.
 
 Configuration backup is mainly for settings and subscriptions. Article bodies, read/star history, generated summaries, translation caches and other runtime caches are not treated as portable configuration.
 
-API keys are excluded by default. If you explicitly choose to include API keys, set a backup password and use the same password when restoring on another device.
+Sensitive credentials are excluded by default. If you explicitly choose **Include credentials**, set a backup password and use the same password when restoring on another device. Regular AI/translation API keys and supported OrigRead X Web Search keys, MCP tokens/headers and OAuth credentials are stored inside the encrypted credentials payload rather than written to the backup in plain text.
 
 ---
 
