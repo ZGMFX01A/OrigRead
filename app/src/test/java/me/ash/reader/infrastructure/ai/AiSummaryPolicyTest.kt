@@ -10,6 +10,11 @@ class AiSummaryPolicyTest {
     fun `obviously concise prose is skipped locally`() {
         val metrics = measureAiSummaryInput("英伟达盘中涨超 10%，受财报超预期影响。")
         assertEquals(AiSummarySkipReason.LOCAL_SOURCE_ALREADY_CONCISE, localSummarySkipReason(metrics))
+        assertEquals(
+            AiSummarySkipReason.LOCAL_SOURCE_ALREADY_CONCISE,
+            localSummarySkipReasonForRequest(metrics, forceRefresh = false),
+        )
+        assertNull(localSummarySkipReasonForRequest(metrics, forceRefresh = true))
     }
 
     @Test
@@ -53,6 +58,26 @@ class AiSummaryPolicyTest {
         assertEquals(AiArticleForm.NEWS, result.articleForm)
         assertEquals("technology", result.domain)
         assertEquals("正文摘要", result.summary)
+    }
+
+    @Test
+    fun `parses multiline v2 summary metadata without leaking protocol comment`() {
+        val result =
+            parseAiSummaryModelOutput(
+                """
+                <!-- origread-summary-v2: {
+                  "v": 2,
+                  "form": "news",
+                  "domain": "technology"
+                } -->
+                多行元数据后的正文摘要
+                """.trimIndent()
+            )
+
+        assertEquals(AiArticleForm.NEWS, result.articleForm)
+        assertEquals("technology", result.domain)
+        assertEquals("多行元数据后的正文摘要", result.summary)
+        assertTrue(!result.summary.contains("origread-summary-v2"))
     }
 
     @Test

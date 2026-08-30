@@ -66,6 +66,98 @@ class OpenAiCompatibleProviderTest {
         assertEquals("内部返回的显式思考", result.reasoning)
     }
 
+    @Test
+    fun `unclosed think tag is kept out of final content`() {
+        val result = splitThinkContent("<think>truncated reasoning")
+
+        assertEquals("", result.content)
+        assertEquals("truncated reasoning", result.reasoning)
+    }
+
+    @Test
+    fun `reasoning only truncated response is still a valid completion`() {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"choices":[{"message":{"content":"<think>truncated reasoning"}}]}""",
+            ),
+        )
+
+        val result =
+            provider.completeDetailed(
+                systemPrompt = "system",
+                userPrompt = "article",
+                config = AiRuntimeConfig(server.url("/v1").toString(), "think-model", ""),
+            )
+
+        assertEquals("", result.content)
+        assertEquals("truncated reasoning", result.reasoning)
+    }
+
+    @Test
+    fun `streaming reasoning only truncated response is still a valid completion`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                listOf(
+                        "data: {\"choices\":[{\"delta\":{\"content\":\"<think>truncated reasoning\"}}]}",
+                        "",
+                        "data: [DONE]",
+                        "",
+                    )
+                    .joinToString("\n")
+            )
+        )
+        val deltas = mutableListOf<AiCompletionDelta>()
+
+        val result =
+            provider.streamDetailedCancellable(
+                systemPrompt = "system",
+                userPrompt = "article",
+                config = AiRuntimeConfig(server.url("/v1").toString(), "think-model", ""),
+                onDelta = deltas::add,
+            )
+
+        assertEquals("", result.content)
+        assertEquals("truncated reasoning", result.reasoning)
+        assertEquals("", deltas.joinToString("") { it.content })
+        assertEquals("truncated reasoning", deltas.joinToString("") { it.reasoning })
+    }
+
+    @Test
+    fun `streaming think tags split across sse chunks never leak into content`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                listOf(
+                        "data: {\"choices\":[{\"delta\":{\"content\":\"<thi\"}}]}",
+                        "",
+                        "data: {\"choices\":[{\"delta\":{\"content\":\"nk>analysis\"}}]}",
+                        "",
+                        "data: {\"choices\":[{\"delta\":{\"content\":\" continues</th\"}}]}",
+                        "",
+                        "data: {\"choices\":[{\"delta\":{\"content\":\"ink>Final answer\"}}]}",
+                        "",
+                        "data: [DONE]",
+                        "",
+                    )
+                    .joinToString("\n")
+            )
+        )
+        val deltas = mutableListOf<AiCompletionDelta>()
+
+        val result =
+            provider.streamDetailedCancellable(
+                systemPrompt = "system",
+                userPrompt = "article",
+                config = AiRuntimeConfig(server.url("/v1").toString(), "think-model", ""),
+                onDelta = deltas::add,
+            )
+
+        assertEquals("Final answer", result.content)
+        assertEquals("analysis continues", result.reasoning)
+        assertEquals("Final answer", deltas.joinToString("") { it.content })
+        assertEquals("analysis continues", deltas.joinToString("") { it.reasoning })
+        assertTrue(deltas.none { it.content.contains("<think>", ignoreCase = true) })
+    }
+
     @After
     fun tearDown() {
         server.shutdown()

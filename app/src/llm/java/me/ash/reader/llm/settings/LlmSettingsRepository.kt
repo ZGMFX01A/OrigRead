@@ -58,6 +58,19 @@ class LlmSettingsRepository @Inject constructor(
 
     fun setMcpEnabled(value: Boolean) = update { it.copy(mcpEnabled = value) }
 
+    /** 完整配置备份恢复入口；沿用与设置页相同的边界归一化，不保留旧实验字段。 */
+    fun restoreBackup(settings: LlmAdvancedSettings) {
+        val normalized =
+            settings.copy(
+                contextMaxTokens = normalizeContextTokens(settings.contextMaxTokens),
+                customInstructions = normalizeCustomInstructions(settings.customInstructions),
+                webSearchMode = settings.webSearchMode.takeUnless { it == WebSearchMode.FORCE } ?: WebSearchMode.AUTO,
+            )
+        preferences.edit().clear().apply()
+        persist(normalized)
+        _settings.value = normalized
+    }
+
     private fun update(transform: (LlmAdvancedSettings) -> LlmAdvancedSettings) {
         val transformed = transform(_settings.value)
         val next =

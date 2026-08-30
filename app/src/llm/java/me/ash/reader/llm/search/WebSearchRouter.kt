@@ -202,9 +202,17 @@ internal fun resolveWebSearchDecision(
 
 /** AUTO 模式的保守联网意图判定；只识别明确时效/搜索表达，不尝试做通用自然语言分类。 */
 internal fun shouldAutoSearch(userInput: String): Boolean {
-    val normalized = userInput.trim().lowercase()
+    val normalized = userInput.trim()
     if (normalized.isBlank()) return false
-    return AUTO_SEARCH_MARKERS.any(normalized::contains)
+    if (CHINESE_DIRECT_TIME_PATTERN.containsMatchIn(normalized)) return true
+    if (CHINESE_FRESHNESS_PATTERN.containsMatchIn(normalized)) return true
+    if (CHINESE_EXPLICIT_SEARCH_PATTERN.containsMatchIn(normalized)) return true
+
+    // 英文不能直接 contains("current")："electric current"、"undercurrents" 等都不是时效查询。
+    // 明确时效词和显式联网动作可以直接触发；current/update 只在时效语义上下文中触发。
+    return ENGLISH_AUTO_SEARCH_PATTERN.containsMatchIn(normalized) ||
+        ENGLISH_CURRENT_FRESHNESS_PATTERN.containsMatchIn(normalized) ||
+        ENGLISH_UPDATE_FRESHNESS_PATTERN.containsMatchIn(normalized)
 }
 
 /** 将“这件事后来怎样”等指代问题和当前文章标题组合为可独立检索的 query。 */
@@ -283,37 +291,54 @@ internal fun WebSearchResponse.toContextItems(): List<LlmContextItem> =
         )
     }
 
-private val AUTO_SEARCH_MARKERS =
-    listOf(
-        "最新",
-        "当前",
-        "目前",
-        "今天",
-        "最近",
-        "现在",
-        "后来",
-        "后续",
-        "进展",
-        "更新",
-        "联网",
-        "网上",
-        "搜索",
-        "搜一下",
-        "查一下",
-        "查最新",
-        "截至",
-        "latest",
-        "current",
-        "today",
-        "recent",
-        "recently",
-        "right now",
-        "what happened since",
-        "follow-up",
-        "update",
-        "search the web",
-        "search online",
-        "look up",
+/** 高频直接时间信号；“最新”排除“最新颖”这一常见非时效构词。 */
+private val CHINESE_DIRECT_TIME_PATTERN =
+    Regex("""最新(?!颖)|今天|今日|昨天|昨日|截至(?:目前|现在|今天|今日)""")
+
+/**
+ * “当前/现在/后来/最近/更新”等中文词构歧义很强，只在明确时效对象或问法附近触发。
+ * 例如“当前提条件”“后来居上”“最近邻算法”都不应联网。
+ */
+private val CHINESE_FRESHNESS_PATTERN =
+    Regex(
+        """(?:目前|当前|现在)(?:的)?(?:消息|新闻|进展|近况|现状|状态|动态|版本|发布|价格|行情|政策|规则|法规|数据|排名|结果|负责人|领导人|总统|总理|CEO)|""" +
+            """(?:目前|当前|现在)(?:怎么样|如何|是什么情况|发生了什么)|""" +
+            """(?:最近|近期|近日)(?:的)?(?:消息|新闻|进展|近况|动态|更新|变化|发布|价格|行情|数据|结果)|""" +
+            """(?:后来|后续)(?:又)?(?:有|有什么|有何|的)?(?:进展|变化|更新|消息|结果|情况|发展)|""" +
+            """(?:有|有什么|有何|有哪些)(?:最新|新的)?更新""",
+        RegexOption.IGNORE_CASE,
+    )
+
+/** 明确要求联网/搜索的中文动作；“网上面试”“搜索算法”等名词短语不会单独命中。 */
+private val CHINESE_EXPLICIT_SEARCH_PATTERN =
+    Regex(
+        """(?:联网|上网|网络|网上)(?:搜索|查询|查找|检索|搜|查)|""" +
+            """(?:帮我|请|麻烦|能否|可以帮我)(?:联网|上网|网络|网上)?(?:搜索|查询|查找|检索|搜|查)|""" +
+            """(?:搜索|查询|查找|检索|搜|查)(?:一下|一查|最新)""",
+    )
+
+/** 英文明确信号使用词边界，避免时效关键词的字母序列命中更长单词。 */
+private val ENGLISH_AUTO_SEARCH_PATTERN =
+    Regex(
+        pattern =
+            """(?i)\b(latest|recent|recently|today|tonight|yesterday|currently|news)\b|""" +
+                """\bthis\s+(week|month|year)\b|\bright\s+now\b|\bas\s+of\b|""" +
+                """\bwhat\s+happened\s+since\b|\bfollow[- ]?up\b|""" +
+                """\bsearch\s+(the\s+)?web\b|\bsearch\s+online\b|\blook\s+up\b""",
+    )
+
+/** current 本身语义过宽，仅和典型时效对象组合时才视为需要联网。 */
+private val ENGLISH_CURRENT_FRESHNESS_PATTERN =
+    Regex(
+        pattern =
+            """(?i)\bcurrent\s+(news|status|situation|state|events?|developments?|updates?|version|release|price|weather|forecast|president|prime\s+minister|ceo|leader|policy|rules?|law|regulations?)\b""",
+    )
+
+/** update 既可能是技术动作也可能是时效询问，只接受明确“近况/更新”语法。 */
+private val ENGLISH_UPDATE_FRESHNESS_PATTERN =
+    Regex(
+        pattern =
+            """(?i)\b(latest|recent|new|any)\s+updates?\b|\bupdates?\s+(on|about|since)\b|\bupdate\s+me\s+(on|about)\b|\bwhat(?:'s|\s+is)\s+new\b""",
     )
 
 private const val MAX_SEARCH_QUERY_LENGTH = 500

@@ -38,16 +38,88 @@ data class AiCompletionDelta(
  * 仅拆分模型实际返回文本，不推断、不补写任何隐藏思维链。
  */
 internal fun splitThinkContent(content: String, explicitReasoning: String? = null): AiCompletionResult {
-    val thinkRegex = Regex("<think>(.*?)</think>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-    val inlineReasoning =
-        thinkRegex.findAll(content)
-            .map { it.groupValues[1].trim() }
-            .filter(String::isNotBlank)
-            .joinToString("\n\n")
-            .ifBlank { null }
-    val finalContent = thinkRegex.replace(content, "").trim()
+    val splitter = ThinkStreamSplitter()
+    val first = splitter.accept(content)
+    val last = splitter.finish()
+    val finalContent = (first.content + last.content).trim()
+    val inlineReasoning = (first.reasoning + last.reasoning).trim().takeIf(String::isNotBlank)
     val reasoning = explicitReasoning?.trim()?.takeIf(String::isNotBlank) ?: inlineReasoning
     return AiCompletionResult(content = finalContent, reasoning = reasoning)
+}
+
+/**
+ * 把兼容模型写进 content 的 `<think>` 片段从流式正文中实时分离。
+ *
+ * 标签可能被 SSE 任意拆包，因此会暂存“可能是标签前缀”的尾部；流结束时若 `<think>` 未闭合，剩余内容仍归入
+ * reasoning，避免截断的思考过程污染最终正文。
+ */
+private class ThinkStreamSplitter {
+    private val pending = StringBuilder()
+    private var insideThink = false
+
+    /** 消费一个原始 content chunk，只返回当前已经能确定归属的正文/reasoning。 */
+    fun accept(chunk: String): AiCompletionDelta {
+        if (chunk.isNotEmpty()) pending.append(chunk)
+        return drain(finishing = false)
+    }
+
+    /** 流结束时冲刷暂存尾部；未闭合 think 内文本仍保持 reasoning 语义。 */
+    fun finish(): AiCompletionDelta = drain(finishing = true)
+
+    private fun drain(finishing: Boolean): AiCompletionDelta {
+        val content = StringBuilder()
+        val reasoning = StringBuilder()
+        while (pending.isNotEmpty()) {
+            val tag = if (insideThink) THINK_CLOSE_TAG else THINK_OPEN_TAG
+            val tagIndex = pending.indexOf(tag, ignoreCase = true)
+            if (tagIndex >= 0) {
+                appendVisible(pending.substring(0, tagIndex), content, reasoning)
+                pending.delete(0, tagIndex + tag.length)
+                insideThink = !insideThink
+                continue
+            }
+
+            if (finishing) {
+                appendVisible(pending.toString(), content, reasoning)
+                pending.clear()
+                break
+            }
+
+            // 例如本 chunk 只到 "</th"，必须留到下一 chunk 再判断，不能提前闪进正文。
+            val retained = longestTagPrefixSuffix(pending, tag)
+            val emitLength = pending.length - retained
+            if (emitLength > 0) {
+                appendVisible(pending.substring(0, emitLength), content, reasoning)
+                pending.delete(0, emitLength)
+            }
+            break
+        }
+        return AiCompletionDelta(content = content.toString(), reasoning = reasoning.toString())
+    }
+
+    private fun appendVisible(
+        value: String,
+        content: StringBuilder,
+        reasoning: StringBuilder,
+    ) {
+        if (insideThink) reasoning.append(value) else content.append(value)
+    }
+
+    /** 返回 value 尾部与 tag 前缀可能重合的最长长度，用于跨 chunk 识别标签。 */
+    private fun longestTagPrefixSuffix(value: CharSequence, tag: String): Int {
+        val maxLength = minOf(value.length, tag.length - 1)
+        for (length in maxLength downTo 1) {
+            if (value.takeLast(length).toString().equals(tag.take(length), ignoreCase = true)) {
+                return length
+            }
+        }
+        return 0
+    }
+
+    private companion object {
+        const val THINK_OPEN_TAG = "<think>"
+        const val THINK_CLOSE_TAG = "</think>"
+    }
 }
 
 /** 将 Base URL 或完整接口地址统一转换为 Chat Completions 地址。 */
@@ -250,7 +322,7 @@ class OpenAiCompatibleProvider @Inject constructor(
                 .trim()
                 .takeIf(String::isNotBlank)
         val result = splitThinkContent(text, explicitReasoning)
-        if (result.content.isBlank()) {
+        if (result.content.isBlank() && result.reasoning.isNullOrBlank()) {
             throw AiException(AiErrorCode.INVALID_RESPONSE, "AI 服务返回了空内容")
         }
         return result
@@ -408,7 +480,9 @@ class OpenAiCompatibleProvider @Inject constructor(
                 httpResponse.body?.source()
                     ?: throw AiException(AiErrorCode.INVALID_RESPONSE, "AI 服务返回了空响应")
             val content = StringBuilder()
-            val reasoning = StringBuilder()
+            val inlineReasoning = StringBuilder()
+            val explicitReasoning = StringBuilder()
+            val thinkSplitter = ThinkStreamSplitter()
             val fallbackBody = StringBuilder()
             var sawSseData = false
             var sawReasoning = false
@@ -424,23 +498,35 @@ class OpenAiCompatibleProvider @Inject constructor(
                     val payload = line.removePrefix("data:").trim()
                     if (payload.isBlank()) continue
                     if (payload == "[DONE]") break
-                    val delta = parseCompletionStreamPayload(payload) ?: continue
-                    if (delta.reasoning.isNotEmpty()) {
-                        reasoning.append(delta.reasoning)
+                    val rawDelta = parseCompletionStreamPayload(payload) ?: continue
+                    val splitDelta = thinkSplitter.accept(rawDelta.content)
+                    val reasoningDelta = rawDelta.reasoning + splitDelta.reasoning
+                    if (rawDelta.reasoning.isNotEmpty()) {
+                        explicitReasoning.append(rawDelta.reasoning)
+                    }
+                    if (splitDelta.reasoning.isNotEmpty()) {
+                        inlineReasoning.append(splitDelta.reasoning)
+                    }
+                    if (reasoningDelta.isNotEmpty()) {
                         if (!sawReasoning) {
                             sawReasoning = true
                             AiPerfTracer.mark(perfTrace, "first_reasoning_delta")
                         }
                     }
-                    if (delta.content.isNotEmpty()) {
-                        content.append(delta.content)
+                    if (splitDelta.content.isNotEmpty()) {
+                        content.append(splitDelta.content)
                         if (!sawContent) {
                             sawContent = true
                             AiPerfTracer.mark(perfTrace, "first_content_delta")
                         }
                     }
-                    if (delta.content.isNotEmpty() || delta.reasoning.isNotEmpty()) {
-                        onDelta(delta)
+                    if (splitDelta.content.isNotEmpty() || reasoningDelta.isNotEmpty()) {
+                        onDelta(
+                            AiCompletionDelta(
+                                content = splitDelta.content,
+                                reasoning = reasoningDelta,
+                            )
+                        )
                     }
                 } else if (!sawSseData && line.isNotBlank()) {
                     if (fallbackBody.isNotEmpty()) fallbackBody.append('\n')
@@ -450,6 +536,13 @@ class OpenAiCompatibleProvider @Inject constructor(
 
             if (call.isCanceled()) {
                 throw java.io.IOException("AI 请求已取消")
+            }
+
+            if (sawSseData) {
+                val tail = thinkSplitter.finish()
+                if (tail.content.isNotEmpty()) content.append(tail.content)
+                if (tail.reasoning.isNotEmpty()) inlineReasoning.append(tail.reasoning)
+                if (tail.content.isNotEmpty() || tail.reasoning.isNotEmpty()) onDelta(tail)
             }
 
             val completion =
@@ -468,11 +561,13 @@ class OpenAiCompatibleProvider @Inject constructor(
                         )
                     }
                 } else {
-                    splitThinkContent(
-                        content = content.toString(),
-                        explicitReasoning = reasoning.toString().takeIf(String::isNotBlank),
+                    AiCompletionResult(
+                        content = content.toString().trim(),
+                        reasoning =
+                            explicitReasoning.toString().trim().takeIf(String::isNotBlank)
+                                ?: inlineReasoning.toString().trim().takeIf(String::isNotBlank),
                     ).also { parsed ->
-                        if (parsed.content.isBlank()) {
+                        if (parsed.content.isBlank() && parsed.reasoning.isNullOrBlank()) {
                             throw AiException(AiErrorCode.INVALID_RESPONSE, "AI 服务返回了空内容")
                         }
                     }

@@ -476,8 +476,26 @@ class WebSearchFoundationTest {
     fun `auto search is conservative and recognizes explicit freshness intent`() {
         assertTrue(shouldAutoSearch("这件事后来有什么最新进展？"))
         assertTrue(shouldAutoSearch("我要知道当前最新的消息"))
+        assertTrue(shouldAutoSearch("这件事情目前最新进展如何"))
+        assertTrue(shouldAutoSearch("截至目前有什么新消息"))
+        assertTrue(shouldAutoSearch("帮我网上搜索一下这个消息"))
         assertTrue(shouldAutoSearch("look up the latest release"))
+        assertTrue(shouldAutoSearch("What is the current price of Bitcoin?"))
+        assertTrue(shouldAutoSearch("Any updates on the launch?"))
+        assertTrue(shouldAutoSearch("What changed this week?"))
         assertFalse(shouldAutoSearch("解释一下这篇文章里的虚拟线程"))
+        assertFalse(shouldAutoSearch("这体现在哪些方面？"))
+        assertFalse(shouldAutoSearch("当前提条件满足时会怎样？"))
+        assertFalse(shouldAutoSearch("请解释后来居上的含义"))
+        assertFalse(shouldAutoSearch("在网上面试和线下面试的区别"))
+        assertFalse(shouldAutoSearch("解释一下最近邻算法"))
+        assertFalse(shouldAutoSearch("搜索算法的时间复杂度是什么"))
+        assertFalse(shouldAutoSearch("这个方案最新颖的地方是什么"))
+        assertFalse(shouldAutoSearch("Explain electric current"))
+        assertFalse(shouldAutoSearch("What is alternating current?"))
+        assertFalse(shouldAutoSearch("Undercurrents in the ocean"))
+        assertFalse(shouldAutoSearch("The history of cryptocurrency"))
+        assertFalse(shouldAutoSearch("Update a SQL row with this statement"))
     }
 
     @Test

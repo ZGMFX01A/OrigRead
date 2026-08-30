@@ -14,6 +14,12 @@ private const val SUMMARY_STREAM_REASONING_PREVIEW_CHARS = 1600
 private const val SUMMARY_STREAM_CONTENT_PREVIEW_CHARS = 2200
 private const val SUMMARY_COMPLETION_TEMPERATURE = 0.0
 
+/** 用户显式重新生成属于主动请求，必须绕过本地“内容已足够短”预检并真正调用模型。 */
+internal fun localSummarySkipReasonForRequest(
+    metrics: AiSummaryInputMetrics,
+    forceRefresh: Boolean,
+): AiSummarySkipReason? = if (forceRefresh) null else localSummarySkipReason(metrics)
+
 /** 阅读页生成期间可直接展示的流式预览；最终摘要仍以完整响应解析结果为准。 */
 data class AiSummaryStreamUpdate(
     val summaryPreview: String = "",
@@ -144,7 +150,7 @@ class AiSummaryService @Inject constructor(
                 throw AiException(AiErrorCode.INVALID_REQUEST, "当前文章没有可用于摘要的正文")
             }
             val metrics = measureAiSummaryInput(articleSource)
-            localSummarySkipReason(metrics)?.let { skipReason ->
+            localSummarySkipReasonForRequest(metrics, forceRefresh)?.let { skipReason ->
                 onProgress(AiSummaryProgressStage.FINALIZING)
                 val document =
                     AiSummaryDocument(

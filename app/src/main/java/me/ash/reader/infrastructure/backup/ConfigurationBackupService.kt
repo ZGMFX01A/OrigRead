@@ -65,6 +65,7 @@ class ConfigurationBackupService @Inject constructor(
     private val rssHubSubscriptionRepository: RssHubSubscriptionRepository,
     private val translationSettingsRepository: TranslationSettingsRepository,
     private val aiSettingsRepository: AiSettingsRepository,
+    private val editionBackupExtension: EditionConfigurationBackupExtension,
 ) {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -102,6 +103,7 @@ class ConfigurationBackupService @Inject constructor(
                                     ?.let { provider.id to it }
                             }
                             .toMap(),
+                    editionSecrets = editionBackupExtension.exportSecrets(),
                 ).let { secretPayload ->
                     ConfigurationBackupCrypto.encrypt(json.encodeToString(secretPayload), password)
                 }
@@ -145,6 +147,7 @@ class ConfigurationBackupService @Inject constructor(
                 rssHubSourceUrls = rssHubSubscriptionRepository.exportMappings(feedIds),
                 translation = translationSettingsRepository.current().toBackup(),
                 ai = aiSettingsRepository.current().toBackup(),
+                editionConfiguration = editionBackupExtension.exportConfiguration(),
                 encryptedSecrets = secrets,
             )
         return json.encodeToString(backup)
@@ -166,8 +169,26 @@ class ConfigurationBackupService @Inject constructor(
      * 恢复完整配置。
      *
      * 订阅采用合并语义：已有 URL 复用当前 feedId，缺失项新增；绝不删除当前额外订阅，因此不会因恢复配置级联删除文章。
+     * 所有输入会先完整校验，再创建只驻留内存的回滚点；任一仓库写入失败都会尽力恢复 Secret、偏好、规则及
+     * 恢复前精确的 Group/Feed，避免跨 Room/SharedPreferences/Keystore 的“半恢复”状态。
      */
     suspend fun restoreBackup(content: String, password: String = ""): ConfigurationRestoreResult {
+        val prepared = prepareRestore(content, password)
+        val rollback = createRestoreRollbackSnapshot()
+        return try {
+            applyPreparedRestore(prepared)
+        } catch (restoreError: Throwable) {
+            runCatching {
+                val rollbackPrepared = prepareRestore(rollback.configurationBackupJson, rollback.password)
+                applyPreparedRestore(rollbackPrepared)
+                restoreRoomRollbackSnapshot(rollback)
+            }.exceptionOrNull()?.let(restoreError::addSuppressed)
+            throw restoreError
+        }
+    }
+
+    /** 解析、解密并校验全部恢复内容；该阶段禁止任何持久化写入。 */
+    private fun prepareRestore(content: String, password: String): PreparedConfigurationRestore {
         val backup = decodeAndValidateEnvelope(content)
         val secrets = decryptSecretsBeforeMutation(backup, password)
 
@@ -183,6 +204,10 @@ class ConfigurationBackupService @Inject constructor(
         articleFilterRepository.validateBackup(filterRulesJson)
         websiteParsePreferenceRepository.validateBackup(websitePreferencesJson)
         validateSubscriptions(backup.subscriptions)
+        editionBackupExtension.validateBackup(
+            configuration = backup.editionConfiguration,
+            secrets = secrets?.editionSecrets,
+        )
 
         // 提前转换并校验所有枚举/Provider 模型，避免恢复中途因未知枚举失败。
         val rssHubSettings = backup.rssHub.toSettings()
@@ -190,14 +215,34 @@ class ConfigurationBackupService @Inject constructor(
         val aiSettings = backup.ai.toSettings()
         val accountSettings = backup.accountSettings.toValidatedSettings()
 
-        val feedIdMap = restoreSubscriptions(backup.subscriptions)
-        restoreAccountSettings(accountSettings)
+        return PreparedConfigurationRestore(
+            backup = backup,
+            secrets = secrets,
+            preferencesJson = preferencesJson,
+            websiteRulesJson = websiteRulesJson,
+            jsonRulesJson = jsonRulesJson,
+            filterRulesJson = filterRulesJson,
+            websitePreferencesJson = websitePreferencesJson,
+            rssHubSettings = rssHubSettings,
+            translationSettings = translationSettings,
+            aiSettings = aiSettings,
+            accountSettings = accountSettings,
+        )
+    }
 
-        val websiteRuleCount = websiteRuleRepository.restoreBackup(websiteRulesJson)
-        val jsonRuleCount = jsonRuleRepository.restoreBackup(jsonRulesJson)
-        val filterRuleCount = articleFilterRepository.restoreBackup(filterRulesJson, feedIdMap)
-        websiteParsePreferenceRepository.restoreBackup(websitePreferencesJson, feedIdMap)
-        rssHubSettingsRepository.restoreBackup(rssHubSettings)
+    /** 已通过完整预校验后才进入的实际写入阶段。 */
+    private suspend fun applyPreparedRestore(prepared: PreparedConfigurationRestore): ConfigurationRestoreResult {
+        val backup = prepared.backup
+        val secrets = prepared.secrets
+
+        val feedIdMap = restoreSubscriptions(backup.subscriptions)
+        restoreAccountSettings(prepared.accountSettings)
+
+        val websiteRuleCount = websiteRuleRepository.restoreBackup(prepared.websiteRulesJson)
+        val jsonRuleCount = jsonRuleRepository.restoreBackup(prepared.jsonRulesJson)
+        val filterRuleCount = articleFilterRepository.restoreBackup(prepared.filterRulesJson, feedIdMap)
+        websiteParsePreferenceRepository.restoreBackup(prepared.websitePreferencesJson, feedIdMap)
+        rssHubSettingsRepository.restoreBackup(prepared.rssHubSettings)
         rssHubSubscriptionRepository.restoreMappings(backup.rssHubSourceUrls, feedIdMap)
 
         val translationKeys =
@@ -205,16 +250,21 @@ class ConfigurationBackupService @Inject constructor(
                 runCatching { TranslationProviderType.valueOf(name) }.getOrNull()?.let { it to value }
             }.toMap()
         translationSettingsRepository.restoreBackup(
-            settings = translationSettings,
+            settings = prepared.translationSettings,
             apiKeys = translationKeys,
             replaceSecrets = secrets != null,
         )
         aiSettingsRepository.restoreBackup(
-            settings = aiSettings,
+            settings = prepared.aiSettings,
             apiKeys = secrets?.aiApiKeys.orEmpty(),
             replaceSecrets = secrets != null,
         )
-        preferencesJson.restoreConfigurationPreferences(context)
+        editionBackupExtension.restoreBackup(
+            configuration = backup.editionConfiguration,
+            secrets = secrets?.editionSecrets,
+            replaceSecrets = secrets != null,
+        )
+        prepared.preferencesJson.restoreConfigurationPreferences(context)
 
         return ConfigurationRestoreResult(
             restoredGroups = backup.subscriptions.groups.size,
@@ -224,6 +274,48 @@ class ConfigurationBackupService @Inject constructor(
             restoredFilterRules = filterRuleCount,
             restoredSecrets = secrets != null,
         )
+    }
+
+    /** 创建恢复前的配置 + Room 精确快照；密码和 JSON 仅驻留当前调用栈内存。 */
+    private suspend fun createRestoreRollbackSnapshot(): ConfigurationRestoreRollbackSnapshot {
+        val accountId = accountService.getCurrentAccountId()
+        val password = UUID.randomUUID().toString()
+        return ConfigurationRestoreRollbackSnapshot(
+            accountId = accountId,
+            groups = groupDao.queryAll(accountId),
+            feeds = feedDao.queryAll(accountId),
+            configurationBackupJson = exportBackup(includeSecrets = true, password = password),
+            password = password,
+        )
+    }
+
+    /**
+     * 配置回滚后再精确恢复 Room 主键集合和实体内容。
+     * 禁止使用 REPLACE 写 Group：SQLite REPLACE 可能触发外键级联删除，因此存在项使用 UPDATE，缺失项才 INSERT。
+     */
+    private suspend fun restoreRoomRollbackSnapshot(snapshot: ConfigurationRestoreRollbackSnapshot) {
+        val currentAccountId = accountService.getCurrentAccountId()
+        check(currentAccountId == snapshot.accountId) { "配置恢复期间当前账户发生变化，无法安全回滚" }
+
+        val currentGroups = groupDao.queryAll(snapshot.accountId)
+        val currentGroupIds = currentGroups.mapTo(hashSetOf(), Group::id)
+        val (missingGroups, existingGroups) = snapshot.groups.partition { it.id !in currentGroupIds }
+        if (missingGroups.isNotEmpty()) groupDao.insertAll(missingGroups)
+        if (existingGroups.isNotEmpty()) groupDao.updateAll(existingGroups)
+
+        val currentFeeds = feedDao.queryAll(snapshot.accountId)
+        val currentFeedIds = currentFeeds.mapTo(hashSetOf(), Feed::id)
+        val (missingFeeds, existingFeeds) = snapshot.feeds.partition { it.id !in currentFeedIds }
+        if (missingFeeds.isNotEmpty()) feedDao.insertAll(missingFeeds)
+        if (existingFeeds.isNotEmpty()) feedDao.updateAll(existingFeeds)
+
+        val snapshotFeedIds = snapshot.feeds.mapTo(hashSetOf(), Feed::id)
+        val extraFeeds = feedDao.queryAll(snapshot.accountId).filter { it.id !in snapshotFeedIds }
+        if (extraFeeds.isNotEmpty()) feedDao.delete(*extraFeeds.toTypedArray())
+
+        val snapshotGroupIds = snapshot.groups.mapTo(hashSetOf(), Group::id)
+        val extraGroups = groupDao.queryAll(snapshot.accountId).filter { it.id !in snapshotGroupIds }
+        if (extraGroups.isNotEmpty()) groupDao.delete(*extraGroups.toTypedArray())
     }
 
     private fun decodeAndValidateEnvelope(content: String): ConfigurationBackup {
@@ -384,6 +476,30 @@ class ConfigurationBackupService @Inject constructor(
         val syncOnlyWhenCharging: SyncOnlyWhenChargingPreference,
         val keepArchived: KeepArchivedPreference,
         val syncBlockList: List<String>,
+    )
+
+    /** 完成所有无副作用校验后的恢复计划，写入阶段不得再重新解释外部 JSON。 */
+    private data class PreparedConfigurationRestore(
+        val backup: ConfigurationBackup,
+        val secrets: ConfigurationBackupSecrets?,
+        val preferencesJson: String,
+        val websiteRulesJson: String,
+        val jsonRulesJson: String,
+        val filterRulesJson: String,
+        val websitePreferencesJson: String,
+        val rssHubSettings: RssHubSettings,
+        val translationSettings: TranslationSettings,
+        val aiSettings: AiSettings,
+        val accountSettings: ValidatedAccountSettings,
+    )
+
+    /** 失败补偿需要同时覆盖配置仓库与 Room 实体，避免 merge 过程中新增的 Group/Feed 残留。 */
+    private data class ConfigurationRestoreRollbackSnapshot(
+        val accountId: Int,
+        val groups: List<Group>,
+        val feeds: List<Feed>,
+        val configurationBackupJson: String,
+        val password: String,
     )
 
     private fun Feed.toBackup() =

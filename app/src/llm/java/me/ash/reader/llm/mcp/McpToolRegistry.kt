@@ -48,11 +48,13 @@ class McpToolRegistry @Inject constructor(
         forceRefresh: Boolean,
     ): McpToolCatalog {
         val initialToken = authToken(profile)
+        // OAuth 刷新后的重试必须复用完全相同的用户 Header；否则网关/租户前置鉴权会在刷新成功后反而失败。
+        val customHeaders = repository.customHeaders(profile.id)
         return try {
             client.discoverTools(
                 profile = profile,
                 bearerToken = initialToken,
-                customHeaders = repository.customHeaders(profile.id),
+                customHeaders = customHeaders,
                 forceRefresh = forceRefresh,
             )
         } catch (error: McpAuthorizationException) {
@@ -66,7 +68,7 @@ class McpToolRegistry @Inject constructor(
             client.discoverTools(
                 profile = profile,
                 bearerToken = refreshed,
-                customHeaders = emptyMap(),
+                customHeaders = customHeaders,
                 forceRefresh = true,
             )
         }
@@ -113,6 +115,8 @@ private class RemoteMcpTool(
     override val descriptor = definition.descriptor(profile.id)
 
     override suspend fun execute(argumentsJson: String): LlmToolResult {
+        // 一次 Tool 调用冻结本次自定义 Header，OAuth 401 刷新后只替换 Token，不改变其余请求身份信息。
+        val customHeaders = repository.customHeaders(profile.id)
         val initialToken =
             when (profile.authType) {
                 McpAuthType.BEARER -> repository.bearerToken(profile.id)
@@ -125,7 +129,7 @@ private class RemoteMcpTool(
                 client.callTool(
                     profile = profile,
                     bearerToken = initialToken,
-                    customHeaders = repository.customHeaders(profile.id),
+                    customHeaders = customHeaders,
                     toolName = definition.name,
                     argumentsJson = argumentsJson,
                 )
@@ -140,7 +144,7 @@ private class RemoteMcpTool(
                 client.callTool(
                     profile = profile,
                     bearerToken = refreshed,
-                    customHeaders = emptyMap(),
+                    customHeaders = customHeaders,
                     toolName = definition.name,
                     argumentsJson = argumentsJson,
                 )

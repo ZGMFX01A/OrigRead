@@ -21,6 +21,8 @@ data class ConfigurationBackup(
     val rssHubSourceUrls: Map<String, String> = emptyMap(),
     val translation: TranslationBackup,
     val ai: AiBackup,
+    /** Edition 专属非敏感配置；Standard 为 null，LLM Edition 使用独立协议解析。 */
+    val editionConfiguration: JsonElement? = null,
     val encryptedSecrets: EncryptedBackupSecrets? = null,
 )
 
@@ -138,6 +140,8 @@ data class EncryptedBackupSecrets(
 data class ConfigurationBackupSecrets(
     val translationApiKeys: Map<String, String> = emptyMap(),
     val aiApiKeys: Map<String, String> = emptyMap(),
+    /** Edition 专属凭据；始终位于 encryptedSecrets 解密后的明文对象内部。 */
+    val editionSecrets: JsonElement? = null,
 )
 
 data class ConfigurationBackupSummary(

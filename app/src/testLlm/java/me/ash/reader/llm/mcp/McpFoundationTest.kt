@@ -1,5 +1,9 @@
 package me.ash.reader.llm.mcp
 
+import java.net.InetAddress
+import java.net.ServerSocket
+import java.net.Socket
+import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import me.ash.reader.infrastructure.ai.AiHttpClient
@@ -384,6 +388,22 @@ class McpFoundationTest {
     }
 
     @Test
+    fun `oauth loopback ignores browser companion request before callback`() = runBlocking {
+        ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { server ->
+            val callback = async(Dispatchers.IO) { awaitLoopbackCallback(server) }
+
+            val faviconStatus = sendLoopbackGet(server.localPort, "/favicon.ico")
+            val callbackStatus = sendLoopbackGet(server.localPort, "/callback?code=abc&state=123")
+            val result = callback.await()
+
+            assertEquals("HTTP/1.1 404 Not Found", faviconStatus)
+            assertEquals("HTTP/1.1 200 OK", callbackStatus)
+            assertEquals("abc", result.code)
+            assertEquals("123", result.state)
+        }
+    }
+
+    @Test
     fun `oauth callback rejects state and issuer mismatch before code exchange`() {
         val metadata =
             McpAuthorizationServerMetadata(
@@ -454,4 +474,16 @@ class McpFoundationTest {
             .setResponseCode(200)
             .setHeader("Content-Type", "application/json")
             .setBody(body)
+
+    /** 向测试 loopback server 发送浏览器风格 GET，并返回响应状态行。 */
+    private fun sendLoopbackGet(port: Int, target: String): String =
+        Socket(InetAddress.getByName("127.0.0.1"), port).use { socket ->
+            socket.soTimeout = 2_000
+            val writer = socket.getOutputStream().bufferedWriter(Charsets.UTF_8)
+            writer.write("GET $target HTTP/1.1\r\n")
+            writer.write("Host: 127.0.0.1:$port\r\n")
+            writer.write("Connection: close\r\n\r\n")
+            writer.flush()
+            socket.getInputStream().bufferedReader(Charsets.UTF_8).readLine().orEmpty()
+        }
 }

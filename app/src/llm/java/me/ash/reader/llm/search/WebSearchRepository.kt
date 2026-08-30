@@ -141,6 +141,35 @@ class WebSearchRepository @Inject constructor(
     fun configuredProviders(): List<WebSearchProviderProfile> =
         current().providers.filter { isConfigured(it.id) }
 
+    /**
+     * 完整配置备份恢复入口。
+     * 无凭据备份只替换 Provider 普通设置，并保留本机已有 Secret；只有成功解密凭据块才会精确替换 Key。
+     */
+    fun restoreBackup(
+        settings: WebSearchSettings,
+        apiKeys: Map<String, String> = emptyMap(),
+        replaceSecrets: Boolean = false,
+    ) {
+        val previousIds = current().providers.map(WebSearchProviderProfile::id)
+        val normalized = normalize(settings)
+        if (replaceSecrets) {
+            (previousIds + normalized.providers.map(WebSearchProviderProfile::id))
+                .distinct()
+                .forEach { providerId ->
+                    secretStore.remove(secretKey(providerId))
+                    preferences.edit().remove(secretLengthKey(providerId)).apply()
+                }
+            normalized.providers.forEach { provider ->
+                apiKeys[provider.id]?.trim()?.takeIf(String::isNotBlank)?.let { value ->
+                    secretStore.put(secretKey(provider.id), value)
+                    preferences.edit().putInt(secretLengthKey(provider.id), value.length).apply()
+                }
+            }
+        }
+        persist(normalized)
+        _settings.value = normalized
+    }
+
     private fun updateProvider(
         providerId: String,
         transform: (WebSearchProviderProfile) -> WebSearchProviderProfile,

@@ -27,7 +27,7 @@ private data class SummaryMetaPrefix(
 )
 
 /**
- * 摘要元数据是一个固定的首行 HTML 注释协议，不需要正则表达式。
+ * 摘要元数据是一个固定的前缀 HTML 注释协议，不需要正则表达式；注释内部 JSON 允许正常换行/缩进。
  *
  * 这里刻意避免使用 JVM/Android 正则方言：Android ICU 对部分大括号表达式的校验比桌面 JVM
  * 更严格，若把 Regex 放在 Kotlin 顶层初始化，PatternSyntaxException 会直接导致整个
@@ -45,8 +45,6 @@ private fun extractSummaryMetaPrefix(content: String): SummaryMetaPrefix? {
     val jsonStart = start + prefix.length
     val commentEnd = content.indexOf("-->", startIndex = jsonStart)
     if (commentEnd < 0) return null
-    val lineBreak = content.indexOfAny(charArrayOf('\r', '\n'), startIndex = jsonStart)
-    if (lineBreak in jsonStart until commentEnd) return null
 
     val json = content.substring(jsonStart, commentEnd).trim()
     if (!json.startsWith('{') || !json.endsWith('}')) return null

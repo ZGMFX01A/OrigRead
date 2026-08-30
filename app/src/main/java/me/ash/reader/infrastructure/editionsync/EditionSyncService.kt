@@ -37,14 +37,14 @@ class EditionSyncService @Inject constructor(
     /**
      * 创建完整公共数据快照。
      *
-     * ConfigurationBackupService 继续负责规则/偏好/AI/翻译以及 API Key；随机密码只封装在外层同步 Bundle 内，
+     * ConfigurationBackupService 继续负责规则/偏好/AI/翻译、Edition 扩展设置及其受支持凭据；随机密码只封装在外层同步 Bundle 内，
      * Bundle 随后还会由 [EditionSyncCrypto] 作为整体加密，因此临时文件不会出现明文 Secret。
      */
     suspend fun exportBundle(): String {
         val backupPassword = randomTransferPassword()
         val configuration =
             configurationBackupService.exportBackup(
-                // Edition Sync 仅面向同签名的另一 Edition，公共 AI/翻译凭据属于同步范围。
+                // Edition Sync 仅面向同签名的另一 Edition，公共凭据与源 Edition 支持的扩展凭据都属于同步范围。
                 includeSecrets = true,
                 password = backupPassword,
             )

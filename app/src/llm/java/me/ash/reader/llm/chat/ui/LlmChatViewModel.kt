@@ -370,6 +370,7 @@ class LlmChatViewModel @Inject constructor(
         val articleChanged = articleContext.value?.articleId != context.articleId
         if (articleChanged) {
             stopGeneration()
+            clearOneShotWebSearchOverride()
             manualToolJob?.cancel(CancellationException("文章已切换"))
             articleCandidateJob?.cancel(CancellationException("文章已切换"))
             clearTransientStreamingMessages()
@@ -547,6 +548,7 @@ class LlmChatViewModel @Inject constructor(
      * 多文章附件会在目标历史会话中从 Room 重新恢复；手动 Tool Context 只是当前会话内存附件，不能静默继承。
      */
     private fun clearConversationScopedTransientContext() {
+        clearOneShotWebSearchOverride()
         manualToolJob?.cancel(CancellationException("会话已切换"))
         clearTransientStreamingMessages(selectedConversationId.value)
         _uiState.update {
@@ -557,6 +559,14 @@ class LlmChatViewModel @Inject constructor(
                 manualToolRunning = false,
             )
         }
+    }
+
+    /** FORCE 只属于当前会话的下一次发送；跨文章/会话边界必须恢复持久化 AUTO/OFF。 */
+    private fun clearOneShotWebSearchOverride() {
+        if (!forceWebSearchNextRequest) return
+        forceWebSearchNextRequest = false
+        val persistedMode = llmSettingsRepository.current().webSearchMode
+        _uiState.update { it.copy(webSearchMode = persistedMode) }
     }
 
     /**

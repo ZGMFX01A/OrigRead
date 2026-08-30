@@ -12,6 +12,16 @@ import me.ash.reader.llm.runtime.LlmToolRisk
 import org.json.JSONArray
 import org.json.JSONObject
 
+/** MCP 完整配置备份中的敏感部分；Tool Catalog 属于可重建缓存，不进入备份。 */
+data class McpServerBackupSecrets(
+    val bearerToken: String = "",
+    val customHeaders: Map<String, String> = emptyMap(),
+    val oauthClientConfig: McpOAuthClientConfig? = null,
+    val oauthRegistration: McpOAuthClientRegistration? = null,
+    val oauthTokenSet: McpOAuthTokenSet? = null,
+    val oauthPendingScopes: Set<String> = emptySet(),
+)
+
 /** Remote MCP Server 与 Tool Catalog 的 LLM-edition 私有仓储。 */
 @Singleton
 class McpServerRepository @Inject constructor(
@@ -249,6 +259,71 @@ class McpServerRepository @Inject constructor(
 
     fun clearCatalog(serverId: String) {
         preferences.edit().remove(catalogKey(serverId)).apply()
+    }
+
+    /** 读取一台 Server 的可迁移凭据；返回值只能进入 ConfigurationBackup 的加密 secret 块。 */
+    fun backupSecrets(serverId: String): McpServerBackupSecrets {
+        val clientConfig = oauthClientConfig(serverId).takeUnless {
+            it.clientId.isBlank() && it.clientSecret.isBlank()
+        }
+        return McpServerBackupSecrets(
+            bearerToken = bearerToken(serverId),
+            customHeaders = customHeaders(serverId),
+            oauthClientConfig = clientConfig,
+            oauthRegistration = oauthRegistration(serverId),
+            oauthTokenSet = oauthTokenSet(serverId),
+            oauthPendingScopes = oauthPendingScopes(serverId),
+        )
+    }
+
+    /**
+     * 完整配置恢复入口。Server 列表使用备份内容替换；Secret 只有在 [replaceSecrets] 为 true 时才精确替换。
+     * discovery catalog 与远端 session 都是运行时缓存，恢复时统一丢弃，下一次使用会重新发现。
+     */
+    fun restoreBackup(
+        servers: List<McpServerProfile>,
+        secrets: Map<String, McpServerBackupSecrets> = emptyMap(),
+        replaceSecrets: Boolean = false,
+    ) {
+        val normalized =
+            servers.map { profile ->
+                require(profile.id.isNotBlank()) { "MCP Server ID 不能为空" }
+                require(profile.endpoint.isNotBlank()) { "MCP Server 地址不能为空：${profile.name}" }
+                profile.copy(
+                    name = normalizeName(profile.name),
+                    endpoint = normalizeEndpoint(profile.endpoint),
+                )
+            }.distinctBy(McpServerProfile::id)
+        require(normalized.size == servers.size) { "MCP 备份包含重复 Server ID" }
+
+        val allIds = (currentServers().map(McpServerProfile::id) + normalized.map(McpServerProfile::id)).distinct()
+        allIds.forEach(::clearCatalog)
+        if (replaceSecrets) {
+            allIds.forEach { serverId ->
+                secretStore.remove(secretKey(serverId))
+                secretStore.remove(customHeadersKey(serverId))
+                secretStore.remove(oauthClientConfigKey(serverId))
+                secretStore.remove(oauthRegistrationKey(serverId))
+                secretStore.remove(oauthTokenKey(serverId))
+                preferences.edit().remove(oauthPendingScopesKey(serverId)).apply()
+            }
+        }
+
+        persistServers(normalized)
+        _servers.value = normalized
+        if (!replaceSecrets) return
+
+        normalized.forEach { profile ->
+            val snapshot = secrets[profile.id] ?: return@forEach
+            snapshot.bearerToken.takeIf(String::isNotBlank)?.let { setBearerToken(profile.id, it) }
+            if (snapshot.customHeaders.isNotEmpty()) setCustomHeaders(profile.id, snapshot.customHeaders)
+            snapshot.oauthClientConfig?.let { setOAuthClientConfig(profile.id, it) }
+            snapshot.oauthRegistration?.let { setOAuthRegistration(profile.id, it) }
+            snapshot.oauthTokenSet?.let { setOAuthTokenSet(profile.id, it) }
+            if (snapshot.oauthPendingScopes.isNotEmpty()) {
+                setOAuthPendingScopes(profile.id, snapshot.oauthPendingScopes)
+            }
+        }
     }
 
     private fun updateServers(transform: (List<McpServerProfile>) -> List<McpServerProfile>) {

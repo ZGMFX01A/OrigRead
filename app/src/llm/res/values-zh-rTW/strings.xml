@@ -67,7 +67,6 @@
     <string name="llm_quick_message_missing_variables">目前不可用的上下文：%1$s</string>
     <string name="llm_quick_message_unsupported_variables">不支援的變數：%1$s</string>
     <string name="llm_quick_message_empty_content">這條快捷訊息解析後沒有可傳送內容。</string>
-    <string name="ai_analyze_article">深度分析</string>
     <string name="llm_model_picker_title">模型</string>
     <string name="llm_model_search_hint">搜尋服務或模型</string>
     <string name="llm_model_search_empty">沒有符合的模型</string>
