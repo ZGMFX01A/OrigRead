@@ -3,12 +3,6 @@ package me.ash.reader.ui.page.home.reading
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.FastOutLinearInEasing
-import androidx.compose.animation.core.LinearOutSlowInEasing
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.VisibilityThreshold
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -25,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.ExperimentalMaterialApi
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -48,7 +43,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import dagger.hilt.android.EntryPointAccessors
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.isSpecified
@@ -93,7 +87,11 @@ import me.ash.reader.ui.page.home.reading.tts.TtsButton
 private const val UPWARD = 1
 private const val DOWNWARD = -1
 
-@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterialApi::class)
+@OptIn(
+    ExperimentalFoundationApi::class,
+    ExperimentalMaterialApi::class,
+    ExperimentalMaterial3ExpressiveApi::class,
+)
 @Composable
 fun ReadingPage(
     //    navController: NavHostController,
@@ -105,6 +103,7 @@ fun ReadingPage(
 ) {
     val context = LocalContext.current
     val settings = LocalSettings.current
+    val motionScheme = MaterialTheme.motionScheme
     val readingRenderer = LocalReadingRenderer.current
     val coroutineScope = rememberCoroutineScope()
     val hapticFeedback = LocalHapticFeedback.current
@@ -494,35 +493,19 @@ fun ReadingPage(
 
                                     else -> UPWARD
                                 }
-                            val exit = 100
-                            val enter = exit * 2
                             (slideInVertically(
                                 initialOffsetY = { (it * 0.2f * direction).toInt() },
-                                animationSpec =
-                                    spring(
-                                        dampingRatio = .9f,
-                                        stiffness = Spring.StiffnessLow,
-                                        visibilityThreshold = IntOffset.VisibilityThreshold,
-                                    ),
+                                animationSpec = motionScheme.defaultSpatialSpec(),
                             ) +
                                 fadeIn(
-                                    tween(
-                                        delayMillis = exit,
-                                        durationMillis = enter,
-                                        easing = LinearOutSlowInEasing,
-                                    )
+                                    animationSpec = motionScheme.defaultEffectsSpec()
                                 )) togetherWith
                                 (slideOutVertically(
                                     targetOffsetY = { (it * -0.2f * direction).toInt() },
-                                    animationSpec =
-                                        spring(
-                                            dampingRatio = Spring.DampingRatioNoBouncy,
-                                            stiffness = Spring.StiffnessLow,
-                                            visibilityThreshold = IntOffset.VisibilityThreshold,
-                                        ),
+                                    animationSpec = motionScheme.defaultSpatialSpec(),
                                 ) +
                                     fadeOut(
-                                        tween(durationMillis = exit, easing = FastOutLinearInEasing)
+                                        animationSpec = motionScheme.fastEffectsSpec()
                                     ))
                         },
                         label = "",

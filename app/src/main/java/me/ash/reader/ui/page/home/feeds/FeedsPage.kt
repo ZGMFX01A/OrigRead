@@ -1,6 +1,5 @@
 package me.ash.reader.ui.page.home.feeds
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
@@ -77,7 +76,6 @@ import me.ash.reader.ui.component.base.OrigReadScaffold
 import me.ash.reader.ui.component.scrollbar.drawVerticalScrollIndicator
 import me.ash.reader.ui.ext.collectAsStateValue
 import me.ash.reader.ui.ext.currentAccountId
-import me.ash.reader.ui.ext.findActivity
 import me.ash.reader.ui.ext.getCurrentVersion
 import me.ash.reader.ui.ext.isOrigReadDefaultAccount
 import me.ash.reader.ui.ext.surfaceColorAtElevation
@@ -179,8 +177,6 @@ fun FeedsPage(
     val groupDrawerState =
         rememberModalBottomSheetState(initialValue = ModalBottomSheetValue.Hidden, skipHalfExpanded = true)
     val feedDrawerState = rememberModalBottomSheetState(initialValue = ModalBottomSheetValue.Hidden, skipHalfExpanded = true)
-
-    BackHandler(true) { context.findActivity()?.moveTaskToBack(false) }
 
     OrigReadScaffold(
         topBarTonalElevation = topBarTonalElevation.value.dp,
