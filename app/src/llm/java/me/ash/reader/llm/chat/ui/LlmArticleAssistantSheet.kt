@@ -1,6 +1,10 @@
 package me.ash.reader.llm.chat.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -61,6 +65,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -86,6 +91,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
@@ -121,10 +127,25 @@ import me.ash.reader.llm.runtime.LlmContextType
 import me.ash.reader.llm.runtime.LlmToolDescriptor
 import me.ash.reader.llm.search.WebSearchMode
 import me.ash.reader.llm.search.WebSearchRequestStatus
+import me.ash.reader.ui.motion.origReadFadeThroughTransform
+import me.ash.reader.ui.motion.origReadVisibilityEnter
+import me.ash.reader.ui.motion.origReadVisibilityExit
 import me.ash.reader.ui.page.home.reading.AiSummaryAccentIcon
 import me.ash.reader.ui.page.home.reading.ArticleAssistantContext
 
 private const val CONTEXT_SOURCE_PREVIEW_LIMIT = 1_200
+
+private enum class ArticleAssistantBodyMode {
+    Preview,
+    Empty,
+    Conversation,
+}
+
+private enum class AssistantMessageBodyMode {
+    Content,
+    Generating,
+    Empty,
+}
 
 /**
  * 文章级 LLM 阅读助手。
@@ -242,102 +263,132 @@ fun LlmArticleAssistantSheet(
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-            if (previewMode && uiState.messages.isNotEmpty()) {
-                ChatMessagePreviewList(
-                    messages = uiState.messages,
-                    conversationId = uiState.currentConversationId,
-                    modifier = Modifier.weight(1f),
-                    onJumpToMessage = { index ->
-                        previewMode = false
-                        coroutineScope.launch {
-                            listState.requestScrollToItem(index)
-                        }
-                    },
-                )
-            } else if (uiState.messages.isEmpty()) {
-                ArticleAssistantEmptyState(
-                    configured = uiState.selectedProviderId != null && uiState.selectedModel != null,
-                    showQuickSummary = showQuickSummary,
-                    onQuickSummary = onQuickSummary,
-                    modifier = Modifier.weight(1f),
-                )
-            } else {
-                val lastAssistantId =
-                    uiState.messages.lastOrNull { it.role == LlmChatRole.ASSISTANT }?.id
-                val contextRefsByAssistantId =
-                    remember(uiState.contextRefs) {
-                        uiState.contextRefs.groupBy(LlmContextRefEntity::assistantMessageId)
-                    }
-                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        state = listState,
-                        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(18.dp),
-                    ) {
-                        items(uiState.messages, key = LlmMessageEntity::id) { message ->
-                            val messageContextRefs = contextRefsByAssistantId[message.id].orEmpty()
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                AssistantMessage(
-                                    message = message,
-                                    showReasoning = uiState.showReasoning,
-                                    contextRefs = messageContextRefs,
-                                    onShowContextSources = {
-                                        contextSourcesAssistantId = message.id
-                                    },
-                                    onShowWebSearchResults = {
-                                        webSearchResultsAssistantId = message.id
-                                    },
-                                    canRegenerate =
-                                        !uiState.isGenerating &&
-                                            message.id == lastAssistantId &&
-                                            uiState.messages.any { it.role == LlmChatRole.USER },
-                                    onRegenerate = viewModel::regenerateLast,
-                                )
-                                uiState.toolCalls
-                                    .filter { it.assistantMessageId == message.id }
-                                    .forEach { call ->
-                                        ToolCallCard(
-                                            call = call,
-                                            interactionEnabled = !uiState.isGenerating,
-                                            onApprove = { viewModel.approveToolCall(call.id) },
-                                            onDeny = { viewModel.denyToolCall(call.id) },
+            val bodyMode =
+                when {
+                    previewMode && uiState.messages.isNotEmpty() -> ArticleAssistantBodyMode.Preview
+                    uiState.messages.isEmpty() -> ArticleAssistantBodyMode.Empty
+                    else -> ArticleAssistantBodyMode.Conversation
+                }
+            val bodyTransform = origReadFadeThroughTransform()
+            AnimatedContent(
+                targetState = bodyMode,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                transitionSpec = { bodyTransform },
+                label = "article_assistant_body",
+            ) { mode ->
+                when (mode) {
+                    ArticleAssistantBodyMode.Preview ->
+                        ChatMessagePreviewList(
+                            messages = uiState.messages,
+                            conversationId = uiState.currentConversationId,
+                            modifier = Modifier.fillMaxSize(),
+                            onJumpToMessage = { index ->
+                                previewMode = false
+                                coroutineScope.launch {
+                                    listState.requestScrollToItem(index)
+                                }
+                            },
+                        )
+
+                    ArticleAssistantBodyMode.Empty ->
+                        ArticleAssistantEmptyState(
+                            configured =
+                                uiState.selectedProviderId != null && uiState.selectedModel != null,
+                            showQuickSummary = showQuickSummary,
+                            onQuickSummary = onQuickSummary,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+
+                    ArticleAssistantBodyMode.Conversation -> {
+                        val lastAssistantId =
+                            uiState.messages.lastOrNull { it.role == LlmChatRole.ASSISTANT }?.id
+                        val contextRefsByAssistantId =
+                            remember(uiState.contextRefs) {
+                                uiState.contextRefs.groupBy(LlmContextRefEntity::assistantMessageId)
+                            }
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                state = listState,
+                                contentPadding =
+                                    PaddingValues(horizontal = 18.dp, vertical = 16.dp),
+                                verticalArrangement = Arrangement.spacedBy(18.dp),
+                            ) {
+                                items(uiState.messages, key = LlmMessageEntity::id) { message ->
+                                    val messageContextRefs =
+                                        contextRefsByAssistantId[message.id].orEmpty()
+                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        AssistantMessage(
+                                            message = message,
+                                            showReasoning = uiState.showReasoning,
+                                            contextRefs = messageContextRefs,
+                                            onShowContextSources = {
+                                                contextSourcesAssistantId = message.id
+                                            },
+                                            onShowWebSearchResults = {
+                                                webSearchResultsAssistantId = message.id
+                                            },
+                                            canRegenerate =
+                                                !uiState.isGenerating &&
+                                                    message.id == lastAssistantId &&
+                                                    uiState.messages.any {
+                                                        it.role == LlmChatRole.USER
+                                                    },
+                                            onRegenerate = viewModel::regenerateLast,
+                                        )
+                                        uiState.toolCalls
+                                            .filter { it.assistantMessageId == message.id }
+                                            .forEach { call ->
+                                                ToolCallCard(
+                                                    call = call,
+                                                    interactionEnabled = !uiState.isGenerating,
+                                                    onApprove = {
+                                                        viewModel.approveToolCall(call.id)
+                                                    },
+                                                    onDeny = { viewModel.denyToolCall(call.id) },
+                                                )
+                                            }
+                                    }
+                                }
+                                // 独立尾部锚点用于超长最后一条消息的一键到底与流式跟随。
+                                item(key = "conversation-bottom-anchor") {
+                                    Spacer(Modifier.size(1.dp))
+                                }
+                            }
+
+                            if (canScrollUp || canScrollDown) {
+                                Column(
+                                    modifier =
+                                        Modifier.align(Alignment.CenterEnd).padding(end = 7.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    if (canScrollUp) {
+                                        ScrollJumpButton(
+                                            icon = Icons.Rounded.KeyboardArrowUp,
+                                            contentDescription =
+                                                stringResource(R.string.llm_chat_scroll_top),
+                                            onClick = {
+                                                coroutineScope.launch {
+                                                    listState.animateScrollToItem(0)
+                                                }
+                                            },
                                         )
                                     }
-                            }
-                        }
-                        // 独立尾部锚点用于超长最后一条消息的一键到底与流式跟随。
-                        item(key = "conversation-bottom-anchor") {
-                            Spacer(Modifier.size(1.dp))
-                        }
-                    }
-
-                    if (canScrollUp || canScrollDown) {
-                        Column(
-                            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 7.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            if (canScrollUp) {
-                                ScrollJumpButton(
-                                    icon = Icons.Rounded.KeyboardArrowUp,
-                                    contentDescription = stringResource(R.string.llm_chat_scroll_top),
-                                    onClick = {
-                                        coroutineScope.launch {
-                                            listState.animateScrollToItem(0)
-                                        }
-                                    },
-                                )
-                            }
-                            if (canScrollDown) {
-                                ScrollJumpButton(
-                                    icon = Icons.Rounded.KeyboardArrowDown,
-                                    contentDescription = stringResource(R.string.llm_chat_scroll_bottom),
-                                    onClick = {
-                                        coroutineScope.launch {
-                                            listState.animateScrollToItem(uiState.messages.size)
-                                        }
-                                    },
-                                )
+                                    if (canScrollDown) {
+                                        ScrollJumpButton(
+                                            icon = Icons.Rounded.KeyboardArrowDown,
+                                            contentDescription =
+                                                stringResource(R.string.llm_chat_scroll_bottom),
+                                            onClick = {
+                                                coroutineScope.launch {
+                                                    listState.animateScrollToItem(
+                                                        uiState.messages.size
+                                                    )
+                                                }
+                                            },
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -834,51 +885,57 @@ private fun ArticleAssistantEmptyState(
                 textAlign = TextAlign.Center,
             )
         }
-        if (showQuickSummary) {
-            Spacer(Modifier.size(24.dp))
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerLow,
-                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+        AnimatedVisibility(
+            visible = showQuickSummary,
+            enter = origReadVisibilityEnter(),
+            exit = origReadVisibilityExit(),
+        ) {
+            Column {
+                Spacer(Modifier.size(24.dp))
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        AiSummaryAccentIcon(
-                            contentDescription = null,
-                            size = 32.dp,
-                            iconSize = 18.dp,
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = stringResource(R.string.llm_chat_quick_summary),
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold,
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            AiSummaryAccentIcon(
+                                contentDescription = null,
+                                size = 32.dp,
+                                iconSize = 18.dp,
                             )
-                            Text(
-                                text = stringResource(R.string.llm_chat_quick_summary_desc),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = stringResource(R.string.llm_chat_quick_summary),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Text(
+                                    text = stringResource(R.string.llm_chat_quick_summary_desc),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        AiSummaryLength.entries.forEach { length ->
-                            FilterChip(
-                                selected = false,
-                                onClick = { onQuickSummary(length) },
-                                label = { Text(summaryLengthLabel(length)) },
-                                modifier = Modifier.weight(1f),
-                            )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            AiSummaryLength.entries.forEach { length ->
+                                FilterChip(
+                                    selected = false,
+                                    onClick = { onQuickSummary(length) },
+                                    label = { Text(summaryLengthLabel(length)) },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
                         }
                     }
                 }
@@ -1022,19 +1079,36 @@ private fun AssistantMessage(
             )
             Spacer(Modifier.size(8.dp))
         }
-        if (displayContent.isNotBlank()) {
-            LlmRichMarkdown(
-                markdown = displayContent,
-                perfMessageId = message.id,
-            )
-        } else if (
-            message.status == LlmMessageStatus.STREAMING &&
-                message.webSearchStatus != WebSearchRequestStatus.TRIGGERED
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.llm_chat_generating))
+        val bodyMode =
+            when {
+                displayContent.isNotBlank() -> AssistantMessageBodyMode.Content
+                message.status == LlmMessageStatus.STREAMING &&
+                    message.webSearchStatus != WebSearchRequestStatus.TRIGGERED ->
+                    AssistantMessageBodyMode.Generating
+                else -> AssistantMessageBodyMode.Empty
+            }
+        val bodyTransform = origReadFadeThroughTransform()
+        AnimatedContent(
+            targetState = bodyMode,
+            transitionSpec = { bodyTransform },
+            label = "assistant_message_body",
+        ) { mode ->
+            when (mode) {
+                AssistantMessageBodyMode.Content ->
+                    LlmRichMarkdown(
+                        markdown = displayContent,
+                        perfMessageId = message.id,
+                    )
+                AssistantMessageBodyMode.Generating ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.llm_chat_generating))
+                    }
+                AssistantMessageBodyMode.Empty -> Unit
             }
         }
         when (message.status) {
@@ -1113,6 +1187,7 @@ private fun WebSearchActivityCard(
     }
 
     val isError = model.errorState != WebSearchMessageErrorState.NONE
+    val stateTransform = origReadFadeThroughTransform()
     Surface(
         modifier =
             Modifier.fillMaxWidth().clickable(
@@ -1133,21 +1208,36 @@ private fun WebSearchActivityCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (model.state == WebSearchActivityUiState.SEARCHING) {
-                    CircularProgressIndicator(modifier = Modifier.size(15.dp), strokeWidth = 1.8.dp)
-                } else {
-                    Icon(
-                        imageVector = Icons.Outlined.Public,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint =
-                            if (isError) MaterialTheme.colorScheme.error
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                AnimatedContent(
+                    targetState = model.state,
+                    transitionSpec = { stateTransform },
+                    label = "web_search_activity_icon",
+                ) { state ->
+                    if (state == WebSearchActivityUiState.SEARCHING) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(15.dp),
+                            strokeWidth = 1.8.dp,
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Outlined.Public,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint =
+                                if (isError) MaterialTheme.colorScheme.error
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
-                Text(
-                    text =
-                        when (model.state) {
+                AnimatedContent(
+                    targetState = model.state,
+                    modifier = Modifier.weight(1f),
+                    transitionSpec = { stateTransform },
+                    label = "web_search_activity_title",
+                ) { state ->
+                    Text(
+                        text =
+                            when (state) {
                             WebSearchActivityUiState.SEARCHING ->
                                 stringResource(R.string.llm_web_search_request_running)
                             WebSearchActivityUiState.SUCCESS ->
@@ -1160,14 +1250,14 @@ private fun WebSearchActivityCard(
                                 stringResource(R.string.llm_web_search_activity_failed)
                             WebSearchActivityUiState.CANCELLED ->
                                 stringResource(R.string.llm_web_search_activity_cancelled)
-                        },
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color =
-                        if (isError) MaterialTheme.colorScheme.error
-                        else MaterialTheme.colorScheme.onSurface,
-                )
+                            },
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color =
+                            if (isError) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.onSurface,
+                    )
+                }
                 when (model.state) {
                     WebSearchActivityUiState.SUCCESS -> {
                         val summary =
@@ -1329,6 +1419,7 @@ private fun LegacyWebSearchStatusRow(
  * Tool Call 状态卡片。
  * Pending 时必须先展示目标 Tool 与参数，再允许用户批准；参数只做有界预览，避免大 JSON 撑满阅读助手。
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ToolCallCard(
     call: LlmToolCallEntity,
@@ -1342,23 +1433,22 @@ private fun ToolCallCard(
             ?.substringAfterLast(':')
             ?.takeIf(String::isNotBlank)
             ?: call.apiName
-    val statusText =
-        when (call.status) {
-            LlmToolCallStatus.PENDING_APPROVAL -> stringResource(R.string.llm_tool_call_pending)
-            LlmToolCallStatus.RUNNING -> stringResource(R.string.llm_tool_call_running)
-            LlmToolCallStatus.COMPLETE -> stringResource(R.string.llm_tool_call_complete)
-            LlmToolCallStatus.DENIED -> stringResource(R.string.llm_tool_call_denied)
-            LlmToolCallStatus.ERROR -> stringResource(R.string.llm_tool_call_error)
-        }
+    val containerColor by
+        animateColorAsState(
+            targetValue =
+                if (call.status == LlmToolCallStatus.PENDING_APPROVAL) {
+                    MaterialTheme.colorScheme.secondaryContainer
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainerLow
+                },
+            animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+            label = "tool_call_container_color",
+        )
+    val statusTransform = origReadFadeThroughTransform()
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        color =
-            if (call.status == LlmToolCallStatus.PENDING_APPROVAL) {
-                MaterialTheme.colorScheme.secondaryContainer
-            } else {
-                MaterialTheme.colorScheme.surfaceContainerLow
-            },
+        color = containerColor,
         border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(
@@ -1378,14 +1468,40 @@ private fun ToolCallCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (call.status == LlmToolCallStatus.RUNNING) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                AnimatedContent(
+                    targetState = call.status,
+                    transitionSpec = { statusTransform },
+                    label = "tool_call_status",
+                ) { status ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        if (status == LlmToolCallStatus.RUNNING) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                            )
+                        }
+                        Text(
+                            text =
+                                when (status) {
+                                    LlmToolCallStatus.PENDING_APPROVAL ->
+                                        stringResource(R.string.llm_tool_call_pending)
+                                    LlmToolCallStatus.RUNNING ->
+                                        stringResource(R.string.llm_tool_call_running)
+                                    LlmToolCallStatus.COMPLETE ->
+                                        stringResource(R.string.llm_tool_call_complete)
+                                    LlmToolCallStatus.DENIED ->
+                                        stringResource(R.string.llm_tool_call_denied)
+                                    LlmToolCallStatus.ERROR ->
+                                        stringResource(R.string.llm_tool_call_error)
+                                },
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
-                Text(
-                    text = statusText,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
             Text(
                 text = call.argumentsJson,
@@ -1401,7 +1517,11 @@ private fun ToolCallCard(
                     color = MaterialTheme.colorScheme.error,
                 )
             }
-            if (call.status == LlmToolCallStatus.PENDING_APPROVAL) {
+            AnimatedVisibility(
+                visible = call.status == LlmToolCallStatus.PENDING_APPROVAL,
+                enter = origReadVisibilityEnter(),
+                exit = origReadVisibilityExit(),
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
@@ -1419,6 +1539,7 @@ private fun ToolCallCard(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ReasoningBlock(
     reasoning: String,
@@ -1437,8 +1558,18 @@ private fun ReasoningBlock(
     }
 
     val contentVisible = streaming || expanded
+    val chevronRotation by
+        animateFloatAsState(
+            targetValue = if (expanded) 180f else 0f,
+            animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
+            label = "reasoning_chevron_rotation",
+        )
     Surface(
-        modifier = Modifier.fillMaxWidth().animateContentSize(),
+        modifier =
+            Modifier.fillMaxWidth()
+                .animateContentSize(
+                    animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec()
+                ),
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1466,38 +1597,44 @@ private fun ReasoningBlock(
                     fontWeight = FontWeight.Medium,
                 )
                 Icon(
-                    imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    imageVector = Icons.Rounded.ExpandMore,
                     contentDescription =
                         stringResource(
                             if (expanded) R.string.llm_chat_hide_reasoning
                             else R.string.llm_chat_show_reasoning
                         ),
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(18.dp).rotate(chevronRotation),
                 )
             }
-            if (contentVisible) {
-                HorizontalDivider(
-                    modifier = Modifier.padding(horizontal = 12.dp),
-                    color = MaterialTheme.colorScheme.outlineVariant,
-                )
-                Box(
-                    modifier =
-                        Modifier.fillMaxWidth()
-                            .let { contentModifier ->
-                                if (streaming && !expanded) {
-                                    contentModifier
-                                        .heightIn(max = 100.dp)
-                                        .verticalScroll(reasoningScrollState)
-                                } else {
-                                    contentModifier
-                                }
-                            }
-                ) {
-                    LlmRichMarkdown(
-                        markdown = reasoning,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                        perfMessageId = stateKey,
+            AnimatedVisibility(
+                visible = contentVisible,
+                enter = origReadVisibilityEnter(),
+                exit = origReadVisibilityExit(),
+            ) {
+                Column {
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant,
                     )
+                    Box(
+                        modifier =
+                            Modifier.fillMaxWidth()
+                                .let { contentModifier ->
+                                    if (streaming && !expanded) {
+                                        contentModifier
+                                            .heightIn(max = 100.dp)
+                                            .verticalScroll(reasoningScrollState)
+                                    } else {
+                                        contentModifier
+                                    }
+                                }
+                    ) {
+                        LlmRichMarkdown(
+                            markdown = reasoning,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            perfMessageId = stateKey,
+                        )
+                    }
                 }
             }
         }
@@ -2832,6 +2969,7 @@ private fun ModelPickerSheet(
                     }
                 provider.takeIf { models.isNotEmpty() }?.let { it to models }
             }
+    val pickerTransform = origReadFadeThroughTransform()
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -2855,116 +2993,139 @@ private fun ModelPickerSheet(
             )
             Spacer(Modifier.size(12.dp))
 
-            if (groupedModels.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxWidth().weight(1f),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = stringResource(R.string.llm_model_search_empty),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                    contentPadding = PaddingValues(bottom = 12.dp),
-                ) {
-                    groupedModels.forEach { (provider, models) ->
-                        item(key = "provider:${provider.id}") {
-                            Row(
-                                modifier =
-                                    Modifier.fillMaxWidth()
-                                        .padding(start = 6.dp, end = 6.dp, top = 16.dp, bottom = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    text = provider.name,
-                                    modifier = Modifier.weight(1f),
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                                Text(
-                                    text = models.size.toString(),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                        models.forEach { model ->
-                            item(key = "${provider.id}:$model") {
-                                val selected =
-                                    uiState.selectedProviderId == provider.id &&
-                                        uiState.selectedModel == model
-                                Surface(
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
-                                    shape = RoundedCornerShape(20.dp),
-                                    color =
-                                        if (selected) MaterialTheme.colorScheme.secondaryContainer
-                                        else MaterialTheme.colorScheme.surfaceContainerLow,
-                                    border =
-                                        if (selected) {
-                                            BorderStroke(
-                                                1.dp,
-                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.28f),
-                                            )
-                                        } else {
-                                            null
-                                        },
+            AnimatedContent(
+                targetState = groupedModels.isEmpty(),
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                transitionSpec = { pickerTransform },
+                label = "model_picker_results",
+            ) { empty ->
+                if (empty) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.llm_model_search_empty),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 12.dp),
+                    ) {
+                        groupedModels.forEach { (provider, models) ->
+                            item(key = "provider:${provider.id}") {
+                                Row(
+                                    modifier =
+                                        Modifier.fillMaxWidth()
+                                            .padding(
+                                                start = 6.dp,
+                                                end = 6.dp,
+                                                top = 16.dp,
+                                                bottom = 6.dp,
+                                            ),
+                                    verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    Row(
-                                        modifier =
-                                            Modifier.fillMaxWidth()
-                                                .clickable { onSelect(provider.id, model) }
-                                                .padding(horizontal = 14.dp, vertical = 14.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        Surface(
-                                            modifier = Modifier.size(44.dp),
-                                            shape = RoundedCornerShape(14.dp),
-                                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                        ) {
-                                            Box(contentAlignment = Alignment.Center) {
-                                                Text(
-                                                    text = provider.monogram(),
-                                                    style = MaterialTheme.typography.labelLarge,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.primary,
+                                    Text(
+                                        text = provider.name,
+                                        modifier = Modifier.weight(1f),
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                    Text(
+                                        text = models.size.toString(),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                            models.forEach { model ->
+                                item(key = "${provider.id}:$model") {
+                                    val selected =
+                                        uiState.selectedProviderId == provider.id &&
+                                            uiState.selectedModel == model
+                                    Surface(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                                        shape = RoundedCornerShape(20.dp),
+                                        color =
+                                            if (selected) {
+                                                MaterialTheme.colorScheme.secondaryContainer
+                                            } else {
+                                                MaterialTheme.colorScheme.surfaceContainerLow
+                                            },
+                                        border =
+                                            if (selected) {
+                                                BorderStroke(
+                                                    1.dp,
+                                                    MaterialTheme.colorScheme.primary.copy(
+                                                        alpha = 0.28f
+                                                    ),
                                                 )
-                                            }
-                                        }
-                                        Spacer(Modifier.width(14.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = model,
-                                                style = MaterialTheme.typography.titleMedium,
-                                                fontWeight = FontWeight.Medium,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                            Text(
-                                                text = provider.name,
-                                                style = MaterialTheme.typography.labelMedium,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                        }
-                                        if (selected) {
-                                            Spacer(Modifier.width(12.dp))
+                                            } else {
+                                                null
+                                            },
+                                    ) {
+                                        Row(
+                                            modifier =
+                                                Modifier.fillMaxWidth()
+                                                    .clickable { onSelect(provider.id, model) }
+                                                    .padding(
+                                                        horizontal = 14.dp,
+                                                        vertical = 14.dp,
+                                                    ),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
                                             Surface(
-                                                modifier = Modifier.size(32.dp),
-                                                shape = CircleShape,
-                                                color = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(44.dp),
+                                                shape = RoundedCornerShape(14.dp),
+                                                color =
+                                                    MaterialTheme.colorScheme.surfaceContainerHigh,
                                             ) {
                                                 Box(contentAlignment = Alignment.Center) {
-                                                    Icon(
-                                                        Icons.Rounded.Check,
-                                                        contentDescription = null,
-                                                        tint = MaterialTheme.colorScheme.onPrimary,
-                                                        modifier = Modifier.size(18.dp),
+                                                    Text(
+                                                        text = provider.monogram(),
+                                                        style = MaterialTheme.typography.labelLarge,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.primary,
                                                     )
+                                                }
+                                            }
+                                            Spacer(Modifier.width(14.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = model,
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    fontWeight = FontWeight.Medium,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                                Text(
+                                                    text = provider.name,
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    color =
+                                                        MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                            }
+                                            if (selected) {
+                                                Spacer(Modifier.width(12.dp))
+                                                Surface(
+                                                    modifier = Modifier.size(32.dp),
+                                                    shape = CircleShape,
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                ) {
+                                                    Box(contentAlignment = Alignment.Center) {
+                                                        Icon(
+                                                            Icons.Rounded.Check,
+                                                            contentDescription = null,
+                                                            tint =
+                                                                MaterialTheme.colorScheme.onPrimary,
+                                                            modifier = Modifier.size(18.dp),
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }
