@@ -98,7 +98,7 @@ fun ReadingStylePage(
                     ExternalFonts.FontType.ReadingFont
                 ).copyToInternalStorage()
                 ReadingFontsPreference.External.put(context, scope)
-            } ?: context.showToast("Cannot get activity result with launcher")
+            } ?: context.showToast(context.getString(R.string.font_file_open_failed))
         }
 
     OrigReadScaffold(

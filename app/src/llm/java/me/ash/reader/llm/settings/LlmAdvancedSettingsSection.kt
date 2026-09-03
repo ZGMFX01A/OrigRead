@@ -166,7 +166,7 @@ fun LlmAdvancedSettingsSection(
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 isError = contextBudgetK.isNotBlank() && !contextBudgetValid,
-                suffix = { Text("K tokens") },
+                suffix = { Text("K") },
                 keyboardOptions =
                     KeyboardOptions(
                         keyboardType = KeyboardType.Number,

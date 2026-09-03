@@ -108,7 +108,7 @@ fun ColorAndStylePage(
         uri?.let {
             ExternalFonts(context, it, ExternalFonts.FontType.BasicFont).copyToInternalStorage()
             BasicFontsPreference.External.put(context, scope)
-        } ?: context.showToast("Cannot get activity result with launcher")
+        } ?: context.showToast(context.getString(R.string.font_file_open_failed))
     }
 
     OrigReadScaffold(
@@ -393,7 +393,7 @@ fun SelectableMiniPalette(
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.Check,
-                        contentDescription = "Checked",
+                        contentDescription = stringResource(R.string.selected),
                         modifier = Modifier
                             .padding(8.dp)
                             .size(16.dp),

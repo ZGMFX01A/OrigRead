@@ -91,6 +91,21 @@ data class McpSettingsUiState(
     val servers: List<McpServerUiState> = emptyList(),
 )
 
+internal data class McpSaveMessages(
+    val nameRequired: String,
+    val addressInvalid: String,
+    val addressSchemeInvalid: String,
+    val extraInfoFormatInvalid: String,
+    val extraInfoBlank: String,
+    val extraInfoReserved: String,
+    val accessKeyRequired: String,
+    val extraInfoRequired: String,
+    val appIdRequired: String,
+    val saveFailed: String,
+    val connectionFailed: String,
+    val signInFailed: String,
+)
+
 @HiltViewModel
 class McpSettingsViewModel @Inject constructor(
     private val repository: McpServerRepository,
@@ -148,7 +163,7 @@ class McpSettingsViewModel @Inject constructor(
      * 保存 Server；返回 null 表示成功，返回字符串则由编辑 Sheet 原位展示错误。
      * 空凭据在“编辑已有配置”场景表示保留原密钥，而不是静默清空。
      */
-    fun saveServer(
+    internal fun saveServer(
         existing: McpServerProfile?,
         name: String,
         endpoint: String,
@@ -158,14 +173,15 @@ class McpSettingsViewModel @Inject constructor(
         oauthClientId: String,
         oauthClientSecret: String,
         oauthClientAuthMethod: McpOAuthClientAuthMethod,
+        messages: McpSaveMessages,
     ): String? {
         val normalizedName = name.trim()
         val normalizedEndpoint = endpoint.trim()
-        if (normalizedName.isBlank()) return "MCP Server 名称不能为空"
+        if (normalizedName.isBlank()) return messages.nameRequired
         val parsedUrl = normalizedEndpoint.toHttpUrlOrNull()
-            ?: return "Endpoint 必须是有效的 http:// 或 https:// URL"
+            ?: return messages.addressInvalid
         if (parsedUrl.scheme !in setOf("http", "https")) {
-            return "Endpoint 只支持 HTTP / HTTPS"
+            return messages.addressSchemeInvalid
         }
 
         val existingHasBearer = existing?.let { repository.hasBearerToken(it.id) } == true
@@ -178,20 +194,20 @@ class McpSettingsViewModel @Inject constructor(
             if (customHeadersText.isBlank()) {
                 emptyMap()
             } else {
-                parseCustomHeaders(customHeadersText).getOrElse { return it.message ?: "Custom Headers 格式错误" }
+                parseCustomHeaders(customHeadersText, messages).getOrElse { return it.message ?: messages.extraInfoFormatInvalid }
             }
 
         when (authType) {
             McpAuthType.NONE -> Unit
             McpAuthType.BEARER -> {
-                if (bearerToken.isBlank() && !existingHasBearer) return "Bearer Token 不能为空"
+                if (bearerToken.isBlank() && !existingHasBearer) return messages.accessKeyRequired
             }
             McpAuthType.CUSTOM_HEADERS -> {
-                if (parsedHeaders.isEmpty() && !existingHasHeaders) return "至少填写一个 Custom Header"
+                if (parsedHeaders.isEmpty() && !existingHasHeaders) return messages.extraInfoRequired
             }
             McpAuthType.OAUTH -> {
                 if (oauthClientId.isBlank() && oauthClientSecret.isNotBlank()) {
-                    return "填写 Client Secret 时必须同时填写 Client ID"
+                    return messages.appIdRequired
                 }
             }
         }
@@ -253,25 +269,32 @@ class McpSettingsViewModel @Inject constructor(
                 repository.clearCatalog(serverId)
                 toolRegistry.unloadServer(serverId)
                 if (authType != McpAuthType.OAUTH || repository.hasOAuthAuthorization(serverId)) {
-                    refreshServer(serverId)
+                    refreshServer(serverId, messages.connectionFailed)
                 }
             }
             .exceptionOrNull()
-            ?.message
+            ?.let { messages.saveFailed }
     }
 
-    fun setEnabled(serverId: String, enabled: Boolean) {
+    fun setEnabled(
+        serverId: String,
+        enabled: Boolean,
+        fallbackError: String,
+    ) {
         clearHealth(serverId)
         repository.setEnabled(serverId, enabled)
         val profile = repository.server(serverId)
         if (enabled && profile != null && repository.isConfigured(profile)) {
-            refreshServer(serverId)
+            refreshServer(serverId, fallbackError)
         } else {
             toolRegistry.unloadServer(serverId)
         }
     }
 
-    fun refreshServer(serverId: String) {
+    fun refreshServer(
+        serverId: String,
+        fallbackError: String,
+    ) {
         val profile = repository.server(serverId) ?: return
         if (!profile.enabled) return
         _uiState.update { state ->
@@ -306,7 +329,7 @@ class McpSettingsViewModel @Inject constructor(
                                     if (it.profile.id == serverId) {
                                         it.copy(
                                             refreshing = false,
-                                            error = error.message ?: "MCP 连接失败",
+                                            error = error.message ?: fallbackError,
                                         )
                                     } else {
                                         it
@@ -324,7 +347,10 @@ class McpSettingsViewModel @Inject constructor(
      * 复用强制 Tool discovery，同时验证网络、认证、协议协商、tools/list 与响应解析；成功后同步刷新
      * Catalog，避免“测活成功但工具仍是旧缓存”的状态分裂。
      */
-    fun testServer(serverId: String) {
+    fun testServer(
+        serverId: String,
+        fallbackError: String,
+    ) {
         val profile = repository.server(serverId) ?: return
         if (!profile.enabled) return
         if (_uiState.value.servers.firstOrNull { it.profile.id == serverId }?.health?.testing == true) return
@@ -378,7 +404,7 @@ class McpSettingsViewModel @Inject constructor(
                                             health =
                                                 McpHealthUiState(
                                                     success = false,
-                                                    error = error.message ?: "MCP 连接失败",
+                                                    error = error.message ?: fallbackError,
                                                 )
                                         )
                                     } else {
@@ -400,6 +426,7 @@ class McpSettingsViewModel @Inject constructor(
     fun authorizeServer(
         serverId: String,
         openAuthorizationUrl: (String) -> Unit,
+        fallbackError: String,
     ) {
         val profile = repository.server(serverId) ?: return
         if (profile.authType != McpAuthType.OAUTH || !profile.enabled) return
@@ -449,7 +476,7 @@ class McpSettingsViewModel @Inject constructor(
                                     if (it.profile.id == serverId) {
                                         it.copy(
                                             oauthAuthorizing = false,
-                                            oauthError = error.message ?: "OAuth 授权失败",
+                                            oauthError = error.message ?: fallbackError,
                                         )
                                     } else it
                                 }
@@ -471,7 +498,10 @@ class McpSettingsViewModel @Inject constructor(
         }
     }
 
-    private fun parseCustomHeaders(raw: String): Result<Map<String, String>> =
+    private fun parseCustomHeaders(
+        raw: String,
+        messages: McpSaveMessages,
+    ): Result<Map<String, String>> =
         runCatching {
             buildMap {
                 raw.lineSequence()
@@ -479,11 +509,11 @@ class McpSettingsViewModel @Inject constructor(
                     .filter(String::isNotBlank)
                     .forEach { line ->
                         val parts = line.split(':', limit = 2)
-                        require(parts.size == 2) { "Custom Header 每行格式应为 Name: value" }
+                        require(parts.size == 2) { messages.extraInfoFormatInvalid }
                         val name = parts[0].trim()
                         val value = parts[1].trim()
-                        require(name.isNotBlank() && value.isNotBlank()) { "Header 名称和值不能为空" }
-                        require(name.lowercase() !in RESERVED_HEADERS) { "不能覆盖 MCP 核心 Header：$name" }
+                        require(name.isNotBlank() && value.isNotBlank()) { messages.extraInfoBlank }
+                        require(name.lowercase() !in RESERVED_HEADERS) { messages.extraInfoReserved }
                         put(name, value)
                     }
             }
@@ -512,6 +542,21 @@ fun McpSettingsPage(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val saveMessages =
+        McpSaveMessages(
+            nameRequired = stringResource(R.string.llm_mcp_error_name_required),
+            addressInvalid = stringResource(R.string.llm_mcp_error_address_invalid),
+            addressSchemeInvalid = stringResource(R.string.llm_mcp_error_address_scheme),
+            extraInfoFormatInvalid = stringResource(R.string.llm_mcp_error_extra_info_format),
+            extraInfoBlank = stringResource(R.string.llm_mcp_error_extra_info_blank),
+            extraInfoReserved = stringResource(R.string.llm_mcp_error_extra_info_reserved),
+            accessKeyRequired = stringResource(R.string.llm_mcp_error_access_key_required),
+            extraInfoRequired = stringResource(R.string.llm_mcp_error_extra_info_required),
+            appIdRequired = stringResource(R.string.llm_mcp_error_app_id_required),
+            saveFailed = stringResource(R.string.llm_mcp_error_save_failed),
+            connectionFailed = stringResource(R.string.llm_mcp_error_connection_failed),
+            signInFailed = stringResource(R.string.llm_mcp_error_sign_in_failed),
+        )
     var editorProfile by remember { mutableStateOf<McpServerProfile?>(null) }
     var editorVisible by remember { mutableStateOf(false) }
     var toolsServerId by remember { mutableStateOf<String?>(null) }
@@ -570,17 +615,37 @@ fun McpSettingsPage(
                         McpServerCard(
                             state = server,
                             oauthAuthorized = viewModel.hasOAuthAuthorization(server.profile.id),
-                            onEnabledChange = { viewModel.setEnabled(server.profile.id, it) },
+                            onEnabledChange = {
+                                viewModel.setEnabled(
+                                    server.profile.id,
+                                    it,
+                                    saveMessages.connectionFailed,
+                                )
+                            },
                             onEdit = {
                                 editorProfile = server.profile
                                 editorVisible = true
                             },
-                            onRefresh = { viewModel.refreshServer(server.profile.id) },
-                            onTest = { viewModel.testServer(server.profile.id) },
+                            onRefresh = {
+                                viewModel.refreshServer(
+                                    server.profile.id,
+                                    saveMessages.connectionFailed,
+                                )
+                            },
+                            onTest = {
+                                viewModel.testServer(
+                                    server.profile.id,
+                                    saveMessages.connectionFailed,
+                                )
+                            },
                             onAuthorize = {
-                                viewModel.authorizeServer(server.profile.id) { url ->
-                                    CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(url))
-                                }
+                                viewModel.authorizeServer(
+                                    serverId = server.profile.id,
+                                    openAuthorizationUrl = { url ->
+                                        CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(url))
+                                    },
+                                    fallbackError = saveMessages.signInFailed,
+                                )
                             },
                             onShowTools = { toolsServerId = server.profile.id },
                         )
@@ -610,6 +675,7 @@ fun McpSettingsPage(
                         oauthClientId = clientId,
                         oauthClientSecret = clientSecret,
                         oauthClientAuthMethod = clientAuth,
+                        messages = saveMessages,
                     )
                 if (error == null) editorVisible = false
                 error
@@ -929,7 +995,7 @@ private fun McpServerEditorSheet(
                         onValueChange = { bearerToken = it; error = null },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        label = { Text("Bearer Token") },
+                        label = { Text(stringResource(R.string.llm_mcp_access_key)) },
                         placeholder = { if (hasBearerToken) Text("••••••••") },
                         visualTransformation = PasswordVisualTransformation(),
                     )
@@ -948,8 +1014,8 @@ private fun McpServerEditorSheet(
                         modifier = Modifier.fillMaxWidth(),
                         minLines = 3,
                         maxLines = 6,
-                        label = { Text("Custom Headers") },
-                        placeholder = { Text("X-API-Key: value\nX-Workspace: demo") },
+                        label = { Text(stringResource(R.string.llm_mcp_extra_request_info)) },
+                        placeholder = { Text(stringResource(R.string.llm_mcp_extra_request_placeholder)) },
                     )
                     Text(
                         text =
@@ -1124,16 +1190,17 @@ private fun McpToolCatalogSheet(
 private fun mcpAuthLabel(type: McpAuthType): String =
     when (type) {
         McpAuthType.NONE -> stringResource(R.string.llm_mcp_auth_none)
-        McpAuthType.BEARER -> "Bearer"
-        McpAuthType.CUSTOM_HEADERS -> "Headers"
+        McpAuthType.BEARER -> stringResource(R.string.llm_mcp_auth_access_key)
+        McpAuthType.CUSTOM_HEADERS -> stringResource(R.string.llm_mcp_auth_extra_info)
         McpAuthType.OAUTH -> stringResource(R.string.llm_mcp_auth_oauth)
     }
 
+@Composable
 private fun mcpOAuthClientAuthLabel(method: McpOAuthClientAuthMethod): String =
     when (method) {
-        McpOAuthClientAuthMethod.NONE -> "None"
-        McpOAuthClientAuthMethod.CLIENT_SECRET_POST -> "Secret POST"
-        McpOAuthClientAuthMethod.CLIENT_SECRET_BASIC -> "Secret Basic"
+        McpOAuthClientAuthMethod.NONE -> stringResource(R.string.llm_mcp_client_auth_none)
+        McpOAuthClientAuthMethod.CLIENT_SECRET_POST -> stringResource(R.string.llm_mcp_client_auth_request)
+        McpOAuthClientAuthMethod.CLIENT_SECRET_BASIC -> stringResource(R.string.llm_mcp_client_auth_sign_in)
     }
 
 @Composable

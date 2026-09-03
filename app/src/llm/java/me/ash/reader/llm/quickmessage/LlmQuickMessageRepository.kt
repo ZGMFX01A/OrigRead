@@ -100,7 +100,6 @@ data class LlmQuickMessageContext(
     val articleTitle: String,
     val articleUrl: String?,
     val selection: String?,
-    val summary: String?,
 )
 
 /** 模板展开结果；有缺失/未知变量时 [content] 为 null，禁止把原占位符直接发给模型。 */
@@ -130,7 +129,6 @@ internal fun resolveQuickMessageTemplate(
             "article_title" to context.articleTitle.trim(),
             "article_url" to context.articleUrl?.trim().orEmpty(),
             "selection" to context.selection?.trim().orEmpty(),
-            "summary" to context.summary?.trim().orEmpty(),
         )
     val requested = QUICK_MESSAGE_VARIABLE.findAll(template).map { it.groupValues[1] }.distinct().toList()
     val unsupported = requested.filterNot(values::containsKey)

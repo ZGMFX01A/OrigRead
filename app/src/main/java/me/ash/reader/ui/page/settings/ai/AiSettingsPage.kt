@@ -40,8 +40,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -52,6 +54,7 @@ import me.ash.reader.infrastructure.ai.AiCapabilityOverrideMode
 import me.ash.reader.infrastructure.ai.AiOutputTokenLimitStyle
 import me.ash.reader.infrastructure.ai.AiProviderProfile
 import me.ash.reader.infrastructure.ai.AiSummaryLength
+import me.ash.reader.infrastructure.language.displayLanguageValue
 import me.ash.reader.ui.component.base.Banner
 import me.ash.reader.ui.component.base.DisplayText
 import me.ash.reader.ui.component.base.FeedbackIconButton
@@ -81,6 +84,8 @@ fun AiSettingsPage(
     var providerMenuExpanded by remember { mutableStateOf(false) }
     var modelMenuExpanded by remember { mutableStateOf(false) }
     var showRestoreDefaultsConfirm by remember { mutableStateOf(false) }
+    var outputLanguageFocused by remember { mutableStateOf(false) }
+    val displayLocale = LocalConfiguration.current.locales[0]
 
     OrigReadScaffold(
         navigationIcon = {
@@ -128,9 +133,17 @@ fun AiSettingsPage(
                             }
                             HorizontalDivider()
                             OutlinedTextField(
-                                value = state.settings.outputLanguage,
+                                value =
+                                    if (outputLanguageFocused) {
+                                        state.settings.outputLanguage
+                                    } else {
+                                        displayLanguageValue(state.settings.outputLanguage, displayLocale)
+                                    },
                                 onValueChange = viewModel::setOutputLanguage,
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier =
+                                    Modifier.fillMaxWidth().onFocusChanged {
+                                        outputLanguageFocused = it.isFocused
+                                    },
                                 singleLine = true,
                                 label = { Text(stringResource(R.string.ai_output_language)) },
                                 supportingText = {

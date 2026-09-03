@@ -24,9 +24,15 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -38,6 +44,7 @@ import me.ash.reader.infrastructure.translation.TranslationProviderSettings
 import me.ash.reader.infrastructure.translation.TranslationProviderType
 import me.ash.reader.infrastructure.translation.TranslationTarget
 import me.ash.reader.infrastructure.translation.displayName
+import me.ash.reader.infrastructure.language.displayLanguageValue
 import me.ash.reader.ui.component.base.Banner
 import me.ash.reader.ui.component.base.DisplayText
 import me.ash.reader.ui.component.base.FeedbackIconButton
@@ -53,6 +60,8 @@ fun TranslationSettingsPage(
     val state = viewModel.uiState.collectAsStateValue()
     val successPrefix = stringResource(R.string.translation_test_success)
     val failurePrefix = stringResource(R.string.translation_test_failed)
+    var targetLanguageFocused by remember { mutableStateOf(false) }
+    val displayLocale = LocalConfiguration.current.locales[0]
 
     OrigReadScaffold(
         navigationIcon = {
@@ -73,9 +82,17 @@ fun TranslationSettingsPage(
                 item {
                     Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
                         OutlinedTextField(
-                            value = state.settings.targetLanguage,
+                            value =
+                                if (targetLanguageFocused) {
+                                    state.settings.targetLanguage
+                                } else {
+                                    displayLanguageValue(state.settings.targetLanguage, displayLocale)
+                                },
                             onValueChange = viewModel::setTargetLanguage,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier =
+                                Modifier.fillMaxWidth().onFocusChanged {
+                                    targetLanguageFocused = it.isFocused
+                                },
                             singleLine = true,
                             label = { Text(stringResource(R.string.translation_target_language)) },
                             supportingText = {

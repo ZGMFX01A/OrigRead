@@ -39,7 +39,7 @@ fun CertificateSelector(
                     { alias ->
                         if (alias == null) {
                             scope.launch {
-                                context.showToastSuspend("No client certificate found")
+                                context.showToastSuspend(context.getString(R.string.client_certificate_not_found))
                             }
                         } else {
                             onValueChange(alias)

@@ -69,25 +69,21 @@
     name="rss_subscription_content_desc">直接显示 RSS/Atom 提供的内容，不访问原网页。</string>
     <string
     name="advanced_reading_options">高级读取选项</string>
-    <string name="advanced_reading_options_desc">
-  仅在订阅源只提供摘要、需要原网页正文时使用。</string>
+    <string name="advanced_reading_options_desc">当来源只提供部分正文时，可以尝试这些方式。</string>
     <string name="fetch_original_full_content">尝试抓取原网页全文</string>
     <string
-    name="fetch_original_full_content_desc">访问原网页并提取正文；遇登录、安全验证或网站限制时可能失败。</string>
+    name="fetch_original_full_content_desc">打开文章网页获取完整正文。部分网站可能不允许这样读取。</string>
     <string
     name="website_content_reading">解析网站文章</string>
-    <string name="website_content_reading_desc">
-  按网站解析规则提取文章列表与正文。</string>
-    <string name="website_full_content_desc">打开文章时访问详情页提取正文；受网站限制时可能失败。</string>
+    <string name="website_content_reading_desc">使用已选择的网站规则读取文章列表和正文。</string>
+    <string name="website_full_content_desc">打开文章时，再尝试从网页获取更完整的正文。</string>
     <string
     name="json_content_reading">使用 JSON/API 内容</string>
-    <string name="json_content_reading_desc">按
-  JSON/API 规则读取内容，默认不访问原网页。</string>
+    <string name="json_content_reading_desc">按 JSON/API 规则读取内容，不再打开原网页。</string>
     <string name="open_original_in_browser">在浏览器中打开</string>
     <string
     name="open_original_in_browser_desc">直接跳转外部网页</string>
-    <string name="website_parser_setting_desc">
-  决定网站来源的文章识别方式，通常保持自动选择即可。</string>
+    <string name="website_parser_setting_desc">选择原读读取这个网站的方式，建议保持自动。</string>
     <string name="all_parse_full_content_tips">对 \"%1$s\"
   分组中的所有文章进行全文解析</string>
     <string name="all_parse_full_content_toast">已允许全文解析 \"%1$s\" 分组的所有文章</string>
@@ -180,7 +176,7 @@
     name="origread">原读</string>
     <string name="article_filter_settings">文章过滤</string>
     <string
-    name="article_filter_settings_desc">按标题关键词或正则表达式过滤文章</string>
+    name="article_filter_settings_desc">按标题中的文字或规则隐藏文章</string>
     <string name="add_filter_keyword">
   添加关键词</string>
     <string name="add_filter_keyword_desc">对所有来源生效，已有文章立即隐藏，新文章入库前过滤</string>
@@ -220,7 +216,7 @@
     name="full_content_failure_unknown">正文解析失败，原因未知。</string>
     <string name="add_filter_rule">添加过滤规则</string>
     <string
-    name="filter_pattern">关键词或表达式</string>
+    name="filter_pattern">关键词或正则表达式</string>
     <string name="filter_type_keyword">普通关键词</string>
     <string
     name="filter_type_regex">正则表达式</string>
@@ -241,13 +237,11 @@
     <string name="no_filtered_articles">暂无被过滤的文章</string>
     <string
     name="source_filter_current">来源过滤规则（%1$d 条）</string>
-    <string name="source_filter_entry_desc">
-  仅管理当前来源的关键词和正则规则</string>
+    <string name="source_filter_entry_desc">设置这个来源中需要隐藏的文章</string>
     <string name="source_filter_rules">当前来源过滤规则</string>
     <string
     name="tips_and_support_desc">GitHub 项目与开源许可证</string>
-    <string name="user_guide_desc">查看添加来源、规则、AI
-  生成和常见问题说明</string>
+    <string name="user_guide_desc">查看添加来源、阅读、AI 和常见问题说明</string>
     <string name="welcome">欢迎</string>
     <string name="tos_tips">
   继续使用前，请阅读并同意原读的用户协议与隐私政策。</string>
@@ -339,10 +333,10 @@
     <string name="update">更新</string>
     <string name="software_update">软件更新</string>
     <string
-    name="software_update_desc">GitHub Release 更新检查与下载</string>
+    name="software_update_desc">设置原读如何检查新版本</string>
     <string name="auto_check_updates">
   启动时检查更新</string>
-    <string name="auto_check_updates_desc">启动应用时自动检查新版本</string>
+    <string name="auto_check_updates_desc">启动原读时检查是否有新版本</string>
     <string
     name="check_updates_now">立即检查更新</string>
     <string name="current_version_value">当前版本：%1$s</string>
@@ -364,21 +358,20 @@
   生成网站规则</string>
     <string name="ai_generate_json_rule">AI 生成 JSON 规则</string>
     <string
-    name="ai_generate_rule_desc">选择 AI 服务和模型生成规则，保存前由本地解析器验证</string>
+    name="ai_generate_rule_desc">选择 AI 服务和模型生成规则，保存前会先检查结果</string>
     <string
     name="ai_rule_generation_unavailable_desc">功能仍在开发和验证中，当前版本暂不可用</string>
     <string
     name="ai_rule_generation_unavailable_message">AI 生成规则尚未开发完成，当前版本暂不可用。请先使用规则模板、导入和测试功能。</string>
     <string
     name="ai_rule_target_url">目标 URL</string>
-    <string name="ai_rule_dialog_subtitle">选择 AI
-  服务和模型，生成后由本地解析器验证</string>
+    <string name="ai_rule_dialog_subtitle">选择 AI 服务和模型，生成后会先检查结果</string>
     <string name="ai_rule_step_target">目标地址</string>
     <string
     name="ai_rule_step_service">AI 服务</string>
     <string name="ai_rule_step_generate">生成与校验</string>
     <string
-    name="ai_rule_target_url_hint">填写包含文章列表的网页地址或 API 地址</string>
+    name="ai_rule_target_url_hint">填写包含文章列表的网页地址</string>
     <string name="ai_rule_invalid_url">请输入有效的
   http:// 或 https:// 地址</string>
     <string name="ai_rule_provider">AI 服务</string>
@@ -387,17 +380,15 @@
     <string name="ai_rule_default_badge">默认</string>
     <string
     name="ai_rule_model">模型</string>
-    <string name="ai_rule_model_manual_hint">可直接填写模型 ID，也可先在 AI
-  设置中获取模型列表</string>
-    <string name="ai_rule_model_choices">已保存 %1$d 个模型，仍可直接编辑模型 ID</string>
+    <string name="ai_rule_model_manual_hint">输入模型名称，或先在 AI 设置中加载模型列表</string>
+    <string name="ai_rule_model_choices">已保存 %1$d 个模型，也可以输入其他模型名称</string>
     <string
     name="ai_rule_model_select_hint">从已配置的模型列表中选择</string>
-    <string name="ai_rule_model_custom_hint">当前为自定义模型
-  ID，可切回列表选择</string>
+    <string name="ai_rule_model_custom_hint">当前使用手动输入的模型名称，也可以切回已保存列表</string>
     <string name="ai_rule_model_search">搜索模型</string>
     <string
     name="ai_rule_model_no_match">没有匹配的模型</string>
-    <string name="ai_rule_model_use_custom">输入自定义模型 ID</string>
+    <string name="ai_rule_model_use_custom">输入其他模型名称</string>
     <string
     name="ai_rule_model_choose_from_list">从已配置模型中选择</string>
     <string name="ai_rule_generate">开始生成</string>
@@ -411,14 +402,13 @@
     name="ai_rule_stage_analyzing">分析来源结构</string>
     <string name="ai_rule_stage_generating">生成候选规则</string>
     <string
-    name="ai_rule_stage_validating">使用本地解析器校验</string>
-    <string name="ai_rule_stage_repairing">
-  让模型修复候选规则</string>
+    name="ai_rule_stage_validating">正在检查规则</string>
+    <string name="ai_rule_stage_repairing">正在完善规则</string>
     <string name="ai_rule_stage_fetching_content">抓取详情页正文样本</string>
     <string
     name="ai_rule_stage_generating_content">生成正文规则</string>
     <string
-    name="ai_rule_stage_validating_content">验证正文规则</string>
+    name="ai_rule_stage_validating_content">正在检查正文</string>
     <string name="ai_rule_stage_completed">
   候选规则已准备好</string>
     <string name="ai_rule_stage_failed">生成失败</string>
@@ -545,20 +535,20 @@
     <string
     name="reading_share_target_unavailable_fallback">无法打开 %1$s，已改用系统分享</string>
     <string
-    name="reading_share_notion_config_title">Notion · 个人访问令牌</string>
+    name="reading_share_notion_config_title">Notion 访问密钥</string>
     <string
-    name="reading_share_notion_config_desc">填写 Notion 个人访问令牌。文章创建为工作区私有页面，令牌在本机加密保存。</string>
+    name="reading_share_notion_config_desc">填写 Notion 访问密钥。文章会保存为工作区中的私有页面，密钥只在本机加密保存。</string>
     <string
     name="reading_share_notion_tokens_url">notion.so/developers/tokens</string>
     <string
-    name="reading_share_notion_token">个人访问令牌</string>
+    name="reading_share_notion_token">Notion 访问密钥</string>
     <string name="reading_share_notion_token_saved">
   已保存，粘贴新令牌可替换</string>
-    <string name="reading_share_notion_token_placeholder">粘贴 Notion 个人访问令牌</string>
+    <string name="reading_share_notion_token_placeholder">粘贴 Notion 访问密钥</string>
     <string
-    name="reading_share_notion_not_configured">请先配置 Notion 个人访问令牌。</string>
+    name="reading_share_notion_not_configured">请先填写 Notion 访问密钥。</string>
     <string
-    name="reading_share_notion_token_required">请先填写 Notion 个人访问令牌。</string>
+    name="reading_share_notion_token_required">请先填写 Notion 访问密钥。</string>
     <string
     name="reading_share_notion_in_progress">正在保存到 Notion…</string>
     <string
@@ -779,7 +769,7 @@
     <string name="unfold_less">全部折叠</string>
     <string
     name="read_aloud">大声读出</string>
-    <string name="only_available_on_webview">仅在使用 WebView 内容渲染器时可用</string>
+    <string name="only_available_on_webview">仅在网页模式下可用</string>
     <string
     name="content_renderer">内容渲染器</string>
     <string name="native_component">原生组件</string>
@@ -801,7 +791,9 @@
     <string
     name="all_deny_open_in_browser_toast">已拒绝用默认浏览器打开“%1$s”分组的所有文章</string>
     <string
-    name="client_certificate">客户端证书（可选）</string>
+    name="client_certificate">安全证书（可选）</string>
+    <string name="client_certificate_not_found">没有找到可用的安全证书</string>
+    <string name="font_file_open_failed">无法打开这个字体文件</string>
     <string name="latest">最新</string>
     <string
     name="earliest">最早</string>
@@ -865,7 +857,7 @@
     <string name="import_website_rules">导入网站解析规则</string>
     <string
     name="website_rules">网站解析规则</string>
-    <string name="website_rules_desc">导入、启停、导出和测试网站解析规则</string>
+    <string name="website_rules_desc">管理原读读取网站时使用的规则</string>
     <string
     name="export_website_rules">导出网站解析规则</string>
     <string name="test_website_rule">测试网站解析规则</string>
@@ -880,23 +872,23 @@
     name="website_rule_error_title">网站规则错误</string>
     <string name="website_rule_ithome">IT之家</string>
     <string
-    name="website_parser_title">网站解析方式</string>
-    <string name="website_parser_current">解析方式：%1$s</string>
+    name="website_parser_title">网站读取方式</string>
+    <string name="website_parser_current">当前方式：%1$s</string>
     <string
     name="website_parser_auto">自动选择</string>
     <string name="website_parser_auto_with_type">自动选择 · 自动策略</string>
     <string
-    name="website_parser_auto_desc">优先使用评分最高的可用解析方式，失效时自动回退</string>
+    name="website_parser_auto_desc">自动选择当前网站最合适的读取方式</string>
     <string
     name="website_parser_smart_detection">智能识别</string>
     <string
     name="website_parser_smart_detection_named">智能识别 · %1$s</string>
     <string
-    name="website_parser_smart_detection_with_type">智能识别 · 内置算法</string>
+    name="website_parser_smart_detection_with_type">智能识别 · 内置</string>
     <string
     name="website_parser_rule_name_with_type">%1$s · 网站规则</string>
     <string
-    name="website_parser_candidate_desc">%1$d 篇文章 · 评分 %2$d · %3$s</string>
+    name="website_parser_candidate_desc">%1$d 篇文章 · %3$s</string>
     <string
     name="website_parser_available">可用</string>
     <string name="website_parser_unavailable">不可用</string>
@@ -926,15 +918,14 @@
   %1$d 条</string>
     <string name="json_parser_setting_desc">显示匹配当前来源的 JSON 规则，启用后下次同步生效。</string>
     <string
-    name="json_parser_desc">匹配当前来源的 JSON 规则，支持同时启用多条。</string>
+    name="json_parser_desc">可同时启用多条匹配当前来源的 JSON 规则。</string>
     <string name="json_parser_no_rules">没有找到匹配当前来源的
   JSON 规则。</string>
     <string name="json_parser_rule_enabled">已启用 · 下次同步会使用</string>
     <string
     name="json_parser_rule_disabled">已停用 · 不会使用</string>
-    <string name="website_reparse_articles">
-  重新解析已有文章</string>
-    <string name="website_reparse_articles_desc">重新提取文章列表并清除正文缓存，下次打开时重新获取正文</string>
+    <string name="website_reparse_articles">刷新已有文章</string>
+    <string name="website_reparse_articles_desc">刷新已保存的文章信息，下次打开文章时重新获取完整正文</string>
     <string
     name="website_reparse_articles_success">已重新解析 %1$d 篇已有文章，正文缓存已清除</string>
     <string
@@ -942,25 +933,23 @@
     <string name="unknown_error">未知错误</string>
     <string
     name="search_stage_rss">正在检查 RSS/Atom 和常见订阅地址…</string>
-    <string name="search_stage_rsshub">正在匹配并检查
-  RSSHub 路由…</string>
-    <string name="search_stage_json">正在检查 JSON API 规则…</string>
+    <string name="search_stage_rsshub">正在检查 RSSHub…</string>
+    <string name="search_stage_json">正在检查已保存的来源规则…</string>
     <string
-    name="search_stage_website">正在检查网页元数据和静态内容…</string>
-    <string name="search_stage_dynamic_website">
-  正在渲染动态网页内容…</string>
+    name="search_stage_website">正在检查网站…</string>
+    <string name="search_stage_dynamic_website">正在打开网站查找文章…</string>
     <string name="website_request_failed">无法读取该网站，请稍后重试</string>
     <string
-    name="rsshub_source_notice">已匹配 RSSHub 路由：%1$s</string>
+    name="rsshub_source_notice">已通过 RSSHub 找到：%1$s</string>
     <string
-    name="dynamic_website_source_notice">该来源刷新时需要使用受限 WebView 渲染。</string>
+    name="dynamic_website_source_notice">这个来源刷新时需要在后台打开网页。</string>
     <string
-    name="dynamic_website_low_confidence_notice">该来源需要动态渲染，但解析结果未通过校验，可能无法正常读取文章。仍可尝试添加。</string>
+    name="dynamic_website_low_confidence_notice">原读可能无法稳定读取这个网站，你仍然可以添加后试用。</string>
     <string
     name="available_sources">可用来源</string>
     <string name="source_candidate_recommended">推荐</string>
     <string
-    name="source_candidate_summary">评分 %1$d · %2$d 篇文章</string>
+    name="source_candidate_summary">%2$d 篇文章</string>
     <string
     name="source_candidate_article_count">%1$d 篇文章</string>
     <string name="rsshub_multi_select_hint">支持多选订阅匹配到的
@@ -970,20 +959,19 @@
     name="rsshub_matched_channels_desc">已匹配 %1$d 个频道，支持多选订阅</string>
     <string
     name="rsshub_route_available">可订阅 · %1$d 篇文章</string>
-    <string name="rsshub_route_timeout">已匹配 ·
-  实例响应超时</string>
-    <string name="rsshub_route_network_unavailable">已匹配 · 当前实例不可访问</string>
+    <string name="rsshub_route_timeout">已找到 · 服务器响应超时</string>
+    <string name="rsshub_route_network_unavailable">已找到 · 服务器暂时无法访问</string>
     <string
-    name="rsshub_route_disabled">已匹配 · RSSHub 已关闭或没有启用的实例</string>
+    name="rsshub_route_disabled">已找到 · RSSHub 当前不可用</string>
     <string
-    name="rsshub_route_invalid_content">已匹配 · 实例未返回有效 Feed</string>
+    name="rsshub_route_invalid_content">已找到 · 没有返回可读取的内容</string>
     <string
-    name="rsshub_route_quality_rejected">已匹配 · Feed 内容未通过质量检查</string>
+    name="rsshub_route_quality_rejected">已找到 · 返回内容无法使用</string>
     <string
-    name="rsshub_route_needs_input">已匹配 · 需要更具体的页面地址</string>
+    name="rsshub_route_needs_input">已找到 · 请填写更具体的页面地址</string>
     <string name="rsshub_retry_detection">
   重新检测</string>
-    <string name="rsshub_invalid_response_notice">RSSHub 未返回有效 Feed，已切换至其他解析方式</string>
+    <string name="rsshub_invalid_response_notice">RSSHub 找到了可能的来源，但暂时无法取得可用内容。你仍可选择其他方式。</string>
     <string
     name="other_available_sources">其他可用方式</string>
     <string name="confirm_subscribe">确认订阅</string>
@@ -999,26 +987,25 @@
     name="source_kind_website_dynamic">动态网页</string>
     <string name="rsshub_settings">RSSHub</string>
     <string
-    name="rsshub_settings_desc">路由发现与实例设置</string>
+    name="rsshub_settings_desc">设置何时使用 RSSHub，以及优先尝试哪些服务器</string>
     <string name="rsshub_enable">启用 RSSHub</string>
     <string
-    name="rsshub_enable_desc">添加来源时优先匹配 RSSHub 路由</string>
-    <string name="rsshub_instance_url">实例地址</string>
+    name="rsshub_enable_desc">添加来源时先尝试 RSSHub，再直接读取网站</string>
+    <string name="rsshub_instance_url">服务器地址</string>
     <string
-    name="rsshub_instance_list">实例列表</string>
-    <string name="rsshub_instance_list_desc">
-  启用的实例将依次尝试；连接成功不代表所有路由均可用</string>
-    <string name="rsshub_add_instance">添加实例地址</string>
+    name="rsshub_instance_list">服务器</string>
+    <string name="rsshub_instance_list_desc">原读会自动尝试已启用的服务器。测试成功只代表当前可以连接。</string>
+    <string name="rsshub_add_instance">添加服务器</string>
     <string
-    name="rsshub_instance_desc">输入可信的公共或自建 RSSHub 实例地址</string>
+    name="rsshub_instance_desc">填写可信的公共或自建 RSSHub 地址</string>
     <string name="rsshub_save_and_test">
   测试并添加</string>
     <string name="rsshub_test_connection">保存并测试连接</string>
     <string
-    name="rsshub_test_instance">测试</string>
-    <string name="rsshub_delete_instance">删除实例</string>
+    name="rsshub_test_instance">测试连接</string>
+    <string name="rsshub_delete_instance">删除服务器</string>
     <string
-    name="rsshub_test_success">实例连接成功；具体路由仍可能不可用</string>
+    name="rsshub_test_success">连接成功。部分 RSSHub 来源仍可能暂时不可用。</string>
     <string name="rsshub_test_failed">连接失败：</string>
     <string
     name="restore_defaults">恢复默认</string>
@@ -1026,14 +1013,13 @@
     <string
     name="rsshub_network_unavailable_notice">RSSHub 无法访问，已切换至网页解析</string>
     <string
-    name="rsshub_missing_parameters_notice">RSSHub 路由“%1$s”缺少参数（%2$s），请使用包含参数的页面地址</string>
+    name="rsshub_missing_parameters_notice">RSSHub 匹配项“%1$s”还需要更多信息（%2$s），请填写更具体的页面地址。</string>
     <string
     name="json_rules">JSON 规则</string>
-    <string name="json_rules_desc">管理 JSON API、Next.js 和 Nuxt 来源规则</string>
+    <string name="json_rules_desc">管理 JSON/API 等结构化来源规则</string>
     <string
     name="json_rules_tutorial_title">使用教程</string>
-    <string name="json_rules_tutorial_summary">点击查看模板字段、JSONPath
-  和导入规则说明</string>
+    <string name="json_rules_tutorial_summary">查看规则模板和填写说明</string>
     <string name="json_rules_tutorial_desc">1. 建议先导出当前规则备份，再导出模板并使用文本编辑器修改。\n\n2. 保持
   schemaVersion 为 1；rules 数组可以包含多条规则。id 必须唯一，相同 id 再次导入会覆盖旧规则；hosts 只填写纯域名。\n\n3. sourceKind 支持
   API、NEXT_DATA、NUXT_DATA；endpoint 可以填写完整地址或相对路径。\n\n4. itemsPath 用来定位文章数组，titlePath 和 linkPath
@@ -1052,22 +1038,20 @@
     name="json_rule_error_title">JSON 规则错误</string>
     <string name="translation_settings">翻译设置</string>
     <string
-    name="translation_settings_desc">配置设备端、云端和自建翻译服务</string>
+    name="translation_settings_desc">选择文章的翻译方式</string>
     <string
     name="translation_target_language">目标语言</string>
-    <string name="translation_target_language_desc">如
-  zh-CN、zh-TW、en、ja、de</string>
+    <string name="translation_target_language_desc">修改时输入语言代码，例如 en、ja、de；中文可用 zh-CN 或 zh-TW</string>
     <string name="translation_display_mode">译文显示方式</string>
     <string
     name="translation_only">仅显示译文</string>
     <string name="translation_bilingual">原文与译文对照</string>
     <string
-    name="translation_privacy_title">隐私与凭据</string>
-    <string name="translation_privacy_desc">设备端翻译在本地运行；云端服务会接收文章文本。API
-  Key 在本机加密保存，仅在明确启用凭据备份时导出。</string>
-    <string name="translation_provider_selection_title">启用服务与默认服务</string>
+    name="translation_privacy_title">隐私与安全</string>
+    <string name="translation_privacy_desc">设备端翻译不会上传文章；使用在线翻译时，文章内容会发送到所选服务。已保存的访问密钥只保存在本机，除非你主动把它加入备份。</string>
+    <string name="translation_provider_selection_title">翻译服务</string>
     <string
-    name="translation_provider_selection_desc">支持启用多个翻译服务并设置默认项。阅读时点击翻译使用默认服务，长按可临时切换服务。</string>
+    name="translation_provider_selection_desc">可同时启用多个服务。点击“翻译”使用默认服务，长按可临时选择其他服务。</string>
     <string
     name="translation_provider_default_item">%1$s（默认）</string>
     <string
@@ -1112,18 +1096,17 @@
     name="translation_region_desc">区域资源或多服务资源需要填写</string>
     <string name="translation_api_key">API Key</string>
     <string
-    name="translation_optional_token">可选访问令牌</string>
-    <string name="translation_optional_token_desc">
-  无需鉴权时可留空；已有令牌可通过“删除凭据”移除</string>
-    <string name="translation_key_saved">凭据已加密保存</string>
+    name="translation_optional_token">附加访问码（可选）</string>
+    <string name="translation_optional_token_desc">只有服务明确要求时才需要填写。要删除已保存的内容，请点“删除密钥”。</string>
+    <string name="translation_key_saved">API Key 已安全保存</string>
     <string
-    name="translation_save_key">保存凭据</string>
+    name="translation_save_key">保存 API Key</string>
     <string name="translation_test_provider">测试服务</string>
     <string
     name="translation_test_success">测试成功</string>
     <string name="translation_test_failed">测试失败：</string>
     <string
-    name="translation_remove_key">删除凭据</string>
+    name="translation_remove_key">删除 API Key</string>
     <string name="translation_deepl_usage_title">DeepL
   字符额度</string>
     <string name="translation_deepl_usage_refresh">查询额度</string>
@@ -1134,41 +1117,40 @@
     <string name="translate_article">翻译文章</string>
     <string
     name="show_original">显示原文</string>
-    <string name="translation_provider_mlkit_desc">设备端离线翻译，无需 API
-  Key</string>
-    <string name="translation_provider_microsoft_desc">使用个人 Azure Translator 凭据</string>
+    <string name="translation_provider_mlkit_desc">在设备上完成翻译，不需要云端密钥</string>
+    <string name="translation_provider_microsoft_desc">使用你自己的 Azure Translator 密钥</string>
     <string
-    name="translation_provider_deepl_desc">使用个人 DeepL API Free / Pro 凭据</string>
+    name="translation_provider_deepl_desc">使用你自己的 DeepL 密钥</string>
     <string
-    name="translation_provider_google_cloud_desc">使用个人 Google Cloud Translation API Key</string>
+    name="translation_provider_google_cloud_desc">使用你自己的 Google Cloud Translation 密钥</string>
     <string
-    name="translation_provider_dlx_desc">连接自建 DeepLX 实例</string>
+    name="translation_provider_dlx_desc">使用你自己的 DeepLX 服务</string>
     <string name="ai_settings">AI 阅读</string>
     <string
-    name="ai_settings_desc">配置 AI 服务、模型与摘要偏好</string>
+    name="ai_settings_desc">选择 AI 服务、模型、摘要语言和长度</string>
     <string name="ai_enable">启用 AI 阅读</string>
     <string
     name="ai_enable_desc">在阅读页启用 AI 摘要</string>
-    <string name="ai_endpoint">Base URL 或完整接口地址</string>
+    <string name="ai_endpoint">服务地址</string>
     <string
-    name="ai_endpoint_desc">Base URL（如 /v1）或完整接口地址</string>
-    <string name="ai_model">模型 ID</string>
+    name="ai_endpoint_desc">填写 AI 服务提供的地址</string>
+    <string name="ai_model">模型</string>
     <string
-    name="ai_model_desc">手动输入模型 ID，或从当前服务获取模型列表</string>
+    name="ai_model_desc">输入模型名称，或加载可用模型</string>
     <string name="ai_default_model">默认模型</string>
     <string
     name="ai_default_model_desc">默认使用的模型</string>
-    <string name="ai_fetch_models">获取模型</string>
+    <string name="ai_fetch_models">加载模型</string>
     <string
     name="ai_choose_model">选择模型（%1$d）</string>
     <string name="ai_model_default_item">%1$s（默认）</string>
     <string
     name="ai_provider_models_summary">已保存 %1$d 个模型；重新生成时可临时切换</string>
     <string
-    name="ai_fetch_models_failed">获取模型列表失败：%1$s；可手动输入模型 ID</string>
+    name="ai_fetch_models_failed">模型列表加载失败：%1$s。你仍可以手动输入模型名称。</string>
     <string name="ai_output_language">
   摘要输出语言</string>
-    <string name="ai_output_language_desc">例如 zh-CN、en-US，也可以填写“简体中文”</string>
+    <string name="ai_output_language_desc">例如“简体中文”或“English”</string>
     <string
     name="ai_summary_length">默认摘要长度</string>
     <string name="ai_summary_length_brief">一句话</string>
@@ -1176,11 +1158,11 @@
     name="ai_summary_length_standard">标准</string>
     <string name="ai_summary_length_detailed">详细</string>
     <string
-    name="ai_summary_length_brief_desc">单段高密度摘要，约 120～220 字，不列要点</string>
+    name="ai_summary_length_brief_desc">一段简短摘要，不列要点</string>
     <string
-    name="ai_summary_length_standard_desc">1～2 段摘要 + 4～6 个要点，保留关键依据、机制或影响</string>
+    name="ai_summary_length_standard_desc">简短摘要，并列出 4～6 个重点</string>
     <string
-    name="ai_summary_length_detailed_desc">2～3 段摘要 + 论证结构 + 5～8 个要点，保留风险、边界与后续关注</string>
+    name="ai_summary_length_detailed_desc">更完整的摘要，并列出 5～8 个重点、限制或风险</string>
     <string
     name="ai_providers">AI 服务</string>
     <string name="ai_providers_desc">管理多个 AI 服务</string>
@@ -1191,22 +1173,20 @@
     name="ai_provider_switch_hint">已配置 %1$d 个服务 · 当前编辑：%2$s</string>
     <string
     name="ai_provider_enabled">启用此服务</string>
-    <string name="ai_provider_enabled_desc">关闭后不参与 AI 请求</string>
+    <string name="ai_provider_enabled_desc">关闭后不再使用这个服务处理 AI 功能</string>
     <string
-    name="ai_provider_capabilities">兼容能力</string>
-    <string name="ai_provider_capabilities_desc">
-  一般保持自动即可。服务表现不正常时再手动调整。</string>
-    <string name="ai_capability_streaming">流式输出</string>
+    name="ai_provider_capabilities">兼容设置</string>
+    <string name="ai_provider_capabilities_desc">一般保持“自动”即可；只有回复异常或功能不可用时再调整。</string>
+    <string name="ai_capability_streaming">边生成边显示</string>
     <string
-    name="ai_capability_streaming_desc">边生成边显示回复。</string>
+    name="ai_capability_streaming_desc">生成回复时同步显示内容。</string>
     <string
-    name="ai_capability_tool_calling">Tool Calling</string>
+    name="ai_capability_tool_calling">使用工具</string>
     <string
-    name="ai_capability_tool_calling_desc">允许模型使用已启用的工具。</string>
+    name="ai_capability_tool_calling_desc">允许模型使用你已启用的工具。</string>
     <string
-    name="ai_capability_reasoning">Reasoning</string>
-    <string name="ai_capability_reasoning_desc">
-  启用推理强度和思考过程。</string>
+    name="ai_capability_reasoning">思考过程</string>
+    <string name="ai_capability_reasoning_desc">服务支持时显示相关思考选项。</string>
     <string
     name="ai_capability_auto">自动判断</string>
     <string name="ai_capability_supported">支持</string>
@@ -1220,14 +1200,13 @@
     <string name="ai_delete_provider">删除</string>
     <string
     name="ai_optional_api_key">API Key（可选）</string>
-    <string name="ai_optional_api_key_desc">免鉴权服务可留空</string>
+    <string name="ai_optional_api_key_desc">服务不需要密钥时可留空</string>
     <string
-    name="ai_save_key">保存凭据</string>
-    <string name="ai_remove_key">删除凭据</string>
+    name="ai_save_key">保存 API Key</string>
+    <string name="ai_remove_key">删除 API Key</string>
     <string
-    name="ai_privacy_title">正文发送说明</string>
-    <string name="ai_privacy_desc">生成摘要会发送当前文章内容；API Key
-  本机加密保存。</string>
+    name="ai_privacy_title">隐私说明</string>
+    <string name="ai_privacy_desc">使用在线 AI 时，当前文章会发送到所选服务。已保存的访问密钥只保存在本机。</string>
     <string name="ai_test_provider">测试服务</string>
     <string name="ai_test_success">测试成功</string>
     <string
@@ -1238,8 +1217,7 @@
     <string name="ai_reasoning_expand">展开模型思考</string>
     <string
     name="ai_reasoning_collapse">收起模型思考</string>
-    <string name="ai_reasoning_disclaimer">
-  仅显示模型接口明确返回的推理内容；接口不支持时不会显示。</string>
+    <string name="ai_reasoning_disclaimer">这里只显示所选服务明确返回的思考内容；服务不提供时不会显示。</string>
     <string name="ai_summary_generate">生成 AI 摘要</string>
     <string
     name="ai_summary_stop">停止生成摘要</string>
@@ -1264,7 +1242,7 @@
     name="ai_summary_length_this_time">本次摘要长度</string>
     <string name="ai_summary_generate_with">生成</string>
     <string
-    name="ai_summary_model_manual_hint">可选择已获取的模型，也可以直接输入模型 ID</string>
+    name="ai_summary_model_manual_hint">选择已加载的模型，或直接输入模型名称</string>
     <string
     name="ai_reading_actions">AI 阅读</string>
     <string name="ai_ask_article">询问这篇文章</string>
@@ -1285,36 +1263,32 @@
     <string name="edition_sync_llm_name">原读 X</string>
     <string
     name="edition_sync_send_title">同步到%1$s</string>
-    <string name="edition_sync_send_desc">
-  将双方共有的配置，以及当前账户的订阅、文章、已读、星标和稍后读状态同步到另一已安装版本；目标版本独有的数据会保留。支持的凭据会自动一并迁移。</string>
+    <string name="edition_sync_send_desc">把双方共有的设置，以及当前账户的订阅、文章、已读、星标和稍后读状态同步到另一个已安装版本。对方版本独有的数据会保留，支持的已保存密钥也会一并迁移。</string>
     <string
-    name="configuration_backup_desc">备份与恢复订阅、规则、阅读偏好、翻译、AI 与当前版本支持的扩展设置</string>
+    name="configuration_backup_desc">备份订阅、规则、阅读设置、翻译、AI 和支持的扩展设置</string>
     <string
-    name="configuration_backup_scope_title">可迁移配置范围</string>
+    name="configuration_backup_scope_title">备份内容</string>
     <string
-    name="configuration_backup_scope_desc">包含订阅与分组、解析与过滤规则、RSSHub、应用偏好、翻译/AI
-  服务配置，以及当前版本支持的扩展设置；不包含文章、阅读状态、已生成摘要/译文和缓存。</string>
+    name="configuration_backup_scope_desc">包含订阅与分组、来源规则、过滤规则、RSSHub、应用设置、翻译、AI 和支持的扩展设置；不包含文章、阅读历史、已生成摘要和译文、缓存。</string>
     <string
-    name="configuration_backup_include_secrets">包含凭据</string>
+    name="configuration_backup_include_secrets">包含已保存的密钥</string>
     <string
-    name="configuration_backup_include_secrets_desc">默认关闭；开启后支持的 API Key
-  与其他凭据会加密写入备份文件，也可随同签名的版本间同步迁移。</string>
+    name="configuration_backup_include_secrets_desc">默认关闭。开启后，已保存的访问密钥会加密写入备份；在原读与原读 X 之间同步时也可一并迁移。</string>
     <string
-    name="configuration_backup_include_secrets_desc_portable_only">默认关闭；开启后支持的 API Key
-  与其他凭据会使用备份密码加密写入备份文件。</string>
+    name="configuration_backup_include_secrets_desc_portable_only">默认关闭。开启后，已保存的访问密钥会使用备份密码加密写入备份。</string>
     <string name="configuration_backup_password">备份密码</string>
     <string
-    name="configuration_backup_password_desc">至少 6 个字符。恢复加密凭据时需再次输入，原读不会保存此密码。</string>
+    name="configuration_backup_password_desc">至少 6 个字符。原读不会保存这个密码；恢复已保存的密钥时还需要再次输入。</string>
     <string
     name="configuration_backup_password_too_short">备份密码至少需要 6 个字符</string>
     <string
     name="configuration_backup_export">导出完整配置</string>
     <string
-    name="configuration_backup_export_desc">导出 JSON 配置备份，可在其他设备恢复</string>
+    name="configuration_backup_export_desc">生成可在其他设备恢复的配置备份</string>
     <string
     name="configuration_backup_restore">恢复配置</string>
     <string
-    name="configuration_backup_restore_desc">从 OrigRead 配置备份恢复，并合并当前订阅</string>
+    name="configuration_backup_restore_desc">从备份恢复配置，并保留当前设备已有的其他订阅</string>
     <string
     name="configuration_backup_restore_confirm_title">确认恢复这份配置？</string>
     <string
@@ -1322,7 +1296,7 @@
     <string
     name="configuration_backup_merge_notice">相同 URL 的订阅会合并更新，缺少的订阅会新增；不会删除当前设备已有的其他订阅和文章历史。</string>
     <string
-    name="configuration_backup_restore_password_desc">此备份包含加密凭据，请输入备份密码。</string>
+    name="configuration_backup_restore_password_desc">这份备份包含已保存的密钥，请输入备份密码。</string>
     <string
     name="configuration_backup_export_success">完整配置已导出</string>
     <string

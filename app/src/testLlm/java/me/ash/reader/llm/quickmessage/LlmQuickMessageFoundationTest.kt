@@ -8,22 +8,21 @@ import org.junit.Test
 
 class LlmQuickMessageFoundationTest {
     @Test
-    fun `template resolves reading variables from current snapshot`() {
+    fun `template resolves original article variables from current snapshot`() {
         val result =
             resolveQuickMessageTemplate(
-                template = "标题={{article_title}}\n链接={{article_url}}\n选区={{selection}}\n摘要={{summary}}",
+                template = "标题={{article_title}}\n链接={{article_url}}\n选区={{selection}}",
                 context =
                     LlmQuickMessageContext(
                         articleTitle = "OrigRead P6.4",
                         articleUrl = "https://example.com/p64",
                         selection = "selected paragraph",
-                        summary = "summary snapshot",
                     ),
             )
 
         assertTrue(result.ready)
         assertEquals(
-            "标题=OrigRead P6.4\n链接=https://example.com/p64\n选区=selected paragraph\n摘要=summary snapshot",
+            "标题=OrigRead P6.4\n链接=https://example.com/p64\n选区=selected paragraph",
             result.content,
         )
         assertTrue(result.unavailableVariables.isEmpty())
@@ -40,7 +39,6 @@ class LlmQuickMessageFoundationTest {
                         articleTitle = "Article",
                         articleUrl = null,
                         selection = null,
-                        summary = null,
                     ),
             )
 
@@ -60,7 +58,6 @@ class LlmQuickMessageFoundationTest {
                         articleTitle = "Article",
                         articleUrl = null,
                         selection = null,
-                        summary = null,
                     ),
             )
 
@@ -79,7 +76,6 @@ class LlmQuickMessageFoundationTest {
                         articleTitle = "Article",
                         articleUrl = null,
                         selection = null,
-                        summary = null,
                     ),
             )
 

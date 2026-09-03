@@ -52,7 +52,7 @@ fun SettingItem(
     enabled: Boolean = true,
     title: String,
     desc: String? = null,
-    descMaxLines: Int = 1,
+    descMaxLines: Int = Int.MAX_VALUE,
     icon: ImageVector? = null,
     iconPainter: Painter? = null,
     separatedActions: Boolean = false,
@@ -116,7 +116,7 @@ fun SettingItem(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
-                    maxLines = if (desc == null) 2 else 1,
+                    maxLines = 2,
                     style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp)
                 )
                 desc?.let {

@@ -905,8 +905,6 @@ class LlmChatViewModel @Inject constructor(
                         articleTitle = currentArticle?.title.orEmpty(),
                         articleUrl = currentArticle?.link,
                         selection = currentArticle?.selectedText,
-                        // 摘要是独立阅读产物，不允许通过 Quick Message 模板回灌 Chat。
-                        summary = null,
                     ),
             )
         resolution.content?.takeIf { resolution.ready }?.let { resolved ->

@@ -160,7 +160,10 @@ class WebSearchSettingsViewModel @Inject constructor(
     fun revealApiKey(providerId: String): String = repository.getApiKey(providerId)
 
     /** 使用当前已保存配置执行一次真实最小搜索。 */
-    fun testProvider(providerId: String) {
+    fun testProvider(
+        providerId: String,
+        fallbackError: String,
+    ) {
         if (_uiState.value.healthChecks[providerId]?.testing == true) return
         _uiState.update { state ->
             state.copy(
@@ -193,7 +196,7 @@ class WebSearchSettingsViewModel @Inject constructor(
                                     (providerId to
                                         WebSearchHealthUiState(
                                             success = false,
-                                            error = error.message ?: "Web Search 连接失败",
+                                            error = error.message ?: fallbackError,
                                         ))
                         )
                     }
@@ -224,6 +227,7 @@ fun WebSearchSettingsPage(
     viewModel: WebSearchSettingsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val testFailedFallback = stringResource(R.string.llm_web_search_test_failed_fallback)
     var addProviderVisible by remember { mutableStateOf(false) }
     var pendingDeleteId by remember { mutableStateOf<String?>(null) }
     // Secret 只存在于当前页面的非 saveable 临时状态；切换 Provider、隐藏或离开页面即丢弃。
@@ -380,7 +384,12 @@ fun WebSearchSettingsPage(
                                     clearReveal()
                                     viewModel.saveKey(provider.id)
                                 },
-                                onTest = { viewModel.testProvider(provider.id) },
+                                onTest = {
+                                    viewModel.testProvider(
+                                        provider.id,
+                                        testFailedFallback,
+                                    )
+                                },
                                 onSetDefault = {
                                     clearReveal()
                                     viewModel.setDefaultProvider(provider.id)

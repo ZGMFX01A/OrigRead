@@ -30,7 +30,7 @@ fun DisplayText(
             text = text,
             style = MaterialTheme.typography.displaySmall,
             color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
         OrigReadExtensibleVisibility(visible = desc.isNotEmpty()) {
@@ -38,8 +38,6 @@ fun DisplayText(
                 text = desc,
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
             )
         }
     }
