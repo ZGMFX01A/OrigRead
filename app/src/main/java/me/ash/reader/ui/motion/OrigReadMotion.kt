@@ -17,6 +17,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MotionScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -65,23 +66,30 @@ internal object OrigReadMotionGeometry {
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun origReadNavigationTransform(direction: OrigReadMotionDirection): ContentTransform =
+    origReadNavigationTransform(direction, MaterialTheme.motionScheme)
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+fun origReadNavigationTransform(
+    direction: OrigReadMotionDirection,
+    motionScheme: MotionScheme,
+): ContentTransform =
     (slideInHorizontally(
         initialOffsetX = { OrigReadMotionGeometry.incomingOffset(it, direction) },
-        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+        animationSpec = motionScheme.defaultSpatialSpec(),
     ) +
-        fadeIn(animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec()) +
+        fadeIn(animationSpec = motionScheme.defaultEffectsSpec()) +
         scaleIn(
             initialScale = OrigReadMotionGeometry.NavigationIncomingScale,
-            animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+            animationSpec = motionScheme.defaultSpatialSpec(),
         )) togetherWith
         (slideOutHorizontally(
             targetOffsetX = { OrigReadMotionGeometry.outgoingOffset(it, direction) },
-            animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+            animationSpec = motionScheme.defaultSpatialSpec(),
         ) +
-            fadeOut(animationSpec = MaterialTheme.motionScheme.fastEffectsSpec()) +
+            fadeOut(animationSpec = motionScheme.fastEffectsSpec()) +
             scaleOut(
                 targetScale = OrigReadMotionGeometry.NavigationOutgoingScale,
-                animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+                animationSpec = motionScheme.defaultSpatialSpec(),
             ))
 
 /** Same-level content replacement where spatial direction would imply a false hierarchy. */

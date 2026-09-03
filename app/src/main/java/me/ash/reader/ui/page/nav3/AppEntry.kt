@@ -2,9 +2,9 @@ package me.ash.reader.ui.page.nav3
 
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
@@ -24,8 +24,8 @@ import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import androidx.navigation3.ui.NavDisplay
 import kotlinx.coroutines.delay
-import me.ash.reader.ui.motion.materialSharedAxisXIn
-import me.ash.reader.ui.motion.materialSharedAxisXOut
+import me.ash.reader.ui.motion.OrigReadMotionDirection
+import me.ash.reader.ui.motion.origReadNavigationTransform
 import me.ash.reader.ui.page.adaptive.ArticleData
 import me.ash.reader.ui.page.adaptive.ArticleListReaderPage
 import me.ash.reader.ui.page.adaptive.ArticleListReaderViewModel
@@ -62,16 +62,15 @@ import me.ash.reader.ui.page.settings.backup.ConfigurationBackupPage
 import me.ash.reader.ui.page.settings.update.UpdateSettingsPage
 import me.ash.reader.ui.page.startup.StartupPage
 
-private const val INITIAL_OFFSET_FACTOR = 0.10f
-
 @OptIn(
     ExperimentalSharedTransitionApi::class,
     ExperimentalMaterial3AdaptiveApi::class,
-    ExperimentalMaterial3AdaptiveApi::class,
+    ExperimentalMaterial3ExpressiveApi::class,
 )
 @Composable
 fun AppEntry(backStack: NavBackStack<NavKey>) {
     val subscribeViewModel = hiltViewModel<SubscribeViewModel>()
+    val motionScheme = MaterialTheme.motionScheme
 
     val onBack: () -> Unit = {
         if (backStack.size == 1) backStack[0] = Route.Feeds else backStack.removeLastOrNull()
@@ -95,24 +94,13 @@ fun AppEntry(backStack: NavBackStack<NavKey>) {
                     rememberViewModelStoreNavEntryDecorator(),
                 ),
             transitionSpec = {
-                materialSharedAxisXIn(
-                    initialOffsetX = { (it * INITIAL_OFFSET_FACTOR).toInt() }
-                ) togetherWith
-                    materialSharedAxisXOut(
-                        targetOffsetX = { -(it * INITIAL_OFFSET_FACTOR).toInt() }
-                    )
+                origReadNavigationTransform(OrigReadMotionDirection.Forward, motionScheme)
             },
             popTransitionSpec = {
-                materialSharedAxisXIn(
-                    initialOffsetX = { -(it * INITIAL_OFFSET_FACTOR).toInt() }
-                ) togetherWith
-                    materialSharedAxisXOut(targetOffsetX = { (it * INITIAL_OFFSET_FACTOR).toInt() })
+                origReadNavigationTransform(OrigReadMotionDirection.Backward, motionScheme)
             },
             predictivePopTransitionSpec = {
-                materialSharedAxisXIn(
-                    initialOffsetX = { -(it * INITIAL_OFFSET_FACTOR).toInt() }
-                ) togetherWith
-                    materialSharedAxisXOut(targetOffsetX = { (it * INITIAL_OFFSET_FACTOR).toInt() })
+                origReadNavigationTransform(OrigReadMotionDirection.Backward, motionScheme)
             },
             onBack = { backStack.removeLastOrNull() },
             entryProvider = { key ->
