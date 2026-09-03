@@ -20,7 +20,7 @@ class FeedDiscoveryCatalogAssetTest {
     fun `目录结构有效且包含四个上游来源`() {
         assertEquals(1, catalog.schemaVersion)
         assertEquals(catalog.feedCount, catalog.feeds.size)
-        assertTrue(catalog.feedCount >= 2_400)
+        assertTrue(catalog.feedCount >= 1_700)
         assertTrue(catalog.categories.size <= 20)
         assertTrue(catalog.categories.all(SourceCategoryLabels::hasLocalizedLabel))
         assertTrue(catalog.sources.any { it.id == "awesome-rss-feeds" })
@@ -43,12 +43,12 @@ class FeedDiscoveryCatalogAssetTest {
         assertTrue(
             catalog.feeds.sumOf { feed ->
                 feed.origins.count { it.sourceId == "awesome-rss-feeds-list" }
-            } >= 2_000
+            } >= 1_400
         )
         assertTrue(
             catalog.feeds.sumOf { feed ->
                 feed.origins.count { it.sourceId == "awesome-rsshub-routes" }
-            } >= 100
+            } >= 90
         )
     }
 

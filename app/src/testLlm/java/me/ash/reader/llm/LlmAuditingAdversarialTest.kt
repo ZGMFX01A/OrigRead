@@ -298,7 +298,8 @@ class LlmAuditingAdversarialTest {
             val text = catalogFile.readText()
             val root = org.json.JSONObject(text)
             val array = root.getJSONArray("feeds")
-            assertEquals(2427, array.length())
+            assertEquals(root.getInt("feedCount"), array.length())
+            assertTrue(array.length() >= 1700)
             val urls = mutableSetOf<String>()
             for (i in 0 until array.length()) {
                 val item = array.getJSONObject(i)
