@@ -462,7 +462,7 @@ internal fun buildLlmChatSystemPrompt(
     plan: LlmExecutionPlan,
     citationFeatureEnabled: Boolean = LLM_EVIDENCE_CITATION_ENABLED,
 ): String? {
-    // 当前产品不向模型暴露任何 [R#] 输出协议；未来 Evidence Anchor 独立项目完整后再显式启用。
+    // 旧 [R#] 已永久退出；新 Evidence Citation 只在 R07.7 完整验收后通过唯一产品 Gate 启用。
     val citations = plan.safeCitationReferences(citationFeatureEnabled)
     val context = attachLlmCitationLabelsToContext(plan.context.text.trim(), citations)
     val evidenceCitationInstruction =

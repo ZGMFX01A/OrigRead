@@ -79,8 +79,11 @@ import me.ash.reader.infrastructure.translation.TranslationTarget
 import me.ash.reader.ui.ext.collectAsStateValue
 import me.ash.reader.ui.ext.openURL
 import me.ash.reader.ui.ext.showToast
+import me.ash.reader.ui.component.reader.NativeReaderAnchorNavigationResult
 import me.ash.reader.ui.component.reader.NativeReaderAnchorState
+import me.ash.reader.ui.component.reader.PendingCitationNavigation
 import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerState
+import me.ash.reader.ui.component.webview.WebViewReaderAnchorNavigationResult
 import me.ash.reader.ui.component.webview.WebViewReaderAnchorState
 import me.ash.reader.ui.page.adaptive.ArticleListReaderViewModel
 import me.ash.reader.ui.page.adaptive.NavigationAction
@@ -138,6 +141,8 @@ fun ReadingPage(
     var showArticleAssistant by remember { mutableStateOf(false) }
     var articleAnalysisRequested by remember(readerState.articleId) { mutableStateOf(false) }
     var selectedTextForAssistant by remember(readerState.articleId) { mutableStateOf<String?>(null) }
+    var pendingCitationNavigation by remember { mutableStateOf<PendingCitationNavigation?>(null) }
+    var citationNavigationFailureId by remember { mutableStateOf<String?>(null) }
     var showInteractiveVerification by remember { mutableStateOf(false) }
     var showReadingShareFirstUse by remember { mutableStateOf(false) }
     var showReadingShareConfig by remember { mutableStateOf(false) }
@@ -157,6 +162,7 @@ fun ReadingPage(
 
     /** 关闭助手即结束本次临时 Selection，防止同一文章稍后从普通入口重开时静默复用旧选区。 */
     fun dismissArticleAssistant() {
+        pendingCitationNavigation = null
         showArticleAssistant = false
         articleAnalysisRequested = false
         selectedTextForAssistant = null
@@ -164,6 +170,71 @@ fun ReadingPage(
 
     LaunchedEffect(aiAssistantEnabled) {
         if (!aiAssistantEnabled) dismissArticleAssistant()
+    }
+
+    LaunchedEffect(
+        pendingCitationNavigation,
+        readerState.articleId,
+        readerState.content,
+        translationState.showTranslation,
+        readingRenderer,
+        nativeReaderAnchorState.readyRevision,
+        webViewReaderAnchorState.readyRevision,
+    ) {
+        val pending = pendingCitationNavigation ?: return@LaunchedEffect
+        val currentArticleId = readerState.articleId?.trim()?.ifBlank { null } ?: return@LaunchedEffect
+        val targetArticleId = pending.articleId.trim()
+
+        if (!pending.isTargetArticle(currentArticleId)) {
+            if (pending.shouldInvalidateForArticle(currentArticleId)) {
+                pendingCitationNavigation = null
+            }
+            return@LaunchedEffect
+        }
+        if (readerState.content is ReaderState.Error) {
+            citationNavigationFailureId = pending.citationId
+            pendingCitationNavigation = null
+            return@LaunchedEffect
+        }
+        if (translationState.showTranslation) {
+            viewModel.showOriginalContentForCitation()
+            return@LaunchedEffect
+        }
+
+        when (readingRenderer) {
+            ReadingRendererPreference.NativeComponent -> {
+                if (nativeReaderAnchorState.readyArticleId != targetArticleId) return@LaunchedEffect
+                when (nativeReaderAnchorState.navigateTo(pending.target)) {
+                    is NativeReaderAnchorNavigationResult.Located -> {
+                        if (pending.sameRequest(pendingCitationNavigation)) {
+                            pendingCitationNavigation = null
+                        }
+                    }
+                    is NativeReaderAnchorNavigationResult.Unavailable -> {
+                        if (pending.sameRequest(pendingCitationNavigation)) {
+                            citationNavigationFailureId = pending.citationId
+                            pendingCitationNavigation = null
+                        }
+                    }
+                }
+            }
+            ReadingRendererPreference.WebView -> {
+                if (webViewReaderAnchorState.readyArticleId != targetArticleId) return@LaunchedEffect
+                webViewReaderAnchorState.navigateTo(pending.target) { result ->
+                    if (!pending.sameRequest(pendingCitationNavigation)) return@navigateTo
+                    when (result) {
+                        is WebViewReaderAnchorNavigationResult.Located -> {
+                            pendingCitationNavigation = null
+                        }
+                        WebViewReaderAnchorNavigationResult.Pending -> Unit
+                        is WebViewReaderAnchorNavigationResult.Unavailable -> {
+                            citationNavigationFailureId = pending.citationId
+                            pendingCitationNavigation = null
+                        }
+                    }
+                }
+            }
+        }
     }
 
     var currentImageData by remember { mutableStateOf(ImageData()) }
@@ -802,9 +873,16 @@ fun ReadingPage(
             dismissArticleAssistant()
             viewModel.summarizeArticle(lengthOverride = length)
         },
-        readingRenderer = readingRenderer,
-        nativeReaderAnchorState = nativeReaderAnchorState,
-        webViewReaderAnchorState = webViewReaderAnchorState,
+        onNavigateReaderCitation = { request ->
+            citationNavigationFailureId = null
+            pendingCitationNavigation = request
+            viewModel.showOriginalContentForCitation()
+            if (request.articleId != readerState.articleId) {
+                onLoadArticle(request.articleId, -1)
+            }
+        },
+        citationNavigationFailureId = citationNavigationFailureId,
+        onCitationNavigationFailureConsumed = { citationNavigationFailureId = null },
         readerEvidenceMarkerState = readerEvidenceMarkerState,
         onDismiss = ::dismissArticleAssistant,
     )

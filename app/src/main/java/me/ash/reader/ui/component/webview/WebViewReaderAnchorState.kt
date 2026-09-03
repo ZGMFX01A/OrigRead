@@ -2,6 +2,9 @@ package me.ash.reader.ui.component.webview
 
 import android.webkit.WebView
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import java.util.concurrent.atomic.AtomicLong
 import me.ash.reader.ui.component.reader.ReaderEvidenceAnchorTarget
 import me.ash.reader.ui.component.reader.ReaderEvidenceDocument
@@ -61,6 +64,11 @@ class WebViewReaderAnchorState {
     private var pending: PendingWebViewReaderAnchor? = null
     private var markerSnapshot: ReaderEvidenceMarkerSnapshot? = null
 
+    var readyArticleId: String? by mutableStateOf(null)
+        private set
+    var readyRevision: Long by mutableStateOf(0L)
+        private set
+
     internal fun bindRender(
         articleId: String?,
         originalContent: Boolean,
@@ -89,6 +97,7 @@ class WebViewReaderAnchorState {
                 markerColorCss = markerColorCss,
                 highlightDurationMillis = highlightDurationMillis.coerceAtLeast(1L),
             )
+        readyArticleId = null
         if (!preservePending) pending = null
     }
 
@@ -98,7 +107,10 @@ class WebViewReaderAnchorState {
     ): Boolean {
         val current = binding ?: return false
         if (current.webView !== webView || current.renderGeneration != renderGeneration) return false
+        if (current.ready) return true
         current.ready = true
+        readyArticleId = current.articleId?.trim()?.ifBlank { null }
+        readyRevision += 1
         applyMarkers(current)
         pending?.also { pending = null }?.let { request ->
             navigateTo(request.target, request.onResult)
@@ -117,6 +129,8 @@ class WebViewReaderAnchorState {
         binding = null
         pending = null
         markerSnapshot = null
+        readyArticleId = null
+        readyRevision += 1
     }
 
     fun navigateTo(

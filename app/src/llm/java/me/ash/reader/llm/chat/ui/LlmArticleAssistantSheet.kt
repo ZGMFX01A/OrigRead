@@ -110,9 +110,9 @@ import kotlin.math.roundToInt
 import me.ash.reader.R
 import me.ash.reader.infrastructure.ai.AiSummaryLength
 import me.ash.reader.infrastructure.ai.availableModels
-import me.ash.reader.infrastructure.preference.ReadingRendererPreference
 import me.ash.reader.llm.chat.data.LlmArticleCandidate
 import me.ash.reader.llm.chat.data.LlmChatRole
+import me.ash.reader.llm.chat.data.LlmCitationNavigationAction
 import me.ash.reader.llm.chat.data.LlmCitationRefEntity
 import me.ash.reader.llm.chat.data.LlmContextRefEntity
 import me.ash.reader.llm.chat.data.LlmConversationEntity
@@ -120,9 +120,9 @@ import me.ash.reader.llm.chat.data.LlmMessageEntity
 import me.ash.reader.llm.chat.data.LlmMessageStatus
 import me.ash.reader.llm.chat.data.LlmToolCallEntity
 import me.ash.reader.llm.chat.data.LlmToolCallStatus
+import me.ash.reader.llm.chat.data.resolveCitationNavigationAction
 import me.ash.reader.llm.chat.data.stripDisabledLlmCitationTokens
 import me.ash.reader.llm.chat.data.stripHistoricalCitationProtocolTokens
-import me.ash.reader.llm.chat.data.toReaderEvidenceAnchorTarget
 import me.ash.reader.llm.quickmessage.LlmQuickMessage
 import me.ash.reader.llm.quickmessage.LlmQuickMessageResolution
 import me.ash.reader.llm.quickmessage.resolveQuickMessageText
@@ -134,9 +134,8 @@ import me.ash.reader.llm.search.WebSearchRequestStatus
 import me.ash.reader.ui.motion.origReadFadeThroughTransform
 import me.ash.reader.ui.motion.origReadVisibilityEnter
 import me.ash.reader.ui.motion.origReadVisibilityExit
-import me.ash.reader.ui.component.reader.NativeReaderAnchorState
+import me.ash.reader.ui.component.reader.PendingCitationNavigation
 import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerState
-import me.ash.reader.ui.component.webview.WebViewReaderAnchorState
 import me.ash.reader.ui.page.home.reading.AiSummaryAccentIcon
 import me.ash.reader.ui.page.home.reading.ArticleAssistantContext
 
@@ -169,9 +168,9 @@ fun LlmArticleAssistantSheet(
     onOpenArticle: (String) -> Unit = {},
     showQuickSummary: Boolean = false,
     onQuickSummary: (AiSummaryLength) -> Unit = {},
-    readingRenderer: ReadingRendererPreference = ReadingRendererPreference.NativeComponent,
-    nativeReaderAnchorState: NativeReaderAnchorState? = null,
-    webViewReaderAnchorState: WebViewReaderAnchorState? = null,
+    onNavigateReaderCitation: (PendingCitationNavigation) -> Unit = {},
+    citationNavigationFailureId: String? = null,
+    onCitationNavigationFailureConsumed: () -> Unit = {},
     readerEvidenceMarkerState: ReaderEvidenceMarkerState? = null,
     onDismiss: () -> Unit,
     viewModel: LlmChatViewModel = hiltViewModel(),
@@ -193,6 +192,7 @@ fun LlmArticleAssistantSheet(
     val coroutineScope = rememberCoroutineScope()
     val canScrollUp by remember { derivedStateOf { listState.canScrollBackward } }
     val canScrollDown by remember { derivedStateOf { listState.canScrollForward } }
+    val uriHandler = LocalUriHandler.current
     val articleAnalysisPrompt = stringResource(R.string.llm_article_analysis_request)
 
     val latestCompletedCitationAssistantId =
@@ -227,6 +227,14 @@ fun LlmArticleAssistantSheet(
         citationInteractionAssistantId = null
         contextSourcesAssistantId = null
         webSearchResultsAssistantId = null
+    }
+    LaunchedEffect(citationNavigationFailureId, uiState.citationRefs) {
+        val citationId = citationNavigationFailureId ?: return@LaunchedEffect
+        uiState.citationRefs.firstOrNull { it.id == citationId }?.let { citation ->
+            citationInteractionAssistantId = citation.assistantMessageId
+            contextSourcesAssistantId = citation.assistantMessageId
+        }
+        onCitationNavigationFailureConsumed()
     }
 
     LaunchedEffect(articleContext) {
@@ -377,25 +385,35 @@ fun LlmArticleAssistantSheet(
                                             citationRefs = messageCitationRefs,
                                             onCitationClick = { citationRef ->
                                                 citationInteractionAssistantId = message.id
-                                                val target = citationRef.toReaderEvidenceAnchorTarget()
-                                                val targetArticleId =
-                                                    target?.articleId?.trim()?.ifBlank { null }
-                                                if (
-                                                    target == null ||
-                                                        (targetArticleId != null &&
-                                                            targetArticleId != articleContext.articleId)
-                                                ) {
-                                                    // R07.6 will add pending cross-article and non-Article navigation.
-                                                    contextSourcesAssistantId = message.id
-                                                } else {
-                                                    when (readingRenderer) {
-                                                        ReadingRendererPreference.NativeComponent ->
-                                                            coroutineScope.launch {
-                                                                nativeReaderAnchorState?.navigateTo(target)
-                                                            }
-                                                        ReadingRendererPreference.WebView ->
-                                                            webViewReaderAnchorState?.navigateTo(target)
+                                                readerEvidenceMarkerState?.show(
+                                                    buildLlmReaderMarkerSnapshot(
+                                                        assistantMessageId = message.id,
+                                                        citationRefs = uiState.citationRefs,
+                                                    )
+                                                )
+                                                when (val action = citationRef.resolveCitationNavigationAction()) {
+                                                    is LlmCitationNavigationAction.Reader -> {
+                                                        val targetArticleId =
+                                                            action.target.articleId?.trim()?.ifBlank { null }
+                                                        if (targetArticleId == null) {
+                                                            contextSourcesAssistantId = message.id
+                                                        } else {
+                                                            onNavigateReaderCitation(
+                                                                PendingCitationNavigation(
+                                                                    assistantMessageId = message.id,
+                                                                    citationId = citationRef.id,
+                                                                    articleId = targetArticleId,
+                                                                    target = action.target,
+                                                                    requestedAt = System.currentTimeMillis(),
+                                                                    originArticleId = articleContext.articleId,
+                                                                )
+                                                            )
+                                                        }
                                                     }
+                                                    is LlmCitationNavigationAction.ExternalUrl ->
+                                                        uriHandler.openUri(action.url)
+                                                    LlmCitationNavigationAction.SourcesDetail ->
+                                                        contextSourcesAssistantId = message.id
                                                 }
                                             },
                                             onShowContextSources = {

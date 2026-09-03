@@ -327,6 +327,7 @@ internal fun WebSearchResponse.toContextItems(): List<LlmContextItem> =
             title = result.title,
             sourceId = result.url,
             content = content.ifBlank { result.url },
+            sourceOrdinal = index,
             priority = SEARCH_CONTEXT_PRIORITY - index,
         )
     }

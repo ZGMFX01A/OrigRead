@@ -24,6 +24,14 @@ data class LlmArticleEvidenceSource(
     val sourceUrl: String? = null,
 )
 
+data class LlmToolEvidenceSource(
+    val toolCallId: String? = null,
+    val toolId: String? = null,
+    val toolName: String? = null,
+    val toolSourceId: String? = null,
+    val sourceUrl: String? = null,
+)
+
 internal fun LlmContextItem.withArticleEvidenceBlocks(): LlmContextItem {
     if (type != LlmContextType.ARTICLE) return this
     val blocks =
@@ -39,6 +47,69 @@ internal fun LlmContextItem.withArticleEvidenceBlocks(): LlmContextItem {
                     content = block.content,
                 )
             }
+    )
+}
+
+internal fun LlmContextItem.withSelectionEvidenceBlock(articleHtml: String?): LlmContextItem {
+    if (type != LlmContextType.SELECTED_TEXT) return this
+    val block =
+        buildSelectionEvidenceBlock(
+            content = content,
+            source = LlmArticleEvidenceSource(articleId = internalArticleId, sourceUrl = sourceId),
+            articleHtml = articleHtml,
+        ) ?: return this
+    return copy(
+        evidenceBlocks =
+            listOf(
+                LlmContextEvidenceBlock(
+                    stableLocatorKey = block.stableLocatorKey,
+                    content = block.content,
+                )
+            )
+    )
+}
+
+internal fun LlmContextItem.withWebSearchEvidenceBlock(): LlmContextItem {
+    if (type != LlmContextType.WEB_SEARCH_RESULT) return this
+    val block =
+        buildWebSearchEvidenceBlock(
+            content = content,
+            sourceUrl = sourceId,
+            blockIndex = sourceOrdinal,
+        ) ?: return this
+    return copy(
+        evidenceBlocks =
+            listOf(
+                LlmContextEvidenceBlock(
+                    stableLocatorKey = block.stableLocatorKey,
+                    content = block.content,
+                )
+            )
+    )
+}
+
+internal fun LlmContextItem.withToolResultEvidenceBlock(): LlmContextItem {
+    if (type != LlmContextType.TOOL_RESULT) return this
+    val block =
+        buildToolResultEvidenceBlock(
+            content = content,
+            source =
+                LlmToolEvidenceSource(
+                    toolCallId = toolCallId,
+                    toolId = toolId,
+                    toolName = toolName ?: title,
+                    toolSourceId = toolSourceId,
+                    sourceUrl = sourceId.asHttpUrlOrNull(),
+                ),
+        ) ?: return this
+    return copy(
+        evidenceBlocks =
+            listOf(
+                LlmContextEvidenceBlock(
+                    stableLocatorKey = block.stableLocatorKey,
+                    content = block.content,
+                )
+            )
     )
 }
 
@@ -93,11 +164,19 @@ fun buildArticleEvidenceBlocks(
 fun buildSelectionEvidenceBlock(
     content: String,
     source: LlmArticleEvidenceSource = LlmArticleEvidenceSource(),
+    articleHtml: String? = null,
 ): BuiltLlmEvidenceBlock? {
     val normalized = normalizeReaderEvidenceText(content)
     if (normalized.isBlank()) return null
     val normalizedSha256 = sha256(normalized)
-    val stableLocatorKey = "SELECTION:${normalizedSha256.take(24)}:0"
+    val syntheticStableLocatorKey = "SELECTION:${normalizedSha256.take(24)}:0"
+    val uniqueArticleBlock =
+        articleHtml
+            ?.takeIf(String::isNotBlank)
+            ?.let { html -> buildArticleEvidenceBlocks(html, source) }
+            ?.filter { block -> normalizeReaderEvidenceText(block.content).contains(normalized) }
+            ?.singleOrNull()
+    val stableLocatorKey = uniqueArticleBlock?.stableLocatorKey ?: syntheticStableLocatorKey
     return BuiltLlmEvidenceBlock(
         stableLocatorKey = stableLocatorKey,
         content = normalized,
@@ -107,9 +186,71 @@ fun buildSelectionEvidenceBlock(
         locator =
             LlmEvidenceLocatorV1(
                 sourceKind = LlmEvidenceSourceKind.SELECTION,
-                stableLocatorKey = stableLocatorKey,
+                // Synthetic SELECTION keys identify request evidence only; they are not Reader DOM anchors.
+                stableLocatorKey = uniqueArticleBlock?.stableLocatorKey,
+                blockIndex = uniqueArticleBlock?.ordinal,
+                headingPath = uniqueArticleBlock?.locator?.headingPath,
                 articleId = source.articleId?.trim()?.ifBlank { null },
                 sourceUrl = source.sourceUrl?.trim()?.ifBlank { null },
+                normalizedHash = uniqueArticleBlock?.normalizedSha256 ?: normalizedSha256,
+            ),
+    )
+}
+
+fun buildWebSearchEvidenceBlock(
+    content: String,
+    sourceUrl: String?,
+    blockIndex: Int? = null,
+): BuiltLlmEvidenceBlock? {
+    val snapshot = content.trim()
+    if (snapshot.isBlank()) return null
+    val normalizedSha256 = sha256(snapshot)
+    val normalizedUrl = sourceUrl?.trim()?.ifBlank { null }
+    val stableLocatorKey =
+        "SEARCH_RESULT:${sha256("${normalizedUrl.orEmpty()}\n$snapshot").take(24)}:0"
+    return BuiltLlmEvidenceBlock(
+        stableLocatorKey = stableLocatorKey,
+        content = snapshot,
+        kind = LlmEvidenceBlockKind.SEARCH_RESULT,
+        ordinal = 0,
+        normalizedSha256 = normalizedSha256,
+        locator =
+            LlmEvidenceLocatorV1(
+                sourceKind = LlmEvidenceSourceKind.WEB_SEARCH,
+                stableLocatorKey = stableLocatorKey,
+                blockIndex = blockIndex,
+                sourceUrl = normalizedUrl,
+                normalizedHash = normalizedSha256,
+            ),
+    )
+}
+
+fun buildToolResultEvidenceBlock(
+    content: String,
+    source: LlmToolEvidenceSource = LlmToolEvidenceSource(),
+    stableLocatorKeyOverride: String? = null,
+): BuiltLlmEvidenceBlock? {
+    val snapshot = content.trim()
+    if (snapshot.isBlank()) return null
+    val normalizedSha256 = sha256(snapshot)
+    val stableLocatorKey =
+        stableLocatorKeyOverride?.trim()?.ifBlank { null }
+            ?: "TOOL_RESULT:${normalizedSha256.take(24)}:0"
+    return BuiltLlmEvidenceBlock(
+        stableLocatorKey = stableLocatorKey,
+        content = snapshot,
+        kind = LlmEvidenceBlockKind.TOOL_RESULT,
+        ordinal = 0,
+        normalizedSha256 = normalizedSha256,
+        locator =
+            LlmEvidenceLocatorV1(
+                sourceKind = LlmEvidenceSourceKind.TOOL_RESULT,
+                stableLocatorKey = stableLocatorKey,
+                sourceUrl = source.sourceUrl?.trim()?.ifBlank { null },
+                toolCallId = source.toolCallId?.trim()?.ifBlank { null },
+                toolId = source.toolId?.trim()?.ifBlank { null },
+                toolName = source.toolName?.trim()?.ifBlank { null },
+                toolSourceId = source.toolSourceId?.trim()?.ifBlank { null },
                 normalizedHash = normalizedSha256,
             ),
     )
@@ -134,6 +275,13 @@ private fun sha256(value: String): String {
         chars[index * 2 + 1] = HEX[valueByte and 0x0f]
     }
     return String(chars)
+}
+
+private fun String?.asHttpUrlOrNull(): String? {
+    val normalized = this?.trim()?.ifBlank { null } ?: return null
+    return normalized.takeIf {
+        it.startsWith("https://", ignoreCase = true) || it.startsWith("http://", ignoreCase = true)
+    }
 }
 
 private val HEX = "0123456789abcdef".toCharArray()

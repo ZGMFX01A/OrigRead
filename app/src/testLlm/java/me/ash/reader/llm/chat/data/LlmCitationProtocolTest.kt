@@ -1,6 +1,8 @@
 package me.ash.reader.llm.chat.data
 
 import me.ash.reader.llm.chat.ui.buildRequestHistorySnapshot
+import me.ash.reader.llm.chat.ui.applyToolResultCitationProtocol
+import me.ash.reader.llm.chat.runtime.LlmChatRequestMessage
 import me.ash.reader.llm.runtime.LlmContextComposer
 import me.ash.reader.llm.runtime.LlmContextEvidenceBlock
 import me.ash.reader.llm.runtime.LlmContextItem
@@ -189,7 +191,7 @@ class LlmCitationProtocolTest {
     }
 
     @Test
-    fun articlePersistenceUsesSameStableIdentitiesAsContextBudgetInput() {
+    fun evidencePersistenceUsesSameStableIdentitiesAsContextBudgetInput() {
         val item =
             LlmContextItem(
                 id = "article:1:original",
@@ -219,7 +221,7 @@ class LlmCitationProtocolTest {
             )
         var nextId = 0
         val state =
-            buildArticleEvidencePersistence(
+            buildEvidencePersistence(
                 contextItems = listOf(item),
                 contextRefs = listOf(contextRef),
                 createdAt = 2L,
@@ -229,6 +231,148 @@ class LlmCitationProtocolTest {
         assertEquals(item.evidenceBlocks.map { it.stableLocatorKey }, state.evidenceBlocks.map { it.stableLocatorKey })
         assertEquals(state.evidenceBlocks.map { it.id }, state.citationCandidates.map { it.evidenceBlockId })
         assertTrue(state.citationCandidates.all { it.contextRefId == contextRef.id })
+    }
+
+    @Test
+    fun providerHistoryToolResultReceivesProtocolAfterComposedEvidence() {
+        val composed =
+            LlmContextComposer().compose(
+                items =
+                    listOf(
+                        LlmContextItem(
+                            id = "article:1:original",
+                            type = LlmContextType.ARTICLE,
+                            content = "Article evidence",
+                            evidenceBlocks =
+                                listOf(LlmContextEvidenceBlock("article-block", "Article evidence")),
+                        )
+                    ),
+                policy = LlmContextPolicy(maxTokens = 256),
+            )
+        val prepared =
+            prepareCitationProtocol(
+                composed = composed,
+                candidates =
+                    listOf(
+                        candidate("article-block", "block-article", "Article evidence"),
+                        LlmCitationEvidenceCandidate(
+                            contextId = "tool-result:local-call",
+                            stableLocatorKey = "tool-block",
+                            contextRefId = "context-tool",
+                            evidenceBlockId = "block-tool",
+                            targetKind = LlmCitationTargetKind.EVIDENCE_BLOCK,
+                            quoteSnapshot = "Tool evidence",
+                            sourceUrl = null,
+                            locatorSnapshot =
+                                LlmEvidenceLocatorV1(
+                                    sourceKind = LlmEvidenceSourceKind.TOOL_RESULT,
+                                    stableLocatorKey = "tool-block",
+                                    toolCallId = "local-call",
+                                    toolId = "mcp:test:read",
+                                    toolName = "read",
+                                    normalizedHash = "tool-hash",
+                                ),
+                        ),
+                    ),
+                includedHistoryContextIds = listOf("tool-result:local-call"),
+            )
+
+        assertEquals(listOf("E1", "E2"), prepared.protocolEntries.map { it.protocolId })
+        assertEquals(
+            listOf("article:1:original", "tool-result:local-call"),
+            prepared.protocolEntries.map { it.contextId },
+        )
+    }
+
+    @Test
+    fun toolResultProtocolWrapsOnlyMatchingProviderToolMessageAndKeepsCallId() {
+        val toolCall =
+            LlmToolCallEntity(
+                id = "local-call",
+                conversationId = "conversation-1",
+                assistantMessageId = "assistant-old",
+                providerCallId = "provider-call",
+                toolId = "mcp:test:read",
+                apiName = "read",
+                argumentsJson = "{}",
+                status = LlmToolCallStatus.COMPLETE,
+                resultContent = "Tool evidence",
+                createdAt = 1L,
+                updatedAt = 1L,
+            )
+        val history =
+            listOf(
+                LlmChatRequestMessage(role = LlmChatRole.USER, content = "question"),
+                LlmChatRequestMessage(
+                    role = LlmChatRole.TOOL,
+                    content = "Tool evidence",
+                    toolCallId = "provider-call",
+                ),
+                LlmChatRequestMessage(
+                    role = LlmChatRole.TOOL,
+                    content = "Other tool evidence",
+                    toolCallId = "provider-other",
+                ),
+            )
+        val entry =
+            LlmCitationProtocolEntry(
+                contextId = "tool-result:local-call",
+                stableLocatorKey = "tool-block",
+                contextRefId = "context-tool",
+                evidenceBlockId = "block-tool",
+                targetKind = LlmCitationTargetKind.EVIDENCE_BLOCK,
+                quoteSnapshot = "Tool evidence",
+                sourceUrl = null,
+                locatorSnapshot =
+                    LlmEvidenceLocatorV1(
+                        sourceKind = LlmEvidenceSourceKind.TOOL_RESULT,
+                        stableLocatorKey = "tool-block",
+                        toolCallId = "local-call",
+                        toolId = toolCall.toolId,
+                        toolName = toolCall.apiName,
+                        normalizedHash = "tool-hash",
+                    ),
+                protocolId = "E2",
+            )
+
+        val wrapped = applyToolResultCitationProtocol(history, listOf(toolCall), listOf(entry))
+        val matching = wrapped.single { it.toolCallId == "provider-call" }
+        val other = wrapped.single { it.toolCallId == "provider-other" }
+
+        assertEquals("provider-call", matching.toolCallId)
+        assertTrue(matching.content.contains("[ORIGREAD_EVIDENCE id=\"E2\"]"))
+        assertTrue(matching.content.contains("Tool evidence"))
+        assertEquals("Other tool evidence", other.content)
+    }
+
+    @Test
+    fun automaticToolEvidencePersistsOnlySuccessfulFinalizedResults() {
+        val refs =
+            listOf(
+                toolContextRef("complete", "complete result"),
+                toolContextRef("denied", "denied result"),
+            )
+        val calls =
+            listOf(
+                toolCall("complete", LlmToolCallStatus.COMPLETE, "complete result"),
+                toolCall("denied", LlmToolCallStatus.DENIED, "denied result"),
+            )
+
+        val state =
+            buildEvidencePersistence(
+                contextItems = emptyList(),
+                contextRefs = refs,
+                toolCalls = calls,
+                createdAt = 2L,
+                idFactory = { "block-auto" },
+            )
+
+        assertEquals(1, state.evidenceBlocks.size)
+        assertEquals(LlmEvidenceSourceKind.TOOL_RESULT, state.evidenceBlocks.single().locator.sourceKind)
+        assertEquals("complete", state.evidenceBlocks.single().locator.toolCallId)
+        assertEquals("Frozen tool", state.evidenceBlocks.single().locator.toolName)
+        assertEquals("server-1", state.evidenceBlocks.single().locator.toolSourceId)
+        assertEquals("tool-result:complete", state.citationCandidates.single().contextId)
     }
 
     private fun candidate(
@@ -287,5 +431,45 @@ class LlmCitationProtocolTest {
             content = content,
             createdAt = createdAt,
             updatedAt = createdAt,
+        )
+
+    private fun toolContextRef(id: String, content: String): LlmContextRefEntity =
+        LlmContextRefEntity(
+            id = "context-$id",
+            conversationId = "conversation-1",
+            assistantMessageId = "assistant-new",
+            contextId = "tool-result:$id",
+            type = LlmContextType.TOOL_RESULT,
+            title = "read",
+            sourceId = "mcp:test:read",
+            sourceUrl = null,
+            contentSnapshot = content,
+            promptContentSnapshot = content,
+            contentSha256 = "hash-$id".padEnd(64, '0').take(64),
+            priority = 100,
+            includedInPrompt = true,
+            truncatedInPrompt = false,
+            createdAt = 1L,
+        )
+
+    private fun toolCall(
+        id: String,
+        status: LlmToolCallStatus,
+        result: String?,
+    ): LlmToolCallEntity =
+        LlmToolCallEntity(
+            id = id,
+            conversationId = "conversation-1",
+            assistantMessageId = "assistant-old",
+            providerCallId = "provider-$id",
+            toolId = "mcp:test:read",
+            toolName = "Frozen tool",
+            toolSourceId = "server-1",
+            apiName = "read",
+            argumentsJson = "{}",
+            status = status,
+            resultContent = result,
+            createdAt = 1L,
+            updatedAt = 1L,
         )
 }

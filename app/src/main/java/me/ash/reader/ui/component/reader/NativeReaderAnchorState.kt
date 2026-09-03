@@ -111,6 +111,7 @@ private data class NativeReaderAnchorBinding(
     val anchorMapBuilder: NativeReaderAnchorMap.Builder,
     val listState: LazyListState,
     val topInsetPx: Int,
+    var ready: Boolean = false,
 )
 
 /**
@@ -121,6 +122,11 @@ private data class NativeReaderAnchorBinding(
 class NativeReaderAnchorState {
     private var binding: NativeReaderAnchorBinding? = null
     private var highlightRevision: Long = 0
+
+    var readyArticleId: String? by mutableStateOf(null)
+        private set
+    var readyRevision: Long by mutableStateOf(0L)
+        private set
 
     var highlight: NativeReaderAnchorHighlight? by mutableStateOf(null)
         private set
@@ -142,10 +148,21 @@ class NativeReaderAnchorState {
                 listState = listState,
                 topInsetPx = topInsetPx.coerceAtLeast(0),
             )
+        readyArticleId = null
+    }
+
+    internal fun markRenderReady() {
+        val current = binding ?: return
+        if (!current.originalContent || current.ready) return
+        current.ready = true
+        readyArticleId = current.articleId?.trim()?.ifBlank { null }
+        readyRevision += 1
     }
 
     internal fun unbind() {
         binding = null
+        readyArticleId = null
+        readyRevision += 1
         highlight = null
     }
 

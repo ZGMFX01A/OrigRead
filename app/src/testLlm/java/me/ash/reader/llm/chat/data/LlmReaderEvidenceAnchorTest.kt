@@ -2,6 +2,7 @@ package me.ash.reader.llm.chat.data
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LlmReaderEvidenceAnchorTest {
@@ -20,12 +21,57 @@ class LlmReaderEvidenceAnchorTest {
     }
 
     @Test
-    fun `selection citation keeps quote fallback available for original article`() {
+    fun `anchored selection citation can return to original article`() {
         val target = citation(sourceKind = LlmEvidenceSourceKind.SELECTION).toReaderEvidenceAnchorTarget()
 
         requireNotNull(target)
         assertEquals("article-1", target.articleId)
         assertEquals("Frozen evidence quote", target.quote)
+    }
+
+    @Test
+    fun `unanchored selection degrades to sources detail instead of fuzzy reader lookup`() {
+        val base = citation(sourceKind = LlmEvidenceSourceKind.SELECTION)
+        val citation =
+            base.copy(
+                locatorSnapshot = base.locatorSnapshot?.copy(stableLocatorKey = null)
+            )
+
+        assertNull(citation.toReaderEvidenceAnchorTarget())
+        assertEquals(LlmCitationNavigationAction.SourcesDetail, citation.resolveCitationNavigationAction())
+    }
+
+    @Test
+    fun `web search opens its frozen http source`() {
+        assertEquals(
+            LlmCitationNavigationAction.ExternalUrl("https://example.com/article"),
+            citation(sourceKind = LlmEvidenceSourceKind.WEB_SEARCH).resolveCitationNavigationAction(),
+        )
+    }
+
+    @Test
+    fun `tool result without trusted url stays in sources detail`() {
+        val base = citation(sourceKind = LlmEvidenceSourceKind.TOOL_RESULT)
+        val citation =
+            base.copy(
+                sourceUrl = "mcp:deepwiki:read",
+                locatorSnapshot =
+                    base.locatorSnapshot?.copy(
+                        sourceUrl = null,
+                        toolId = "mcp:deepwiki:read",
+                        toolSourceId = "deepwiki",
+                    ),
+            )
+
+        assertEquals(LlmCitationNavigationAction.SourcesDetail, citation.resolveCitationNavigationAction())
+    }
+
+    @Test
+    fun `tool result may open explicitly frozen https source`() {
+        val action = citation(sourceKind = LlmEvidenceSourceKind.TOOL_RESULT).resolveCitationNavigationAction()
+
+        assertTrue(action is LlmCitationNavigationAction.ExternalUrl)
+        assertEquals("https://example.com/article", (action as LlmCitationNavigationAction.ExternalUrl).url)
     }
 
     @Test

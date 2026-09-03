@@ -283,4 +283,29 @@ class ReaderEvidenceAnchorTest {
             (result as NativeReaderAnchorNavigationResult.Unavailable).reason,
         )
     }
+
+    @Test
+    fun `native render ready only advances once per binding`() {
+        val document = buildReaderEvidenceDocument(Jsoup.parse("<p>Original fact.</p>").body())
+        val state = NativeReaderAnchorState()
+        state.bind(
+            articleId = "article-1",
+            originalContent = true,
+            evidenceDocument = document,
+            anchorMapBuilder = NativeReaderAnchorMap.Builder(),
+            listState = LazyListState(),
+            topInsetPx = 0,
+        )
+
+        state.markRenderReady()
+        val firstRevision = state.readyRevision
+        state.markRenderReady()
+
+        assertEquals("article-1", state.readyArticleId)
+        assertEquals(firstRevision, state.readyRevision)
+
+        state.unbind()
+        assertNull(state.readyArticleId)
+        assertTrue(state.readyRevision > firstRevision)
+    }
 }

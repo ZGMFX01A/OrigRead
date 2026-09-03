@@ -31,19 +31,24 @@ import me.ash.reader.llm.chat.data.LlmChatRole
 import me.ash.reader.llm.chat.data.LlmCitationRefEntity
 import me.ash.reader.llm.chat.data.LlmContextRefEntity
 import me.ash.reader.llm.chat.data.LlmConversationEntity
+import me.ash.reader.llm.chat.data.LlmEvidenceSourceKind
 import me.ash.reader.llm.chat.data.LlmMessageEntity
 import me.ash.reader.llm.chat.data.LlmMessageStatus
 import me.ash.reader.llm.chat.data.LlmToolCallEntity
 import me.ash.reader.llm.chat.data.LlmToolCallStatus
 import me.ash.reader.llm.chat.data.LLM_EVIDENCE_CITATION_ENABLED
 import me.ash.reader.llm.chat.data.LlmCitationProtocolEntry
-import me.ash.reader.llm.chat.data.buildArticleEvidencePersistence
+import me.ash.reader.llm.chat.data.buildEvidencePersistence
 import me.ash.reader.llm.chat.data.buildCitationRefsFromAssistantOutput
 import me.ash.reader.llm.chat.data.buildRequestContextRefEntities
 import me.ash.reader.llm.chat.data.buildUnconsumedContextRefEntities
 import me.ash.reader.llm.chat.data.prepareCitationProtocol
 import me.ash.reader.llm.chat.data.stripHistoricalCitationProtocolTokens
 import me.ash.reader.llm.chat.data.withArticleEvidenceBlocks
+import me.ash.reader.llm.chat.data.withSelectionEvidenceBlock
+import me.ash.reader.llm.chat.data.withToolResultEvidenceBlock
+import me.ash.reader.llm.chat.data.withWebSearchEvidenceBlock
+import me.ash.reader.llm.chat.data.wrapCitationEvidenceContent
 import me.ash.reader.llm.chat.runtime.LlmChatRequestMessage
 import me.ash.reader.llm.chat.runtime.LlmChatRequestToolCall
 import me.ash.reader.llm.chat.runtime.LlmChatToolCallDelta
@@ -131,8 +136,14 @@ data class LlmManualToolContext(
             content = content,
             title = toolName,
             sourceId = sourceId,
+            toolCallId = id,
+            toolId = toolId,
+            toolName = toolName,
+            toolSourceId = sourceId,
             priority = MANUAL_TOOL_CONTEXT_PRIORITY,
-        )
+        ).let { item ->
+            if (LLM_EVIDENCE_CITATION_ENABLED) item.withToolResultEvidenceBlock() else item
+        }
 }
 
 /** 敏感/写入 Tool 的待确认请求；批准后 Runtime 仍会再次检查 allowed Tool 与 confirmed 标志。 */
@@ -249,6 +260,40 @@ internal fun buildRequestHistorySnapshot(
         messages = requestMessages,
         toolCalls = visibleToolCalls,
     )
+}
+
+internal fun applyToolResultCitationProtocol(
+    history: List<LlmChatRequestMessage>,
+    toolCalls: List<LlmToolCallEntity>,
+    protocolEntries: List<LlmCitationProtocolEntry>,
+): List<LlmChatRequestMessage> {
+    val callsByLocalId = toolCalls.associateBy(LlmToolCallEntity::id)
+    val providerPairs =
+        protocolEntries.mapNotNull { entry ->
+            val locator = entry.locatorSnapshot ?: return@mapNotNull null
+            if (locator.sourceKind != LlmEvidenceSourceKind.TOOL_RESULT) return@mapNotNull null
+            val localCallId = locator.toolCallId?.trim()?.ifBlank { null } ?: return@mapNotNull null
+            val call = callsByLocalId[localCallId] ?: return@mapNotNull null
+            if (entry.contextId != "tool-result:${call.id}") return@mapNotNull null
+            call.providerCallId to entry.protocolId
+        }
+    require(providerPairs.map(Pair<String, String>::first).distinct().size == providerPairs.size) {
+        "Tool Result Citation protocol duplicated one provider_call_id"
+    }
+    if (providerPairs.isEmpty()) return history
+    val protocolByProviderCallId = providerPairs.toMap()
+    return history.map { message ->
+        val protocolId =
+            message
+                .takeIf { it.role == LlmChatRole.TOOL }
+                ?.toolCallId
+                ?.let(protocolByProviderCallId::get)
+        if (protocolId == null) {
+            message
+        } else {
+            message.copy(content = wrapCitationEvidenceContent(message.content, protocolId))
+        }
+    }
 }
 
 /**
@@ -1449,7 +1494,13 @@ class LlmChatViewModel @Inject constructor(
                 "requiredFailure" to webSearchRoute.requiredFailure,
             )
             val webSearch = webSearchRoute.response
-            val webSearchContextItems = webSearch?.toContextItems().orEmpty()
+            val webSearchContextItems =
+                webSearch
+                    ?.toContextItems()
+                    .orEmpty()
+                    .map { item ->
+                        if (LLM_EVIDENCE_CITATION_ENABLED) item.withWebSearchEvidenceBlock() else item
+                    }
             val searchEvidenceCreatedAt = System.currentTimeMillis()
             val unconsumedSearchRefs =
                 if (webSearchRoute.status == WebSearchRequestStatus.SUCCESS) {
@@ -1559,9 +1610,10 @@ class LlmChatViewModel @Inject constructor(
                 }
             val evidenceState =
                 if (LLM_EVIDENCE_CITATION_ENABLED) {
-                    buildArticleEvidencePersistence(
+                    buildEvidencePersistence(
                         contextItems = contextItems,
                         contextRefs = contextRefs,
+                        toolCalls = requestToolCalls,
                         createdAt = contextRefCreatedAt,
                     )
                 } else {
@@ -1576,7 +1628,21 @@ class LlmChatViewModel @Inject constructor(
             // ContextRef continues to freeze source snapshots, and the legacy [R#] protocol stays disabled.
             val citationReady =
                 evidenceState?.let { state ->
-                    prepareCitationProtocol(plan.context, state.citationCandidates)
+                    prepareCitationProtocol(
+                        composed = plan.context,
+                        candidates = state.citationCandidates,
+                        includedHistoryContextIds =
+                            requestToolCalls.mapNotNull { call ->
+                                if (
+                                    call.status == LlmToolCallStatus.COMPLETE &&
+                                        !call.resultContent.isNullOrBlank()
+                                ) {
+                                    "tool-result:${call.id}"
+                                } else {
+                                    null
+                                }
+                            },
+                    )
                 }
             requestCitationEntries = citationReady?.protocolEntries.orEmpty()
             val requestPlan =
@@ -1589,8 +1655,18 @@ class LlmChatViewModel @Inject constructor(
                         citations = emptyList(),
                     )
                 }
+            val requestHistory =
+                if (citationReady == null) {
+                    history
+                } else {
+                    applyToolResultCitationProtocol(
+                        history = history,
+                        toolCalls = requestToolCalls,
+                        protocolEntries = citationReady.protocolEntries,
+                    )
+                }
 
-            fallbackPromptTokens = transport.estimateRequestTokens(requestPlan, history)
+            fallbackPromptTokens = transport.estimateRequestTokens(requestPlan, requestHistory)
             LlmChatPerfTracker.mark(
                 assistant.id,
                 "request_ready_for_transport",
@@ -1599,7 +1675,7 @@ class LlmChatViewModel @Inject constructor(
             )
             requestStartedAtNanos = System.nanoTime()
 
-            transport.stream(requestPlan, history, perfTrace = perfTrace).collect { delta ->
+            transport.stream(requestPlan, requestHistory, perfTrace = perfTrace).collect { delta ->
                 content += delta.content
                 reasoning += delta.reasoning
                 mergeToolCallDeltas(toolCallParts, delta.toolCalls)
@@ -1725,6 +1801,8 @@ class LlmChatViewModel @Inject constructor(
                             assistantMessageId = assistant.id,
                             providerCallId = providerCallId,
                             toolId = descriptor?.id ?: "unresolved:$apiName",
+                            toolName = descriptor?.name ?: apiName,
+                            toolSourceId = descriptor?.sourceId,
                             apiName = apiName,
                             argumentsJson = arguments,
                             status =
@@ -2024,6 +2102,7 @@ private fun AiProviderProfile?.orEmptyModels(): List<String> = this?.availableMo
  */
 internal fun buildArticleContextItems(context: ArticleAssistantContext): List<LlmContextItem> =
     buildList {
+        val originalContent = context.originalContent.trim().takeIf(String::isNotBlank)
         context.selectedText?.trim()?.takeIf(String::isNotBlank)?.let { selection ->
             add(
                 LlmContextItem(
@@ -2035,10 +2114,16 @@ internal fun buildArticleContextItems(context: ArticleAssistantContext): List<Ll
                     content = selection,
                     // 用户刚刚显式选中的正文与当前问题相关度最高，必须优先于摘要/译文/整篇正文进入预算。
                     priority = 160,
-                )
+                ).let { item ->
+                    if (LLM_EVIDENCE_CITATION_ENABLED) {
+                        item.withSelectionEvidenceBlock(articleHtml = originalContent)
+                    } else {
+                        item
+                    }
+                }
             )
         }
-        context.originalContent.trim().takeIf(String::isNotBlank)?.let { original ->
+        originalContent?.let { original ->
             add(
                 LlmContextItem(
                     id = "article:${context.articleId}:original",

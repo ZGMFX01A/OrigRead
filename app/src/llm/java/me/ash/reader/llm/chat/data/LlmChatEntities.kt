@@ -177,6 +177,8 @@ data class LlmToolCallEntity(
     @ColumnInfo(name = "assistant_message_id") val assistantMessageId: String,
     @ColumnInfo(name = "provider_call_id") val providerCallId: String,
     @ColumnInfo(name = "tool_id") val toolId: String,
+    @ColumnInfo(name = "tool_name") val toolName: String? = null,
+    @ColumnInfo(name = "tool_source_id") val toolSourceId: String? = null,
     @ColumnInfo(name = "api_name") val apiName: String,
     @ColumnInfo(name = "arguments_json") val argumentsJson: String,
     val status: LlmToolCallStatus,

@@ -114,7 +114,85 @@ class LlmEvidenceBlockBuilderTest {
         assertEquals(LlmEvidenceSourceKind.SELECTION, block.locator.sourceKind)
         assertEquals("article-2", block.locator.articleId)
         assertEquals("SELECTION:${block.normalizedSha256.take(24)}:0", block.stableLocatorKey)
+        assertNull(block.locator.stableLocatorKey)
         assertNull(block.locator.blockIndex)
+    }
+
+    @Test
+    fun `selection uses real article anchor only when quote maps to one block`() {
+        val html =
+            "<h2>Section</h2><p>Prefix selected evidence suffix.</p><p>Other text.</p>"
+        val articleBlocks = buildArticleEvidenceBlocks(html)
+        val paragraph = articleBlocks.single { it.kind == LlmEvidenceBlockKind.PARAGRAPH && it.content.startsWith("Prefix") }
+
+        val block =
+            buildSelectionEvidenceBlock(
+                content = "selected evidence",
+                source = LlmArticleEvidenceSource(articleId = "article-1"),
+                articleHtml = html,
+            )!!
+
+        assertEquals(paragraph.stableLocatorKey, block.stableLocatorKey)
+        assertEquals(paragraph.stableLocatorKey, block.locator.stableLocatorKey)
+        assertEquals(paragraph.ordinal, block.locator.blockIndex)
+        assertEquals(paragraph.locator.headingPath, block.locator.headingPath)
+        assertEquals(paragraph.normalizedSha256, block.locator.normalizedHash)
+    }
+
+    @Test
+    fun `ambiguous selection keeps frozen quote but exposes no reader anchor`() {
+        val block =
+            buildSelectionEvidenceBlock(
+                content = "same selected evidence",
+                source = LlmArticleEvidenceSource(articleId = "article-1"),
+                articleHtml =
+                    "<p>Prefix same selected evidence suffix.</p>" +
+                        "<p>Another same selected evidence occurrence.</p>",
+            )!!
+
+        assertEquals("same selected evidence", block.content)
+        assertEquals("SELECTION:${block.normalizedSha256.take(24)}:0", block.stableLocatorKey)
+        assertNull(block.locator.stableLocatorKey)
+        assertNull(block.locator.blockIndex)
+    }
+
+    @Test
+    fun `web search evidence freezes real url and result ordinal`() {
+        val block =
+            buildWebSearchEvidenceBlock(
+                content = "Published: 2026-09-03\n\nSearch evidence.",
+                sourceUrl = "https://example.com/result",
+                blockIndex = 2,
+            )!!
+
+        assertEquals(LlmEvidenceBlockKind.SEARCH_RESULT, block.kind)
+        assertEquals(LlmEvidenceSourceKind.WEB_SEARCH, block.locator.sourceKind)
+        assertEquals("https://example.com/result", block.locator.sourceUrl)
+        assertEquals(2, block.locator.blockIndex)
+        assertEquals("SEARCH_RESULT:", block.stableLocatorKey.substringBefore(':') + ":")
+    }
+
+    @Test
+    fun `tool result evidence freezes provenance without treating tool id as url`() {
+        val block =
+            buildToolResultEvidenceBlock(
+                content = "Frozen tool result",
+                source =
+                    LlmToolEvidenceSource(
+                        toolCallId = "call-local",
+                        toolId = "mcp:deepwiki:read",
+                        toolName = "read_wiki",
+                        toolSourceId = "deepwiki",
+                    ),
+            )!!
+
+        assertEquals(LlmEvidenceBlockKind.TOOL_RESULT, block.kind)
+        assertEquals(LlmEvidenceSourceKind.TOOL_RESULT, block.locator.sourceKind)
+        assertEquals("call-local", block.locator.toolCallId)
+        assertEquals("mcp:deepwiki:read", block.locator.toolId)
+        assertEquals("read_wiki", block.locator.toolName)
+        assertEquals("deepwiki", block.locator.toolSourceId)
+        assertNull(block.locator.sourceUrl)
     }
 
     @Test

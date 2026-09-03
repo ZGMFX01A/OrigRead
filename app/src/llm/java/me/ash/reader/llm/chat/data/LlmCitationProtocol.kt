@@ -50,62 +50,165 @@ internal data class LlmEvidencePersistenceState(
     val citationCandidates: List<LlmCitationEvidenceCandidate>,
 )
 
-internal fun buildArticleEvidencePersistence(
+internal fun buildEvidencePersistence(
     contextItems: List<LlmContextItem>,
     contextRefs: List<LlmContextRefEntity>,
+    toolCalls: List<LlmToolCallEntity> = emptyList(),
     createdAt: Long = System.currentTimeMillis(),
     idFactory: () -> String = { UUID.randomUUID().toString() },
 ): LlmEvidencePersistenceState {
     val contextRefByContextId = contextRefs.associateBy(LlmContextRefEntity::contextId)
+    val articleHtmlByArticleId =
+        contextItems
+            .asSequence()
+            .filter { it.type == LlmContextType.ARTICLE }
+            .mapNotNull { item ->
+                item.internalArticleId?.trim()?.ifBlank { null }?.let { it to item.content }
+            }
+            .toMap()
     val entities = mutableListOf<LlmEvidenceBlockEntity>()
     val candidates = mutableListOf<LlmCitationEvidenceCandidate>()
 
     contextItems
-        .filter { it.type == LlmContextType.ARTICLE && it.evidenceBlocks.isNotEmpty() }
+        .filter { it.evidenceBlocks.isNotEmpty() }
         .forEach { item ->
             val contextRef = requireNotNull(contextRefByContextId[item.id]) {
-                "Article Evidence is missing ContextRef: ${item.id}"
+                "Evidence is missing ContextRef: ${item.id}"
             }
             val parsed =
-                buildArticleEvidenceBlocks(
-                    html = item.content,
-                    source =
-                        LlmArticleEvidenceSource(
-                            articleId = item.internalArticleId,
-                            sourceUrl = item.sourceId,
-                        ),
-                )
+                when (item.type) {
+                    LlmContextType.ARTICLE ->
+                        buildArticleEvidenceBlocks(
+                            html = item.content,
+                            source =
+                                LlmArticleEvidenceSource(
+                                    articleId = item.internalArticleId,
+                                    sourceUrl = item.sourceId,
+                                ),
+                        )
+                    LlmContextType.SELECTED_TEXT ->
+                        listOfNotNull(
+                            buildSelectionEvidenceBlock(
+                                content = item.content,
+                                source =
+                                    LlmArticleEvidenceSource(
+                                        articleId = item.internalArticleId,
+                                        sourceUrl = item.sourceId,
+                                    ),
+                                articleHtml =
+                                    item.internalArticleId
+                                        ?.trim()
+                                        ?.ifBlank { null }
+                                        ?.let(articleHtmlByArticleId::get),
+                            )
+                        )
+                    LlmContextType.WEB_SEARCH_RESULT ->
+                        listOfNotNull(
+                            buildWebSearchEvidenceBlock(
+                                content = item.content,
+                                sourceUrl = item.sourceId,
+                                blockIndex = item.sourceOrdinal,
+                            )
+                        )
+                    LlmContextType.TOOL_RESULT ->
+                        listOfNotNull(
+                            buildToolResultEvidenceBlock(
+                                content = item.content,
+                                source =
+                                    LlmToolEvidenceSource(
+                                        toolCallId = item.toolCallId,
+                                        toolId = item.toolId,
+                                        toolName = item.toolName ?: item.title,
+                                        toolSourceId = item.toolSourceId,
+                                        sourceUrl = contextRef.sourceUrl,
+                                    ),
+                            )
+                        )
+                    LlmContextType.ARTICLE_SUMMARY,
+                    LlmContextType.ARTICLE_TRANSLATION,
+                    LlmContextType.MANUAL -> emptyList()
+                }
             require(parsed.map { it.stableLocatorKey } == item.evidenceBlocks.map { it.stableLocatorKey }) {
-                "Article Evidence identities changed between Context and persistence: ${item.id}"
+                "Evidence identities changed between Context and persistence: ${item.id}"
             }
             parsed.forEach { block ->
-                val entity =
-                    block.toEntity(
-                        id = idFactory(),
-                        contextRefId = contextRef.id,
-                        createdAt = createdAt,
-                    )
-                entities += entity
-                candidates +=
-                    LlmCitationEvidenceCandidate(
-                        contextId = item.id,
-                        stableLocatorKey = entity.stableLocatorKey,
-                        contextRefId = contextRef.id,
-                        evidenceBlockId = entity.id,
-                        targetKind = LlmCitationTargetKind.EVIDENCE_BLOCK,
-                        quoteSnapshot = entity.textSnapshot,
-                        sourceUrl = entity.locator.sourceUrl ?: contextRef.sourceUrl,
-                        locatorSnapshot = entity.locator,
-                    )
+                appendEvidenceCandidate(
+                    contextId = item.id,
+                    contextRef = contextRef,
+                    block = block,
+                    createdAt = createdAt,
+                    idFactory = idFactory,
+                    entities = entities,
+                    candidates = candidates,
+                )
             }
         }
+
+    toolCalls.forEach { call ->
+        if (call.status != LlmToolCallStatus.COMPLETE || call.resultContent.isNullOrBlank()) return@forEach
+        val contextId = "tool-result:${call.id}"
+        val contextRef = contextRefByContextId[contextId] ?: return@forEach
+        val block =
+            buildToolResultEvidenceBlock(
+                content = call.resultContent,
+                source =
+                    LlmToolEvidenceSource(
+                        toolCallId = call.id,
+                        toolId = call.toolId,
+                        toolName = call.toolName ?: call.apiName,
+                        toolSourceId = call.toolSourceId,
+                        sourceUrl = contextRef.sourceUrl,
+                    ),
+                stableLocatorKeyOverride =
+                    "TOOL_RESULT:${call.id}:${contextRef.contentSha256.take(20)}",
+            ) ?: return@forEach
+        appendEvidenceCandidate(
+            contextId = contextId,
+            contextRef = contextRef,
+            block = block,
+            createdAt = createdAt,
+            idFactory = idFactory,
+            entities = entities,
+            candidates = candidates,
+        )
+    }
     return LlmEvidencePersistenceState(entities, candidates)
+}
+
+private fun appendEvidenceCandidate(
+    contextId: String,
+    contextRef: LlmContextRefEntity,
+    block: BuiltLlmEvidenceBlock,
+    createdAt: Long,
+    idFactory: () -> String,
+    entities: MutableList<LlmEvidenceBlockEntity>,
+    candidates: MutableList<LlmCitationEvidenceCandidate>,
+) {
+    val entity =
+        block.toEntity(
+            id = idFactory(),
+            contextRefId = contextRef.id,
+            createdAt = createdAt,
+        )
+    entities += entity
+    candidates +=
+        LlmCitationEvidenceCandidate(
+            contextId = contextId,
+            stableLocatorKey = entity.stableLocatorKey,
+            contextRefId = contextRef.id,
+            evidenceBlockId = entity.id,
+            targetKind = LlmCitationTargetKind.EVIDENCE_BLOCK,
+            quoteSnapshot = entity.textSnapshot,
+            sourceUrl = entity.locator.sourceUrl ?: contextRef.sourceUrl,
+            locatorSnapshot = entity.locator,
+        )
 }
 
 /** Assign short E1/E2 IDs only after Context Budget has selected complete Evidence blocks. */
 internal fun prepareCitationProtocol(
     composed: ComposedLlmContext,
     candidates: List<LlmCitationEvidenceCandidate>,
+    includedHistoryContextIds: List<String> = emptyList(),
 ): LlmCitationReadyContext {
     val byRequestIdentity = linkedMapOf<String, LlmCitationEvidenceCandidate>()
     candidates.forEach { candidate ->
@@ -120,10 +223,18 @@ internal fun prepareCitationProtocol(
         byRequestIdentity[requestIdentity] = candidate.copy(stableLocatorKey = key)
     }
 
-    val includedIdentities =
+    val composedIdentities =
         composed.renderedItems.flatMap { item ->
             item.evidenceBlockKeys.map { key -> llmEvidenceRequestIdentity(item.id, key) }
         }
+    val candidatesByContextId = candidates.groupBy(LlmCitationEvidenceCandidate::contextId)
+    val historyIdentities =
+        includedHistoryContextIds.flatMap { contextId ->
+            candidatesByContextId[contextId].orEmpty().map { candidate ->
+                llmEvidenceRequestIdentity(candidate.contextId, candidate.stableLocatorKey)
+            }
+        }
+    val includedIdentities = composedIdentities + historyIdentities
     val seenIncluded = mutableSetOf<String>()
     val protocolEntries = mutableListOf<LlmCitationProtocolEntry>()
     includedIdentities.forEach { requestIdentity ->
@@ -230,9 +341,18 @@ internal fun stripHistoricalCitationProtocolTokens(content: String): String =
         .replace(HISTORICAL_CITATION_TOKEN_REGEX, "")
         .replace(PUNCTUATION_SPACE_REGEX, "$1")
 
+internal fun wrapCitationEvidenceContent(
+    content: String,
+    protocolId: String,
+): String {
+    require(CITATION_PROTOCOL_ID_REGEX.matches(protocolId)) { "Invalid Citation protocol ID: $protocolId" }
+    return "[ORIGREAD_EVIDENCE id=${quoteAttribute(protocolId)}]\n$content\n[/ORIGREAD_EVIDENCE]"
+}
+
 private fun quoteAttribute(value: String): String =
     "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
 private val CITATION_TOKEN_REGEX = Regex("""\[\[(E\d+)]]""")
+private val CITATION_PROTOCOL_ID_REGEX = Regex("^E\\d+$")
 private val HISTORICAL_CITATION_TOKEN_REGEX = Regex("""\s*\[\[E\d+]]""")
 private val PUNCTUATION_SPACE_REGEX = Regex("""[ \t]+([,.;:!?，。；：！？])""")

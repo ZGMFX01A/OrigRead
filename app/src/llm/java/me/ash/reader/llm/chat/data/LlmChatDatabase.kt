@@ -14,7 +14,7 @@ import androidx.room.TypeConverters
         LlmEvidenceBlockEntity::class,
         LlmCitationRefEntity::class,
     ],
-    version = 14,
+    version = 15,
     exportSchema = true,
 )
 @TypeConverters(LlmChatConverters::class)

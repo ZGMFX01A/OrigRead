@@ -90,6 +90,13 @@ data class LlmContextItem(
     val sourceId: String? = null,
     /** OrigRead 内部文章 ID；只用于文章派生 Context 的应用内导航。 */
     val internalArticleId: String? = null,
+    /** 外部来源在当前请求快照中的稳定序号；当前主要用于 Web Search Result locator。 */
+    val sourceOrdinal: Int? = null,
+    /** Tool Result 的冻结 provenance；历史 Citation 不允许以后再从当前 MCP 配置反推。 */
+    val toolCallId: String? = null,
+    val toolId: String? = null,
+    val toolName: String? = null,
+    val toolSourceId: String? = null,
     /** 关键原始证据可要求 Composer 为其预留最低预算，避免被摘要/译文等辅助 Context 完全挤出。 */
     val reserveEvidenceBudget: Boolean = false,
     val evidenceBlocks: List<LlmContextEvidenceBlock> = emptyList(),

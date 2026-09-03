@@ -174,6 +174,64 @@ class LlmChatDatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun migration14To15_preservesToolCallsAndAddsNullableFrozenProvenance() {
+        helper.createDatabase(TEST_DATABASE_NAME, 14).apply {
+            execSQL(
+                """
+                INSERT INTO llm_conversations (
+                    id, title, created_at, updated_at
+                ) VALUES ('conversation-1', 'Tool provenance migration', 1, 1)
+                """.trimIndent()
+            )
+            execSQL(
+                """
+                INSERT INTO llm_messages (
+                    id, conversation_id, role, content, status,
+                    history_active, token_usage_estimated, created_at, updated_at
+                ) VALUES (
+                    'assistant-1', 'conversation-1', 'ASSISTANT', '', 'COMPLETE',
+                    1, 0, 2, 2
+                )
+                """.trimIndent()
+            )
+            execSQL(
+                """
+                INSERT INTO llm_tool_calls (
+                    id, conversation_id, assistant_message_id, provider_call_id,
+                    tool_id, api_name, arguments_json, status, result_content,
+                    created_at, updated_at
+                ) VALUES (
+                    'tool-1', 'conversation-1', 'assistant-1', 'provider-1',
+                    'mcp:server-1:read', 'read', '{}', 'COMPLETE', 'old result',
+                    3, 3
+                )
+                """.trimIndent()
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(
+            TEST_DATABASE_NAME,
+            15,
+            true,
+            LlmChatDatabaseModule.MIGRATION_14_15,
+        ).apply {
+            query(
+                "SELECT tool_id, api_name, result_content, tool_name, tool_source_id " +
+                    "FROM llm_tool_calls WHERE id = 'tool-1'"
+            ).use { cursor ->
+                check(cursor.moveToFirst())
+                assertEquals("mcp:server-1:read", cursor.getString(0))
+                assertEquals("read", cursor.getString(1))
+                assertEquals("old result", cursor.getString(2))
+                assertNull(cursor.getString(3))
+                assertNull(cursor.getString(4))
+            }
+            close()
+        }
+    }
+
     private companion object {
         const val TEST_DATABASE_NAME = "ux2-chat-migration-test"
     }

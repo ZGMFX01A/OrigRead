@@ -330,6 +330,15 @@ object LlmChatDatabaseModule {
             }
         }
 
+    /** v15 freezes Tool display/source provenance so historical Tool citations never query live MCP config. */
+    internal val MIGRATION_14_15 =
+        object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE llm_tool_calls ADD COLUMN tool_name TEXT")
+                db.execSQL("ALTER TABLE llm_tool_calls ADD COLUMN tool_source_id TEXT")
+            }
+        }
+
     /** 创建 LLM Chat Room 数据库单例。 */
     @Provides
     @Singleton
@@ -352,6 +361,7 @@ object LlmChatDatabaseModule {
             MIGRATION_11_12,
             MIGRATION_12_13,
             MIGRATION_13_14,
+            MIGRATION_14_15,
         ).build()
 
     /** 向业务层提供 Chat DAO 单例。 */

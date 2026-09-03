@@ -530,6 +530,13 @@ constructor(
         translateWithTarget(resolveDefaultTranslationTarget())
     }
 
+    /** Citation 永远核验原文；这里只切当前阅读瞬时状态，不修改默认翻译目标或持久设置。 */
+    fun showOriginalContentForCitation() {
+        _translationUiState.update { state ->
+            if (state.showTranslation) state.copy(showTranslation = false) else state
+        }
+    }
+
     /**
      * 默认翻译目标允许指向 AI 模型。若对应 AI 服务已被删除、停用或关闭 AI 阅读，
      * 则安全回退到传统默认 Provider，避免单击翻译落到失效配置。
