@@ -95,6 +95,20 @@ android {
             buildConfigField("String", "CHANNEL", "\"googlePlay\"")
         }
     }
+    sourceSets.getByName("standard") {
+        // Standard 直接复用现有 LLM 功能源码；LLM 代码仍物理保留在 src/llm 下。
+        // R02 起同时复用 LLM 版既有 Edition bridge / Prompt / Backup 实现；不复制、不迁移业务代码。
+        java.srcDir("src/llm/java/me/ash/reader/llm")
+        java.srcDir("src/llm/java/me/ash/reader/ui/page/home/reading")
+        java.srcDir("src/llm/java/me/ash/reader/ui/page/nav3")
+        java.srcDir("src/llm/java/me/ash/reader/infrastructure/ai")
+        java.srcDir("src/llm/java/me/ash/reader/infrastructure/backup")
+        res.srcDir("src/llm/common-res")
+    }
+    sourceSets.getByName("llm") {
+        // LLM 功能文案继续放在 src/llm，仅把品牌资源与可复用功能资源分开。
+        res.srcDir("src/llm/common-res")
+    }
     signingConfigs {
         create("release") {
             keyAlias = keyProps["keyAlias"] as String?
@@ -182,6 +196,12 @@ dependencies {
     "llmImplementation"(libs.codehigh.parser)
     "llmImplementation"(libs.codehigh.render)
     "llmImplementation"(libs.diagram.render)
+    "standardImplementation"(libs.latex.base)
+    "standardImplementation"(libs.latex.parser)
+    "standardImplementation"(libs.latex.renderer)
+    "standardImplementation"(libs.codehigh.parser)
+    "standardImplementation"(libs.codehigh.render)
+    "standardImplementation"(libs.diagram.render)
 
     // Coil
     implementation(libs.coil.base)
