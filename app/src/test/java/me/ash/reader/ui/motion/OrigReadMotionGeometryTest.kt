@@ -6,39 +6,31 @@ import org.junit.Test
 
 class OrigReadMotionGeometryTest {
     @Test
-    fun `navigation offsets preserve forward and backward symmetry`() {
+    fun `navigation geometry establishes foreground and background depth`() {
         val width = 1000
 
-        assertEquals(
-            -OrigReadMotionGeometry.incomingOffset(width, OrigReadMotionDirection.Forward),
-            OrigReadMotionGeometry.incomingOffset(width, OrigReadMotionDirection.Backward),
-        )
-        assertEquals(
-            -OrigReadMotionGeometry.outgoingOffset(width, OrigReadMotionDirection.Forward),
-            OrigReadMotionGeometry.outgoingOffset(width, OrigReadMotionDirection.Backward),
-        )
+        assertEquals(width, OrigReadMotionGeometry.foregroundOffset(width))
+        assertTrue(OrigReadMotionGeometry.backgroundOffset(width) in 300..600)
     }
 
     @Test
-    fun `navigation keeps incoming travel larger than outgoing travel`() {
+    fun `navigation keeps foreground travel larger than background travel`() {
         val width = 1000
-        val incoming =
-            OrigReadMotionGeometry.incomingOffset(width, OrigReadMotionDirection.Forward)
-        val outgoing =
-            OrigReadMotionGeometry.outgoingOffset(width, OrigReadMotionDirection.Forward)
+        val foreground = OrigReadMotionGeometry.foregroundOffset(width)
+        val background = OrigReadMotionGeometry.backgroundOffset(width)
 
-        assertTrue(incoming > 0)
-        assertTrue(outgoing < 0)
-        assertTrue(incoming > -outgoing)
+        assertTrue(foreground > 0)
+        assertTrue(background > 0)
+        assertTrue(foreground > background)
     }
 
     @Test
-    fun `motion geometry remains intentionally subtle`() {
-        assertTrue(OrigReadMotionGeometry.NavigationIncomingFraction in 0f..0.25f)
-        assertTrue(OrigReadMotionGeometry.NavigationOutgoingFraction in 0f..0.15f)
-        assertTrue(OrigReadMotionGeometry.NavigationIncomingScale in 0.95f..1f)
-        assertTrue(OrigReadMotionGeometry.NavigationOutgoingScale in 0.95f..1f)
-        assertTrue(OrigReadMotionGeometry.PressedScale in 0.95f..1f)
+    fun `prominent motion geometry remains perceptible without overshooting`() {
+        assertTrue(OrigReadMotionGeometry.NavigationForegroundFraction in 0.9f..1f)
+        assertTrue(OrigReadMotionGeometry.NavigationBackgroundFraction in 0.3f..0.6f)
+        assertTrue(OrigReadMotionGeometry.NavigationDepthScale in 0.75f..0.9f)
+        assertTrue(OrigReadMotionGeometry.FadeThroughScale in 0.85f..0.95f)
+        assertTrue(OrigReadMotionGeometry.PressedScale in 0.95f..0.99f)
         assertTrue(OrigReadMotionGeometry.PressedAlpha in 0.85f..1f)
     }
 }

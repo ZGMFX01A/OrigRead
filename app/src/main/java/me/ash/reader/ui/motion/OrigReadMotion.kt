@@ -37,33 +37,70 @@ enum class OrigReadMotionDirection {
  * [androidx.compose.material3.MotionScheme] through [MaterialTheme.motionScheme].
  */
 internal object OrigReadMotionGeometry {
-    const val NavigationIncomingFraction = 0.18f
-    const val NavigationOutgoingFraction = 0.06f
-    const val NavigationIncomingScale = 0.985f
-    const val NavigationOutgoingScale = 0.975f
-    const val VerticalVisibilityFraction = 0.12f
-    const val PressedScale = 0.985f
-    const val PressedAlpha = 0.94f
+    // Primary navigation must be obvious enough to establish hierarchy. The former 18% / 6%
+    // travel was technically animated but looked almost like a hard cut on a phone-sized screen.
+    const val NavigationForegroundFraction = 1f
+    const val NavigationBackgroundFraction = 0.42f
+    const val NavigationDepthScale = 0.82f
 
-    fun incomingOffset(
-        fullSize: Int,
-        direction: OrigReadMotionDirection,
-    ): Int = (fullSize * NavigationIncomingFraction * direction.sign).roundToInt()
+    // Same-level state changes are intentionally less dramatic than page navigation.
+    const val FadeThroughScale = 0.90f
+    const val VerticalVisibilityFraction = 0.28f
 
-    fun outgoingOffset(
-        fullSize: Int,
-        direction: OrigReadMotionDirection,
-    ): Int = (fullSize * -NavigationOutgoingFraction * direction.sign).roundToInt()
+    const val PressedScale = 0.97f
+    const val PressedAlpha = 0.98f
+
+    fun foregroundOffset(fullSize: Int): Int =
+        (fullSize * NavigationForegroundFraction).roundToInt()
+
+    fun backgroundOffset(fullSize: Int): Int =
+        (fullSize * NavigationBackgroundFraction).roundToInt()
 
     fun verticalOffset(fullSize: Int): Int = (fullSize * VerticalVisibilityFraction).roundToInt()
 
-    private val OrigReadMotionDirection.sign: Int
-        get() =
-            when (this) {
-                OrigReadMotionDirection.Backward -> -1
-                OrigReadMotionDirection.Forward -> 1
-            }
 }
+
+/** Foreground destination entering on a forward navigation. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+fun origReadPushEnter(motionScheme: MotionScheme): EnterTransition =
+    slideInHorizontally(
+        initialOffsetX = { OrigReadMotionGeometry.foregroundOffset(it) },
+        animationSpec = motionScheme.defaultSpatialSpec(),
+    )
+
+/** Previous destination becoming the background layer during a forward navigation. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+fun origReadPushExit(motionScheme: MotionScheme): ExitTransition =
+    slideOutHorizontally(
+        targetOffsetX = { -OrigReadMotionGeometry.backgroundOffset(it) },
+        animationSpec = motionScheme.defaultSpatialSpec(),
+    ) +
+        scaleOut(
+            targetScale = OrigReadMotionGeometry.NavigationDepthScale,
+            animationSpec = motionScheme.defaultSpatialSpec(),
+        ) +
+        fadeOut(animationSpec = motionScheme.fastEffectsSpec())
+
+/** Background destination returning to the foreground during back navigation. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+fun origReadPopEnter(motionScheme: MotionScheme): EnterTransition =
+    slideInHorizontally(
+        initialOffsetX = { -OrigReadMotionGeometry.backgroundOffset(it) },
+        animationSpec = motionScheme.defaultSpatialSpec(),
+    ) +
+        scaleIn(
+            initialScale = OrigReadMotionGeometry.NavigationDepthScale,
+            animationSpec = motionScheme.defaultSpatialSpec(),
+        ) +
+        fadeIn(animationSpec = motionScheme.defaultEffectsSpec())
+
+/** Current foreground destination leaving completely on back navigation. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+fun origReadPopExit(motionScheme: MotionScheme): ExitTransition =
+    slideOutHorizontally(
+        targetOffsetX = { OrigReadMotionGeometry.foregroundOffset(it) },
+        animationSpec = motionScheme.defaultSpatialSpec(),
+    )
 
 /** Primary page push/pop pattern. */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -76,24 +113,12 @@ fun origReadNavigationTransform(
     direction: OrigReadMotionDirection,
     motionScheme: MotionScheme,
 ): ContentTransform =
-    (slideInHorizontally(
-        initialOffsetX = { OrigReadMotionGeometry.incomingOffset(it, direction) },
-        animationSpec = motionScheme.defaultSpatialSpec(),
-    ) +
-        fadeIn(animationSpec = motionScheme.defaultEffectsSpec()) +
-        scaleIn(
-            initialScale = OrigReadMotionGeometry.NavigationIncomingScale,
-            animationSpec = motionScheme.defaultSpatialSpec(),
-        )) togetherWith
-        (slideOutHorizontally(
-            targetOffsetX = { OrigReadMotionGeometry.outgoingOffset(it, direction) },
-            animationSpec = motionScheme.defaultSpatialSpec(),
-        ) +
-            fadeOut(animationSpec = motionScheme.fastEffectsSpec()) +
-            scaleOut(
-                targetScale = OrigReadMotionGeometry.NavigationOutgoingScale,
-                animationSpec = motionScheme.defaultSpatialSpec(),
-            ))
+    when (direction) {
+        OrigReadMotionDirection.Forward ->
+            origReadPushEnter(motionScheme) togetherWith origReadPushExit(motionScheme)
+        OrigReadMotionDirection.Backward ->
+            origReadPopEnter(motionScheme) togetherWith origReadPopExit(motionScheme)
+    }
 
 /** Same-level content replacement where spatial direction would imply a false hierarchy. */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -101,12 +126,12 @@ fun origReadNavigationTransform(
 fun origReadFadeThroughTransform(): ContentTransform =
     (fadeIn(animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec()) +
         scaleIn(
-            initialScale = OrigReadMotionGeometry.NavigationIncomingScale,
+            initialScale = OrigReadMotionGeometry.FadeThroughScale,
             animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
         )) togetherWith
         (fadeOut(animationSpec = MaterialTheme.motionScheme.fastEffectsSpec()) +
             scaleOut(
-                targetScale = OrigReadMotionGeometry.NavigationOutgoingScale,
+                targetScale = OrigReadMotionGeometry.FadeThroughScale,
                 animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
             ))
 

@@ -2,6 +2,7 @@ package me.ash.reader.ui.component.base
 
 import android.view.HapticFeedbackConstants
 import android.view.SoundEffectConstants
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Badge
@@ -12,12 +13,14 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
+import me.ash.reader.ui.motion.origReadPressFeedback
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,6 +36,7 @@ fun FeedbackIconButton(
     onClick: () -> Unit = {},
 ) {
     val view = LocalView.current
+    val interactionSource = remember { MutableInteractionSource() }
 
     BadgedBox(
         badge = {
@@ -48,7 +52,9 @@ fun FeedbackIconButton(
         }
     ) {
         IconButton(
+            modifier = Modifier.origReadPressFeedback(interactionSource, enabled),
             enabled = enabled,
+            interactionSource = interactionSource,
             onClick = {
                 if (isHaptic == true) view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                 if (isSound == true) view.playSoundEffect(SoundEffectConstants.CLICK)

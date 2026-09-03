@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.LocalBackgroundTextMeasurementExecutor
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.layout.AnimatedPane
 import androidx.compose.material3.adaptive.layout.ListDetailPaneScaffoldRole
@@ -41,13 +43,21 @@ import kotlinx.parcelize.Parcelize
 import me.ash.reader.ui.component.reader.ExpandedContentWidth
 import me.ash.reader.ui.component.reader.LocalTextContentWidth
 import me.ash.reader.ui.component.reader.MediumContentWidth
+import me.ash.reader.ui.motion.origReadPopEnter
+import me.ash.reader.ui.motion.origReadPopExit
+import me.ash.reader.ui.motion.origReadPushEnter
+import me.ash.reader.ui.motion.origReadPushExit
 import me.ash.reader.ui.page.home.flow.FlowPage
 import me.ash.reader.ui.page.home.reading.ReadingPage
 import timber.log.Timber
 
 @Parcelize data class ArticleData(val articleId: String, val listIndex: Int? = null) : Parcelable
 
-@OptIn(ExperimentalMaterial3AdaptiveApi::class, ExperimentalSharedTransitionApi::class)
+@OptIn(
+    ExperimentalMaterial3AdaptiveApi::class,
+    ExperimentalSharedTransitionApi::class,
+    ExperimentalMaterial3ExpressiveApi::class,
+)
 @Composable
 fun ArticleListReaderPage(
     modifier: Modifier = Modifier,
@@ -61,6 +71,7 @@ fun ArticleListReaderPage(
 ) {
 
     val scope = rememberCoroutineScope()
+    val motionScheme = MaterialTheme.motionScheme
 
     val backBehavior = BackNavigationBehavior.PopUntilScaffoldValueChange
 
@@ -131,8 +142,12 @@ fun ArticleListReaderPage(
                 }
             }
             AnimatedPane(
-                enterTransition = motionDataProvider.calculateEnterTransition(paneRole),
-                exitTransition = motionDataProvider.calculateExitTransition(paneRole),
+                enterTransition =
+                    if (isTwoPane) motionDataProvider.calculateEnterTransition(paneRole)
+                    else origReadPopEnter(motionScheme),
+                exitTransition =
+                    if (isTwoPane) motionDataProvider.calculateExitTransition(paneRole)
+                    else origReadPushExit(motionScheme),
             ) {
                 CompositionLocalProvider(
                     LocalBackgroundTextMeasurementExecutor provides
@@ -160,8 +175,12 @@ fun ArticleListReaderPage(
         },
         detailPane = {
             AnimatedPane(
-                enterTransition = motionDataProvider.calculateEnterTransition(paneRole),
-                exitTransition = motionDataProvider.calculateExitTransition(paneRole),
+                enterTransition =
+                    if (isTwoPane) motionDataProvider.calculateEnterTransition(paneRole)
+                    else origReadPushEnter(motionScheme),
+                exitTransition =
+                    if (isTwoPane) motionDataProvider.calculateExitTransition(paneRole)
+                    else origReadPopExit(motionScheme),
             ) {
                 val contentKey = navigator.currentDestination?.contentKey
                 LaunchedEffect(contentKey) {

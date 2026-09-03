@@ -8,14 +8,19 @@
 
 package me.ash.reader.ui.page.settings
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -24,6 +29,7 @@ import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,6 +45,7 @@ import me.ash.reader.ui.theme.palette.onDark
 
 val LocalInteractionSources = compositionLocalOf<MutableInteractionSource?> { null }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun SettingItem(
     modifier: Modifier = Modifier,
@@ -54,13 +61,32 @@ fun SettingItem(
 ) {
     val tonalPalettes = LocalTonalPalettes.current
     val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val pressedCorner by
+        animateDpAsState(
+            targetValue = if (enabled && isPressed) 20.dp else 0.dp,
+            animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
+            label = "setting_item_corner",
+        )
+    val pressedContainer by
+        animateColorAsState(
+            targetValue =
+                if (enabled && isPressed) {
+                    MaterialTheme.colorScheme.surfaceContainerHigh
+                } else {
+                    Color.Transparent
+                },
+            animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
+            label = "setting_item_container",
+        )
 
     Surface(
         modifier = modifier
             .clickable(enabled = enabled, interactionSource = interactionSource) { onClick() }
             .origReadPressFeedback(interactionSource = interactionSource, enabled = enabled)
             .alpha(if (enabled) 1f else 0.5f),
-        color = Color.Unspecified
+        color = pressedContainer,
+        shape = RoundedCornerShape(pressedCorner),
     ) {
         Row(
             modifier = Modifier
