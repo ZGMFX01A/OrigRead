@@ -2,6 +2,8 @@ package me.ash.reader.ui.component.webview
 
 import me.ash.reader.ui.component.reader.READER_EVIDENCE_BLOCK_HASH_ATTRIBUTE
 import me.ash.reader.ui.component.reader.READER_EVIDENCE_BLOCK_ID_ATTRIBUTE
+import me.ash.reader.ui.component.reader.ReaderEvidenceMarker
+import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerSnapshot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -130,6 +132,30 @@ class WebViewReaderAnchorTest {
         assertTrue(script.contains("key\\\"\\\\\\n</script>"))
         assertFalse(script.contains("onImgTagClick"))
         assertFalse(script.contains("JavascriptInterface"))
+    }
+
+    @Test
+    fun `webview marker script is message scoped and filters other articles`() {
+        val script =
+            buildWebViewReaderMarkerScript(
+                snapshot =
+                    ReaderEvidenceMarkerSnapshot(
+                        assistantMessageId = "assistant-1",
+                        markers =
+                            listOf(
+                                ReaderEvidenceMarker("current\"key", 2, "article-1"),
+                                ReaderEvidenceMarker("other-key", 1, "article-2"),
+                            ),
+                    ),
+                currentArticleId = "article-1",
+                markerColorCss = "rgba(1,2,3,1)",
+            )
+
+        assertTrue(script.contains("current\\\"key"))
+        assertTrue(script.contains("[2]"))
+        assertFalse(script.contains("other-key"))
+        assertTrue(script.contains("data-origread-citation-marker"))
+        assertTrue(script.contains("CSS.escape(entry.key)"))
     }
 
     @Test

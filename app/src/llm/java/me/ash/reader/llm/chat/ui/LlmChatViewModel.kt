@@ -28,6 +28,7 @@ import me.ash.reader.llm.chat.data.LlmArticleCandidate
 import me.ash.reader.llm.chat.data.LlmArticleCandidateRepository
 import me.ash.reader.llm.chat.data.LlmChatRepository
 import me.ash.reader.llm.chat.data.LlmChatRole
+import me.ash.reader.llm.chat.data.LlmCitationRefEntity
 import me.ash.reader.llm.chat.data.LlmContextRefEntity
 import me.ash.reader.llm.chat.data.LlmConversationEntity
 import me.ash.reader.llm.chat.data.LlmMessageEntity
@@ -96,6 +97,7 @@ data class LlmChatUiState(
     val messages: List<LlmMessageEntity> = emptyList(),
     val toolCalls: List<LlmToolCallEntity> = emptyList(),
     val contextRefs: List<LlmContextRefEntity> = emptyList(),
+    val citationRefs: List<LlmCitationRefEntity> = emptyList(),
     val providers: List<AiProviderProfile> = emptyList(),
     val selectedProviderId: String? = null,
     val selectedModel: String? = null,
@@ -334,6 +336,7 @@ class LlmChatViewModel @Inject constructor(
         observeMessages()
         observeToolCalls()
         observeContextRefs()
+        observeCitationRefs()
     }
 
     /** 进程被系统杀死时无法执行 finally；重进 Chat 后把遗留 STREAMING 状态收口为 STOPPED。 */
@@ -424,6 +427,7 @@ class LlmChatViewModel @Inject constructor(
                     conversations = emptyList(),
                     messages = emptyList(),
                     contextRefs = emptyList(),
+                    citationRefs = emptyList(),
                     manualToolContexts = emptyList(),
                     pendingManualTool = null,
                     manualToolRunning = false,
@@ -542,6 +546,21 @@ class LlmChatViewModel @Inject constructor(
         }
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    /** CitationRef 与具体 Assistant Message 绑定；UI 禁止把不同回答的 displayOrder 合并。 */
+    private fun observeCitationRefs() {
+        viewModelScope.launch {
+            selectedConversationId
+                .flatMapLatest { conversationId ->
+                    if (conversationId == null) flowOf(emptyList())
+                    else repository.observeCitationRefs(conversationId)
+                }
+                .collect { citationRefs ->
+                    _uiState.update { it.copy(citationRefs = citationRefs) }
+                }
+        }
+    }
+
     /** 新建空白会话视图；真正的数据库会话在发送第一条消息时延迟创建。 */
     fun newConversation() {
         if (articleContext.value == null) return
@@ -562,6 +581,7 @@ class LlmChatViewModel @Inject constructor(
                 currentConversationId = null,
                 messages = emptyList(),
                 contextRefs = emptyList(),
+                citationRefs = emptyList(),
                 transientError = null,
             )
         }

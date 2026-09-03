@@ -37,6 +37,8 @@ fun LazyListScope.Reader(
     onLinkClick: (String) -> Unit,
     anchorMapBuilder: NativeReaderAnchorMap.Builder? = null,
     anchorHighlight: NativeReaderAnchorHighlight? = null,
+    markerSnapshot: ReaderEvidenceMarkerSnapshot? = null,
+    markerArticleId: String? = null,
 ) {
     if (parsedBody == null) {
         content.byteInputStream().use { inputStream ->
@@ -49,6 +51,8 @@ fun LazyListScope.Reader(
                 onLinkClick = onLinkClick,
                 anchorMapBuilder = anchorMapBuilder,
                 anchorHighlight = anchorHighlight,
+                markerSnapshot = markerSnapshot,
+                markerArticleId = markerArticleId,
             )
         }
     } else {
@@ -61,6 +65,8 @@ fun LazyListScope.Reader(
             onLinkClick = onLinkClick,
             anchorMapBuilder = anchorMapBuilder,
             anchorHighlight = anchorHighlight,
+            markerSnapshot = markerSnapshot,
+            markerArticleId = markerArticleId,
         )
     }
 }

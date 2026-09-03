@@ -100,7 +100,7 @@ internal fun LlmRichMarkdown(
     }
 }
 
-/** 未来 Evidence Citation 显式启用时，只有请求真实存在的引用编号才转换为内部链接。 */
+/** Evidence Citation 显式启用时，只有当前 Assistant Message 真实存在的显示编号才转换为内部链接。 */
 internal fun buildLlmCitationLink(
     token: String,
     validCitationIndices: Set<Int>,
@@ -118,7 +118,7 @@ internal fun buildLlmCitationLink(
     return "$ORIGREAD_CITATION_URI_PREFIX$index"
 }
 
-/** 内部 URI 只承载请求级引用编号，不接受任意路径、外部 URL 或非正整数。 */
+/** 内部 URI 只承载当前 Assistant Message 的显示编号，不接受任意路径、外部 URL 或非正整数。 */
 internal fun parseLlmCitationUri(uri: String): Int? =
     uri.takeIf { it.startsWith(ORIGREAD_CITATION_URI_PREFIX) }
         ?.removePrefix(ORIGREAD_CITATION_URI_PREFIX)
@@ -126,7 +126,7 @@ internal fun parseLlmCitationUri(uri: String): Int? =
         ?.toIntOrNull()
         ?.takeIf { it > 0 }
 
-private val CITATION_TOKEN_REGEX = Regex("^\\[R(\\d+)]$")
+private val CITATION_TOKEN_REGEX = Regex("^\\[(\\d+)]$")
 private const val ORIGREAD_CITATION_URI_PREFIX = "origread-citation://"
 
 /**

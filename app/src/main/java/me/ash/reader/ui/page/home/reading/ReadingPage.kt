@@ -80,6 +80,7 @@ import me.ash.reader.ui.ext.collectAsStateValue
 import me.ash.reader.ui.ext.openURL
 import me.ash.reader.ui.ext.showToast
 import me.ash.reader.ui.component.reader.NativeReaderAnchorState
+import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerState
 import me.ash.reader.ui.component.webview.WebViewReaderAnchorState
 import me.ash.reader.ui.page.adaptive.ArticleListReaderViewModel
 import me.ash.reader.ui.page.adaptive.NavigationAction
@@ -129,6 +130,7 @@ fun ReadingPage(
     val notionShareInProgress = notionShareRepository.shareInProgress.collectAsStateValue()
     val nativeReaderAnchorState = remember { NativeReaderAnchorState() }
     val webViewReaderAnchorState = remember { WebViewReaderAnchorState() }
+    val readerEvidenceMarkerState = remember { ReaderEvidenceMarkerState() }
 
     var isReaderScrollingDown by remember { mutableStateOf(false) }
     var showFullScreenImageViewer by remember { mutableStateOf(false) }
@@ -660,6 +662,7 @@ fun ReadingPage(
                                                 isOriginalContent = !translationState.showTranslation,
                                                 nativeReaderAnchorState = nativeReaderAnchorState,
                                                 webViewReaderAnchorState = webViewReaderAnchorState,
+                                                readerEvidenceMarkerState = readerEvidenceMarkerState,
                                                 feedName = feedName,
                                                 title =
                                                     if (translationState.showTranslation) {
@@ -799,6 +802,10 @@ fun ReadingPage(
             dismissArticleAssistant()
             viewModel.summarizeArticle(lengthOverride = length)
         },
+        readingRenderer = readingRenderer,
+        nativeReaderAnchorState = nativeReaderAnchorState,
+        webViewReaderAnchorState = webViewReaderAnchorState,
+        readerEvidenceMarkerState = readerEvidenceMarkerState,
         onDismiss = ::dismissArticleAssistant,
     )
     if (showFullScreenImageViewer) {

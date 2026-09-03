@@ -110,8 +110,10 @@ import kotlin.math.roundToInt
 import me.ash.reader.R
 import me.ash.reader.infrastructure.ai.AiSummaryLength
 import me.ash.reader.infrastructure.ai.availableModels
+import me.ash.reader.infrastructure.preference.ReadingRendererPreference
 import me.ash.reader.llm.chat.data.LlmArticleCandidate
 import me.ash.reader.llm.chat.data.LlmChatRole
+import me.ash.reader.llm.chat.data.LlmCitationRefEntity
 import me.ash.reader.llm.chat.data.LlmContextRefEntity
 import me.ash.reader.llm.chat.data.LlmConversationEntity
 import me.ash.reader.llm.chat.data.LlmMessageEntity
@@ -119,6 +121,8 @@ import me.ash.reader.llm.chat.data.LlmMessageStatus
 import me.ash.reader.llm.chat.data.LlmToolCallEntity
 import me.ash.reader.llm.chat.data.LlmToolCallStatus
 import me.ash.reader.llm.chat.data.stripDisabledLlmCitationTokens
+import me.ash.reader.llm.chat.data.stripHistoricalCitationProtocolTokens
+import me.ash.reader.llm.chat.data.toReaderEvidenceAnchorTarget
 import me.ash.reader.llm.quickmessage.LlmQuickMessage
 import me.ash.reader.llm.quickmessage.LlmQuickMessageResolution
 import me.ash.reader.llm.quickmessage.resolveQuickMessageText
@@ -130,6 +134,9 @@ import me.ash.reader.llm.search.WebSearchRequestStatus
 import me.ash.reader.ui.motion.origReadFadeThroughTransform
 import me.ash.reader.ui.motion.origReadVisibilityEnter
 import me.ash.reader.ui.motion.origReadVisibilityExit
+import me.ash.reader.ui.component.reader.NativeReaderAnchorState
+import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerState
+import me.ash.reader.ui.component.webview.WebViewReaderAnchorState
 import me.ash.reader.ui.page.home.reading.AiSummaryAccentIcon
 import me.ash.reader.ui.page.home.reading.ArticleAssistantContext
 
@@ -162,6 +169,10 @@ fun LlmArticleAssistantSheet(
     onOpenArticle: (String) -> Unit = {},
     showQuickSummary: Boolean = false,
     onQuickSummary: (AiSummaryLength) -> Unit = {},
+    readingRenderer: ReadingRendererPreference = ReadingRendererPreference.NativeComponent,
+    nativeReaderAnchorState: NativeReaderAnchorState? = null,
+    webViewReaderAnchorState: WebViewReaderAnchorState? = null,
+    readerEvidenceMarkerState: ReaderEvidenceMarkerState? = null,
     onDismiss: () -> Unit,
     viewModel: LlmChatViewModel = hiltViewModel(),
 ) {
@@ -175,6 +186,7 @@ fun LlmArticleAssistantSheet(
     var manualToolSheetVisible by remember { mutableStateOf(false) }
     var contextSourcesAssistantId by remember { mutableStateOf<String?>(null) }
     var webSearchResultsAssistantId by remember { mutableStateOf<String?>(null) }
+    var citationInteractionAssistantId by remember { mutableStateOf<String?>(null) }
     var renameTarget by remember { mutableStateOf<LlmConversationEntity?>(null) }
     var deleteTarget by remember { mutableStateOf<LlmConversationEntity?>(null) }
     var previewMode by rememberSaveable { mutableStateOf(false) }
@@ -182,6 +194,40 @@ fun LlmArticleAssistantSheet(
     val canScrollUp by remember { derivedStateOf { listState.canScrollBackward } }
     val canScrollDown by remember { derivedStateOf { listState.canScrollForward } }
     val articleAnalysisPrompt = stringResource(R.string.llm_article_analysis_request)
+
+    val latestCompletedCitationAssistantId =
+        remember(uiState.messages, uiState.citationRefs) {
+            val assistantsWithCitations =
+                uiState.citationRefs.asSequence().map(LlmCitationRefEntity::assistantMessageId).toSet()
+            uiState.messages
+                .asReversed()
+                .firstOrNull { message ->
+                    message.role == LlmChatRole.ASSISTANT &&
+                        message.historyActive &&
+                        message.status == LlmMessageStatus.COMPLETE &&
+                        message.content.isNotBlank() &&
+                        message.id in assistantsWithCitations
+                }
+                ?.id
+        }
+    val visibleCitationMarkerAssistantId =
+        contextSourcesAssistantId ?: citationInteractionAssistantId ?: latestCompletedCitationAssistantId
+
+    LaunchedEffect(visibleCitationMarkerAssistantId, uiState.citationRefs) {
+        readerEvidenceMarkerState?.show(
+            visibleCitationMarkerAssistantId?.let { assistantMessageId ->
+                buildLlmReaderMarkerSnapshot(
+                    assistantMessageId = assistantMessageId,
+                    citationRefs = uiState.citationRefs,
+                )
+            }
+        )
+    }
+    LaunchedEffect(uiState.currentConversationId) {
+        citationInteractionAssistantId = null
+        contextSourcesAssistantId = null
+        webSearchResultsAssistantId = null
+    }
 
     LaunchedEffect(articleContext) {
         viewModel.bindArticleContext(articleContext)
@@ -306,6 +352,10 @@ fun LlmArticleAssistantSheet(
                             remember(uiState.contextRefs) {
                                 uiState.contextRefs.groupBy(LlmContextRefEntity::assistantMessageId)
                             }
+                        val citationRefsByAssistantId =
+                            remember(uiState.citationRefs) {
+                                uiState.citationRefs.groupBy(LlmCitationRefEntity::assistantMessageId)
+                            }
                         Box(modifier = Modifier.fillMaxSize()) {
                             LazyColumn(
                                 modifier = Modifier.fillMaxSize(),
@@ -317,11 +367,37 @@ fun LlmArticleAssistantSheet(
                                 items(uiState.messages, key = LlmMessageEntity::id) { message ->
                                     val messageContextRefs =
                                         contextRefsByAssistantId[message.id].orEmpty()
+                                    val messageCitationRefs =
+                                        citationRefsByAssistantId[message.id].orEmpty()
                                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                         AssistantMessage(
                                             message = message,
                                             showReasoning = uiState.showReasoning,
                                             contextRefs = messageContextRefs,
+                                            citationRefs = messageCitationRefs,
+                                            onCitationClick = { citationRef ->
+                                                citationInteractionAssistantId = message.id
+                                                val target = citationRef.toReaderEvidenceAnchorTarget()
+                                                val targetArticleId =
+                                                    target?.articleId?.trim()?.ifBlank { null }
+                                                if (
+                                                    target == null ||
+                                                        (targetArticleId != null &&
+                                                            targetArticleId != articleContext.articleId)
+                                                ) {
+                                                    // R07.6 will add pending cross-article and non-Article navigation.
+                                                    contextSourcesAssistantId = message.id
+                                                } else {
+                                                    when (readingRenderer) {
+                                                        ReadingRendererPreference.NativeComponent ->
+                                                            coroutineScope.launch {
+                                                                nativeReaderAnchorState?.navigateTo(target)
+                                                            }
+                                                        ReadingRendererPreference.WebView ->
+                                                            webViewReaderAnchorState?.navigateTo(target)
+                                                    }
+                                                }
+                                            },
                                             onShowContextSources = {
                                                 contextSourcesAssistantId = message.id
                                             },
@@ -474,6 +550,7 @@ fun LlmArticleAssistantSheet(
     contextSourcesAssistantId?.let { assistantMessageId ->
         ContextSourcesSheet(
             refs = uiState.contextRefs.filter { it.assistantMessageId == assistantMessageId },
+            citations = uiState.citationRefs.filter { it.assistantMessageId == assistantMessageId },
             currentArticleId = articleContext.articleId,
             onOpenArticle = onOpenArticle,
             onDismiss = {
@@ -999,6 +1076,8 @@ private fun AssistantMessage(
     message: LlmMessageEntity,
     showReasoning: Boolean,
     contextRefs: List<LlmContextRefEntity>,
+    citationRefs: List<LlmCitationRefEntity>,
+    onCitationClick: (LlmCitationRefEntity) -> Unit,
     onShowContextSources: () -> Unit,
     onShowWebSearchResults: () -> Unit,
     canRegenerate: Boolean,
@@ -1028,10 +1107,20 @@ private fun AssistantMessage(
     }
 
     val clipboardManager = LocalClipboardManager.current
-    val displayContent = remember(message.content) { stripDisabledLlmCitationTokens(message.content) }
+    val citationDisplay =
+        remember(message.id, message.content, citationRefs) {
+            projectLlmAssistantCitationDisplay(
+                assistantMessageId = message.id,
+                content = message.content,
+                citationRefs = citationRefs,
+            )
+        }
+    val displayContent = citationDisplay.markdown
     val displayReasoning =
         remember(message.reasoning) {
-            message.reasoning?.let { reasoning -> stripDisabledLlmCitationTokens(reasoning) }
+            message.reasoning?.let { reasoning ->
+                stripHistoricalCitationProtocolTokens(stripDisabledLlmCitationTokens(reasoning))
+            }
         }
     val hasVisibleModelText =
         displayContent.isNotBlank() || (showReasoning && !displayReasoning.isNullOrBlank())
@@ -1097,6 +1186,10 @@ private fun AssistantMessage(
                 AssistantMessageBodyMode.Content ->
                     LlmRichMarkdown(
                         markdown = displayContent,
+                        validCitationIndices = citationDisplay.validDisplayOrders,
+                        onCitationClick = { displayOrder ->
+                            citationDisplay.refsByDisplayOrder[displayOrder]?.let(onCitationClick)
+                        },
                         perfMessageId = message.id,
                     )
                 AssistantMessageBodyMode.Generating ->
@@ -2498,6 +2591,7 @@ private fun WebSearchUsageBadge(state: WebSearchResultUsageState) {
 @Composable
 private fun ContextSourcesSheet(
     refs: List<LlmContextRefEntity>,
+    citations: List<LlmCitationRefEntity>,
     currentArticleId: String,
     onOpenArticle: (String) -> Unit,
     onDismiss: () -> Unit,
@@ -2511,6 +2605,17 @@ private fun ContextSourcesSheet(
                     .thenBy { it.createdAt }
             )
         }
+    val orderedCitations =
+        remember(citations) {
+            citations
+                .filter { (it.displayOrder ?: 0) > 0 }
+                .sortedWith(
+                    compareBy<LlmCitationRefEntity> { it.displayOrder ?: Int.MAX_VALUE }
+                        .thenBy { it.createdAt }
+                        .thenBy { it.id }
+                )
+        }
+    val refsById = remember(refs) { refs.associateBy(LlmContextRefEntity::id) }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -2535,6 +2640,41 @@ private fun ContextSourcesSheet(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 contentPadding = PaddingValues(bottom = 20.dp),
             ) {
+                items(orderedCitations, key = { "citation:${it.id}" }) { citation ->
+                    val contextRef = refsById[citation.contextRefId]
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(7.dp),
+                        ) {
+                            Text(
+                                text =
+                                    buildString {
+                                        append('[')
+                                        append(citation.displayOrder)
+                                        append("] ")
+                                        append(contextRef?.title ?: contextRef?.sourceId.orEmpty())
+                                    }.trim(),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            citation.quoteSnapshot.trim().takeIf(String::isNotBlank)?.let { quote ->
+                                Text(
+                                    text = quote.take(CONTEXT_SOURCE_PREVIEW_LIMIT),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
                 items(orderedRefs, key = LlmContextRefEntity::id) { ref ->
                     Surface(
                         modifier = Modifier.fillMaxWidth(),

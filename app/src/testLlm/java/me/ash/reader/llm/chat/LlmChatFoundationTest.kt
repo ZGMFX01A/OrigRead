@@ -563,15 +563,15 @@ class LlmChatFoundationTest {
     }
 
     @Test
-    fun `citation ui links only accept request valid R tokens and strict internal uri`() {
+    fun `citation ui links only accept message scoped display numbers and strict internal uri`() {
         val validIndices = setOf(1, 3)
 
-        assertEquals("origread-citation://1", buildLlmCitationLink("[R1]", validIndices))
-        assertEquals("origread-citation://3", buildLlmCitationLink("[R3]", validIndices))
-        assertNull(buildLlmCitationLink("[R2]", validIndices))
-        assertNull(buildLlmCitationLink("[R0]", validIndices))
+        assertEquals("origread-citation://1", buildLlmCitationLink("[1]", validIndices))
+        assertEquals("origread-citation://3", buildLlmCitationLink("[3]", validIndices))
+        assertNull(buildLlmCitationLink("[2]", validIndices))
+        assertNull(buildLlmCitationLink("[0]", validIndices))
         assertNull(buildLlmCitationLink("R1", validIndices))
-        assertNull(buildLlmCitationLink("[r1]", validIndices))
+        assertNull(buildLlmCitationLink("[R1]", validIndices))
 
         assertEquals(1, parseLlmCitationUri("origread-citation://1"))
         assertEquals(3, parseLlmCitationUri("origread-citation://3"))
@@ -754,7 +754,7 @@ class LlmChatFoundationTest {
         assertEquals("Fact. Next", stripDisabledLlmCitationTokens("Fact. [R1] Next"))
         assertNull(
             buildLlmCitationLink(
-                token = "[R1]",
+                token = "[1]",
                 validCitationIndices = setOf(1),
                 citationFeatureEnabled = false,
             )

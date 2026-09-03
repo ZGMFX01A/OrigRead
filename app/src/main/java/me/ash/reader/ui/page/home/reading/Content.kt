@@ -46,6 +46,7 @@ import me.ash.reader.ui.component.reader.NativeReaderAnchorMap
 import me.ash.reader.ui.component.reader.NativeReaderAnchorState
 import me.ash.reader.ui.component.reader.Reader
 import me.ash.reader.ui.component.reader.ReaderEvidenceDocument
+import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerState
 import me.ash.reader.ui.component.reader.buildReaderEvidenceDocument
 import me.ash.reader.ui.component.scrollbar.drawVerticalScrollIndicator
 import me.ash.reader.ui.component.webview.OrigReadWebView
@@ -86,6 +87,7 @@ fun Content(
     isOriginalContent: Boolean = true,
     nativeReaderAnchorState: NativeReaderAnchorState? = null,
     webViewReaderAnchorState: WebViewReaderAnchorState? = null,
+    readerEvidenceMarkerState: ReaderEvidenceMarkerState? = null,
 ) {
     val context = LocalContext.current
     val subheadUpperCase = LocalReadingSubheadUpperCase.current
@@ -220,6 +222,8 @@ fun Content(
                                 onSelectedTextAction =
                                     onSelectedTextAction,
                                 readerAnchorState = webViewReaderAnchorState,
+                                markerSnapshot =
+                                    readerEvidenceMarkerState?.snapshot.takeIf { isOriginalContent },
                             )
                             releaseLinks?.let {
                                 OrigReadReleaseActions(
@@ -267,6 +271,9 @@ fun Content(
                                 onLinkClick = { uriHandler.openUri(it) },
                                 anchorMapBuilder = nativeAnchorMapBuilder,
                                 anchorHighlight = nativeReaderAnchorState?.highlight,
+                                markerSnapshot =
+                                    readerEvidenceMarkerState?.snapshot.takeIf { isOriginalContent },
+                                markerArticleId = articleId,
                             )
 
                             releaseLinks?.let { links ->

@@ -3,6 +3,7 @@ package me.ash.reader.llm.chat.data
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import me.ash.reader.llm.runtime.LlmContextType
 import org.junit.After
@@ -128,6 +129,20 @@ class LlmEvidenceDaoTest {
             assertEquals("E1", restoredCitation.protocolId)
             assertEquals(1, restoredCitation.displayOrder)
             assertEquals(locator, restoredCitation.locatorSnapshot)
+            assertEquals(
+                listOf("citation-1"),
+                dao.observeCitationRefs("conversation-1").first().map { it.id },
+            )
+
+            dao.setMessagesHistoryActive(
+                messageIds = listOf("assistant-1"),
+                active = false,
+                updatedAt = 6,
+            )
+            assertEquals(
+                listOf("citation-1"),
+                dao.getCitationRefsForAssistant("assistant-1").map { it.id },
+            )
 
             val replacement =
                 evidence.copy(

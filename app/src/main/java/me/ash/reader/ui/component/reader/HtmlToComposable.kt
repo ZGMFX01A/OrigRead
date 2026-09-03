@@ -75,6 +75,8 @@ fun LazyListScope.htmlFormattedText(
     onLinkClick: (String) -> Unit,
     anchorMapBuilder: NativeReaderAnchorMap.Builder? = null,
     anchorHighlight: NativeReaderAnchorHighlight? = null,
+    markerSnapshot: ReaderEvidenceMarkerSnapshot? = null,
+    markerArticleId: String? = null,
 ) {
     htmlFormattedText(
         body = Jsoup.parse(inputStream, null, baseUrl)?.body(),
@@ -85,6 +87,8 @@ fun LazyListScope.htmlFormattedText(
         baseUrl = baseUrl,
         anchorMapBuilder = anchorMapBuilder,
         anchorHighlight = anchorHighlight,
+        markerSnapshot = markerSnapshot,
+        markerArticleId = markerArticleId,
     )
 }
 
@@ -97,6 +101,8 @@ fun LazyListScope.htmlFormattedText(
     onLinkClick: (String) -> Unit,
     anchorMapBuilder: NativeReaderAnchorMap.Builder? = null,
     anchorHighlight: NativeReaderAnchorHighlight? = null,
+    markerSnapshot: ReaderEvidenceMarkerSnapshot? = null,
+    markerArticleId: String? = null,
 ) {
     body?.let {
         formatBody(
@@ -108,6 +114,8 @@ fun LazyListScope.htmlFormattedText(
             baseUrl = baseUrl,
             anchorMapBuilder = anchorMapBuilder,
             anchorHighlight = anchorHighlight,
+            markerSnapshot = markerSnapshot,
+            markerArticleId = markerArticleId,
         )
     }
 }
@@ -122,10 +130,14 @@ private fun LazyListScope.formatBody(
     baseUrl: String,
     anchorMapBuilder: NativeReaderAnchorMap.Builder?,
     anchorHighlight: NativeReaderAnchorHighlight?,
+    markerSnapshot: ReaderEvidenceMarkerSnapshot?,
+    markerArticleId: String?,
 ) {
     val composer = TextComposer(
         anchorMapBuilder = anchorMapBuilder,
         anchorHighlight = anchorHighlight,
+        markerSnapshot = markerSnapshot,
+        markerArticleId = markerArticleId,
     ) { paragraphBuilder, anchorRanges ->
         readerTrackedItem(anchorMapBuilder, anchorRanges) {
             val textLinkStyles = textLinkStyles()
@@ -145,7 +157,13 @@ private fun LazyListScope.formatBody(
                         else -> it
                     }
                 }
-            val paragraph = linkedParagraph.withReaderEvidenceHighlight(anchorRanges, anchorHighlight)
+            val paragraph =
+                linkedParagraph.withReaderEvidenceDecorations(
+                    anchorRanges = anchorRanges,
+                    highlight = anchorHighlight,
+                    markerSnapshot = markerSnapshot,
+                    markerArticleId = markerArticleId,
+                )
             val requiresBidi = paragraph.toString().requiresBidi()
             val textStyle = bodyStyle().applyTextDirection(requiresBidi = requiresBidi)
             val contentWidth = LocalTextContentWidth.current
@@ -183,10 +201,14 @@ private fun LazyListScope.formatCodeBlock(
     baseUrl: String,
     anchorMapBuilder: NativeReaderAnchorMap.Builder?,
     anchorHighlight: NativeReaderAnchorHighlight?,
+    markerSnapshot: ReaderEvidenceMarkerSnapshot?,
+    markerArticleId: String?,
 ) {
     val composer = TextComposer(
         anchorMapBuilder = anchorMapBuilder,
         anchorHighlight = anchorHighlight,
+        markerSnapshot = markerSnapshot,
+        markerArticleId = markerArticleId,
     ) { paragraphBuilder, anchorRanges ->
         readerTrackedItem(anchorMapBuilder, anchorRanges) {
             val contentWidth = LocalTextContentWidth.current
@@ -206,7 +228,12 @@ private fun LazyListScope.formatCodeBlock(
                     Text(
                         text =
                             paragraphBuilder.toAnnotatedString()
-                                .withReaderEvidenceHighlight(anchorRanges, anchorHighlight),
+                                .withReaderEvidenceDecorations(
+                                    anchorRanges = anchorRanges,
+                                    highlight = anchorHighlight,
+                                    markerSnapshot = markerSnapshot,
+                                    markerArticleId = markerArticleId,
+                                ),
                         style = codeBlockStyle(),
                         softWrap = false,
                     )
@@ -480,6 +507,8 @@ private fun TextComposer.appendTextChildren(
                             baseUrl = baseUrl,
                             anchorMapBuilder = anchorMapBuilder,
                             anchorHighlight = anchorHighlight,
+                            markerSnapshot = markerSnapshot,
+                            markerArticleId = markerArticleId,
                         )
                     }
 
@@ -495,6 +524,8 @@ private fun TextComposer.appendTextChildren(
                                 baseUrl = baseUrl,
                                 anchorMapBuilder = anchorMapBuilder,
                                 anchorHighlight = anchorHighlight,
+                                markerSnapshot = markerSnapshot,
+                                markerArticleId = markerArticleId,
                             )
                         } else {
                             // inline code
@@ -784,6 +815,51 @@ private fun LazyListScope.readerTrackedItem(
 ) {
     val trackedItem = anchorMapBuilder?.recordItem(anchorRanges)
     item(key = trackedItem?.lazyItemKey) { content() }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun AnnotatedString.withReaderEvidenceDecorations(
+    anchorRanges: List<ReaderTextAnchorRange>,
+    highlight: NativeReaderAnchorHighlight?,
+    markerSnapshot: ReaderEvidenceMarkerSnapshot?,
+    markerArticleId: String?,
+): AnnotatedString {
+    val highlighted = withReaderEvidenceHighlight(anchorRanges, highlight)
+    val insertions =
+        remember(anchorRanges, markerSnapshot, markerArticleId, highlighted.length) {
+            buildReaderEvidenceMarkerInsertions(
+                anchorRanges = anchorRanges,
+                snapshot = markerSnapshot,
+                articleId = markerArticleId,
+                textLength = highlighted.length,
+            )
+        }
+    if (insertions.isEmpty()) return highlighted
+
+    val markerColor = MaterialTheme.colorScheme.primary
+    return buildAnnotatedString {
+        var cursor = 0
+        insertions.forEach { insertion ->
+            val end = insertion.endExclusive.coerceIn(cursor, highlighted.length)
+            append(highlighted.subSequence(cursor, end))
+            insertion.displayOrders.forEach { displayOrder ->
+                val start = length
+                append(" [$displayOrder]")
+                addStyle(
+                    SpanStyle(
+                        color = markerColor,
+                        fontWeight = FontWeight.SemiBold,
+                        baselineShift = BaselineShift.Superscript,
+                    ),
+                    start = start,
+                    end = length,
+                )
+            }
+            cursor = end
+        }
+        if (cursor < highlighted.length) append(highlighted.subSequence(cursor, highlighted.length))
+    }
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)

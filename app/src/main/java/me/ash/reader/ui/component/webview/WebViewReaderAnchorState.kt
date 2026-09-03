@@ -5,6 +5,7 @@ import androidx.compose.runtime.Stable
 import java.util.concurrent.atomic.AtomicLong
 import me.ash.reader.ui.component.reader.ReaderEvidenceAnchorTarget
 import me.ash.reader.ui.component.reader.ReaderEvidenceDocument
+import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerSnapshot
 import me.ash.reader.ui.component.reader.ReaderEvidenceResolveStrategy
 import me.ash.reader.ui.component.reader.buildReaderEvidenceDocument
 import me.ash.reader.ui.component.reader.resolveReaderEvidenceAnchor
@@ -39,6 +40,7 @@ private data class WebViewReaderAnchorBinding(
     val renderGeneration: Long,
     val webView: WebView,
     val highlightColorCss: String,
+    val markerColorCss: String,
     val highlightDurationMillis: Long,
     var ready: Boolean = false,
 )
@@ -57,6 +59,7 @@ private data class PendingWebViewReaderAnchor(
 class WebViewReaderAnchorState {
     private var binding: WebViewReaderAnchorBinding? = null
     private var pending: PendingWebViewReaderAnchor? = null
+    private var markerSnapshot: ReaderEvidenceMarkerSnapshot? = null
 
     internal fun bindRender(
         articleId: String?,
@@ -65,6 +68,7 @@ class WebViewReaderAnchorState {
         renderGeneration: Long,
         webView: WebView,
         highlightColorCss: String,
+        markerColorCss: String,
         highlightDurationMillis: Long,
     ) {
         val preservePending =
@@ -82,6 +86,7 @@ class WebViewReaderAnchorState {
                 renderGeneration = renderGeneration,
                 webView = webView,
                 highlightColorCss = highlightColorCss,
+                markerColorCss = markerColorCss,
                 highlightDurationMillis = highlightDurationMillis.coerceAtLeast(1L),
             )
         if (!preservePending) pending = null
@@ -94,10 +99,16 @@ class WebViewReaderAnchorState {
         val current = binding ?: return false
         if (current.webView !== webView || current.renderGeneration != renderGeneration) return false
         current.ready = true
+        applyMarkers(current)
         pending?.also { pending = null }?.let { request ->
             navigateTo(request.target, request.onResult)
         }
         return true
+    }
+
+    internal fun setMarkerSnapshot(snapshot: ReaderEvidenceMarkerSnapshot?) {
+        markerSnapshot = snapshot
+        binding?.takeIf { it.ready }?.let(::applyMarkers)
     }
 
     internal fun unbind(webView: WebView? = null) {
@@ -105,6 +116,7 @@ class WebViewReaderAnchorState {
         if (webView != null && current?.webView !== webView) return
         binding = null
         pending = null
+        markerSnapshot = null
     }
 
     fun navigateTo(
@@ -165,6 +177,27 @@ class WebViewReaderAnchorState {
         onResult: (WebViewReaderAnchorNavigationResult) -> Unit,
     ): WebViewReaderAnchorNavigationResult.Unavailable =
         WebViewReaderAnchorNavigationResult.Unavailable(reason).also(onResult)
+
+    private fun applyMarkers(current: WebViewReaderAnchorBinding) {
+        val expectedGeneration = current.renderGeneration
+        val expectedView = current.webView
+        val script =
+            buildWebViewReaderMarkerScript(
+                snapshot = markerSnapshot,
+                currentArticleId = current.articleId,
+                markerColorCss = current.markerColorCss,
+            )
+        expectedView.evaluateJavascript(script) {
+            val latest = binding
+            if (
+                latest == null ||
+                    latest.webView !== expectedView ||
+                    latest.renderGeneration != expectedGeneration
+            ) {
+                return@evaluateJavascript
+            }
+        }
+    }
 }
 
 internal data class WebViewPreparedReaderContent(
@@ -261,6 +294,55 @@ internal fun buildWebViewReaderAnchorScript(
             setTimeout(pulse, 900);
           }
           return '$WEBVIEW_ANCHOR_JS_LOCATED';
+        })()
+    """.trimIndent()
+}
+
+internal fun buildWebViewReaderMarkerScript(
+    snapshot: ReaderEvidenceMarkerSnapshot?,
+    currentArticleId: String?,
+    markerColorCss: String,
+): String {
+    val currentSnapshot = snapshot
+    val markerEntries =
+        currentSnapshot
+            ?.markers
+            .orEmpty()
+            .asSequence()
+            .map { it.stableLocatorKey }
+            .distinct()
+            .mapNotNull { stableKey ->
+                val orders = currentSnapshot?.displayOrdersFor(currentArticleId, stableKey).orEmpty()
+                orders.takeIf(List<Int>::isNotEmpty)?.let { stableKey to it }
+            }
+            .sortedBy { it.first }
+            .toList()
+    val entriesLiteral =
+        markerEntries.joinToString(prefix = "[", postfix = "]") { (stableKey, orders) ->
+            val label = orders.joinToString(prefix = " [", postfix = "]", separator = "][")
+            "{key:${stableKey.toJavaScriptStringLiteral()},label:${label.toJavaScriptStringLiteral()}}"
+        }
+    val color = markerColorCss.toJavaScriptStringLiteral()
+    return """
+        (function() {
+          document.querySelectorAll('[data-origread-citation-marker="true"]').forEach(function(marker) {
+            marker.remove();
+          });
+          const entries = $entriesLiteral;
+          entries.forEach(function(entry) {
+            const node = document.querySelector('[data-origread-block-id="' + CSS.escape(entry.key) + '"]');
+            if (!node) return;
+            const marker = document.createElement('span');
+            marker.setAttribute('data-origread-citation-marker', 'true');
+            marker.textContent = entry.label;
+            marker.style.color = $color;
+            marker.style.fontSize = '0.72em';
+            marker.style.fontWeight = '650';
+            marker.style.verticalAlign = 'super';
+            marker.style.whiteSpace = 'nowrap';
+            node.appendChild(marker);
+          });
+          return entries.length;
         })()
     """.trimIndent()
 }

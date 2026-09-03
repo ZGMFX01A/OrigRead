@@ -41,6 +41,14 @@ interface LlmChatDao {
     )
     fun observeContextRefs(conversationId: String): Flow<List<LlmContextRefEntity>>
 
+    /** 观察当前会话全部 message-scoped CitationRef；UI 必须再按 assistantMessageId 分组。 */
+    @Query(
+        "SELECT * FROM llm_citation_refs WHERE conversation_id = :conversationId " +
+            "ORDER BY created_at ASC, assistant_message_id ASC, " +
+            "CASE WHEN display_order IS NULL THEN 2147483647 ELSE display_order END ASC, id ASC"
+    )
+    fun observeCitationRefs(conversationId: String): Flow<List<LlmCitationRefEntity>>
+
     /** 查询指定会话。 */
     @Query("SELECT * FROM llm_conversations WHERE id = :conversationId LIMIT 1")
     suspend fun getConversation(conversationId: String): LlmConversationEntity?

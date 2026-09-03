@@ -31,6 +31,7 @@ import me.ash.reader.infrastructure.preference.LocalReadingTextHorizontalPadding
 import me.ash.reader.infrastructure.preference.LocalReadingTextLetterSpacing
 import me.ash.reader.infrastructure.preference.LocalReadingTextLineHeight
 import me.ash.reader.infrastructure.preference.ReadingFontsPreference
+import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerSnapshot
 import me.ash.reader.ui.ext.ExternalFonts
 import me.ash.reader.ui.ext.openURL
 import me.ash.reader.ui.ext.surfaceColorAtElevation
@@ -49,6 +50,7 @@ fun OrigReadWebView(
     selectionActionLabel: String? = null,
     onSelectedTextAction: ((String) -> Unit)? = null,
     readerAnchorState: WebViewReaderAnchorState? = null,
+    markerSnapshot: ReaderEvidenceMarkerSnapshot? = null,
 ) {
     val context = LocalContext.current
     val maxWidth = LocalConfiguration.current.screenWidthDp.dp.value
@@ -79,6 +81,7 @@ fun OrigReadWebView(
     val boldCharacters = LocalReadingBoldCharacters.current
     val citationHighlightColorCss =
         MaterialTheme.colorScheme.secondaryContainer.toArgb().toWebCssColor()
+    val citationMarkerColorCss = MaterialTheme.colorScheme.primary.toArgb().toWebCssColor()
     val citationHighlightSpec = MaterialTheme.motionScheme.slowEffectsSpec<Float>()
     val citationHighlightDurationMillis =
         remember(citationHighlightSpec) {
@@ -172,6 +175,7 @@ fun OrigReadWebView(
             it.apply {
                 // 选区回调属于交互状态，可以随父级重组更新，但不应因此重载整篇正文。
                 configureSelectionAction(selectionActionLabel, onSelectedTextAction)
+                readerAnchorState?.setMarkerSnapshot(markerSnapshot)
                 settings.defaultFontSize = fontSize
                 renderGuard.beginReload(renderSpec)?.let { renderGeneration ->
                     Log.i("RLog", "maxWidth: ${maxWidth}")
@@ -183,6 +187,7 @@ fun OrigReadWebView(
                         renderGeneration = renderGeneration,
                         webView = this,
                         highlightColorCss = citationHighlightColorCss,
+                        markerColorCss = citationMarkerColorCss,
                         highlightDurationMillis = citationHighlightDurationMillis,
                     )
                     loadDataWithBaseURL(

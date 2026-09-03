@@ -28,6 +28,10 @@ class LlmChatRepository @Inject constructor(
     fun observeContextRefs(conversationId: String): Flow<List<LlmContextRefEntity>> =
         dao.observeContextRefs(conversationId)
 
+    /** 观察指定会话全部 CitationRef；显示编号仍严格属于各自 Assistant Message。 */
+    fun observeCitationRefs(conversationId: String): Flow<List<LlmCitationRefEntity>> =
+        dao.observeCitationRefs(conversationId)
+
     /** 查询指定会话。 */
     suspend fun getConversation(conversationId: String): LlmConversationEntity? =
         dao.getConversation(conversationId)
