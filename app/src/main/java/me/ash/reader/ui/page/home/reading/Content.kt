@@ -160,10 +160,10 @@ fun Content(
                                 onImageClick = onImageClick,
                                 selectionActionLabel =
                                     selectedTextActionLabel.takeIf {
-                                        isLlmEdition && onSelectedTextAction != null
+                                        onSelectedTextAction != null
                                     },
                                 onSelectedTextAction =
-                                    onSelectedTextAction.takeIf { isLlmEdition },
+                                    onSelectedTextAction,
                             )
                             releaseLinks?.let {
                                 OrigReadReleaseActions(
@@ -182,7 +182,7 @@ fun Content(
 
             ReadingRendererPreference.NativeComponent -> {
                 PrioritizedProcessTextContextMenu(
-                    enabled = isLlmEdition && onSelectedTextAction != null,
+                    enabled = onSelectedTextAction != null,
                     targetLabel = selectedTextActionLabel,
                 ) {
                     SelectionContainer {

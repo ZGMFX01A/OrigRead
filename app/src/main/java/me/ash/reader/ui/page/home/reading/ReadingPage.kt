@@ -83,7 +83,6 @@ import me.ash.reader.infrastructure.translation.TranslationProviderType
 import me.ash.reader.infrastructure.translation.TranslationDisplayMode
 import me.ash.reader.infrastructure.translation.TranslationTarget
 import me.ash.reader.ui.ext.collectAsStateValue
-import me.ash.reader.ui.ext.isLlmEdition
 import me.ash.reader.ui.ext.openURL
 import me.ash.reader.ui.ext.showToast
 import me.ash.reader.ui.page.adaptive.ArticleListReaderViewModel
@@ -116,6 +115,8 @@ fun ReadingPage(
     val translationSettings = viewModel.translationSettings.collectAsStateValue()
     val aiSummaryState = viewModel.aiSummaryUiState.collectAsStateValue()
     val aiSettings = viewModel.aiSettings.collectAsStateValue()
+    val llmSettings = viewModel.llmSettings.collectAsStateValue()
+    val aiAssistantEnabled = llmSettings.assistantEnabled
     val notionShareRepository =
         remember(context) {
             EntryPointAccessors.fromApplication(
@@ -156,6 +157,10 @@ fun ReadingPage(
         selectedTextForAssistant = null
     }
 
+    LaunchedEffect(aiAssistantEnabled) {
+        if (!aiAssistantEnabled) dismissArticleAssistant()
+    }
+
     var currentImageData by remember { mutableStateOf(ImageData()) }
 
     val isShowToolBar =
@@ -188,10 +193,9 @@ fun ReadingPage(
                 title = readerState.title.orEmpty(),
                 link = readerState.link,
                 originalContent = readerState.content.text.orEmpty(),
-                summary = aiSummaryState.document?.summary,
-                translatedTitle = visibleTranslation?.translatedTitle,
-                translatedContent = visibleTranslation?.translatedContent,
-                selectedText = selectedTextForAssistant,
+                // Chat 的文章事实来源固定为原文；摘要/译文属于独立阅读产物，不进入 Conversation Context。
+                // 正在查看译文时也不把译文选区当成原始证据传给 Chat。
+                selectedText = selectedTextForAssistant.takeIf { visibleTranslation == null },
             )
         }
     val readingSharePreference = settings.readingShare
@@ -618,7 +622,7 @@ fun ReadingPage(
                                                                 showAiSummaryOptions = true
                                                             },
                                                             onAskArticle =
-                                                                if (isLlmEdition) {
+                                                                if (aiAssistantEnabled) {
                                                                     { openArticleAssistant() }
                                                                 } else {
                                                                     null
@@ -708,7 +712,7 @@ fun ReadingPage(
                                                     showFullScreenImageViewer = true
                                                 },
                                                 onSelectedTextAction =
-                                                    if (isLlmEdition) {
+                                                    if (aiAssistantEnabled) {
                                                         { selectedText ->
                                                             openArticleAssistant(selectedText = selectedText)
                                                         }
@@ -745,9 +749,12 @@ fun ReadingPage(
                         isAiSummaryEnabled = aiSummaryAvailable,
                         isAiSummaryLoading = aiSummaryState.isLoading,
                         hasAiSummary = aiSummaryState.document != null,
-                        // 两个 edition 的短按语义保持一致：中央 AI 主动作永远是摘要。
-                        // LLM 深度对话通过长按动作面板或摘要卡片中的 Ask 渐进进入。
-                        aiActionContentDescription = null,
+                        aiActionContentDescription =
+                            if (aiAssistantEnabled && !llmSettings.defaultGenerateSummary) {
+                                stringResource(R.string.llm_article_assistant_title)
+                            } else {
+                                null
+                            },
                         onUnread = { viewModel.updateReadStatus(it) },
                         onStarred = { viewModel.updateStarredStatus(it) },
                         onNextArticle = {
@@ -757,7 +764,11 @@ fun ReadingPage(
                             }
                         },
                         onAiSummary = {
-                            viewModel.summarizeArticle()
+                            if (aiAssistantEnabled && !llmSettings.defaultGenerateSummary) {
+                                openArticleAssistant()
+                            } else {
+                                viewModel.summarizeArticle()
+                            }
                         },
                         onAiSummaryLongClick = { showAiSummaryOptions = true },
                         onStopAiSummary = viewModel::stopAiSummary,
@@ -772,14 +783,15 @@ fun ReadingPage(
     EditionSelectedTextActionHost(
         // WebView 正文已有应用内 ActionMode；PROCESS_TEXT 只给 Compose NativeComponent 提供选区文本兼容通道。
         enabled =
-            articleAssistantContext != null &&
+            aiAssistantEnabled &&
+                articleAssistantContext != null &&
                 readingRenderer == ReadingRendererPreference.NativeComponent,
         onSelectedText = { selectedText ->
             openArticleAssistant(selectedText = selectedText)
         },
     )
     EditionArticleAssistantSheet(
-        visible = showArticleAssistant,
+        visible = showArticleAssistant && aiAssistantEnabled,
         context = articleAssistantContext,
         articleAnalysisRequested = articleAnalysisRequested,
         onArticleAnalysisConsumed = { articleAnalysisRequested = false },
@@ -789,6 +801,12 @@ fun ReadingPage(
                 // ContextRef 只保存稳定 articleId，不依赖当时列表位置；-1 会让阅读页按 ID 从当前列表/数据库恢复。
                 onLoadArticle(articleId, -1)
             }
+        },
+        showQuickSummary = aiAssistantEnabled && !llmSettings.defaultGenerateSummary,
+        onQuickSummary = { length ->
+            // 与 Desktop 一致：快捷摘要切回独立摘要链路，不创建/追加 Chat 消息。
+            dismissArticleAssistant()
+            viewModel.summarizeArticle(lengthOverride = length)
         },
         onDismiss = ::dismissArticleAssistant,
     )
@@ -820,7 +838,7 @@ fun ReadingPage(
             initialLength = aiSummaryState.document?.length ?: aiSettings.summaryLength,
             onDismiss = { showAiSummaryOptions = false },
             onAskArticle =
-                if (isLlmEdition) {
+                if (aiAssistantEnabled) {
                     {
                         showAiSummaryOptions = false
                         openArticleAssistant()
@@ -829,7 +847,7 @@ fun ReadingPage(
                     null
                 },
             onAnalyzeArticle =
-                if (isLlmEdition) {
+                if (aiAssistantEnabled) {
                     {
                         showAiSummaryOptions = false
                         openArticleAssistant(analyzeArticle = true)

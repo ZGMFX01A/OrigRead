@@ -82,6 +82,17 @@
   <string name="llm_model_search_empty">No matching model</string>
   <string name="llm_settings_runtime_title">LLM runtime</string>
   <string name="llm_ai_provider_configuration">Provider configuration</string>
+  <string name="llm_settings_assistant_title">AI chat assistant</string>
+  <string name="llm_settings_assistant_switch">AI Chat</string>
+  <string name="llm_settings_assistant_switch_desc">Enable Chat, search, and extensions.</string>
+  <string name="llm_settings_default_summary">Reader summary</string>
+  <string name="llm_settings_default_summary_desc">On: the AI button generates a summary. Off: it opens Chat.</string>
+  <string name="llm_settings_advanced_ai_config">Advanced AI settings</string>
+  <string name="llm_settings_advanced_ai_config_desc">Show model compatibility settings.</string>
+  <string name="ai_restore_defaults_confirm_title">Restore AI settings?</string>
+  <string name="ai_restore_defaults_confirm_desc">AI services and API keys will be cleared.</string>
+  <string name="llm_chat_quick_summary">Quick Summary</string>
+  <string name="llm_chat_quick_summary_desc">Generate a standalone summary from the original article. It is not added to the conversation.</string>
   <string name="llm_settings_runtime_desc">Controls model request behavior for article chat.</string>
   <string name="llm_settings_reasoning_effort">Reasoning Effort</string>
   <string name="llm_settings_reasoning_effort_desc">Applies only when supported by the model and

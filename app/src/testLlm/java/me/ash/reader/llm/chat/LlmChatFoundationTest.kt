@@ -251,8 +251,6 @@ class LlmChatFoundationTest {
         val expectedIncluded =
             listOf(
                 "article:current:selection",
-                "article:current:summary",
-                "article:current:translation",
                 "web-search:test:1",
                 "article:current:original",
             )
@@ -295,13 +293,12 @@ class LlmChatFoundationTest {
                     it == "article:second:original"
             }
         )
-        assertNull(refs.single { it.contextId == "article:current:summary" }.citationIndex)
-        assertNull(refs.single { it.contextId == "article:current:translation" }.citationIndex)
-        assertNull(refs.single { it.contextId == "article:second:summary" }.citationIndex)
+        assertTrue(candidates.none { it.type == LlmContextType.ARTICLE_SUMMARY })
+        assertTrue(candidates.none { it.type == LlmContextType.ARTICLE_TRANSLATION })
     }
 
     @Test
-    fun `p6 frozen request refs survive later summary and attachment changes`() {
+    fun `p6 derived summary changes never enter request refs while old attachment refs stay frozen`() {
         val composer = LlmContextComposer()
         val firstCandidates =
             buildRequestArticleContextItems(
@@ -359,16 +356,18 @@ class LlmChatFoundationTest {
                 createdAt = 2L,
             )
 
-        val oldSummary = firstRefs.single { it.contextId == "article:current:summary" }
+        val oldOriginal = firstRefs.single { it.contextId == "article:current:original" }
         val oldAttachment = firstRefs.single { it.contextId == "article:second:original" }
-        val newSummary = secondRefs.single { it.contextId == "article:current:summary" }
-        assertEquals("old summary", oldSummary.contentSnapshot)
+        val newOriginal = secondRefs.single { it.contextId == "article:current:original" }
+        assertEquals("stable original", oldOriginal.contentSnapshot)
         assertEquals("old second snapshot", oldAttachment.contentSnapshot)
-        assertEquals("new summary", newSummary.contentSnapshot)
+        assertEquals("stable original", newOriginal.contentSnapshot)
         assertTrue(secondRefs.none { it.contextId.startsWith("article:second:") })
-        assertFalse(oldSummary.id == newSummary.id)
-        assertNull(oldSummary.citationToken())
-        assertNull(newSummary.citationToken())
+        assertTrue(firstRefs.none { it.contextId.endsWith(":summary") })
+        assertTrue(secondRefs.none { it.contextId.endsWith(":summary") })
+        assertFalse(oldOriginal.id == newOriginal.id)
+        assertEquals("[R1]", oldOriginal.citationToken())
+        assertEquals("[R1]", newOriginal.citationToken())
         assertEquals("[R2]", oldAttachment.citationToken())
         assertEquals("second", oldAttachment.articleId)
     }
@@ -411,16 +410,14 @@ class LlmChatFoundationTest {
         assertEquals(
             listOf(
                 "article:current:selection",
-                "article:current:summary",
                 "article:current:original",
-                "article:second:summary",
                 "article:second:original",
                 "article:third:original",
             ),
             items.map { it.id },
         )
         assertEquals(
-            listOf(160, 130, 100, 95, 90, 90),
+            listOf(160, 100, 90, 90),
             items.map { it.priority },
         )
         val composed = LlmContextComposer().compose(items, LlmContextPolicy(maxTokens = 4_096))
@@ -439,14 +436,13 @@ class LlmChatFoundationTest {
             refs.sortedBy { it.citationIndex }.mapNotNull { it.citationToken() },
         )
         assertEquals(
-            listOf(LlmContextType.ARTICLE_SUMMARY, LlmContextType.ARTICLE),
+            listOf(LlmContextType.ARTICLE),
             refs.filter { it.contextId.startsWith("article:second:") }.map { it.type },
         )
         assertEquals(
-            listOf("second", "second"),
+            listOf("second"),
             refs.filter { it.contextId.startsWith("article:second:") }.map { it.articleId },
         )
-        assertNull(refs.single { it.contextId == "article:second:summary" }.citationIndex)
     }
 
     @Test
@@ -468,7 +464,7 @@ class LlmChatFoundationTest {
         assertEquals("Second", normalized.single().title)
         assertEquals("https://example.com/2", normalized.single().link)
         assertEquals("body 2", normalized.single().originalContent)
-        assertEquals("summary 2", normalized.single().summary)
+        assertNull(normalized.single().summary)
     }
 
     @Test
@@ -826,7 +822,7 @@ class LlmChatFoundationTest {
     }
 
     @Test
-    fun `article assistant builds stable selection summary translation and article contexts`() {
+    fun `article assistant ignores derived summary and translation and keeps original evidence`() {
         val items =
             buildArticleContextItems(
                 ArticleAssistantContext(
@@ -844,8 +840,6 @@ class LlmChatFoundationTest {
         assertEquals(
             listOf(
                 LlmContextType.SELECTED_TEXT,
-                LlmContextType.ARTICLE_SUMMARY,
-                LlmContextType.ARTICLE_TRANSLATION,
                 LlmContextType.ARTICLE,
             ),
             items.map { it.type },
@@ -853,19 +847,15 @@ class LlmChatFoundationTest {
         assertEquals(
             listOf(
                 "article:article-1:selection",
-                "article:article-1:summary",
-                "article:article-1:translation",
                 "article:article-1:original",
             ),
             items.map { it.id },
         )
         assertEquals("selected excerpt", items[0].content)
-        assertEquals("Translated title", items[2].title)
-        assertEquals(listOf("article-1", "article-1", "article-1", "article-1"), items.map { it.internalArticleId })
-        assertEquals(listOf(false, false, false, true), items.map { it.reserveEvidenceBudget })
+        assertEquals("Original title", items[1].title)
+        assertEquals(listOf("article-1", "article-1"), items.map { it.internalArticleId })
+        assertEquals(listOf(false, true), items.map { it.reserveEvidenceBudget })
         assertTrue(items[0].priority > items[1].priority)
-        assertTrue(items[1].priority > items[2].priority)
-        assertTrue(items[2].priority > items[3].priority)
     }
 
     @Test

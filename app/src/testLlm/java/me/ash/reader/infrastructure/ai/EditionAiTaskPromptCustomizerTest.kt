@@ -93,11 +93,34 @@ class EditionAiTaskPromptCustomizerTest {
             assertTrue(result.systemPrompt.contains("Skip the overview and start directly"))
         }
 
+    @Test
+    fun `assistant disabled ignores hidden custom instructions for summary`() =
+        runBlocking {
+            val customizer =
+                createCustomizer(
+                    customInstructions = "Always rewrite the summary in my private style.",
+                    assistantEnabled = false,
+                )
+            val result =
+                customizer.customize(
+                    task = AiTaskType.SUMMARY,
+                    baseSystemPrompt = "SUMMARY_HARD_CONTRACT",
+                )
+
+            assertEquals("SUMMARY_HARD_CONTRACT", result.systemPrompt)
+            assertEquals(AiTaskPromptCustomization.DEFAULT_CACHE_VARIANT, result.cacheVariant)
+            assertEquals(null, result.skillId)
+        }
+
     /** 创建关闭 Skill 的真实 Customizer，只隔离 Android 持久化依赖。 */
-    private fun createCustomizer(customInstructions: String): EditionAiTaskPromptCustomizer {
+    private fun createCustomizer(
+        customInstructions: String,
+        assistantEnabled: Boolean = true,
+    ): EditionAiTaskPromptCustomizer {
         val settingsRepository = mock<LlmSettingsRepository>()
         whenever(settingsRepository.current()).thenReturn(
             LlmAdvancedSettings(
+                assistantEnabled = assistantEnabled,
                 customInstructions = customInstructions,
                 skillsEnabled = false,
             )

@@ -905,7 +905,8 @@ class LlmChatViewModel @Inject constructor(
                         articleTitle = currentArticle?.title.orEmpty(),
                         articleUrl = currentArticle?.link,
                         selection = currentArticle?.selectedText,
-                        summary = currentArticle?.summary,
+                        // 摘要是独立阅读产物，不允许通过 Quick Message 模板回灌 Chat。
+                        summary = null,
                     ),
             )
         resolution.content?.takeIf { resolution.ready }?.let { resolved ->
@@ -1941,8 +1942,10 @@ private fun mergeToolCallDeltas(
 private fun AiProviderProfile?.orEmptyModels(): List<String> = this?.availableModels().orEmpty()
 
 /**
- * 当前选区、译文与摘要属于用户正在看的高相关派生内容，仍可优先帮助模型快速理解；
- * 但当前文章原文会声明 evidence reserve，ContextComposer 必须为其保留最低可核验正文片段。
+ * Chat 的事实上下文只来自当前文章原文与原文选区。
+ *
+ * AI 摘要和翻译是独立阅读产物，绝不能作为新的事实来源回灌 Conversation；这样后续追问、
+ * Citation 和分析始终能够回到原始正文，而不是在模型生成内容之上继续二次推理。
  */
 internal fun buildArticleContextItems(context: ArticleAssistantContext): List<LlmContextItem> =
     buildList {
@@ -1957,32 +1960,6 @@ internal fun buildArticleContextItems(context: ArticleAssistantContext): List<Ll
                     content = selection,
                     // 用户刚刚显式选中的正文与当前问题相关度最高，必须优先于摘要/译文/整篇正文进入预算。
                     priority = 160,
-                )
-            )
-        }
-        context.summary?.trim()?.takeIf(String::isNotBlank)?.let { summary ->
-            add(
-                LlmContextItem(
-                    id = "article:${context.articleId}:summary",
-                    type = LlmContextType.ARTICLE_SUMMARY,
-                    title = context.title,
-                    sourceId = context.link,
-                    internalArticleId = context.articleId,
-                    content = summary,
-                    priority = 130,
-                )
-            )
-        }
-        context.translatedContent?.trim()?.takeIf(String::isNotBlank)?.let { translation ->
-            add(
-                LlmContextItem(
-                    id = "article:${context.articleId}:translation",
-                    type = LlmContextType.ARTICLE_TRANSLATION,
-                    title = context.translatedTitle ?: context.title,
-                    sourceId = context.link,
-                    internalArticleId = context.articleId,
-                    content = translation,
-                    priority = 120,
                 )
             )
         }

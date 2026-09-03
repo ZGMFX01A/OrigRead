@@ -5,8 +5,11 @@ import me.ash.reader.llm.mcp.McpServerRepository
 import me.ash.reader.llm.mcp.McpToolRegistry
 import me.ash.reader.llm.quickmessage.LlmQuickMessageRepository
 import me.ash.reader.llm.search.WebSearchRepository
+import me.ash.reader.llm.search.WebSearchSettings
+import me.ash.reader.llm.settings.LlmAdvancedSettings
 import me.ash.reader.llm.settings.LlmSettingsRepository
 import me.ash.reader.llm.skill.LlmSkillRepository
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
@@ -68,6 +71,59 @@ class EditionConfigurationBackupExtensionTest {
 
         verify(skillRepository, never()).restoreBackupState(org.mockito.kotlin.any())
         verify(quickMessageRepository, never()).restoreBackupState(org.mockito.kotlin.any())
+    }
+
+    @Test
+    fun `restore preserves assistant summary and advanced ai switches`() {
+        whenever(mcpServerRepository.currentServers()).thenReturn(emptyList())
+        val configuration =
+            Json.parseToJsonElement(
+                """
+                {
+                  "schemaVersion": 2,
+                  "settings": {
+                    "assistantEnabled": false,
+                    "defaultGenerateSummary": false,
+                    "advancedAiConfigEnabled": true
+                  }
+                }
+                """.trimIndent()
+            )
+
+        extension().restoreBackup(
+            configuration = configuration,
+            secrets = null,
+            replaceSecrets = false,
+        )
+
+        verify(llmSettingsRepository).restoreBackup(
+            LlmAdvancedSettings(
+                assistantEnabled = false,
+                defaultGenerateSummary = false,
+                advancedAiConfigEnabled = true,
+            )
+        )
+    }
+
+    @Test
+    fun `export preserves reader assistant switches used by edition sync`() {
+        whenever(llmSettingsRepository.current()).thenReturn(
+            LlmAdvancedSettings(
+                assistantEnabled = true,
+                defaultGenerateSummary = false,
+                advancedAiConfigEnabled = true,
+            )
+        )
+        whenever(webSearchRepository.current()).thenReturn(WebSearchSettings())
+        whenever(mcpServerRepository.currentServers()).thenReturn(emptyList())
+        whenever(skillRepository.exportBackupState()).thenReturn(null)
+        whenever(quickMessageRepository.exportBackupState()).thenReturn(null)
+
+        val exported = extension().exportConfiguration().toString()
+
+        assertTrue(exported.contains("\"assistantEnabled\":true"))
+        assertTrue(exported.contains("\"defaultGenerateSummary\":false"))
+        assertTrue(exported.contains("\"advancedAiConfigEnabled\":true"))
     }
 
 }

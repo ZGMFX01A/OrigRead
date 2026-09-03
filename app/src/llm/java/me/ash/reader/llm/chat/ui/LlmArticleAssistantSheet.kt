@@ -102,6 +102,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import me.ash.reader.R
+import me.ash.reader.infrastructure.ai.AiSummaryLength
 import me.ash.reader.infrastructure.ai.availableModels
 import me.ash.reader.llm.chat.data.LlmArticleCandidate
 import me.ash.reader.llm.chat.data.LlmChatRole
@@ -138,6 +139,8 @@ fun LlmArticleAssistantSheet(
     articleAnalysisRequested: Boolean = false,
     onArticleAnalysisConsumed: () -> Unit = {},
     onOpenArticle: (String) -> Unit = {},
+    showQuickSummary: Boolean = false,
+    onQuickSummary: (AiSummaryLength) -> Unit = {},
     onDismiss: () -> Unit,
     viewModel: LlmChatViewModel = hiltViewModel(),
 ) {
@@ -254,6 +257,8 @@ fun LlmArticleAssistantSheet(
             } else if (uiState.messages.isEmpty()) {
                 ArticleAssistantEmptyState(
                     configured = uiState.selectedProviderId != null && uiState.selectedModel != null,
+                    showQuickSummary = showQuickSummary,
+                    onQuickSummary = onQuickSummary,
                     modifier = Modifier.weight(1f),
                 )
             } else {
@@ -805,6 +810,8 @@ private fun buildChatPreviewHighlightedText(
 @Composable
 private fun ArticleAssistantEmptyState(
     configured: Boolean,
+    showQuickSummary: Boolean,
+    onQuickSummary: (AiSummaryLength) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -827,8 +834,68 @@ private fun ArticleAssistantEmptyState(
                 textAlign = TextAlign.Center,
             )
         }
+        if (showQuickSummary) {
+            Spacer(Modifier.size(24.dp))
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        AiSummaryAccentIcon(
+                            contentDescription = null,
+                            size = 32.dp,
+                            iconSize = 18.dp,
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.llm_chat_quick_summary),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                text = stringResource(R.string.llm_chat_quick_summary_desc),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        AiSummaryLength.entries.forEach { length ->
+                            FilterChip(
+                                selected = false,
+                                onClick = { onQuickSummary(length) },
+                                label = { Text(summaryLengthLabel(length)) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
+
+@Composable
+private fun summaryLengthLabel(length: AiSummaryLength): String =
+    stringResource(
+        when (length) {
+            AiSummaryLength.BRIEF -> R.string.ai_summary_length_brief
+            AiSummaryLength.STANDARD -> R.string.ai_summary_length_standard
+            AiSummaryLength.DETAILED -> R.string.ai_summary_length_detailed
+        }
+    )
 
 /**
  * 已配置 Provider/Model 时，文章 Chat 的正常空态只保留一句行动提示。

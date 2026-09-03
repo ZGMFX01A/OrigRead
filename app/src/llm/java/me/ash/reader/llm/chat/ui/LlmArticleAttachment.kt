@@ -49,11 +49,10 @@ internal fun LlmArticleAttachment.toConversationArticleEntity(
     )
 
 /**
- * 将附加文章转换为现有 ARTICLE / ARTICLE_SUMMARY Context。
+ * 将附加文章转换为 ARTICLE Context。
  *
- * 当前文章永远由 [buildArticleContextItems] 提供主 Context，因此这里会主动排除同 articleId，
- * 防止产生重复 Context ID。附加文章摘要仍可辅助理解，但 Citation 只会指向其原始正文；
- * 附加文章不占用当前文章专属的 evidence reserve。
+ * 当前文章与附加文章都只把原始正文送入 Chat。历史 Room schema 仍保留 summary 字段以避免数据库迁移，
+ * 但它不再参与新请求的 Context，也不会成为 Citation 事实来源。
  */
 internal fun buildAdditionalArticleContextItems(
     currentArticleId: String,
@@ -61,19 +60,6 @@ internal fun buildAdditionalArticleContextItems(
 ): List<LlmContextItem> =
     buildList {
         normalizedAdditionalArticleAttachments(currentArticleId, attachments).forEach { attachment ->
-            attachment.summary?.let { summary ->
-                add(
-                    LlmContextItem(
-                        id = "article:${attachment.articleId}:summary",
-                        type = LlmContextType.ARTICLE_SUMMARY,
-                        title = attachment.title,
-                        sourceId = attachment.link,
-                        internalArticleId = attachment.articleId,
-                        content = summary,
-                        priority = 95,
-                    )
-                )
-            }
             attachment.originalContent.takeIf(String::isNotBlank)?.let { original ->
                 add(
                     LlmContextItem(
@@ -104,7 +90,7 @@ internal fun buildRequestArticleContextItems(
         }
 
 /**
- * 统一清洗附加文章：排除当前文章、空 ID、无正文且无摘要的无效快照，并按首次出现去重。
+ * 统一清洗附加文章：排除当前文章、空 ID、无原始正文的无效快照，并按首次出现去重。
  * 稳定保留用户附件顺序，使同优先级 Context 的 Composer 顺序可预测；未来 Evidence Citation 也可复用该顺序。
  */
 internal fun normalizedAdditionalArticleAttachments(
@@ -124,14 +110,14 @@ internal fun normalizedAdditionalArticleAttachments(
                 return@mapNotNull null
             }
             val originalContent = attachment.originalContent.trim()
-            val summary = attachment.summary?.trim()?.takeIf(String::isNotBlank)
-            if (originalContent.isBlank() && summary == null) return@mapNotNull null
+            if (originalContent.isBlank()) return@mapNotNull null
             attachment.copy(
                 articleId = articleId,
                 title = attachment.title.trim(),
                 link = attachment.link?.trim()?.takeIf(String::isNotBlank),
                 originalContent = originalContent,
-                summary = summary,
+                // 兼容旧 Room 字段但不再把派生摘要带进活动 Chat Context。
+                summary = null,
             )
         }
         .take(MAX_ADDITIONAL_ARTICLES)

@@ -1,6 +1,7 @@
 package me.ash.reader.ui.page.home.reading
 
 import androidx.compose.runtime.Composable
+import me.ash.reader.infrastructure.ai.AiSummaryLength
 import me.ash.reader.llm.chat.ui.LlmArticleAssistantSheet
 
 /** LLM edition 在当前正文之上展示文章级阅读助手。 */
@@ -11,6 +12,8 @@ internal fun EditionArticleAssistantSheet(
     articleAnalysisRequested: Boolean,
     onArticleAnalysisConsumed: () -> Unit,
     onOpenArticle: (String) -> Unit,
+    showQuickSummary: Boolean,
+    onQuickSummary: (AiSummaryLength) -> Unit,
     onDismiss: () -> Unit,
 ) {
     if (!visible || context == null) return
@@ -19,6 +22,8 @@ internal fun EditionArticleAssistantSheet(
         articleAnalysisRequested = articleAnalysisRequested,
         onArticleAnalysisConsumed = onArticleAnalysisConsumed,
         onOpenArticle = onOpenArticle,
+        showQuickSummary = showQuickSummary,
+        onQuickSummary = onQuickSummary,
         onDismiss = onDismiss,
     )
 }

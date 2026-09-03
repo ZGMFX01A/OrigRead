@@ -10,9 +10,11 @@ data class ArticleAssistantContext(
     val title: String,
     val link: String?,
     val originalContent: String,
+    /** 兼容旧调用/快照字段；Chat 新请求不再消费派生摘要。 */
     val summary: String? = null,
+    /** 兼容旧调用/快照字段；Chat 新请求不再消费译文。 */
     val translatedTitle: String? = null,
     val translatedContent: String? = null,
-    /** LLM edition 从系统正文选区动作传入的临时文本；Standard 永远保持 null。 */
+    /** 当前原文选区的临时文本；若用户正在查看译文则不向 Chat 传入。 */
     val selectedText: String? = null,
 )

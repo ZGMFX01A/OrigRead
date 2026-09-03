@@ -20,6 +20,7 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -49,6 +50,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import me.ash.reader.R
 import me.ash.reader.infrastructure.ai.AiCapabilityOverrideMode
 import me.ash.reader.infrastructure.ai.AiOutputTokenLimitStyle
+import me.ash.reader.infrastructure.ai.AiProviderProfile
 import me.ash.reader.infrastructure.ai.AiSummaryLength
 import me.ash.reader.ui.component.base.Banner
 import me.ash.reader.ui.component.base.DisplayText
@@ -60,13 +62,14 @@ import me.ash.reader.ui.ext.collectAsStateValue
 /**
  * 展示公共 AI 阅读设置。
  *
- * Standard 版沿用默认结构；LLM 版可传入供应商配置标题并展示兼容能力卡片，
- * 并将专属运行参数、扩展内容追加在供应商相关配置之后。
+ * Standard 版沿用默认结构；LLM 版可传入供应商配置标题和扩展内容。
+ * Provider 兼容能力卡片作为独立的页尾高级配置展示。
  */
 @Composable
 fun AiSettingsPage(
     onBack: () -> Unit,
     additionalSettingsContent: (@Composable () -> Unit)? = null,
+    footerSettingsContent: (@Composable () -> Unit)? = null,
     showProviderCapabilityOverrides: Boolean = false,
     providerConfigurationTitle: String? = null,
     viewModel: AiSettingsViewModel = hiltViewModel(),
@@ -77,6 +80,7 @@ fun AiSettingsPage(
     val testFailure = stringResource(R.string.ai_test_failed)
     var providerMenuExpanded by remember { mutableStateOf(false) }
     var modelMenuExpanded by remember { mutableStateOf(false) }
+    var showRestoreDefaultsConfirm by remember { mutableStateOf(false) }
 
     OrigReadScaffold(
         navigationIcon = {
@@ -429,76 +433,6 @@ fun AiSettingsPage(
                         }
                     }
                 }
-                if (showProviderCapabilityOverrides) {
-                    item {
-                        OutlinedCard(
-                            modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp),
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.ai_provider_capabilities),
-                                    style = MaterialTheme.typography.titleMedium,
-                                )
-                                Text(
-                                    text = stringResource(R.string.ai_provider_capabilities_desc),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                HorizontalDivider()
-                                CapabilityOverrideRow(
-                                    title = stringResource(R.string.ai_capability_streaming),
-                                    description = stringResource(R.string.ai_capability_streaming_desc),
-                                    value = profile.streamingCapabilityOverride,
-                                    onValueChange = viewModel::setStreamingCapability,
-                                )
-                                CapabilityOverrideRow(
-                                    title = stringResource(R.string.ai_capability_tool_calling),
-                                    description = stringResource(R.string.ai_capability_tool_calling_desc),
-                                    value = profile.toolCallingCapabilityOverride,
-                                    onValueChange = viewModel::setToolCallingCapability,
-                                )
-                                CapabilityOverrideRow(
-                                    title = stringResource(R.string.ai_capability_reasoning),
-                                    description = stringResource(R.string.ai_capability_reasoning_desc),
-                                    value = profile.reasoningCapabilityOverride,
-                                    onValueChange = viewModel::setReasoningCapability,
-                                )
-                                OutputTokenLimitStyleRow(
-                                    value = profile.outputTokenLimitStyle,
-                                    onValueChange = viewModel::setOutputTokenLimitStyle,
-                                )
-                                CompactTextFieldSettingRow(
-                                    title = stringResource(R.string.ai_context_window_tokens),
-                                    description = stringResource(R.string.ai_context_window_tokens_desc),
-                                    value = profile.contextWindowTokens.toString(),
-                                    onValueChange = viewModel::setContextWindowTokens,
-                                )
-                                HorizontalDivider()
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(stringResource(R.string.ai_strict_stream_termination))
-                                        Text(
-                                            text = stringResource(R.string.ai_strict_stream_termination_desc),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-                                    OrigReadSwitch(
-                                        activated = profile.strictStreamTermination,
-                                        onClick = { viewModel.setStrictStreamTermination(!profile.strictStreamTermination) },
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
                 additionalSettingsContent?.let { content ->
                     item { content() }
                 }
@@ -510,16 +444,125 @@ fun AiSettingsPage(
                 }
                 item {
                     TextButton(
-                        onClick = viewModel::restoreDefaults,
+                        onClick = { showRestoreDefaultsConfirm = true },
                         modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
                     ) {
                         Text(stringResource(R.string.restore_defaults))
                     }
+                }
+                footerSettingsContent?.let { content ->
+                    item { content() }
+                }
+                if (showProviderCapabilityOverrides) {
+                    item {
+                        ProviderCapabilityOverridesCard(
+                            profile = profile,
+                            viewModel = viewModel,
+                        )
+                    }
+                }
+                item {
                     Spacer(modifier = Modifier.height(24.dp))
                 }
             }
         },
     )
+
+    if (showRestoreDefaultsConfirm) {
+        AlertDialog(
+            onDismissRequest = { showRestoreDefaultsConfirm = false },
+            title = { Text(stringResource(R.string.ai_restore_defaults_confirm_title)) },
+            text = { Text(stringResource(R.string.ai_restore_defaults_confirm_desc)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showRestoreDefaultsConfirm = false
+                        viewModel.restoreDefaults()
+                    }
+                ) {
+                    Text(stringResource(R.string.restore_defaults))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRestoreDefaultsConfirm = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun ProviderCapabilityOverridesCard(
+    profile: AiProviderProfile,
+    viewModel: AiSettingsViewModel,
+) {
+    OutlinedCard(
+        modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.ai_provider_capabilities),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = stringResource(R.string.ai_provider_capabilities_desc),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            HorizontalDivider()
+            CapabilityOverrideRow(
+                title = stringResource(R.string.ai_capability_streaming),
+                description = stringResource(R.string.ai_capability_streaming_desc),
+                value = profile.streamingCapabilityOverride,
+                onValueChange = viewModel::setStreamingCapability,
+            )
+            CapabilityOverrideRow(
+                title = stringResource(R.string.ai_capability_tool_calling),
+                description = stringResource(R.string.ai_capability_tool_calling_desc),
+                value = profile.toolCallingCapabilityOverride,
+                onValueChange = viewModel::setToolCallingCapability,
+            )
+            CapabilityOverrideRow(
+                title = stringResource(R.string.ai_capability_reasoning),
+                description = stringResource(R.string.ai_capability_reasoning_desc),
+                value = profile.reasoningCapabilityOverride,
+                onValueChange = viewModel::setReasoningCapability,
+            )
+            OutputTokenLimitStyleRow(
+                value = profile.outputTokenLimitStyle,
+                onValueChange = viewModel::setOutputTokenLimitStyle,
+            )
+            CompactTextFieldSettingRow(
+                title = stringResource(R.string.ai_context_window_tokens),
+                description = stringResource(R.string.ai_context_window_tokens_desc),
+                value = profile.contextWindowTokens.toString(),
+                onValueChange = viewModel::setContextWindowTokens,
+            )
+            HorizontalDivider()
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.ai_strict_stream_termination))
+                    Text(
+                        text = stringResource(R.string.ai_strict_stream_termination_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                OrigReadSwitch(
+                    activated = profile.strictStreamTermination,
+                    onClick = { viewModel.setStrictStreamTermination(!profile.strictStreamTermination) },
+                )
+            }
+        }
+    }
 }
 
 @Composable

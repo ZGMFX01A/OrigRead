@@ -77,6 +77,17 @@
   <string name="llm_model_search_empty">沒有符合的模型</string>
   <string name="llm_settings_runtime_title">LLM 執行參數</string>
   <string name="llm_ai_provider_configuration">供應商設定</string>
+  <string name="llm_settings_assistant_title">AI 對話助手</string>
+  <string name="llm_settings_assistant_switch">AI 對話助手</string>
+  <string name="llm_settings_assistant_switch_desc">開啟 Chat、搜尋和擴充功能</string>
+  <string name="llm_settings_default_summary">閱讀頁摘要</string>
+  <string name="llm_settings_default_summary_desc">開啟後點 AI 按鈕產生摘要；關閉後進入 Chat</string>
+  <string name="llm_settings_advanced_ai_config">AI 進階設定</string>
+  <string name="llm_settings_advanced_ai_config_desc">顯示模型相容設定</string>
+  <string name="ai_restore_defaults_confirm_title">恢復預設設定？</string>
+  <string name="ai_restore_defaults_confirm_desc">AI 服務和 API Key 會被清除。</string>
+  <string name="llm_chat_quick_summary">快捷摘要</string>
+  <string name="llm_chat_quick_summary_desc">直接依文章原文產生獨立摘要，不會寫入 AI 對話。</string>
   <string name="llm_settings_runtime_desc">控制文章對話的模型請求參數。</string>
   <string name="llm_settings_reasoning_effort">模型推理強度</string>
   <string name="llm_settings_reasoning_effort_desc">僅在模型與服務支援時生效。</string>

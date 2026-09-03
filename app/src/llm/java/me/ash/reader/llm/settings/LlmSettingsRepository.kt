@@ -7,11 +7,18 @@ import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import me.ash.reader.BuildConfig
 import me.ash.reader.llm.runtime.LlmReasoningEffort
 import me.ash.reader.llm.search.WebSearchMode
 
-/** LLM edition 独有的执行偏好；与 Standard 的基础 AI 阅读设置分开持久化。 */
+/** LLM/Chat 执行偏好；Standard 与 OrigRead X 共用实现，仅首次默认值不同。 */
 data class LlmAdvancedSettings(
+    /** Chat/阅读助手总开关。数据类默认保持旧 X 行为，真正首次默认值由 Repository 按 Edition 决定。 */
+    val assistantEnabled: Boolean = true,
+    /** Reader 中央 AI 按钮的默认短按动作：true=摘要，false=直接进入 Chat。 */
+    val defaultGenerateSummary: Boolean = true,
+    /** 仅控制设置页是否展开 Provider 兼容能力等高级配置；关闭 Chat 时只隐藏，不清空该偏好。 */
+    val advancedAiConfigEnabled: Boolean = false,
     val reasoningEffort: LlmReasoningEffort = LlmReasoningEffort.AUTO,
     val streamResponses: Boolean = true,
     val showReasoning: Boolean = true,
@@ -34,6 +41,14 @@ class LlmSettingsRepository @Inject constructor(
     val settings: StateFlow<LlmAdvancedSettings> = _settings.asStateFlow()
 
     fun current(): LlmAdvancedSettings = _settings.value
+
+    fun setAssistantEnabled(value: Boolean) = update { it.copy(assistantEnabled = value) }
+
+    fun setDefaultGenerateSummary(value: Boolean) =
+        update { it.copy(defaultGenerateSummary = value) }
+
+    fun setAdvancedAiConfigEnabled(value: Boolean) =
+        update { it.copy(advancedAiConfigEnabled = value) }
 
     fun setReasoningEffort(value: LlmReasoningEffort) =
         update { it.copy(reasoningEffort = value) }
@@ -85,6 +100,12 @@ class LlmSettingsRepository @Inject constructor(
 
     private fun readSettings(): LlmAdvancedSettings =
         LlmAdvancedSettings(
+            assistantEnabled =
+                preferences.getBoolean(KEY_ASSISTANT_ENABLED, defaultAssistantEnabled()),
+            defaultGenerateSummary =
+                preferences.getBoolean(KEY_DEFAULT_GENERATE_SUMMARY, true),
+            advancedAiConfigEnabled =
+                preferences.getBoolean(KEY_ADVANCED_AI_CONFIG_ENABLED, false),
             reasoningEffort =
                 runCatching {
                     LlmReasoningEffort.valueOf(
@@ -117,6 +138,9 @@ class LlmSettingsRepository @Inject constructor(
 
     private fun persist(settings: LlmAdvancedSettings) {
         preferences.edit()
+            .putBoolean(KEY_ASSISTANT_ENABLED, settings.assistantEnabled)
+            .putBoolean(KEY_DEFAULT_GENERATE_SUMMARY, settings.defaultGenerateSummary)
+            .putBoolean(KEY_ADVANCED_AI_CONFIG_ENABLED, settings.advancedAiConfigEnabled)
             .putString(KEY_REASONING_EFFORT, settings.reasoningEffort.name)
             .putBoolean(KEY_STREAM_RESPONSES, settings.streamResponses)
             .putBoolean(KEY_SHOW_REASONING, settings.showReasoning)
@@ -134,6 +158,9 @@ class LlmSettingsRepository @Inject constructor(
             .apply()
     }
 
+    /** 已安装旧版本没有该 key：OrigRead 默认关闭，OrigRead X 默认开启。 */
+    private fun defaultAssistantEnabled(): Boolean = defaultLlmAssistantEnabledForEdition(BuildConfig.EDITION)
+
     /** 只做防止异常值/Int 溢出的安全夹取，不再把用户输入吸附到固定档位。 */
     private fun normalizeContextTokens(value: Int): Int =
         value.coerceIn(MIN_CONTEXT_TOKENS, MAX_CONTEXT_TOKENS)
@@ -150,6 +177,9 @@ class LlmSettingsRepository @Inject constructor(
         const val MAX_CUSTOM_INSTRUCTIONS_LENGTH = 8_000
 
         private const val PREFERENCES_NAME = "origread_llm_runtime_settings"
+        private const val KEY_ASSISTANT_ENABLED = "assistant_enabled"
+        private const val KEY_DEFAULT_GENERATE_SUMMARY = "default_generate_summary"
+        private const val KEY_ADVANCED_AI_CONFIG_ENABLED = "advanced_ai_config_enabled"
         private const val KEY_REASONING_EFFORT = "reasoning_effort"
         private const val KEY_STREAM_RESPONSES = "stream_responses"
         private const val KEY_SHOW_REASONING = "show_reasoning"
@@ -163,3 +193,6 @@ class LlmSettingsRepository @Inject constructor(
         private const val KEY_CONTEXT_MAX_CHARACTERS = "context_max_characters"
     }
 }
+
+/** Edition 只决定首次默认值，不决定功能是否存在。 */
+internal fun defaultLlmAssistantEnabledForEdition(edition: String): Boolean = edition == "llm"

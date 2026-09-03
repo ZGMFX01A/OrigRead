@@ -40,6 +40,9 @@ class LlmAdvancedSettingsViewModel @Inject constructor(
 ) : ViewModel() {
     val settings = repository.settings
 
+    fun setAssistantEnabled(value: Boolean) = repository.setAssistantEnabled(value)
+    fun setDefaultGenerateSummary(value: Boolean) = repository.setDefaultGenerateSummary(value)
+    fun setAdvancedAiConfigEnabled(value: Boolean) = repository.setAdvancedAiConfigEnabled(value)
     fun setReasoningEffort(value: LlmReasoningEffort) = repository.setReasoningEffort(value)
     fun setStreamResponses(value: Boolean) = repository.setStreamResponses(value)
     fun setShowReasoning(value: Boolean) = repository.setShowReasoning(value)
@@ -50,7 +53,7 @@ class LlmAdvancedSettingsViewModel @Inject constructor(
     fun setMcpEnabled(value: Boolean) = repository.setMcpEnabled(value)
 }
 
-/** LLM edition 专属设置区；Provider/API Key 等基础配置仍由公共 AiSettingsPage 管理。 */
+/** Chat 开启后的高级设置区；Provider/API Key 等基础配置仍由公共 AiSettingsPage 管理。 */
 @Composable
 fun LlmAdvancedSettingsSection(
     onOpenCustomInstructions: (() -> Unit)? = null,
@@ -82,7 +85,10 @@ fun LlmAdvancedSettingsSection(
         }
     }
 
-    OutlinedCard(modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth()) {
+    // Chat 关闭时只保留公共 AiSettingsPage 的摘要/基础 AI 配置；总开关在页面最末尾单独展示。
+    if (!settings.assistantEnabled) return
+
+    OutlinedCard(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp).fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -289,6 +295,48 @@ fun LlmAdvancedSettingsSection(
                 ) {
                     Text(stringResource(R.string.llm_settings_mcp_manage))
                 }
+            }
+        }
+    }
+}
+
+/**
+ * AI 设置页最末尾的 Chat 功能控制。
+ *
+ * 阅读页摘要与 AI 高级配置都只有 Chat 已开启时才显示。
+ * 关闭 Chat 只隐藏高级配置入口，不清除用户已经保存的高级配置开关状态。
+ */
+@Composable
+fun LlmAssistantFeatureSettingsSection(
+    viewModel: LlmAdvancedSettingsViewModel = hiltViewModel(),
+) {
+    val settings by viewModel.settings.collectAsState()
+    OutlinedCard(modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            SettingsSwitchRow(
+                title = stringResource(R.string.llm_settings_assistant_switch),
+                desc = stringResource(R.string.llm_settings_assistant_switch_desc),
+                checked = settings.assistantEnabled,
+                onCheckedChange = viewModel::setAssistantEnabled,
+            )
+            if (settings.assistantEnabled) {
+                HorizontalDivider()
+                SettingsSwitchRow(
+                    title = stringResource(R.string.llm_settings_default_summary),
+                    desc = stringResource(R.string.llm_settings_default_summary_desc),
+                    checked = settings.defaultGenerateSummary,
+                    onCheckedChange = viewModel::setDefaultGenerateSummary,
+                )
+                HorizontalDivider()
+                SettingsSwitchRow(
+                    title = stringResource(R.string.llm_settings_advanced_ai_config),
+                    desc = stringResource(R.string.llm_settings_advanced_ai_config_desc),
+                    checked = settings.advancedAiConfigEnabled,
+                    onCheckedChange = viewModel::setAdvancedAiConfigEnabled,
+                )
             }
         }
     }

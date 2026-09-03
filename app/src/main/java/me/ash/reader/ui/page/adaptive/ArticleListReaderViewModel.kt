@@ -69,6 +69,7 @@ import me.ash.reader.infrastructure.translation.TranslationProviderType
 import me.ash.reader.infrastructure.translation.TranslationService
 import me.ash.reader.infrastructure.translation.TranslationSettingsRepository
 import me.ash.reader.infrastructure.translation.TranslationTarget
+import me.ash.reader.llm.settings.LlmSettingsRepository
 import timber.log.Timber
 
 private const val TAG = "FlowViewModel"
@@ -92,6 +93,7 @@ constructor(
     private val translationSettingsRepository: TranslationSettingsRepository,
     private val aiSummaryService: AiSummaryService,
     private val aiSettingsRepository: AiSettingsRepository,
+    private val llmSettingsRepository: LlmSettingsRepository,
     val textToSpeechManager: TextToSpeechManager,
     private val imageDownloader: AndroidImageDownloader,
     private val articleListUseCase: ArticlePagingListUseCase,
@@ -343,6 +345,7 @@ constructor(
     private val _aiSummaryUiState = MutableStateFlow(ReaderAiSummaryUiState())
     val aiSummaryUiState = _aiSummaryUiState.asStateFlow()
     val aiSettings = aiSettingsRepository.settings
+    val llmSettings = llmSettingsRepository.settings
     private var aiSummaryJob: Job? = null
     private var aiSummaryProgressJob: Job? = null
     private var aiSummaryRequestSerial: Long = 0L

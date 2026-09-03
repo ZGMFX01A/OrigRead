@@ -5,7 +5,8 @@ import kotlinx.serialization.Serializable
 /**
  * Standard / LLM 同机同步的顶层快照。
  *
- * 该协议只描述两个 Android edition 共同拥有的数据；LLM Chat、MCP、Skill 等 LLM 私有数据永远不进入此结构。
+ * 顶层只保存两个 Android edition 共用的阅读快照；AI 扩展设置、MCP、Skill 等配置由
+ * ConfigurationBackupService 的 editionConfiguration 一并承载。Chat 消息库不进入该同步结构。
  */
 @Serializable
 data class EditionSyncBundle(

@@ -23,6 +23,10 @@ class EditionAiTaskPromptCustomizer @Inject constructor(
         baseSystemPrompt: String,
     ): AiTaskPromptCustomization {
         val settings = llmSettingsRepository.current()
+        // Assistant 关闭时只保留 OrigRead 的基础摘要/翻译 Prompt，不让隐藏的 Chat 扩展继续影响任务结果。
+        if (!settings.assistantEnabled) {
+            return AiTaskPromptCustomization(systemPrompt = baseSystemPrompt)
+        }
         val skill =
             if (settings.skillsEnabled) {
                 skillRepository.boundSkill(task.toSkillTask())

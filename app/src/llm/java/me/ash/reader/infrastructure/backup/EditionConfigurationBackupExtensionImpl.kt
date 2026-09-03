@@ -33,7 +33,7 @@ import me.ash.reader.llm.settings.LlmAdvancedSettings
 import me.ash.reader.llm.settings.LlmSettingsRepository
 import me.ash.reader.llm.skill.LlmSkillRepository
 
-/** OrigRead X 的完整配置备份桥；公共备份服务本身不需要认识任何 llm 类型。 */
+/** OrigRead / OrigRead X 共用的完整 AI 扩展配置备份桥；公共备份服务本身不需要认识任何 llm 类型。 */
 @Singleton
 class EditionConfigurationBackupExtensionImpl @Inject constructor(
     private val llmSettingsRepository: LlmSettingsRepository,
@@ -149,6 +149,10 @@ private data class LlmEditionConfigurationBackup(
 
 @Serializable
 private data class LlmAdvancedSettingsBackup(
+    // 旧 OrigRead X 备份没有这些字段；缺失时保持旧 X 行为：助手开启、默认先摘要。
+    val assistantEnabled: Boolean = true,
+    val defaultGenerateSummary: Boolean = true,
+    val advancedAiConfigEnabled: Boolean = false,
     val reasoningEffort: String = LlmReasoningEffort.AUTO.name,
     val streamResponses: Boolean = true,
     val showReasoning: Boolean = true,
@@ -281,6 +285,9 @@ private fun LlmEditionConfigurationBackup.toValidatedDomain(): ValidatedLlmEditi
     return ValidatedLlmEditionConfiguration(
         settings =
             LlmAdvancedSettings(
+                assistantEnabled = settings.assistantEnabled,
+                defaultGenerateSummary = settings.defaultGenerateSummary,
+                advancedAiConfigEnabled = settings.advancedAiConfigEnabled,
                 reasoningEffort = reasoningEffort,
                 streamResponses = settings.streamResponses,
                 showReasoning = settings.showReasoning,
@@ -305,6 +312,9 @@ private const val CURRENT_LLM_BACKUP_SCHEMA_VERSION = 2
 
 private fun LlmAdvancedSettings.toBackup() =
     LlmAdvancedSettingsBackup(
+        assistantEnabled = assistantEnabled,
+        defaultGenerateSummary = defaultGenerateSummary,
+        advancedAiConfigEnabled = advancedAiConfigEnabled,
         reasoningEffort = reasoningEffort.name,
         streamResponses = streamResponses,
         showReasoning = showReasoning,
