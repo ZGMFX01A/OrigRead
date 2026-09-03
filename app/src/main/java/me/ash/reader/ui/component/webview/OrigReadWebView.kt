@@ -1,6 +1,10 @@
 package me.ash.reader.ui.component.webview
 
 import android.util.Log
+import android.webkit.WebView
+import androidx.compose.animation.core.AnimationVector1D
+import androidx.compose.animation.core.VectorConverter
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -32,14 +36,19 @@ import me.ash.reader.ui.ext.openURL
 import me.ash.reader.ui.ext.surfaceColorAtElevation
 import me.ash.reader.ui.theme.palette.alwaysLight
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun OrigReadWebView(
     modifier: Modifier = Modifier,
+    articleId: String? = null,
+    sourceUrl: String? = null,
+    isOriginalContent: Boolean = true,
     content: String,
     refererDomain: String? = null,
     onImageClick: ((imgUrl: String, altText: String) -> Unit)? = null,
     selectionActionLabel: String? = null,
     onSelectedTextAction: ((String) -> Unit)? = null,
+    readerAnchorState: WebViewReaderAnchorState? = null,
 ) {
     val context = LocalContext.current
     val maxWidth = LocalConfiguration.current.screenWidthDp.dp.value
@@ -68,6 +77,21 @@ fun OrigReadWebView(
     val codeBgColor: Int =
         MaterialTheme.colorScheme.surfaceColorAtElevation((tonalElevation.value + 6).dp).toArgb()
     val boldCharacters = LocalReadingBoldCharacters.current
+    val citationHighlightColorCss =
+        MaterialTheme.colorScheme.secondaryContainer.toArgb().toWebCssColor()
+    val citationHighlightSpec = MaterialTheme.motionScheme.slowEffectsSpec<Float>()
+    val citationHighlightDurationMillis =
+        remember(citationHighlightSpec) {
+            citationHighlightSpec
+                .vectorize(Float.VectorConverter)
+                .getDurationNanos(
+                    AnimationVector1D(0f),
+                    AnimationVector1D(1f),
+                    AnimationVector1D(0f),
+                )
+                .div(1_000_000L)
+                .coerceAtLeast(1L)
+        }
 
     val fontPath =
         if (readingFonts is ReadingFontsPreference.External)
@@ -76,9 +100,16 @@ fun OrigReadWebView(
             "/android_res/font/google_sans_flex.ttf"
         } else null
 
+    val preparedContent =
+        remember(content, sourceUrl, isOriginalContent) {
+            prepareWebViewReaderContent(content, sourceUrl, isOriginalContent)
+        }
     val renderSpec =
         WebViewRenderSpec(
-            content = content,
+            articleId = articleId,
+            sourceUrl = sourceUrl,
+            originalContent = isOriginalContent,
+            content = preparedContent.html,
             fontSize = fontSize,
             fontPath = fontPath,
             lineHeight = lineHeight,
@@ -116,6 +147,23 @@ fun OrigReadWebView(
                         onOpenLink = { url ->
                             context.openURL(url, openLink, openLinkSpecificBrowser)
                         },
+                        onPageFinishedReady = { view, pageUrl ->
+                            renderGuard.acceptedReaderGeneration(pageUrl)?.let { generation ->
+                                view.postVisualStateCallback(
+                                    generation,
+                                    object : WebView.VisualStateCallback() {
+                                        override fun onComplete(requestId: Long) {
+                                            if (
+                                                requestId == generation &&
+                                                    renderGuard.isCurrentGeneration(generation)
+                                            ) {
+                                                readerAnchorState?.markRenderReady(view, generation)
+                                            }
+                                        }
+                                    },
+                                )
+                            }
+                        },
                     ),
                 onImageClick = onImageClick,
             )
@@ -125,11 +173,20 @@ fun OrigReadWebView(
                 // 选区回调属于交互状态，可以随父级重组更新，但不应因此重载整篇正文。
                 configureSelectionAction(selectionActionLabel, onSelectedTextAction)
                 settings.defaultFontSize = fontSize
-                if (renderGuard.shouldReload(renderSpec)) {
+                renderGuard.beginReload(renderSpec)?.let { renderGeneration ->
                     Log.i("RLog", "maxWidth: ${maxWidth}")
                     Log.i("RLog", "readingFont: ${context.filesDir.absolutePath}")
+                    readerAnchorState?.bindRender(
+                        articleId = articleId,
+                        originalContent = isOriginalContent,
+                        evidenceDocument = preparedContent.evidenceDocument,
+                        renderGeneration = renderGeneration,
+                        webView = this,
+                        highlightColorCss = citationHighlightColorCss,
+                        highlightDurationMillis = citationHighlightDurationMillis,
+                    )
                     loadDataWithBaseURL(
-                        null,
+                        webViewReaderBaseUrl(sourceUrl, renderGeneration),
                         WebViewHtml.HTML.format(
                             WebViewStyle.get(
                                 fontSize = fontSize,
@@ -152,8 +209,8 @@ fun OrigReadWebView(
                                 selectionTextColor = selectionTextColor,
                                 selectionBgColor = selectionBgColor,
                             ),
-                            url,
-                            content,
+                            webViewHtmlAttributeEscape(sourceUrl.orEmpty()),
+                            preparedContent.html,
                             WebViewScript.get(boldCharacters.value),
                         ),
                         "text/HTML",
@@ -165,6 +222,7 @@ fun OrigReadWebView(
         },
         onRelease = { view ->
             renderGuard.reset()
+            readerAnchorState?.unbind(view)
             view.stopLoading()
             view.configureSelectionAction(null, null)
             view.removeJavascriptInterface(JavaScriptInterface.NAME)
@@ -175,3 +233,17 @@ fun OrigReadWebView(
         },
     )
 }
+
+private fun Int.toWebCssColor(): String {
+    val alpha = ((this ushr 24) and 0xff) / 255f
+    val red = (this ushr 16) and 0xff
+    val green = (this ushr 8) and 0xff
+    val blue = this and 0xff
+    return "rgba($red,$green,$blue,$alpha)"
+}
+
+internal fun webViewHtmlAttributeEscape(value: String): String =
+    value.replace("&", "&amp;")
+        .replace("\"", "&quot;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")

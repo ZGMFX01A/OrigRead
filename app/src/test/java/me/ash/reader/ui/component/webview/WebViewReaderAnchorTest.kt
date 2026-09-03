@@ -1,0 +1,169 @@
+package me.ash.reader.ui.component.webview
+
+import me.ash.reader.ui.component.reader.READER_EVIDENCE_BLOCK_HASH_ATTRIBUTE
+import me.ash.reader.ui.component.reader.READER_EVIDENCE_BLOCK_ID_ATTRIBUTE
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class WebViewReaderAnchorTest {
+    @Test
+    fun `original webview content carries the same evidence DOM anchors`() {
+        val prepared =
+            prepareWebViewReaderContent(
+                content =
+                    "<h2>Section</h2><p data-origread-block-id=\"spoofed\" " +
+                        "data-origread-block-hash=\"spoofed-hash\">Evidence text.</p>",
+                sourceUrl = "https://example.com/article",
+                originalContent = true,
+            )
+
+        assertEquals(2, prepared.evidenceDocument.blocks.size)
+        val paragraph = prepared.evidenceDocument.blocks[1]
+        assertTrue(
+            prepared.html.contains(
+                "$READER_EVIDENCE_BLOCK_ID_ATTRIBUTE=\"${paragraph.stableLocatorKey}\""
+            )
+        )
+        assertTrue(
+            prepared.html.contains(
+                "$READER_EVIDENCE_BLOCK_HASH_ATTRIBUTE=\"${paragraph.normalizedSha256}\""
+            )
+        )
+        assertFalse(prepared.html.contains("spoofed"))
+        assertFalse(prepared.html.contains("spoofed-hash"))
+    }
+
+    @Test
+    fun `translated webview content never receives original evidence anchors`() {
+        val translated = "<p>Translated evidence-looking text.</p>"
+        val prepared =
+            prepareWebViewReaderContent(
+                content = translated,
+                sourceUrl = "https://example.com/article",
+                originalContent = false,
+            )
+
+        assertEquals(translated, prepared.html)
+        assertTrue(prepared.evidenceDocument.blocks.isEmpty())
+        assertFalse(prepared.html.contains(READER_EVIDENCE_BLOCK_ID_ATTRIBUTE))
+    }
+
+    @Test
+    fun `render generation is encoded in base url without changing article path`() {
+        assertEquals(
+            "https://example.com/path/article?q=1#origread-render-7",
+            webViewReaderBaseUrl("https://example.com/path/article?q=1#old-fragment", 7),
+        )
+        assertEquals(
+            7L,
+            webViewReaderGenerationFromUrl(
+                "https://example.com/path/article?q=1#origread-render-7"
+            ),
+        )
+        assertNull(webViewReaderGenerationFromUrl("https://example.com/article#other"))
+        assertTrue(webViewReaderBaseUrl(null, 8).endsWith("#origread-render-8"))
+    }
+
+    @Test
+    fun `stale page callback cannot become ready after a newer render starts`() {
+        val guard = WebViewRenderGuard()
+        val first = requireNotNull(guard.beginReload(renderSpec(content = "first")))
+        val firstUrl = webViewReaderBaseUrl("https://example.com/article", first)
+        val second = requireNotNull(guard.beginReload(renderSpec(content = "second")))
+        val secondUrl = webViewReaderBaseUrl("https://example.com/article", second)
+
+        assertNull(guard.acceptedReaderGeneration(firstUrl))
+        assertEquals(second, guard.acceptedReaderGeneration(secondUrl))
+        assertNull(guard.acceptedReaderGeneration(null))
+    }
+
+    @Test
+    fun `pending anchor survives same article reload but never crosses article or translation`() {
+        assertTrue(
+            shouldPreservePendingWebViewAnchor(
+                previousArticleId = "article-1",
+                nextArticleId = "article-1",
+                originalContent = true,
+            )
+        )
+        assertFalse(
+            shouldPreservePendingWebViewAnchor(
+                previousArticleId = "article-1",
+                nextArticleId = "article-2",
+                originalContent = true,
+            )
+        )
+        assertFalse(
+            shouldPreservePendingWebViewAnchor(
+                previousArticleId = "article-1",
+                nextArticleId = "article-1",
+                originalContent = false,
+            )
+        )
+        assertFalse(
+            shouldPreservePendingWebViewAnchor(
+                previousArticleId = null,
+                nextArticleId = null,
+                originalContent = true,
+            )
+        )
+    }
+
+    @Test
+    fun `citation javascript escapes locator data and exposes no new native bridge`() {
+        val script =
+            buildWebViewReaderAnchorScript(
+                stableLocatorKey = "key\"\\\n</script>",
+                highlightColorCss = "rgba(1,2,3,0.5)",
+                highlightDurationMillis = 420,
+            )
+
+        assertTrue(script.contains("CSS.escape(key)"))
+        assertTrue(script.contains("scrollIntoView"))
+        assertTrue(script.contains("IntersectionObserver"))
+        assertTrue(script.indexOf("scrollIntoView") < script.indexOf("setTimeout(pulse, 900)"))
+        assertTrue(script.contains("node.animate"))
+        assertTrue(script.contains("duration: 420"))
+        assertTrue(script.contains("key\\\"\\\\\\n</script>"))
+        assertFalse(script.contains("onImgTagClick"))
+        assertFalse(script.contains("JavascriptInterface"))
+    }
+
+    @Test
+    fun `base href values are escaped before entering reader html`() {
+        assertEquals(
+            "https://example.com/?a=1&amp;b=&quot;x&quot;&lt;y&gt;",
+            webViewHtmlAttributeEscape("https://example.com/?a=1&b=\"x\"<y>"),
+        )
+    }
+
+    private fun renderSpec(content: String): WebViewRenderSpec =
+        WebViewRenderSpec(
+            articleId = "article-1",
+            sourceUrl = "https://example.com/article",
+            originalContent = true,
+            content = content,
+            fontSize = 18,
+            fontPath = null,
+            lineHeight = 1.5f,
+            letterSpacing = 0f,
+            textMargin = 12,
+            textColor = 1,
+            textBold = false,
+            textAlign = "start",
+            boldTextColor = 2,
+            subheadBold = true,
+            subheadUpperCase = false,
+            imgMargin = 0,
+            imgBorderRadius = 8,
+            linkTextColor = 3,
+            codeTextColor = 4,
+            codeBgColor = 5,
+            selectionTextColor = 6,
+            selectionBgColor = 7,
+            boldCharacters = false,
+        )
+}

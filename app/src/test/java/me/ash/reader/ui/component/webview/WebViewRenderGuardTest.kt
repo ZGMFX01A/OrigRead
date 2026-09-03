@@ -36,9 +36,32 @@ class WebViewRenderGuardTest {
         assertTrue(guard.shouldReload(spec))
     }
 
+    @Test
+    fun `render generations advance only for real reloads and reset invalidates old callbacks`() {
+        val guard = WebViewRenderGuard()
+        val spec = renderSpec()
+
+        val first = requireNotNull(guard.beginReload(spec))
+        assertTrue(guard.isCurrentGeneration(first))
+        assertTrue(guard.beginReload(spec.copy()) == null)
+
+        val second = requireNotNull(guard.beginReload(spec.copy(content = "second")))
+        assertTrue(second > first)
+        assertFalse(guard.isCurrentGeneration(first))
+        assertTrue(guard.isCurrentGeneration(second))
+
+        guard.reset()
+        assertFalse(guard.isCurrentGeneration(second))
+        val afterReset = requireNotNull(guard.beginReload(spec.copy(content = "second")))
+        assertTrue(afterReset > second)
+    }
+
     /** 使用固定值覆盖所有会改变正文 HTML 的字段，避免测试只盯正文字符串。 */
     private fun renderSpec() =
         WebViewRenderSpec(
+            articleId = "article-1",
+            sourceUrl = "https://example.com/article",
+            originalContent = true,
             content = "article",
             fontSize = 18,
             fontPath = null,

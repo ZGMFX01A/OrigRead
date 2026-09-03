@@ -49,6 +49,7 @@ import me.ash.reader.ui.component.reader.ReaderEvidenceDocument
 import me.ash.reader.ui.component.reader.buildReaderEvidenceDocument
 import me.ash.reader.ui.component.scrollbar.drawVerticalScrollIndicator
 import me.ash.reader.ui.component.webview.OrigReadWebView
+import me.ash.reader.ui.component.webview.WebViewReaderAnchorState
 import me.ash.reader.ui.ext.extractDomain
 import me.ash.reader.ui.ext.isLlmEdition
 import me.ash.reader.ui.ext.roundClick
@@ -84,6 +85,7 @@ fun Content(
     onSelectedTextAction: ((String) -> Unit)? = null,
     isOriginalContent: Boolean = true,
     nativeReaderAnchorState: NativeReaderAnchorState? = null,
+    webViewReaderAnchorState: WebViewReaderAnchorState? = null,
 ) {
     val context = LocalContext.current
     val subheadUpperCase = LocalReadingSubheadUpperCase.current
@@ -205,6 +207,9 @@ fun Content(
 
                             OrigReadWebView(
                                 modifier = Modifier.fillMaxSize(),
+                                articleId = articleId,
+                                sourceUrl = link,
+                                isOriginalContent = isOriginalContent,
                                 content = content,
                                 refererDomain = link.extractDomain(),
                                 onImageClick = onImageClick,
@@ -214,6 +219,7 @@ fun Content(
                                     },
                                 onSelectedTextAction =
                                     onSelectedTextAction,
+                                readerAnchorState = webViewReaderAnchorState,
                             )
                             releaseLinks?.let {
                                 OrigReadReleaseActions(

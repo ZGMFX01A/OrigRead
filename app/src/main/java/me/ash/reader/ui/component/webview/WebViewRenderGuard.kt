@@ -7,6 +7,9 @@ package me.ash.reader.ui.component.webview
  * WebView 页面，避免重复 loadDataWithBaseURL 导致正文闪烁、图片重复请求和滚动位置抖动。
  */
 internal data class WebViewRenderSpec(
+    val articleId: String?,
+    val sourceUrl: String?,
+    val originalContent: Boolean,
     val content: String,
     val fontSize: Int,
     val fontPath: String?,
@@ -32,6 +35,7 @@ internal data class WebViewRenderSpec(
 /** 仅当正文或正文样式真实变化时允许重载 WebView。 */
 internal class WebViewRenderGuard {
     private var lastSpec: WebViewRenderSpec? = null
+    private var renderGeneration: Long = 0L
 
     /**
      * 返回 true 表示调用方应重新生成并加载 HTML。
@@ -43,7 +47,18 @@ internal class WebViewRenderGuard {
         return true
     }
 
+    /** Allocate one identity for the HTML that is about to be loaded. */
+    fun beginReload(spec: WebViewRenderSpec): Long? {
+        if (!shouldReload(spec)) return null
+        renderGeneration += 1
+        return renderGeneration
+    }
+
+    fun isCurrentGeneration(generation: Long): Boolean = generation == renderGeneration
+
     fun reset() {
         lastSpec = null
+        // Invalidate callbacks still queued by the destroyed/replaced WebView.
+        renderGeneration += 1
     }
 }
