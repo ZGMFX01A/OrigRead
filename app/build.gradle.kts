@@ -279,3 +279,106 @@ dependencies {
     testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.json.jvm)
 }
+
+/**
+ * GitHub 渠道的两个 Edition 作为同一版本发布。
+ *
+ * 现有 GitHub Actions 已同时调用 Standard/X 两个 Release task；这里补上 Gradle 侧硬门禁，
+ * 避免 Tag Workflow 跳过测试或某一 Edition 构建/版本异常时仍继续上传 Release。
+ */
+val verifyGithubReleasePair =
+    tasks.register("verifyGithubReleasePair") {
+        group = "verification"
+        description = "Verify OrigRead and OrigRead X GitHub release APKs are a complete same-version pair."
+
+        doLast {
+            data class ReleaseMetadata(
+                val applicationId: String,
+                val versionCode: Int,
+                val versionName: String,
+                val outputFile: String,
+            )
+
+            fun readMetadata(relativePath: String): ReleaseMetadata {
+                val metadataFile = file(relativePath)
+                check(metadataFile.isFile) { "Release metadata missing: ${metadataFile.path}" }
+                val content = metadataFile.readText()
+
+                fun stringField(name: String): String =
+                    Regex("\\\"$name\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"")
+                        .find(content)
+                        ?.groupValues
+                        ?.get(1)
+                        ?: error("Release metadata missing field: $name")
+
+                fun intField(name: String): Int =
+                    Regex("\\\"$name\\\"\\s*:\\s*(\\d+)")
+                        .find(content)
+                        ?.groupValues
+                        ?.get(1)
+                        ?.toInt()
+                        ?: error("Release metadata missing field: $name")
+
+                return ReleaseMetadata(
+                    applicationId = stringField("applicationId"),
+                    versionCode = intField("versionCode"),
+                    versionName = stringField("versionName"),
+                    outputFile = stringField("outputFile"),
+                )
+            }
+
+            val standardDir = file("build/outputs/apk/standardGithub/release")
+            val llmDir = file("build/outputs/apk/llmGithub/release")
+            val standard = readMetadata("build/outputs/apk/standardGithub/release/output-metadata.json")
+            val llm = readMetadata("build/outputs/apk/llmGithub/release/output-metadata.json")
+
+            check(standard.applicationId == "me.ash.reader") {
+                "Unexpected Standard applicationId: ${standard.applicationId}"
+            }
+            check(llm.applicationId == "me.ash.reader.llm") {
+                "Unexpected OrigRead X applicationId: ${llm.applicationId}"
+            }
+            check(standard.versionCode == llm.versionCode) {
+                "Edition versionCode mismatch: Standard=${standard.versionCode}, X=${llm.versionCode}"
+            }
+            check(standard.versionName == llm.versionName) {
+                "Edition versionName mismatch: Standard=${standard.versionName}, X=${llm.versionName}"
+            }
+            check(standard.versionName == normalizedVersionName) {
+                "Release versionName mismatch: expected=$normalizedVersionName actual=${standard.versionName}"
+            }
+
+            val versionSuffix = releaseVersion ?: "${normalizedVersionName}-${gitCommitHash}"
+            val expectedStandardFile = "OrigRead-${versionSuffix}.apk"
+            val expectedLlmFile = "OrigRead-X-${versionSuffix}.apk"
+            check(standard.outputFile == expectedStandardFile) {
+                "Unexpected Standard release filename: ${standard.outputFile}"
+            }
+            check(llm.outputFile == expectedLlmFile) {
+                "Unexpected OrigRead X release filename: ${llm.outputFile}"
+            }
+            check(standardDir.resolve(standard.outputFile).isFile) {
+                "Standard release APK missing: ${standard.outputFile}"
+            }
+            check(llmDir.resolve(llm.outputFile).isFile) {
+                "OrigRead X release APK missing: ${llm.outputFile}"
+            }
+
+            println(
+                "Verified OrigRead release pair: " +
+                    "versionName=${standard.versionName}, versionCode=${standard.versionCode}, " +
+                    "Standard=${standard.outputFile}, X=${llm.outputFile}"
+            )
+        }
+    }
+
+// GitHub Release 的现有 Workflow 以 X Release task 作为双包构建链的最后一个任务。
+// 因此在这里强制补齐另一 Edition 和双 Edition Release 单测，并在完成后执行成对校验。
+tasks.matching { it.name == "assembleLlmGithubRelease" }.configureEach {
+    dependsOn(
+        "assembleStandardGithubRelease",
+        "testStandardGithubReleaseUnitTest",
+        "testLlmGithubReleaseUnitTest",
+    )
+    finalizedBy(verifyGithubReleasePair)
+}
