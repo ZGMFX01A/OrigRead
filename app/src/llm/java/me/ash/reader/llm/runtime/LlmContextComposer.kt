@@ -27,7 +27,7 @@ class LlmContextComposer @Inject constructor() {
             items
                 .withIndex()
                 .filter { (_, item) ->
-                    item.type in policy.allowedTypes && item.content.isNotBlank()
+                    item.type in policy.allowedTypes && item.hasContextContent()
                 }
                 .sortedWith(
                     compareByDescending<IndexedValue<LlmContextItem>> { it.value.priority }
@@ -58,7 +58,7 @@ class LlmContextComposer @Inject constructor() {
                 accepted.drop(acceptedIndex + 1)
                     .sumOf { acceptedItem ->
                         if (acceptedItem.value.reserveEvidenceBudget) {
-                            evidenceReserveTokens(policy.maxTokens)
+                            reservedEvidenceTokens(acceptedItem.value, policy.maxTokens)
                         } else {
                             0
                         }
@@ -81,6 +81,7 @@ class LlmContextComposer @Inject constructor() {
                     id = item.id,
                     content = block.content,
                     truncated = block.truncated,
+                    evidenceBlockKeys = block.evidenceBlockKeys,
                 )
             truncated = truncated || block.truncated
 
@@ -96,7 +97,7 @@ class LlmContextComposer @Inject constructor() {
         val filteredOutIds =
             items
                 .asSequence()
-                .filter { it.type !in policy.allowedTypes || it.content.isBlank() }
+                .filter { it.type !in policy.allowedTypes || !it.hasContextContent() }
                 .map(LlmContextItem::id)
                 .toList()
         omitted += filteredOutIds
@@ -122,6 +123,7 @@ class LlmContextComposer @Inject constructor() {
         val content: String,
         val estimatedTokens: Int,
         val truncated: Boolean,
+        val evidenceBlockKeys: List<String> = emptyList(),
     )
 
     private fun renderBlock(item: LlmContextItem, maxTokens: Int): RenderedBlock? {
@@ -142,6 +144,10 @@ class LlmContextComposer @Inject constructor() {
         val fixedTokens = estimateLlmTokens(prefix) + estimateLlmTokens(footer)
         if (fixedTokens > maxTokens) return null
 
+        if (item.evidenceBlocks.isNotEmpty()) {
+            return renderAtomicEvidenceBlocks(item, prefix, footer, maxTokens, fixedTokens)
+        }
+
         val content = item.content.trim()
         val contentBudget = maxTokens - fixedTokens
         val renderedContent = content.takeWithinEstimatedTokenBudget(contentBudget)
@@ -153,6 +159,92 @@ class LlmContextComposer @Inject constructor() {
             truncated = renderedContent.length < content.length,
         )
     }
+
+    private fun renderAtomicEvidenceBlocks(
+        item: LlmContextItem,
+        prefix: String,
+        footer: String,
+        maxTokens: Int,
+        fixedTokens: Int,
+    ): RenderedBlock? {
+        val seen = mutableSetOf<String>()
+        val rendered = mutableListOf<String>()
+        val plainContent = mutableListOf<String>()
+        val evidenceBlockKeys = mutableListOf<String>()
+        var usedTokens = fixedTokens
+        var eligibleBlockCount = 0
+
+        item.evidenceBlocks.forEach { block ->
+            val key = block.stableLocatorKey.trim()
+            val content = block.content.trim()
+            if (key.isBlank() || content.isBlank()) return@forEach
+            eligibleBlockCount += 1
+            require(seen.add(key)) { "Evidence block key must be unique: $key" }
+            val separator = if (rendered.isEmpty()) "" else "\n"
+            val requestIdentity = llmEvidenceRequestIdentity(item.id, key)
+            val evidenceText =
+                "[ORIGREAD_EVIDENCE id=${quoteAttribute(requestIdentity)}]\n$content\n[/ORIGREAD_EVIDENCE]"
+            val blockTokens = estimateLlmTokens(separator) + estimateLlmTokens(evidenceText)
+            if (usedTokens + blockTokens > maxTokens) return@forEach
+            rendered += separator + evidenceText
+            plainContent += content
+            evidenceBlockKeys += key
+            usedTokens += blockTokens
+        }
+
+        if (rendered.isEmpty()) return null
+        val text = prefix + rendered.joinToString("") + footer
+        return RenderedBlock(
+            text = text,
+            content = plainContent.joinToString("\n\n"),
+            estimatedTokens = estimateLlmTokens(text),
+            truncated = evidenceBlockKeys.size < eligibleBlockCount,
+            evidenceBlockKeys = evidenceBlockKeys,
+        )
+    }
+
+    private fun reservedEvidenceTokens(item: LlmContextItem, maxTokens: Int): Int {
+        val baseline = evidenceReserveTokens(maxTokens)
+        val minimumAtomic = minimumAtomicEvidenceTokens(item) ?: return baseline
+        if (minimumAtomic > maxTokens) return baseline
+        return maxOf(baseline, minimumAtomic)
+    }
+
+    private fun minimumAtomicEvidenceTokens(item: LlmContextItem): Int? {
+        val blocks = item.evidenceBlocks.filter {
+            it.stableLocatorKey.isNotBlank() && it.content.isNotBlank()
+        }
+        if (blocks.isEmpty()) return null
+
+        val header = buildString {
+            append("[ORIGREAD_CONTEXT type=")
+            append(item.type.name)
+            append(" id=")
+            append(item.id)
+            item.sourceId?.takeIf(String::isNotBlank)?.let {
+                append(" source=")
+                append(it)
+            }
+            append(']')
+        }
+        val title = item.title?.trim()?.takeIf(String::isNotBlank)?.let { "\nTitle: $it" }.orEmpty()
+        val prefix = "$header$title\n"
+        val footer = "\n[/ORIGREAD_CONTEXT]"
+        val fixedTokens = estimateLlmTokens(prefix) + estimateLlmTokens(footer)
+        return blocks.minOf { block ->
+            val requestIdentity = llmEvidenceRequestIdentity(item.id, block.stableLocatorKey.trim())
+            val evidenceText =
+                "[ORIGREAD_EVIDENCE id=${quoteAttribute(requestIdentity)}]\n" +
+                    "${block.content.trim()}\n[/ORIGREAD_EVIDENCE]"
+            fixedTokens + estimateLlmTokens(evidenceText)
+        }
+    }
+
+    private fun LlmContextItem.hasContextContent(): Boolean =
+        content.isNotBlank() || evidenceBlocks.any { it.content.isNotBlank() }
+
+    private fun quoteAttribute(value: String): String =
+        "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
     /**
      * OpenAI-Compatible 服务可能使用不同 tokenizer，因此只能做跨语言近似预算：

@@ -92,12 +92,24 @@ data class LlmContextItem(
     val internalArticleId: String? = null,
     /** 关键原始证据可要求 Composer 为其预留最低预算，避免被摘要/译文等辅助 Context 完全挤出。 */
     val reserveEvidenceBudget: Boolean = false,
+    val evidenceBlocks: List<LlmContextEvidenceBlock> = emptyList(),
     val priority: Int = 0,
 ) {
     init {
         require(id.isNotBlank()) { "上下文 id 不能为空" }
     }
 }
+
+data class LlmContextEvidenceBlock(
+    val stableLocatorKey: String,
+    val content: String,
+)
+
+internal fun llmEvidenceRequestIdentity(
+    contextId: String,
+    stableLocatorKey: String,
+): String =
+    "${contextId.length}:$contextId${stableLocatorKey.length}:$stableLocatorKey"
 
 data class LlmContextPolicy(
     /**
@@ -124,6 +136,7 @@ data class LlmRenderedContextItem(
     val id: String,
     val content: String,
     val truncated: Boolean,
+    val evidenceBlockKeys: List<String> = emptyList(),
 )
 
 /**
@@ -162,6 +175,7 @@ data class LlmExecutionPlan(
     val automaticToolCalling: Boolean,
     val context: ComposedLlmContext,
     val skillId: String?,
+    val citationProtocolInstruction: String? = null,
     /** 已启用 Skill 的受控指令正文；null 表示本次执行使用 OrigRead 默认工作流。 */
     val skillInstructions: String? = null,
     /** 用户长期回答偏好；固定低于任务/Skill、高于外部 Context Data。 */

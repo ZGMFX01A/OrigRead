@@ -1,6 +1,9 @@
 package me.ash.reader.llm.chat.data
 
 import java.security.MessageDigest
+import me.ash.reader.llm.runtime.LlmContextEvidenceBlock
+import me.ash.reader.llm.runtime.LlmContextItem
+import me.ash.reader.llm.runtime.LlmContextType
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 
@@ -18,6 +21,24 @@ data class LlmArticleEvidenceSource(
     val articleId: String? = null,
     val sourceUrl: String? = null,
 )
+
+internal fun LlmContextItem.withArticleEvidenceBlocks(): LlmContextItem {
+    if (type != LlmContextType.ARTICLE) return this
+    val blocks =
+        buildArticleEvidenceBlocks(
+            html = content,
+            source = LlmArticleEvidenceSource(articleId = internalArticleId, sourceUrl = sourceId),
+        )
+    return copy(
+        evidenceBlocks =
+            blocks.map { block ->
+                LlmContextEvidenceBlock(
+                    stableLocatorKey = block.stableLocatorKey,
+                    content = block.content,
+                )
+            }
+    )
+}
 
 fun BuiltLlmEvidenceBlock.toEntity(
     id: String,

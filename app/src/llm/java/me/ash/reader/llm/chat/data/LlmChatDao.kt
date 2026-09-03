@@ -181,6 +181,17 @@ interface LlmChatDao {
         if (contextRefs.isNotEmpty()) insertContextRefs(contextRefs)
     }
 
+    @Transaction
+    suspend fun replaceContextRefsAndEvidenceForAssistant(
+        assistantMessageId: String,
+        contextRefs: List<LlmContextRefEntity>,
+        evidenceBlocks: List<LlmEvidenceBlockEntity>,
+    ) {
+        deleteContextRefsForAssistant(assistantMessageId)
+        if (contextRefs.isNotEmpty()) insertContextRefs(contextRefs)
+        if (evidenceBlocks.isNotEmpty()) insertEvidenceBlocks(evidenceBlocks)
+    }
+
     @Query("DELETE FROM llm_evidence_blocks WHERE context_ref_id = :contextRefId")
     suspend fun deleteEvidenceBlocksForContextRef(contextRefId: String)
 

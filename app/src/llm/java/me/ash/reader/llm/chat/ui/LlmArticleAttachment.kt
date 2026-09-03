@@ -1,6 +1,8 @@
 package me.ash.reader.llm.chat.ui
 
 import me.ash.reader.llm.chat.data.LlmConversationArticleEntity
+import me.ash.reader.llm.chat.data.LLM_EVIDENCE_CITATION_ENABLED
+import me.ash.reader.llm.chat.data.withArticleEvidenceBlocks
 import me.ash.reader.llm.runtime.LlmContextItem
 import me.ash.reader.llm.runtime.LlmContextType
 import me.ash.reader.ui.page.home.reading.ArticleAssistantContext
@@ -70,7 +72,9 @@ internal fun buildAdditionalArticleContextItems(
                         internalArticleId = attachment.articleId,
                         content = original,
                         priority = 90,
-                    )
+                    ).let { item ->
+                        if (LLM_EVIDENCE_CITATION_ENABLED) item.withArticleEvidenceBlocks() else item
+                    }
                 )
             }
         }

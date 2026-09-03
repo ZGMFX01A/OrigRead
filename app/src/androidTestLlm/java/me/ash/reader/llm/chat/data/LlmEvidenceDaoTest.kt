@@ -145,4 +145,73 @@ class LlmEvidenceDaoTest {
             assertEquals(listOf("evidence-2"), dao.getEvidenceBlocksForContextRef("context-ref-1").map { it.id })
             assertTrue(dao.getCitationRefsForAssistant("assistant-1").isEmpty())
         }
+
+    @Test
+    fun contextRefsAndEvidence_replaceAtomicallyForAssistant() =
+        runBlocking {
+            dao.insertConversation(
+                LlmConversationEntity(
+                    id = "conversation-atomic",
+                    title = "Atomic Evidence",
+                    providerId = null,
+                    model = null,
+                    createdAt = 1,
+                    updatedAt = 1,
+                )
+            )
+            dao.insertMessage(
+                LlmMessageEntity(
+                    id = "assistant-atomic",
+                    conversationId = "conversation-atomic",
+                    role = LlmChatRole.ASSISTANT,
+                    content = "",
+                    createdAt = 2,
+                    updatedAt = 2,
+                )
+            )
+            val contextRef =
+                LlmContextRefEntity(
+                    id = "context-atomic",
+                    conversationId = "conversation-atomic",
+                    assistantMessageId = "assistant-atomic",
+                    contextId = "article:atomic:original",
+                    type = LlmContextType.ARTICLE,
+                    contentSnapshot = "Atomic evidence.",
+                    promptContentSnapshot = "Atomic evidence.",
+                    contentSha256 = "context-hash",
+                    priority = 100,
+                    includedInPrompt = true,
+                    truncatedInPrompt = false,
+                    createdAt = 3,
+                )
+            val locator =
+                LlmEvidenceLocatorV1(
+                    sourceKind = LlmEvidenceSourceKind.ARTICLE,
+                    stableLocatorKey = "PARAGRAPH:root:atomic:0",
+                    blockIndex = 0,
+                    articleId = "atomic",
+                    normalizedHash = "atomic-hash",
+                )
+            val evidence =
+                LlmEvidenceBlockEntity(
+                    id = "evidence-atomic",
+                    contextRefId = contextRef.id,
+                    stableLocatorKey = locator.stableLocatorKey!!,
+                    kind = LlmEvidenceBlockKind.PARAGRAPH,
+                    ordinal = 0,
+                    textSnapshot = "Atomic evidence.",
+                    normalizedSha256 = "atomic-hash",
+                    locator = locator,
+                    createdAt = 3,
+                )
+
+            dao.replaceContextRefsAndEvidenceForAssistant(
+                assistantMessageId = "assistant-atomic",
+                contextRefs = listOf(contextRef),
+                evidenceBlocks = listOf(evidence),
+            )
+
+            assertEquals(listOf("context-atomic"), dao.getContextRefsForAssistant("assistant-atomic").map { it.id })
+            assertEquals(listOf("evidence-atomic"), dao.getEvidenceBlocksForContextRef("context-atomic").map { it.id })
+        }
 }

@@ -42,6 +42,12 @@ class LlmChatRepository @Inject constructor(
     suspend fun getContextRefsForAssistant(assistantMessageId: String): List<LlmContextRefEntity> =
         dao.getContextRefsForAssistant(assistantMessageId)
 
+    suspend fun getEvidenceBlocksForContextRef(contextRefId: String): List<LlmEvidenceBlockEntity> =
+        dao.getEvidenceBlocksForContextRef(contextRefId)
+
+    suspend fun getCitationRefsForAssistant(assistantMessageId: String): List<LlmCitationRefEntity> =
+        dao.getCitationRefsForAssistant(assistantMessageId)
+
     /** 恢复会话级活动文章附件；历史请求自己的 ContextRef 仍由消息级快照独立恢复。 */
     suspend fun getConversationArticles(conversationId: String): List<LlmConversationArticleEntity> =
         dao.getConversationArticles(conversationId)
@@ -241,6 +247,25 @@ class LlmChatRepository @Inject constructor(
         contextRefs: List<LlmContextRefEntity>,
     ) {
         dao.replaceContextRefsForAssistant(assistantMessageId, contextRefs)
+    }
+
+    suspend fun replaceContextRefsAndEvidenceForAssistant(
+        assistantMessageId: String,
+        contextRefs: List<LlmContextRefEntity>,
+        evidenceBlocks: List<LlmEvidenceBlockEntity>,
+    ) {
+        dao.replaceContextRefsAndEvidenceForAssistant(
+            assistantMessageId = assistantMessageId,
+            contextRefs = contextRefs,
+            evidenceBlocks = evidenceBlocks,
+        )
+    }
+
+    suspend fun replaceCitationRefsForAssistant(
+        assistantMessageId: String,
+        citationRefs: List<LlmCitationRefEntity>,
+    ) {
+        dao.replaceCitationRefsForAssistant(assistantMessageId, citationRefs)
     }
 
     /** 更新单个 Tool Call 的审批或执行结果。 */

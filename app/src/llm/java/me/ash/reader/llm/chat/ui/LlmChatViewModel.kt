@@ -35,9 +35,14 @@ import me.ash.reader.llm.chat.data.LlmMessageStatus
 import me.ash.reader.llm.chat.data.LlmToolCallEntity
 import me.ash.reader.llm.chat.data.LlmToolCallStatus
 import me.ash.reader.llm.chat.data.LLM_EVIDENCE_CITATION_ENABLED
-import me.ash.reader.llm.chat.data.buildRequestCitationReferences
+import me.ash.reader.llm.chat.data.LlmCitationProtocolEntry
+import me.ash.reader.llm.chat.data.buildArticleEvidencePersistence
+import me.ash.reader.llm.chat.data.buildCitationRefsFromAssistantOutput
 import me.ash.reader.llm.chat.data.buildRequestContextRefEntities
 import me.ash.reader.llm.chat.data.buildUnconsumedContextRefEntities
+import me.ash.reader.llm.chat.data.prepareCitationProtocol
+import me.ash.reader.llm.chat.data.stripHistoricalCitationProtocolTokens
+import me.ash.reader.llm.chat.data.withArticleEvidenceBlocks
 import me.ash.reader.llm.chat.runtime.LlmChatRequestMessage
 import me.ash.reader.llm.chat.runtime.LlmChatRequestToolCall
 import me.ash.reader.llm.chat.runtime.LlmChatToolCallDelta
@@ -174,6 +179,7 @@ internal fun buildRequestHistorySnapshot(
     messages: List<LlmMessageEntity>,
     toolCalls: List<LlmToolCallEntity>,
     excludedAssistantId: String,
+    citationFeatureEnabled: Boolean = LLM_EVIDENCE_CITATION_ENABLED,
 ): LlmRequestHistorySnapshot {
     val callsByAssistant = toolCalls.groupBy(LlmToolCallEntity::assistantMessageId)
     val visibleToolCalls = mutableListOf<LlmToolCallEntity>()
@@ -190,7 +196,12 @@ internal fun buildRequestHistorySnapshot(
             add(
                 LlmChatRequestMessage(
                     role = message.role,
-                    content = message.content,
+                    content =
+                        if (citationFeatureEnabled && message.role == LlmChatRole.ASSISTANT) {
+                            stripHistoricalCitationProtocolTokens(message.content)
+                        } else {
+                            message.content
+                        },
                     toolCalls =
                         if (message.role == LlmChatRole.ASSISTANT) {
                             calls.map { call ->
@@ -1286,6 +1297,7 @@ class LlmChatViewModel @Inject constructor(
         var providerPromptTokens: Int? = null
         var providerCompletionTokens: Int? = null
         var finishReason: LlmFinishReason? = null
+        var requestCitationEntries: List<LlmCitationProtocolEntry> = emptyList()
         val toolCallParts = sortedMapOf<Int, MutableToolCallPart>()
         var continueAfterTools = false
 
@@ -1302,6 +1314,28 @@ class LlmChatViewModel @Inject constructor(
 
         fun tokenUsageEstimated(): Boolean =
             providerPromptTokens == null || providerCompletionTokens == null
+
+        suspend fun persistCitationRefs() {
+            if (!LLM_EVIDENCE_CITATION_ENABLED) return
+            val built =
+                buildCitationRefsFromAssistantOutput(
+                    assistantText = content,
+                    allowedEntries = requestCitationEntries,
+                    conversationId = conversationId,
+                    assistantMessageId = assistant.id,
+                )
+            repository.replaceCitationRefsForAssistant(
+                assistantMessageId = assistant.id,
+                citationRefs = built.refs,
+            )
+            if (built.invalidProtocolIds.isNotEmpty()) {
+                LlmChatPerfTracker.mark(
+                    assistant.id,
+                    "citation_invalid_protocol_ids",
+                    "ids" to built.invalidProtocolIds.joinToString(","),
+                )
+            }
+        }
 
         try {
             if (supersededHistoryAssistantIds.isNotEmpty()) {
@@ -1494,27 +1528,47 @@ class LlmChatViewModel @Inject constructor(
                     composed = plan.context,
                     toolCalls = requestToolCalls,
                     createdAt = contextRefCreatedAt,
-                    citationFeatureEnabled = LLM_EVIDENCE_CITATION_ENABLED,
+                    // R07 Evidence Citation persists exact block references in llm_citation_refs.
+                    // Keep the legacy ContextRef [R#] index unset even after the new gate opens.
+                    citationFeatureEnabled = false,
                 ).map { ref ->
                     frozenSearchRefsByContextId[ref.contextId]?.let { frozen ->
                         // SUCCESS 后立即打开详情时，最终 usage 刷新复用同一冻结结果身份。
                         ref.copy(id = frozen.id, createdAt = frozen.createdAt)
                     } ?: ref
                 }
-            repository.replaceContextRefsForAssistant(
+            val evidenceState =
+                if (LLM_EVIDENCE_CITATION_ENABLED) {
+                    buildArticleEvidencePersistence(
+                        contextItems = contextItems,
+                        contextRefs = contextRefs,
+                        createdAt = contextRefCreatedAt,
+                    )
+                } else {
+                    null
+                }
+            repository.replaceContextRefsAndEvidenceForAssistant(
                 assistantMessageId = assistant.id,
                 contextRefs = contextRefs,
+                evidenceBlocks = evidenceState?.evidenceBlocks.orEmpty(),
             )
-            // Evidence Citation 已移出当前版本；ContextRef 继续冻结来源快照，但生产请求不生成/发送 [R#]。
+            // R07 Evidence Citation transport is wired but remains behind the feature gate.
+            // ContextRef continues to freeze source snapshots, and the legacy [R#] protocol stays disabled.
+            val citationReady =
+                evidenceState?.let { state ->
+                    prepareCitationProtocol(plan.context, state.citationCandidates)
+                }
+            requestCitationEntries = citationReady?.protocolEntries.orEmpty()
             val requestPlan =
-                plan.copy(
-                    citations =
-                        buildRequestCitationReferences(
-                            contextRefs = contextRefs,
-                            toolCalls = requestToolCalls,
-                            citationFeatureEnabled = LLM_EVIDENCE_CITATION_ENABLED,
-                        ),
-                )
+                if (citationReady == null) {
+                    plan
+                } else {
+                    plan.copy(
+                        context = plan.context.copy(text = citationReady.text),
+                        citationProtocolInstruction = citationReady.instruction.takeIf(String::isNotBlank),
+                        citations = emptyList(),
+                    )
+                }
 
             fallbackPromptTokens = transport.estimateRequestTokens(requestPlan, history)
             LlmChatPerfTracker.mark(
@@ -1619,6 +1673,7 @@ class LlmChatViewModel @Inject constructor(
                 durationMs = durationMs(),
                 tokenUsageEstimated = tokenUsageEstimated(),
             )
+            persistCitationRefs()
             publishTransientStreamingMessage(assistant)
             LlmChatPerfTracker.finish(
                 assistantMessageId = assistant.id,
@@ -1691,6 +1746,7 @@ class LlmChatViewModel @Inject constructor(
                         durationMs = durationMs(),
                         tokenUsageEstimated = tokenUsageEstimated(),
                     )
+                persistCitationRefs()
                 publishTransientStreamingMessage(assistant)
                 LlmChatPerfTracker.finish(
                     assistantMessageId = assistant.id,
@@ -1716,6 +1772,7 @@ class LlmChatViewModel @Inject constructor(
                     durationMs = durationMs(),
                     tokenUsageEstimated = tokenUsageEstimated(),
                 )
+            persistCitationRefs()
             publishTransientStreamingMessage(assistant)
             LlmChatPerfTracker.finish(
                 assistantMessageId = assistant.id,
@@ -1972,7 +2029,9 @@ internal fun buildArticleContextItems(context: ArticleAssistantContext): List<Ll
                     content = original,
                     reserveEvidenceBudget = true,
                     priority = 100,
-                )
+                ).let { item ->
+                    if (LLM_EVIDENCE_CITATION_ENABLED) item.withArticleEvidenceBlocks() else item
+                }
             )
         }
     }
