@@ -4,6 +4,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.paging.compose.LazyPagingItems
@@ -14,7 +16,7 @@ import me.ash.reader.domain.model.article.ArticleFlowItem
 import me.ash.reader.domain.model.article.ArticleWithFeed
 
 @Suppress("FunctionName")
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3ExpressiveApi::class)
 fun LazyListScope.ArticleList(
     pagingItems: LazyPagingItems<ArticleFlowItem>,
     diffMap: Map<String, Diff>,
@@ -43,6 +45,12 @@ fun LazyListScope.ArticleList(
                 is ArticleFlowItem.Article -> {
                     val article = item.articleWithFeed.article
                     SwipeableArticleItem(
+                        modifier =
+                            Modifier.animateItem(
+                                fadeInSpec = null,
+                                placementSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+                                fadeOutSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
+                            ),
                         articleWithFeed = item.articleWithFeed,
                         isUnread = diffMap[article.id]?.isUnread ?: article.isUnread,
                         articleListTonalElevation = articleListTonalElevation,
@@ -77,6 +85,12 @@ fun LazyListScope.ArticleList(
                     item(key = key(item), contentType = contentType(item)) {
                         val article = item.articleWithFeed.article
                         SwipeableArticleItem(
+                            modifier =
+                                Modifier.animateItem(
+                                    fadeInSpec = null,
+                                    placementSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+                                    fadeOutSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
+                                ),
                             articleWithFeed = item.articleWithFeed,
                             isUnread = diffMap[article.id]?.isUnread ?: article.isUnread,
                             articleListTonalElevation = articleListTonalElevation,

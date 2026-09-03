@@ -1,7 +1,7 @@
 package me.ash.reader.ui.page.home.feeds
 
 import android.view.HapticFeedbackConstants
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -27,6 +27,7 @@ import me.ash.reader.R
 import me.ash.reader.domain.model.group.Group
 import me.ash.reader.domain.model.group.GroupWithFeed
 import me.ash.reader.ui.page.home.feeds.drawer.group.GroupOptionViewModel
+import me.ash.reader.ui.motion.origReadFadeThroughTransform
 import me.ash.reader.ui.theme.Shape32
 import me.ash.reader.ui.theme.ShapeTop32
 
@@ -41,6 +42,7 @@ fun GroupItem(
     groupOnClick: () -> Unit = {},
 ) {
     val view = LocalView.current
+    val fadeThroughTransform = origReadFadeThroughTransform()
 
     Column(
         modifier = Modifier
@@ -81,11 +83,18 @@ fun GroupItem(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    imageVector = if (isExpanded()) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
-                    contentDescription = stringResource(if (isExpanded()) R.string.expand_less else R.string.expand_more),
-                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                )
+                AnimatedContent(
+                    targetState = isExpanded(),
+                    transitionSpec = { fadeThroughTransform },
+                    label = "feed-group-expanded",
+                ) { expanded ->
+                    Icon(
+                        imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                        contentDescription =
+                            stringResource(if (expanded) R.string.expand_less else R.string.expand_more),
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
+                }
             }
         }
         Spacer(modifier = Modifier.height(22.dp))

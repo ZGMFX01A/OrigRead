@@ -1,5 +1,7 @@
 package me.ash.reader.ui.page.home.feeds.discovery
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -64,6 +66,9 @@ import me.ash.reader.ui.component.FeedIcon
 import me.ash.reader.ui.component.base.FeedbackIconButton
 import me.ash.reader.ui.component.base.OrigReadScaffold
 import me.ash.reader.ui.ext.collectAsStateValue
+import me.ash.reader.ui.motion.origReadFadeThroughTransform
+import me.ash.reader.ui.motion.origReadVisibilityEnter
+import me.ash.reader.ui.motion.origReadVisibilityExit
 
 /** 按上游原分类浏览内置 RSS 目录；分类仅做本地化展示，不分析或重分类 Feed 内容。 */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -81,6 +86,7 @@ fun SourceDiscoveryPage(
     val selectedCategoryLabel =
         state.selectedCategory?.let { SourceCategoryLabels.localized(it, languageTag) }
             ?: stringResource(R.string.source_discovery_all_categories)
+    val fadeThroughTransform = origReadFadeThroughTransform()
 
     if (categorySheetVisible) {
         CategoryFilterSheet(
@@ -123,7 +129,11 @@ fun SourceDiscoveryPage(
                     shape = RoundedCornerShape(18.dp),
                     leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
                     trailingIcon = {
-                        if (state.query.isNotEmpty()) {
+                        AnimatedVisibility(
+                            visible = state.query.isNotEmpty(),
+                            enter = origReadVisibilityEnter(),
+                            exit = origReadVisibilityExit(),
+                        ) {
                             IconButton(onClick = { viewModel.setQuery("") }) {
                                 Icon(
                                     imageVector = Icons.Rounded.Close,
@@ -168,30 +178,43 @@ fun SourceDiscoveryPage(
                         },
                     )
                     Spacer(modifier = Modifier.weight(1f))
-                    Text(
-                        text = stringResource(R.string.source_discovery_count, state.feeds.size),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    AnimatedContent(
+                        targetState = state.feeds.size,
+                        transitionSpec = { fadeThroughTransform },
+                        label = "source-discovery-count",
+                    ) { count ->
+                        Text(
+                            text = stringResource(R.string.source_discovery_count, count),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
 
-                if (state.feeds.isEmpty()) {
-                    EmptyDiscoveryResult(modifier = Modifier.weight(1f))
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = 24.dp),
-                    ) {
-                        items(state.feeds, key = { it.id }) { feed ->
-                            SourceResultItem(
-                                feed = feed,
-                                languageTag = languageTag,
-                                onSubscribe = { onSubscribe(feed) },
-                            )
-                            HorizontalDivider(
-                                modifier = Modifier.padding(start = 72.dp, end = 16.dp),
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
-                            )
+                AnimatedContent(
+                    targetState = state.feeds.isEmpty(),
+                    modifier = Modifier.weight(1f),
+                    transitionSpec = { fadeThroughTransform },
+                    label = "source-discovery-results",
+                ) { isEmpty ->
+                    if (isEmpty) {
+                        EmptyDiscoveryResult(modifier = Modifier.fillMaxSize())
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(bottom = 24.dp),
+                        ) {
+                            items(state.feeds, key = { it.id }) { feed ->
+                                SourceResultItem(
+                                    feed = feed,
+                                    languageTag = languageTag,
+                                    onSubscribe = { onSubscribe(feed) },
+                                )
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(start = 72.dp, end = 16.dp),
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
+                                )
+                            }
                         }
                     }
                 }

@@ -2,6 +2,8 @@ package me.ash.reader.ui.page.home.feeds.subscribe
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -53,6 +55,9 @@ import me.ash.reader.ui.component.base.TextFieldDialog
 import me.ash.reader.ui.ext.MimeType
 import me.ash.reader.ui.ext.collectAsStateValue
 import me.ash.reader.ui.ext.roundClick
+import me.ash.reader.ui.motion.origReadFadeThroughTransform
+import me.ash.reader.ui.motion.origReadVisibilityEnter
+import me.ash.reader.ui.motion.origReadVisibilityExit
 import me.ash.reader.ui.page.home.feeds.FeedOptionView
 import me.ash.reader.infrastructure.source.SourceCandidateKind
 import me.ash.reader.infrastructure.website.CandidateState
@@ -91,6 +96,7 @@ fun SubscribeDialog(
             focusManager.clearFocus()
             subscribeViewModel.hideDrawer()
         }
+        val fadeThroughTransform = origReadFadeThroughTransform()
         ModalBottomSheet(
             onDismissRequest = closeSheet,
             sheetState = sheetState,
@@ -104,53 +110,75 @@ fun SubscribeDialog(
                 )
                 HorizontalDivider()
 
-                when (val state = subscribeState) {
-                    is SubscribeState.Input ->
-                        SubscribeInputContent(
-                            state = state,
-                            onSearch = subscribeViewModel::searchFeed,
-                            onSelectCatalog = { feed ->
-                                subscribeViewModel.openFeedFromCatalog(feed.feedUrl)
-                            },
-                        )
+                AnimatedContent(
+                    targetState = subscribeState,
+                    contentKey = { state ->
+                        when (state) {
+                            is SubscribeState.Input -> "input"
+                            is SubscribeState.Configure -> "configure"
+                            SubscribeState.Hidden -> "hidden"
+                        }
+                    },
+                    transitionSpec = { fadeThroughTransform },
+                    label = "subscribe-content",
+                ) { state ->
+                    when (state) {
+                        is SubscribeState.Input ->
+                            SubscribeInputContent(
+                                state = state,
+                                onSearch = subscribeViewModel::searchFeed,
+                                onSelectCatalog = { feed ->
+                                    subscribeViewModel.openFeedFromCatalog(feed.feedUrl)
+                                },
+                            )
 
-                    is SubscribeState.Configure ->
-                        SubscribeConfigureContent(
-                            state = state,
-                            onSelectCandidate = subscribeViewModel::selectSourceCandidate,
-                            onToggleRssHub = subscribeViewModel::toggleRssHubCandidate,
-                            onRetryRssHub = subscribeViewModel::retrySourceDiscovery,
-                            onToggleNotification = subscribeViewModel::toggleAllowNotificationPreset,
-                            onToggleFullContent = subscribeViewModel::toggleParseFullContentPreset,
-                            onToggleBrowser = subscribeViewModel::toggleOpenInBrowserPreset,
-                            onGroupClick = subscribeViewModel::selectedGroup,
-                            onAddGroup = subscribeViewModel::showNewGroupDialog,
-                            onSelectCatalog = { feed ->
-                                subscribeViewModel.openFeedFromCatalog(feed.feedUrl)
-                            },
-                        )
+                        is SubscribeState.Configure ->
+                            SubscribeConfigureContent(
+                                state = state,
+                                onSelectCandidate = subscribeViewModel::selectSourceCandidate,
+                                onToggleRssHub = subscribeViewModel::toggleRssHubCandidate,
+                                onRetryRssHub = subscribeViewModel::retrySourceDiscovery,
+                                onToggleNotification = subscribeViewModel::toggleAllowNotificationPreset,
+                                onToggleFullContent = subscribeViewModel::toggleParseFullContentPreset,
+                                onToggleBrowser = subscribeViewModel::toggleOpenInBrowserPreset,
+                                onGroupClick = subscribeViewModel::selectedGroup,
+                                onAddGroup = subscribeViewModel::showNewGroupDialog,
+                                onSelectCatalog = { feed ->
+                                    subscribeViewModel.openFeedFromCatalog(feed.feedUrl)
+                                },
+                            )
 
-                    SubscribeState.Hidden -> Unit
+                        SubscribeState.Hidden -> Unit
+                    }
                 }
 
                 HorizontalDivider()
-                SubscribeSheetActions(
-                    state = subscribeState,
-                    isSubscribing = subscribeUiState.isSubscribing,
-                    onImportOpml = {
-                        focusManager.clearFocus()
-                        launcher.launch(arrayOf(MimeType.ANY))
-                        subscribeViewModel.hideDrawer()
+                AnimatedContent(
+                    targetState = subscribeState,
+                    contentKey = { state ->
+                        if (state is SubscribeState.Configure) "configure" else "input"
                     },
-                    onSearch = {
-                        focusManager.clearFocus()
-                        subscribeViewModel.searchFeed()
-                    },
-                    onSubscribe = {
-                        focusManager.clearFocus()
-                        subscribeViewModel.subscribe()
-                    },
-                )
+                    transitionSpec = { fadeThroughTransform },
+                    label = "subscribe-actions",
+                ) { state ->
+                    SubscribeSheetActions(
+                        state = state,
+                        isSubscribing = subscribeUiState.isSubscribing,
+                        onImportOpml = {
+                            focusManager.clearFocus()
+                            launcher.launch(arrayOf(MimeType.ANY))
+                            subscribeViewModel.hideDrawer()
+                        },
+                        onSearch = {
+                            focusManager.clearFocus()
+                            subscribeViewModel.searchFeed()
+                        },
+                        onSubscribe = {
+                            focusManager.clearFocus()
+                            subscribeViewModel.subscribe()
+                        },
+                    )
+                }
             }
         }
 
@@ -247,6 +275,8 @@ private fun SubscribeInputContent(
     onSearch: () -> Unit,
     onSelectCatalog: (FeedCatalogEntry) -> Unit,
 ) {
+    val fetchingState = state as? SubscribeState.Fetching
+    val idleState = state as? SubscribeState.Idle
     val errorText =
         when (state) {
             is SubscribeState.Fetching -> ""
@@ -268,33 +298,57 @@ private fun SubscribeInputContent(
             imeAction = ImeAction.Search,
             onConfirm = { onSearch() },
         )
-        if (state is SubscribeState.Fetching) {
-            Spacer(modifier = Modifier.height(14.dp))
-            Text(
-                text = searchStageLabel(state.stage),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        AnimatedVisibility(
+            visible = fetchingState != null,
+            enter = origReadVisibilityEnter(),
+            exit = origReadVisibilityExit(),
+        ) {
+            fetchingState?.let { fetching ->
+                Column {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        text = searchStageLabel(fetching.stage),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+            }
         }
-        if (state is SubscribeState.Idle && state.catalogMatches.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(20.dp))
-            CatalogMatchSection(
-                matches = state.catalogMatches,
-                totalMatches = state.catalogMatchCount,
-                onSelect = onSelectCatalog,
-            )
+        AnimatedVisibility(
+            visible = !idleState?.catalogMatches.isNullOrEmpty(),
+            enter = origReadVisibilityEnter(),
+            exit = origReadVisibilityExit(),
+        ) {
+            idleState?.let { idle ->
+                Column {
+                    Spacer(modifier = Modifier.height(20.dp))
+                    CatalogMatchSection(
+                        matches = idle.catalogMatches,
+                        totalMatches = idle.catalogMatchCount,
+                        onSelect = onSelectCatalog,
+                    )
+                }
+            }
         }
-        if (state is SubscribeState.Idle && state.rssHubResults.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(20.dp))
-            RssHubRouteSection(
-                results = state.rssHubResults,
-                candidates = emptyList(),
-                selectedIds = emptySet(),
-                onToggle = {},
-                onRetry = null,
-            )
+        AnimatedVisibility(
+            visible = !idleState?.rssHubResults.isNullOrEmpty(),
+            enter = origReadVisibilityEnter(),
+            exit = origReadVisibilityExit(),
+        ) {
+            idleState?.let { idle ->
+                Column {
+                    Spacer(modifier = Modifier.height(20.dp))
+                    RssHubRouteSection(
+                        results = idle.rssHubResults,
+                        candidates = emptyList(),
+                        selectedIds = emptySet(),
+                        onToggle = {},
+                        onRetry = null,
+                    )
+                }
+            }
         }
     }
 }

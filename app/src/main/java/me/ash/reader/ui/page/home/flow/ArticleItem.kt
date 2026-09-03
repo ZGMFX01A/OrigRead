@@ -326,6 +326,7 @@ private const val SwipeActionDelay = 300L
 
 @Composable
 fun SwipeableArticleItem(
+    modifier: Modifier = Modifier,
     articleWithFeed: ArticleWithFeed,
     isUnread: Boolean = articleWithFeed.article.isUnread,
     articleListTonalElevation: Int = 0,
@@ -350,6 +351,7 @@ fun SwipeableArticleItem(
     var menuOffset by remember { mutableStateOf(IntOffset.Zero) }
 
     SwipeActionBox(
+        modifier = modifier,
         articleWithFeed = articleWithFeed,
         isRead = !isUnread,
         isStarred = articleWithFeed.article.isStarred,
