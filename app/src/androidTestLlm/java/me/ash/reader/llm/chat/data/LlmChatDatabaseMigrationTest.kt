@@ -109,6 +109,71 @@ class LlmChatDatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun migration13To14_preservesChatHistoryAndAddsEvidenceTables() {
+        helper.createDatabase(TEST_DATABASE_NAME, 13).apply {
+            execSQL(
+                """
+                INSERT INTO llm_conversations (
+                    id, title, created_at, updated_at
+                ) VALUES ('conversation-1', 'Evidence migration', 1, 1)
+                """.trimIndent()
+            )
+            execSQL(
+                """
+                INSERT INTO llm_messages (
+                    id, conversation_id, role, content, status,
+                    history_active, token_usage_estimated, created_at, updated_at
+                ) VALUES (
+                    'assistant-1', 'conversation-1', 'ASSISTANT', 'old response', 'COMPLETE',
+                    1, 0, 2, 2
+                )
+                """.trimIndent()
+            )
+            execSQL(
+                """
+                INSERT INTO llm_context_refs (
+                    id, conversation_id, assistant_message_id, context_id, type,
+                    article_id, content_snapshot, prompt_content_snapshot, content_sha256,
+                    priority, included_in_prompt, truncated_in_prompt, created_at
+                ) VALUES (
+                    'context-ref-1', 'conversation-1', 'assistant-1', 'article:1', 'ARTICLE',
+                    'article-1', 'old article', 'old article', 'old-hash',
+                    100, 1, 0, 3
+                )
+                """.trimIndent()
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(
+            TEST_DATABASE_NAME,
+            14,
+            true,
+            LlmChatDatabaseModule.MIGRATION_13_14,
+        ).apply {
+            query("SELECT content, history_active FROM llm_messages WHERE id = 'assistant-1'").use { cursor ->
+                check(cursor.moveToFirst())
+                assertEquals("old response", cursor.getString(0))
+                assertEquals(1, cursor.getInt(1))
+            }
+            query("SELECT content_snapshot, article_id FROM llm_context_refs WHERE id = 'context-ref-1'").use { cursor ->
+                check(cursor.moveToFirst())
+                assertEquals("old article", cursor.getString(0))
+                assertEquals("article-1", cursor.getString(1))
+            }
+            query("SELECT COUNT(*) FROM llm_evidence_blocks").use { cursor ->
+                check(cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+            }
+            query("SELECT COUNT(*) FROM llm_citation_refs").use { cursor ->
+                check(cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+            }
+            close()
+        }
+    }
+
     private companion object {
         const val TEST_DATABASE_NAME = "ux2-chat-migration-test"
     }

@@ -247,6 +247,89 @@ object LlmChatDatabaseModule {
             }
         }
 
+    /** v14 adds frozen Evidence/Citation history tables while the user-facing Citation gate stays off. */
+    internal val MIGRATION_13_14 =
+        object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_llm_messages_id_conversation_id " +
+                        "ON llm_messages(id, conversation_id)"
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_llm_context_refs_id_assistant_message_id_conversation_id " +
+                        "ON llm_context_refs(id, assistant_message_id, conversation_id)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS llm_evidence_blocks (" +
+                        "id TEXT NOT NULL, context_ref_id TEXT NOT NULL, stable_locator_key TEXT NOT NULL, " +
+                        "kind TEXT NOT NULL, ordinal INTEGER NOT NULL, text_snapshot TEXT NOT NULL, " +
+                        "normalized_sha256 TEXT NOT NULL, locator_json TEXT NOT NULL, " +
+                        "schema_version INTEGER NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY(id), " +
+                        "FOREIGN KEY(context_ref_id) REFERENCES llm_context_refs(id) " +
+                        "ON UPDATE NO ACTION ON DELETE CASCADE)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_llm_evidence_blocks_context_ref_id_ordinal_id " +
+                        "ON llm_evidence_blocks(context_ref_id, ordinal, id)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_llm_evidence_blocks_normalized_sha256 " +
+                        "ON llm_evidence_blocks(normalized_sha256)"
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_llm_evidence_blocks_context_ref_id_stable_locator_key " +
+                        "ON llm_evidence_blocks(context_ref_id, stable_locator_key)"
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_llm_evidence_blocks_id_context_ref_id " +
+                        "ON llm_evidence_blocks(id, context_ref_id)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS llm_citation_refs (" +
+                        "id TEXT NOT NULL, conversation_id TEXT NOT NULL, assistant_message_id TEXT NOT NULL, " +
+                        "context_ref_id TEXT NOT NULL, evidence_block_id TEXT, target_kind TEXT NOT NULL, " +
+                        "protocol_id TEXT NOT NULL, display_order INTEGER, quote_snapshot TEXT NOT NULL, " +
+                        "source_url TEXT, locator_json TEXT, schema_version INTEGER NOT NULL, " +
+                        "created_at INTEGER NOT NULL, PRIMARY KEY(id), " +
+                        "FOREIGN KEY(assistant_message_id, conversation_id) " +
+                        "REFERENCES llm_messages(id, conversation_id) ON UPDATE NO ACTION ON DELETE CASCADE, " +
+                        "FOREIGN KEY(context_ref_id, assistant_message_id, conversation_id) " +
+                        "REFERENCES llm_context_refs(id, assistant_message_id, conversation_id) " +
+                        "ON UPDATE NO ACTION ON DELETE CASCADE, " +
+                        "FOREIGN KEY(evidence_block_id, context_ref_id) " +
+                        "REFERENCES llm_evidence_blocks(id, context_ref_id) ON UPDATE NO ACTION ON DELETE CASCADE)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_llm_citation_refs_assistant_message_id_display_order_protocol_id " +
+                        "ON llm_citation_refs(assistant_message_id, display_order, protocol_id)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_llm_citation_refs_context_ref_id_id " +
+                        "ON llm_citation_refs(context_ref_id, id)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_llm_citation_refs_evidence_block_id_id " +
+                        "ON llm_citation_refs(evidence_block_id, id)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_llm_citation_refs_assistant_message_id_conversation_id " +
+                        "ON llm_citation_refs(assistant_message_id, conversation_id)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_llm_citation_refs_context_ref_id_assistant_message_id_conversation_id " +
+                        "ON llm_citation_refs(context_ref_id, assistant_message_id, conversation_id)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_llm_citation_refs_evidence_block_id_context_ref_id " +
+                        "ON llm_citation_refs(evidence_block_id, context_ref_id)"
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_llm_citation_refs_assistant_message_id_protocol_id " +
+                        "ON llm_citation_refs(assistant_message_id, protocol_id)"
+                )
+            }
+        }
+
     /** 创建 LLM Chat Room 数据库单例。 */
     @Provides
     @Singleton
@@ -268,6 +351,7 @@ object LlmChatDatabaseModule {
             MIGRATION_10_11,
             MIGRATION_11_12,
             MIGRATION_12_13,
+            MIGRATION_13_14,
         ).build()
 
     /** 向业务层提供 Chat DAO 单例。 */

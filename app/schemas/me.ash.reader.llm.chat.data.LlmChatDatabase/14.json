@@ -1,0 +1,963 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 14,
+    "identityHash": "467a35883e90e9f31d55a42ef2778c33",
+    "entities": [
+      {
+        "tableName": "llm_conversations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `title` TEXT NOT NULL, `provider_id` TEXT, `model` TEXT, `skill_id` TEXT, `article_id` TEXT, `article_title` TEXT, `article_link` TEXT, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "providerId",
+            "columnName": "provider_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "model",
+            "columnName": "model",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "skillId",
+            "columnName": "skill_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "articleId",
+            "columnName": "article_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "articleTitle",
+            "columnName": "article_title",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "articleLink",
+            "columnName": "article_link",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_llm_conversations_article_id",
+            "unique": false,
+            "columnNames": [
+              "article_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_llm_conversations_article_id` ON `${TABLE_NAME}` (`article_id`)"
+          }
+        ]
+      },
+      {
+        "tableName": "llm_conversation_articles",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`conversation_id` TEXT NOT NULL, `article_id` TEXT NOT NULL, `title` TEXT NOT NULL, `link` TEXT, `original_content` TEXT NOT NULL, `summary` TEXT, `position` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, PRIMARY KEY(`conversation_id`, `article_id`), FOREIGN KEY(`conversation_id`) REFERENCES `llm_conversations`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "conversationId",
+            "columnName": "conversation_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "articleId",
+            "columnName": "article_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "link",
+            "columnName": "link",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "originalContent",
+            "columnName": "original_content",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "summary",
+            "columnName": "summary",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "position",
+            "columnName": "position",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "conversation_id",
+            "article_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_llm_conversation_articles_conversation_id",
+            "unique": false,
+            "columnNames": [
+              "conversation_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_llm_conversation_articles_conversation_id` ON `${TABLE_NAME}` (`conversation_id`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "llm_conversations",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "conversation_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "llm_messages",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `conversation_id` TEXT NOT NULL, `role` TEXT NOT NULL, `content` TEXT NOT NULL, `request_task` TEXT, `reasoning` TEXT, `status` TEXT NOT NULL, `error_message` TEXT, `history_active` INTEGER NOT NULL DEFAULT 1, `web_search_status` TEXT, `web_search_query` TEXT, `web_search_provider_name` TEXT, `web_search_error_message` TEXT, `prompt_tokens` INTEGER, `completion_tokens` INTEGER, `duration_ms` INTEGER, `token_usage_estimated` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`conversation_id`) REFERENCES `llm_conversations`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "conversationId",
+            "columnName": "conversation_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "role",
+            "columnName": "role",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "content",
+            "columnName": "content",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "requestTask",
+            "columnName": "request_task",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "reasoning",
+            "columnName": "reasoning",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "errorMessage",
+            "columnName": "error_message",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "historyActive",
+            "columnName": "history_active",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "1"
+          },
+          {
+            "fieldPath": "webSearchStatus",
+            "columnName": "web_search_status",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "webSearchQuery",
+            "columnName": "web_search_query",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "webSearchProviderName",
+            "columnName": "web_search_provider_name",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "webSearchErrorMessage",
+            "columnName": "web_search_error_message",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "promptTokens",
+            "columnName": "prompt_tokens",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "completionTokens",
+            "columnName": "completion_tokens",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "durationMs",
+            "columnName": "duration_ms",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "tokenUsageEstimated",
+            "columnName": "token_usage_estimated",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_llm_messages_conversation_id",
+            "unique": false,
+            "columnNames": [
+              "conversation_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_llm_messages_conversation_id` ON `${TABLE_NAME}` (`conversation_id`)"
+          },
+          {
+            "name": "index_llm_messages_id_conversation_id",
+            "unique": true,
+            "columnNames": [
+              "id",
+              "conversation_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_llm_messages_id_conversation_id` ON `${TABLE_NAME}` (`id`, `conversation_id`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "llm_conversations",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "conversation_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "llm_tool_calls",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `conversation_id` TEXT NOT NULL, `assistant_message_id` TEXT NOT NULL, `provider_call_id` TEXT NOT NULL, `tool_id` TEXT NOT NULL, `api_name` TEXT NOT NULL, `arguments_json` TEXT NOT NULL, `status` TEXT NOT NULL, `result_content` TEXT, `error_message` TEXT, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`assistant_message_id`) REFERENCES `llm_messages`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`conversation_id`) REFERENCES `llm_conversations`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "conversationId",
+            "columnName": "conversation_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "assistantMessageId",
+            "columnName": "assistant_message_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "providerCallId",
+            "columnName": "provider_call_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "toolId",
+            "columnName": "tool_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "apiName",
+            "columnName": "api_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "argumentsJson",
+            "columnName": "arguments_json",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "resultContent",
+            "columnName": "result_content",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "errorMessage",
+            "columnName": "error_message",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_llm_tool_calls_assistant_message_id",
+            "unique": false,
+            "columnNames": [
+              "assistant_message_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_llm_tool_calls_assistant_message_id` ON `${TABLE_NAME}` (`assistant_message_id`)"
+          },
+          {
+            "name": "index_llm_tool_calls_conversation_id",
+            "unique": false,
+            "columnNames": [
+              "conversation_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_llm_tool_calls_conversation_id` ON `${TABLE_NAME}` (`conversation_id`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "llm_messages",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "assistant_message_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          },
+          {
+            "table": "llm_conversations",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "conversation_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "llm_context_refs",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `conversation_id` TEXT NOT NULL, `assistant_message_id` TEXT NOT NULL, `context_id` TEXT NOT NULL, `type` TEXT NOT NULL, `title` TEXT, `source_id` TEXT, `article_id` TEXT, `source_url` TEXT, `content_snapshot` TEXT NOT NULL, `prompt_content_snapshot` TEXT, `content_sha256` TEXT NOT NULL, `priority` INTEGER NOT NULL, `included_in_prompt` INTEGER NOT NULL, `truncated_in_prompt` INTEGER NOT NULL, `citation_index` INTEGER, `created_at` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`assistant_message_id`) REFERENCES `llm_messages`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`conversation_id`) REFERENCES `llm_conversations`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "conversationId",
+            "columnName": "conversation_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "assistantMessageId",
+            "columnName": "assistant_message_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contextId",
+            "columnName": "context_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceId",
+            "columnName": "source_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "articleId",
+            "columnName": "article_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceUrl",
+            "columnName": "source_url",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "contentSnapshot",
+            "columnName": "content_snapshot",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "promptContentSnapshot",
+            "columnName": "prompt_content_snapshot",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "contentSha256",
+            "columnName": "content_sha256",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "priority",
+            "columnName": "priority",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "includedInPrompt",
+            "columnName": "included_in_prompt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "truncatedInPrompt",
+            "columnName": "truncated_in_prompt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "citationIndex",
+            "columnName": "citation_index",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_llm_context_refs_assistant_message_id",
+            "unique": false,
+            "columnNames": [
+              "assistant_message_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_llm_context_refs_assistant_message_id` ON `${TABLE_NAME}` (`assistant_message_id`)"
+          },
+          {
+            "name": "index_llm_context_refs_conversation_id",
+            "unique": false,
+            "columnNames": [
+              "conversation_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_llm_context_refs_conversation_id` ON `${TABLE_NAME}` (`conversation_id`)"
+          },
+          {
+            "name": "index_llm_context_refs_assistant_message_id_context_id",
+            "unique": true,
+            "columnNames": [
+              "assistant_message_id",
+              "context_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_llm_context_refs_assistant_message_id_context_id` ON `${TABLE_NAME}` (`assistant_message_id`, `context_id`)"
+          },
+          {
+            "name": "index_llm_context_refs_assistant_message_id_citation_index",
+            "unique": true,
+            "columnNames": [
+              "assistant_message_id",
+              "citation_index"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_llm_context_refs_assistant_message_id_citation_index` ON `${TABLE_NAME}` (`assistant_message_id`, `citation_index`)"
+          },
+          {
+            "name": "index_llm_context_refs_id_assistant_message_id_conversation_id",
+            "unique": true,
+            "columnNames": [
+              "id",
+              "assistant_message_id",
+              "conversation_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_llm_context_refs_id_assistant_message_id_conversation_id` ON `${TABLE_NAME}` (`id`, `assistant_message_id`, `conversation_id`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "llm_messages",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "assistant_message_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          },
+          {
+            "table": "llm_conversations",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "conversation_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "llm_evidence_blocks",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `context_ref_id` TEXT NOT NULL, `stable_locator_key` TEXT NOT NULL, `kind` TEXT NOT NULL, `ordinal` INTEGER NOT NULL, `text_snapshot` TEXT NOT NULL, `normalized_sha256` TEXT NOT NULL, `locator_json` TEXT NOT NULL, `schema_version` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`context_ref_id`) REFERENCES `llm_context_refs`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contextRefId",
+            "columnName": "context_ref_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "stableLocatorKey",
+            "columnName": "stable_locator_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ordinal",
+            "columnName": "ordinal",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "textSnapshot",
+            "columnName": "text_snapshot",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "normalizedSha256",
+            "columnName": "normalized_sha256",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "locator",
+            "columnName": "locator_json",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "schemaVersion",
+            "columnName": "schema_version",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_llm_evidence_blocks_context_ref_id_ordinal_id",
+            "unique": false,
+            "columnNames": [
+              "context_ref_id",
+              "ordinal",
+              "id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_llm_evidence_blocks_context_ref_id_ordinal_id` ON `${TABLE_NAME}` (`context_ref_id`, `ordinal`, `id`)"
+          },
+          {
+            "name": "index_llm_evidence_blocks_normalized_sha256",
+            "unique": false,
+            "columnNames": [
+              "normalized_sha256"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_llm_evidence_blocks_normalized_sha256` ON `${TABLE_NAME}` (`normalized_sha256`)"
+          },
+          {
+            "name": "index_llm_evidence_blocks_context_ref_id_stable_locator_key",
+            "unique": true,
+            "columnNames": [
+              "context_ref_id",
+              "stable_locator_key"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_llm_evidence_blocks_context_ref_id_stable_locator_key` ON `${TABLE_NAME}` (`context_ref_id`, `stable_locator_key`)"
+          },
+          {
+            "name": "index_llm_evidence_blocks_id_context_ref_id",
+            "unique": true,
+            "columnNames": [
+              "id",
+              "context_ref_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_llm_evidence_blocks_id_context_ref_id` ON `${TABLE_NAME}` (`id`, `context_ref_id`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "llm_context_refs",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "context_ref_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "llm_citation_refs",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `conversation_id` TEXT NOT NULL, `assistant_message_id` TEXT NOT NULL, `context_ref_id` TEXT NOT NULL, `evidence_block_id` TEXT, `target_kind` TEXT NOT NULL, `protocol_id` TEXT NOT NULL, `display_order` INTEGER, `quote_snapshot` TEXT NOT NULL, `source_url` TEXT, `locator_json` TEXT, `schema_version` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`assistant_message_id`, `conversation_id`) REFERENCES `llm_messages`(`id`, `conversation_id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`context_ref_id`, `assistant_message_id`, `conversation_id`) REFERENCES `llm_context_refs`(`id`, `assistant_message_id`, `conversation_id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`evidence_block_id`, `context_ref_id`) REFERENCES `llm_evidence_blocks`(`id`, `context_ref_id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "conversationId",
+            "columnName": "conversation_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "assistantMessageId",
+            "columnName": "assistant_message_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contextRefId",
+            "columnName": "context_ref_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "evidenceBlockId",
+            "columnName": "evidence_block_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "targetKind",
+            "columnName": "target_kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "protocolId",
+            "columnName": "protocol_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "displayOrder",
+            "columnName": "display_order",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "quoteSnapshot",
+            "columnName": "quote_snapshot",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceUrl",
+            "columnName": "source_url",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "locatorSnapshot",
+            "columnName": "locator_json",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "schemaVersion",
+            "columnName": "schema_version",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_llm_citation_refs_assistant_message_id_display_order_protocol_id",
+            "unique": false,
+            "columnNames": [
+              "assistant_message_id",
+              "display_order",
+              "protocol_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_llm_citation_refs_assistant_message_id_display_order_protocol_id` ON `${TABLE_NAME}` (`assistant_message_id`, `display_order`, `protocol_id`)"
+          },
+          {
+            "name": "index_llm_citation_refs_context_ref_id_id",
+            "unique": false,
+            "columnNames": [
+              "context_ref_id",
+              "id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_llm_citation_refs_context_ref_id_id` ON `${TABLE_NAME}` (`context_ref_id`, `id`)"
+          },
+          {
+            "name": "index_llm_citation_refs_evidence_block_id_id",
+            "unique": false,
+            "columnNames": [
+              "evidence_block_id",
+              "id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_llm_citation_refs_evidence_block_id_id` ON `${TABLE_NAME}` (`evidence_block_id`, `id`)"
+          },
+          {
+            "name": "index_llm_citation_refs_assistant_message_id_conversation_id",
+            "unique": false,
+            "columnNames": [
+              "assistant_message_id",
+              "conversation_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_llm_citation_refs_assistant_message_id_conversation_id` ON `${TABLE_NAME}` (`assistant_message_id`, `conversation_id`)"
+          },
+          {
+            "name": "index_llm_citation_refs_context_ref_id_assistant_message_id_conversation_id",
+            "unique": false,
+            "columnNames": [
+              "context_ref_id",
+              "assistant_message_id",
+              "conversation_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_llm_citation_refs_context_ref_id_assistant_message_id_conversation_id` ON `${TABLE_NAME}` (`context_ref_id`, `assistant_message_id`, `conversation_id`)"
+          },
+          {
+            "name": "index_llm_citation_refs_evidence_block_id_context_ref_id",
+            "unique": false,
+            "columnNames": [
+              "evidence_block_id",
+              "context_ref_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_llm_citation_refs_evidence_block_id_context_ref_id` ON `${TABLE_NAME}` (`evidence_block_id`, `context_ref_id`)"
+          },
+          {
+            "name": "index_llm_citation_refs_assistant_message_id_protocol_id",
+            "unique": true,
+            "columnNames": [
+              "assistant_message_id",
+              "protocol_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_llm_citation_refs_assistant_message_id_protocol_id` ON `${TABLE_NAME}` (`assistant_message_id`, `protocol_id`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "llm_messages",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "assistant_message_id",
+              "conversation_id"
+            ],
+            "referencedColumns": [
+              "id",
+              "conversation_id"
+            ]
+          },
+          {
+            "table": "llm_context_refs",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "context_ref_id",
+              "assistant_message_id",
+              "conversation_id"
+            ],
+            "referencedColumns": [
+              "id",
+              "assistant_message_id",
+              "conversation_id"
+            ]
+          },
+          {
+            "table": "llm_evidence_blocks",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "evidence_block_id",
+              "context_ref_id"
+            ],
+            "referencedColumns": [
+              "id",
+              "context_ref_id"
+            ]
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '467a35883e90e9f31d55a42ef2778c33')"
+    ]
+  }
+}

@@ -6,9 +6,17 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import androidx.room.TypeConverter
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import me.ash.reader.llm.runtime.LlmContextType
 import me.ash.reader.llm.runtime.LlmExecutionTask
 import me.ash.reader.llm.search.WebSearchRequestStatus
+
+private val llmEvidenceLocatorJson = Json {
+    encodeDefaults = true
+    ignoreUnknownKeys = true
+}
 
 /** Chat 消息角色；传输层会显式映射到 OpenAI-Compatible role。 */
 enum class LlmChatRole {
@@ -100,7 +108,10 @@ data class LlmConversationArticleEntity(
             onDelete = ForeignKey.CASCADE,
         )
     ],
-    indices = [Index(value = ["conversation_id"])],
+    indices = [
+        Index(value = ["conversation_id"]),
+        Index(value = ["id", "conversation_id"], unique = true),
+    ],
 )
 data class LlmMessageEntity(
     @PrimaryKey val id: String,
@@ -202,6 +213,7 @@ data class LlmToolCallEntity(
         Index(value = ["conversation_id"]),
         Index(value = ["assistant_message_id", "context_id"], unique = true),
         Index(value = ["assistant_message_id", "citation_index"], unique = true),
+        Index(value = ["id", "assistant_message_id", "conversation_id"], unique = true),
     ],
 )
 data class LlmContextRefEntity(
@@ -289,4 +301,26 @@ class LlmChatConverters {
     @TypeConverter
     fun stringToWebSearchStatus(value: String?): WebSearchRequestStatus? =
         value?.let { encoded -> runCatching { WebSearchRequestStatus.valueOf(encoded) }.getOrNull() }
+
+    @TypeConverter
+    fun evidenceBlockKindToString(value: LlmEvidenceBlockKind): String = value.name
+
+    @TypeConverter
+    fun stringToEvidenceBlockKind(value: String): LlmEvidenceBlockKind =
+        LlmEvidenceBlockKind.valueOf(value)
+
+    @TypeConverter
+    fun citationTargetKindToString(value: LlmCitationTargetKind): String = value.name
+
+    @TypeConverter
+    fun stringToCitationTargetKind(value: String): LlmCitationTargetKind =
+        LlmCitationTargetKind.valueOf(value)
+
+    @TypeConverter
+    fun evidenceLocatorToString(value: LlmEvidenceLocatorV1?): String? =
+        value?.let { llmEvidenceLocatorJson.encodeToString(it) }
+
+    @TypeConverter
+    fun stringToEvidenceLocator(value: String?): LlmEvidenceLocatorV1? =
+        value?.let { llmEvidenceLocatorJson.decodeFromString(it) }
 }

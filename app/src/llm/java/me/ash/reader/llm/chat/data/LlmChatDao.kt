@@ -66,6 +66,19 @@ interface LlmChatDao {
     )
     suspend fun getContextRefsForAssistant(assistantMessageId: String): List<LlmContextRefEntity>
 
+    @Query(
+        "SELECT * FROM llm_evidence_blocks WHERE context_ref_id = :contextRefId " +
+            "ORDER BY ordinal ASC, id ASC"
+    )
+    suspend fun getEvidenceBlocksForContextRef(contextRefId: String): List<LlmEvidenceBlockEntity>
+
+    @Query(
+        "SELECT * FROM llm_citation_refs WHERE assistant_message_id = :assistantMessageId " +
+            "ORDER BY CASE WHEN display_order IS NULL THEN 2147483647 ELSE display_order END ASC, " +
+            "protocol_id ASC, id ASC"
+    )
+    suspend fun getCitationRefsForAssistant(assistantMessageId: String): List<LlmCitationRefEntity>
+
     /** 按用户附加顺序恢复当前会话仍处于活动状态的相关文章。 */
     @Query(
         "SELECT * FROM llm_conversation_articles WHERE conversation_id = :conversationId " +
@@ -130,6 +143,12 @@ interface LlmChatDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertContextRefs(contextRefs: List<LlmContextRefEntity>)
 
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertEvidenceBlocks(evidenceBlocks: List<LlmEvidenceBlockEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertCitationRefs(citationRefs: List<LlmCitationRefEntity>)
+
     /** 同一会话每篇文章只保留一个活动快照；replace 前会由事务统一删除旧集合。 */
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertConversationArticles(articles: List<LlmConversationArticleEntity>)
@@ -160,6 +179,30 @@ interface LlmChatDao {
     ) {
         deleteContextRefsForAssistant(assistantMessageId)
         if (contextRefs.isNotEmpty()) insertContextRefs(contextRefs)
+    }
+
+    @Query("DELETE FROM llm_evidence_blocks WHERE context_ref_id = :contextRefId")
+    suspend fun deleteEvidenceBlocksForContextRef(contextRefId: String)
+
+    @Transaction
+    suspend fun replaceEvidenceBlocksForContextRef(
+        contextRefId: String,
+        evidenceBlocks: List<LlmEvidenceBlockEntity>,
+    ) {
+        deleteEvidenceBlocksForContextRef(contextRefId)
+        if (evidenceBlocks.isNotEmpty()) insertEvidenceBlocks(evidenceBlocks)
+    }
+
+    @Query("DELETE FROM llm_citation_refs WHERE assistant_message_id = :assistantMessageId")
+    suspend fun deleteCitationRefsForAssistant(assistantMessageId: String)
+
+    @Transaction
+    suspend fun replaceCitationRefsForAssistant(
+        assistantMessageId: String,
+        citationRefs: List<LlmCitationRefEntity>,
+    ) {
+        deleteCitationRefsForAssistant(assistantMessageId)
+        if (citationRefs.isNotEmpty()) insertCitationRefs(citationRefs)
     }
 
     /** 更新单个 Tool Call 的审批/执行结果。 */
