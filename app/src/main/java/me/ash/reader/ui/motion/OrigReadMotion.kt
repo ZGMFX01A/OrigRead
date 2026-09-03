@@ -3,6 +3,9 @@ package me.ash.reader.ui.motion
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -124,6 +127,24 @@ fun origReadVisibilityExit(): ExitTransition =
         targetOffsetY = { OrigReadMotionGeometry.verticalOffset(it) },
         animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
     ) + fadeOut(animationSpec = MaterialTheme.motionScheme.fastEffectsSpec())
+
+/** Shared bounds for text that changes typography/layout between two navigation scenes. */
+@OptIn(ExperimentalSharedTransitionApi::class, ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun Modifier.origReadSharedTextBounds(
+    key: String,
+    sharedTransitionScope: SharedTransitionScope,
+    animatedVisibilityScope: AnimatedVisibilityScope,
+): Modifier =
+    with(sharedTransitionScope) {
+        this@origReadSharedTextBounds.sharedBounds(
+            sharedContentState = rememberSharedContentState(key),
+            animatedVisibilityScope = animatedVisibilityScope,
+            enter = fadeIn(animationSpec = MaterialTheme.motionScheme.fastEffectsSpec()),
+            exit = fadeOut(animationSpec = MaterialTheme.motionScheme.fastEffectsSpec()),
+            resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(),
+        )
+    }
 
 /**
  * Adds lightweight pressed feedback to an existing clickable surface. The caller must pass the

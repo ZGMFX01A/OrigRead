@@ -81,6 +81,7 @@ import me.ash.reader.ui.ext.findActivity
 import me.ash.reader.ui.ext.getCurrentVersion
 import me.ash.reader.ui.ext.isOrigReadDefaultAccount
 import me.ash.reader.ui.ext.surfaceColorAtElevation
+import me.ash.reader.ui.motion.origReadSharedTextBounds
 import me.ash.reader.ui.page.common.RouteName
 import me.ash.reader.ui.page.home.feeds.accounts.AccountsTab
 import me.ash.reader.ui.page.home.feeds.drawer.feed.FeedOptionDrawer
@@ -302,6 +303,12 @@ fun FeedsPage(
                     itemsIndexed(groupWithFeedList) { _, (group, feeds) ->
                         GroupWithFeedsContainer {
                             GroupItem(
+                                titleModifier =
+                                    Modifier.origReadSharedTextBounds(
+                                        key = "flow-title-group-${group.id}",
+                                        sharedTransitionScope = sharedTransitionScope,
+                                        animatedVisibilityScope = animatedVisibilityScope,
+                                    ),
                                 isExpanded = {
                                     groupsVisible.getOrPut(group.id, groupListExpand::value)
                                 },
@@ -323,6 +330,12 @@ fun FeedsPage(
                             feeds.forEachIndexed { index, feed ->
                                 FeedItem(
                                     feed = feed,
+                                    titleModifier =
+                                        Modifier.origReadSharedTextBounds(
+                                            key = "flow-title-feed-${feed.id}",
+                                            sharedTransitionScope = sharedTransitionScope,
+                                            animatedVisibilityScope = animatedVisibilityScope,
+                                        ),
                                     isLastItem = { index == feeds.lastIndex },
                                     isExpanded = {
                                         groupsVisible.getOrPut(feed.groupId, groupListExpand::value)

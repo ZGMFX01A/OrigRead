@@ -40,6 +40,7 @@ private fun contentPadding(isLastItem: Boolean): PaddingValues = if (isLastItem)
 private fun FeedItemImpl(
     feed: Feed,
     isLastItem: () -> Boolean = { false },
+    titleModifier: Modifier = Modifier,
     onLongClickCallback: (String) -> Unit = {},
     onClick: () -> Unit = {},
     onLongClick: () -> Unit = {}
@@ -70,7 +71,7 @@ private fun FeedItemImpl(
                     feedName = feed.name, iconUrl = feed.icon, modifier = Modifier
                 )
                 Text(
-                    modifier = Modifier.padding(start = 12.dp, end = 6.dp),
+                    modifier = titleModifier.padding(start = 12.dp, end = 6.dp),
                     text = feed.name,
                     style = MaterialTheme.typography.labelLarge.merge(
                         lineHeight = 20.sp,
@@ -108,6 +109,7 @@ fun FeedItem(
     feed: Feed,
     isLastItem: () -> Boolean = { false },
     isExpanded: () -> Boolean,
+    titleModifier: Modifier = Modifier,
     feedOptionViewModel: FeedOptionViewModel = hiltViewModel(),
     onClick: () -> Unit = {},
     onLongClick: () -> Unit = {}
@@ -117,6 +119,7 @@ fun FeedItem(
         FeedItemImpl(
             feed = feed,
             isLastItem = isLastItem,
+            titleModifier = titleModifier,
             onClick = onClick,
             onLongClick = onLongClick,
             onLongClickCallback = { feedId ->

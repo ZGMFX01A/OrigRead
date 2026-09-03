@@ -99,6 +99,7 @@ import me.ash.reader.ui.component.scrollbar.scrollIndicator
 import me.ash.reader.ui.ext.collectAsStateValue
 import me.ash.reader.ui.ext.openURL
 import me.ash.reader.ui.motion.Direction
+import me.ash.reader.ui.motion.origReadSharedTextBounds
 import me.ash.reader.ui.motion.sharedXAxisTransitionSlow
 import me.ash.reader.ui.motion.sharedYAxisTransitionExpressive
 import me.ash.reader.ui.page.adaptive.ArticleListReaderViewModel
@@ -158,6 +159,12 @@ fun FlowPage(
             filterUiState.group != null -> filterUiState.group.name
             filterUiState.feed != null -> filterUiState.feed.name
             else -> filterUiState.filter.toName()
+        }
+    val sharedTitleKey =
+        when {
+            filterUiState.group != null -> "flow-title-group-${filterUiState.group.id}"
+            filterUiState.feed != null -> "flow-title-feed-${filterUiState.feed.id}"
+            else -> null
         }
 
     val scope = rememberCoroutineScope()
@@ -338,10 +345,18 @@ fun FlowPage(
                         title = {
                             val textStyle = LocalTextStyle.current
                             val color = LocalContentColor.current
+                            val titleModifier =
+                                sharedTitleKey?.let { key ->
+                                    Modifier.origReadSharedTextBounds(
+                                        key = key,
+                                        sharedTransitionScope = sharedTransitionScope,
+                                        animatedVisibilityScope = animatedVisibilityScope,
+                                    )
+                                } ?: Modifier
                             if (textStyle.fontSize.value > 18f) {
                                 BasicText(
                                     modifier =
-                                        Modifier.padding(
+                                        titleModifier.padding(
                                             start = if (articleListFeedIcon.value) 34.dp else 8.dp,
                                             end = 24.dp,
                                         ),
@@ -358,6 +373,7 @@ fun FlowPage(
                                 )
                             } else {
                                 Text(
+                                    modifier = titleModifier,
                                     text = titleText,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,

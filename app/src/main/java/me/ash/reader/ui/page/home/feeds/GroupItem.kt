@@ -36,6 +36,7 @@ import me.ash.reader.ui.theme.ShapeTop32
 fun GroupItem(
     group: Group,
     isExpanded: () -> Boolean,
+    titleModifier: Modifier = Modifier,
     groupOptionViewModel: GroupOptionViewModel = hiltViewModel(),
     onExpanded: () -> Unit = {},
     onLongClick: () -> Unit = {},
@@ -66,6 +67,7 @@ fun GroupItem(
             Text(
                 modifier = Modifier
                     .weight(1f)
+                    .then(titleModifier)
                     .padding(horizontal = 28.dp),
                 text = group.name,
                 style = MaterialTheme.typography.titleMedium,
