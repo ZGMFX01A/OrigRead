@@ -21,6 +21,7 @@
 package me.ash.reader.ui.component.reader
 
 import androidx.annotation.DrawableRes
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -32,10 +33,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -43,6 +48,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -67,6 +73,8 @@ fun LazyListScope.htmlFormattedText(
     @DrawableRes imagePlaceholder: Int,
     onImageClick: ((imgUrl: String, altText: String) -> Unit)? = null,
     onLinkClick: (String) -> Unit,
+    anchorMapBuilder: NativeReaderAnchorMap.Builder? = null,
+    anchorHighlight: NativeReaderAnchorHighlight? = null,
 ) {
     htmlFormattedText(
         body = Jsoup.parse(inputStream, null, baseUrl)?.body(),
@@ -75,6 +83,8 @@ fun LazyListScope.htmlFormattedText(
         onImageClick = onImageClick,
         onLinkClick = onLinkClick,
         baseUrl = baseUrl,
+        anchorMapBuilder = anchorMapBuilder,
+        anchorHighlight = anchorHighlight,
     )
 }
 
@@ -85,6 +95,8 @@ fun LazyListScope.htmlFormattedText(
     @DrawableRes imagePlaceholder: Int,
     onImageClick: ((imgUrl: String, altText: String) -> Unit)? = null,
     onLinkClick: (String) -> Unit,
+    anchorMapBuilder: NativeReaderAnchorMap.Builder? = null,
+    anchorHighlight: NativeReaderAnchorHighlight? = null,
 ) {
     body?.let {
         formatBody(
@@ -94,6 +106,8 @@ fun LazyListScope.htmlFormattedText(
             onImageClick = onImageClick,
             onLinkClick = onLinkClick,
             baseUrl = baseUrl,
+            anchorMapBuilder = anchorMapBuilder,
+            anchorHighlight = anchorHighlight,
         )
     }
 }
@@ -106,11 +120,16 @@ private fun LazyListScope.formatBody(
     onImageClick: ((imgUrl: String, altText: String) -> Unit)? = null,
     onLinkClick: (String) -> Unit,
     baseUrl: String,
+    anchorMapBuilder: NativeReaderAnchorMap.Builder?,
+    anchorHighlight: NativeReaderAnchorHighlight?,
 ) {
-    val composer = TextComposer { paragraphBuilder ->
-        item {
+    val composer = TextComposer(
+        anchorMapBuilder = anchorMapBuilder,
+        anchorHighlight = anchorHighlight,
+    ) { paragraphBuilder, anchorRanges ->
+        readerTrackedItem(anchorMapBuilder, anchorRanges) {
             val textLinkStyles = textLinkStyles()
-            val paragraph =
+            val linkedParagraph =
                 paragraphBuilder.toAnnotatedString().mapAnnotations {
                     when (it.item) {
                         is LinkAnnotation.Url -> {
@@ -126,6 +145,7 @@ private fun LazyListScope.formatBody(
                         else -> it
                     }
                 }
+            val paragraph = linkedParagraph.withReaderEvidenceHighlight(anchorRanges, anchorHighlight)
             val requiresBidi = paragraph.toString().requiresBidi()
             val textStyle = bodyStyle().applyTextDirection(requiresBidi = requiresBidi)
             val contentWidth = LocalTextContentWidth.current
@@ -139,28 +159,36 @@ private fun LazyListScope.formatBody(
         }
     }
 
-    composer.appendTextChildren(
-        element.childNodes(),
-        subheadUpperCase = subheadUpperCase,
-        lazyListScope = this,
-        imagePlaceholder = imagePlaceholder,
-        onImageClick = onImageClick,
-        onLinkClick = onLinkClick,
-        baseUrl = baseUrl,
-    )
+    composer.withReaderAnchor(element.readerEvidenceStableLocatorKey()) {
+        appendTextChildren(
+            element.childNodes(),
+            subheadUpperCase = subheadUpperCase,
+            lazyListScope = this@formatBody,
+            imagePlaceholder = imagePlaceholder,
+            onImageClick = onImageClick,
+            onLinkClick = onLinkClick,
+            baseUrl = baseUrl,
+        )
+    }
 
     composer.terminateCurrentText()
 }
 
 private fun LazyListScope.formatCodeBlock(
     element: Element,
+    stableLocatorKey: String?,
     @DrawableRes imagePlaceholder: Int,
     onImageClick: ((imgUrl: String, altText: String) -> Unit)?,
     onLinkClick: (String) -> Unit,
     baseUrl: String,
+    anchorMapBuilder: NativeReaderAnchorMap.Builder?,
+    anchorHighlight: NativeReaderAnchorHighlight?,
 ) {
-    val composer = TextComposer { paragraphBuilder ->
-        item {
+    val composer = TextComposer(
+        anchorMapBuilder = anchorMapBuilder,
+        anchorHighlight = anchorHighlight,
+    ) { paragraphBuilder, anchorRanges ->
+        readerTrackedItem(anchorMapBuilder, anchorRanges) {
             val contentWidth = LocalTextContentWidth.current
             val scrollState = rememberScrollState()
             Spacer(modifier = Modifier.height(8.dp))
@@ -176,7 +204,9 @@ private fun LazyListScope.formatCodeBlock(
                             .horizontalScroll(state = scrollState)
                 ) {
                     Text(
-                        text = paragraphBuilder.toAnnotatedString(),
+                        text =
+                            paragraphBuilder.toAnnotatedString()
+                                .withReaderEvidenceHighlight(anchorRanges, anchorHighlight),
                         style = codeBlockStyle(),
                         softWrap = false,
                     )
@@ -186,15 +216,17 @@ private fun LazyListScope.formatCodeBlock(
         }
     }
 
-    composer.appendTextChildren(
-        element.childNodes(),
-        preFormatted = true,
-        lazyListScope = this,
-        imagePlaceholder = imagePlaceholder,
-        onImageClick = onImageClick,
-        onLinkClick = onLinkClick,
-        baseUrl = baseUrl,
-    )
+    composer.withReaderAnchor(stableLocatorKey) {
+        appendTextChildren(
+            element.childNodes(),
+            preFormatted = true,
+            lazyListScope = this@formatCodeBlock,
+            imagePlaceholder = imagePlaceholder,
+            onImageClick = onImageClick,
+            onLinkClick = onLinkClick,
+            baseUrl = baseUrl,
+        )
+    }
 
     composer.terminateCurrentText()
 }
@@ -234,11 +266,12 @@ private fun TextComposer.appendTextChildren(
 
             is Element -> {
                 val element = node
-                when (element.tagName()) {
+                withReaderAnchor(element.readerEvidenceStableLocatorKey()) {
+                    when (element.tagName()) {
                     "p" -> {
                         // Readability4j inserts p-tags in divs for algorithmic purposes.
                         // They screw up formatting.
-                        if (node.hasClass("readability-styled")) {
+                        if (element.hasClass("readability-styled")) {
                             appendTextChildren(
                                 element.childNodes(),
                                 lazyListScope = lazyListScope,
@@ -437,14 +470,16 @@ private fun TextComposer.appendTextChildren(
                     }
 
                     "pre" -> {
-                        appendTextChildren(
-                            element.childNodes(),
-                            preFormatted = true,
-                            lazyListScope = lazyListScope,
+                        terminateCurrentText()
+                        lazyListScope.formatCodeBlock(
+                            element = element,
+                            stableLocatorKey = element.readerEvidenceStableLocatorKey(),
                             imagePlaceholder = imagePlaceholder,
                             onImageClick = onImageClick,
                             onLinkClick = onLinkClick,
                             baseUrl = baseUrl,
+                            anchorMapBuilder = anchorMapBuilder,
+                            anchorHighlight = anchorHighlight,
                         )
                     }
 
@@ -453,10 +488,13 @@ private fun TextComposer.appendTextChildren(
                             terminateCurrentText()
                             lazyListScope.formatCodeBlock(
                                 element = element,
+                                stableLocatorKey = element.parent()?.readerEvidenceStableLocatorKey(),
                                 imagePlaceholder = imagePlaceholder,
                                 onImageClick = onImageClick,
                                 onLinkClick = onLinkClick,
                                 baseUrl = baseUrl,
+                                anchorMapBuilder = anchorMapBuilder,
+                                anchorHighlight = anchorHighlight,
                             )
                         } else {
                             // inline code
@@ -513,7 +551,7 @@ private fun TextComposer.appendTextChildren(
                         if (imageCandidates.hasImage) {
                             val alt = element.attr("alt") ?: ""
                             appendImage(onLinkClick = onLinkClick) { onClick ->
-                                lazyListScope.item {
+                                lazyListScope.readerTrackedItem(anchorMapBuilder) {
                                     val contentWidth = LocalImageContentWidth.current
                                     Column(
                                         modifier =
@@ -542,7 +580,7 @@ private fun TextComposer.appendTextChildren(
 
                     "figcaption",
                     "caption" -> {
-                        lazyListScope.item {
+                        lazyListScope.readerTrackedItem(anchorMapBuilder) {
                             val contentWidth = LocalTextContentWidth.current
                             Text(
                                 modifier =
@@ -560,7 +598,8 @@ private fun TextComposer.appendTextChildren(
                             .children()
                             .filter { it.tagName() == "li" }
                             .forEach { listItem ->
-                                withParagraph {
+                                withReaderAnchor(listItem.readerEvidenceStableLocatorKey()) {
+                                    withParagraph {
                                     // no break space
                                     append("  • ")
                                     appendTextChildren(
@@ -571,6 +610,7 @@ private fun TextComposer.appendTextChildren(
                                         onImageClick = onImageClick,
                                         baseUrl = baseUrl,
                                     )
+                                    }
                                 }
                             }
                     }
@@ -580,7 +620,8 @@ private fun TextComposer.appendTextChildren(
                             .children()
                             .filter { it.tagName() == "li" }
                             .forEachIndexed { i, listItem ->
-                                withParagraph {
+                                withReaderAnchor(listItem.readerEvidenceStableLocatorKey()) {
+                                    withParagraph {
                                     // no break space
                                     append("${i + 1}. ")
                                     appendTextChildren(
@@ -591,6 +632,7 @@ private fun TextComposer.appendTextChildren(
                                         onImageClick = onImageClick,
                                         baseUrl = baseUrl,
                                     )
+                                    }
                                 }
                             }
                     }
@@ -624,22 +666,26 @@ private fun TextComposer.appendTextChildren(
 
                             element
                                 .children()
-                                .filter {
-                                    it.tagName() == "thead" ||
-                                        it.tagName() == "tbody" ||
-                                        it.tagName() == "tfoot"
+                                .flatMap { child ->
+                                    when (child.tagName()) {
+                                        "tr" -> listOf(child)
+                                        "thead", "tbody", "tfoot" ->
+                                            child.children().filter { it.tagName() == "tr" }
+                                        else -> emptyList()
+                                    }
                                 }
-                                .flatMap { it.children().filter { it.tagName() == "tr" } }
                                 .forEach { row ->
-                                    appendTextChildren(
-                                        row.childNodes(),
-                                        lazyListScope = lazyListScope,
-                                        imagePlaceholder = imagePlaceholder,
-                                        onLinkClick = onLinkClick,
-                                        onImageClick = onImageClick,
-                                        baseUrl = baseUrl,
-                                    )
-                                    terminateCurrentText()
+                                    withReaderAnchor(row.readerEvidenceStableLocatorKey()) {
+                                        appendTextChildren(
+                                            row.childNodes(),
+                                            lazyListScope = lazyListScope,
+                                            imagePlaceholder = imagePlaceholder,
+                                            onLinkClick = onLinkClick,
+                                            onImageClick = onImageClick,
+                                            baseUrl = baseUrl,
+                                        )
+                                        terminateCurrentText()
+                                    }
                                 }
 
                             append("\n\n")
@@ -651,7 +697,7 @@ private fun TextComposer.appendTextChildren(
 
                         if (video != null) {
                             appendImage(onLinkClick = onLinkClick) {
-                                lazyListScope.item {
+                                lazyListScope.readerTrackedItem(anchorMapBuilder) {
                                     val contentWidth = LocalImageContentWidth.current
                                     Column(
                                         modifier =
@@ -710,23 +756,75 @@ private fun TextComposer.appendTextChildren(
                         // not implemented yet. remember to disable selection
                     }
 
-                    else -> {
-                        appendTextChildren(
-                            nodes = element.childNodes(),
-                            preFormatted = preFormatted,
-                            subheadUpperCase = subheadUpperCase,
-                            lazyListScope = lazyListScope,
-                            imagePlaceholder = imagePlaceholder,
-                            onImageClick = onImageClick,
-                            onLinkClick = onLinkClick,
-                            baseUrl = baseUrl,
-                        )
+                        else -> {
+                            appendTextChildren(
+                                nodes = element.childNodes(),
+                                preFormatted = preFormatted,
+                                subheadUpperCase = subheadUpperCase,
+                                lazyListScope = lazyListScope,
+                                imagePlaceholder = imagePlaceholder,
+                                onImageClick = onImageClick,
+                                onLinkClick = onLinkClick,
+                                baseUrl = baseUrl,
+                            )
+                        }
                     }
                 }
             }
         }
 
         node = node.nextSibling()
+    }
+}
+
+private fun LazyListScope.readerTrackedItem(
+    anchorMapBuilder: NativeReaderAnchorMap.Builder?,
+    anchorRanges: List<ReaderTextAnchorRange> = emptyList(),
+    content: @Composable () -> Unit,
+) {
+    val trackedItem = anchorMapBuilder?.recordItem(anchorRanges)
+    item(key = trackedItem?.lazyItemKey) { content() }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun AnnotatedString.withReaderEvidenceHighlight(
+    anchorRanges: List<ReaderTextAnchorRange>,
+    highlight: NativeReaderAnchorHighlight?,
+): AnnotatedString {
+    val targetKey = highlight?.stableLocatorKey ?: return this
+    val matchingRanges =
+        remember(anchorRanges, targetKey, length) {
+            anchorRanges
+                .filter { it.stableLocatorKey == targetKey }
+                .mapNotNull { range ->
+                    val start = range.start.coerceIn(0, length)
+                    val end = range.endExclusive.coerceIn(start, length)
+                    if (end > start) start until end else null
+                }
+        }
+    if (matchingRanges.isEmpty()) return this
+
+    val intensity = remember(targetKey) { Animatable(0f) }
+    val highlightInSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
+    val highlightOutSpec = MaterialTheme.motionScheme.slowEffectsSpec<Float>()
+    LaunchedEffect(highlight.revision, matchingRanges) {
+        intensity.snapTo(0f)
+        intensity.animateTo(1f, animationSpec = highlightInSpec)
+        intensity.animateTo(0f, animationSpec = highlightOutSpec)
+    }
+
+    val background =
+        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.82f * intensity.value)
+    return buildAnnotatedString {
+        append(this@withReaderEvidenceHighlight)
+        matchingRanges.forEach { range ->
+            addStyle(
+                SpanStyle(background = background),
+                start = range.first,
+                end = range.last + 1,
+            )
+        }
     }
 }
 

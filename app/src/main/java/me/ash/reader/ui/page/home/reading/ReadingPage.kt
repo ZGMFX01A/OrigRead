@@ -79,6 +79,7 @@ import me.ash.reader.infrastructure.translation.TranslationTarget
 import me.ash.reader.ui.ext.collectAsStateValue
 import me.ash.reader.ui.ext.openURL
 import me.ash.reader.ui.ext.showToast
+import me.ash.reader.ui.component.reader.NativeReaderAnchorState
 import me.ash.reader.ui.page.adaptive.ArticleListReaderViewModel
 import me.ash.reader.ui.page.adaptive.NavigationAction
 import me.ash.reader.ui.page.adaptive.ReaderState
@@ -125,6 +126,7 @@ fun ReadingPage(
         }
     val notionShareConfiguration = notionShareRepository.configuration.collectAsStateValue()
     val notionShareInProgress = notionShareRepository.shareInProgress.collectAsStateValue()
+    val nativeReaderAnchorState = remember { NativeReaderAnchorState() }
 
     var isReaderScrollingDown by remember { mutableStateOf(false) }
     var showFullScreenImageViewer by remember { mutableStateOf(false) }
@@ -641,6 +643,7 @@ fun ReadingPage(
                                                         },
                                                         enabled = isPullToSwitchArticleEnabled,
                                                     ),
+                                                articleId = readerState.articleId,
                                                 contentPadding = paddings,
                                                 // 摘要高度进入滚动内容本身，不再通过压缩 Content viewport 预留空间。
                                                 topBarSpacerHeight = 64.dp + summaryReservedHeight,
@@ -652,6 +655,8 @@ fun ReadingPage(
                                                     } else {
                                                         content.text.orEmpty()
                                                     },
+                                                isOriginalContent = !translationState.showTranslation,
+                                                nativeReaderAnchorState = nativeReaderAnchorState,
                                                 feedName = feedName,
                                                 title =
                                                     if (translationState.showTranslation) {

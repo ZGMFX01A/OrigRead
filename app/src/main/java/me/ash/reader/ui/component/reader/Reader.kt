@@ -34,7 +34,9 @@ fun LazyListScope.Reader(
     content: String,
     parsedBody: Element? = null,
     onImageClick: ((imgUrl: String, altText: String) -> Unit)? = null,
-    onLinkClick: (String) -> Unit
+    onLinkClick: (String) -> Unit,
+    anchorMapBuilder: NativeReaderAnchorMap.Builder? = null,
+    anchorHighlight: NativeReaderAnchorHighlight? = null,
 ) {
     if (parsedBody == null) {
         content.byteInputStream().use { inputStream ->
@@ -45,6 +47,8 @@ fun LazyListScope.Reader(
                 onImageClick = onImageClick,
                 imagePlaceholder = R.drawable.origread_icon,
                 onLinkClick = onLinkClick,
+                anchorMapBuilder = anchorMapBuilder,
+                anchorHighlight = anchorHighlight,
             )
         }
     } else {
@@ -55,6 +59,8 @@ fun LazyListScope.Reader(
             onImageClick = onImageClick,
             imagePlaceholder = R.drawable.origread_icon,
             onLinkClick = onLinkClick,
+            anchorMapBuilder = anchorMapBuilder,
+            anchorHighlight = anchorHighlight,
         )
     }
 }

@@ -1,0 +1,219 @@
+package me.ash.reader.ui.component.reader
+
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import kotlin.math.abs
+
+data class ReaderTextAnchorRange(
+    val stableLocatorKey: String,
+    val start: Int,
+    val endExclusive: Int,
+) {
+    init {
+        require(stableLocatorKey.isNotBlank()) { "Reader anchor key must not be blank" }
+        require(start >= 0) { "Reader anchor start must be non-negative" }
+        require(endExclusive >= start) { "Reader anchor range must not be reversed" }
+    }
+}
+
+data class NativeReaderAnchorPlacement(
+    val itemIndex: Int,
+    val textStart: Int,
+    val textEndExclusive: Int,
+)
+
+data class NativeReaderTrackedItem(
+    val itemIndex: Int,
+    val lazyItemKey: String?,
+)
+
+class NativeReaderAnchorMap private constructor(
+    private val placementsByStableKey: Map<String, List<NativeReaderAnchorPlacement>>,
+) {
+    fun placements(stableLocatorKey: String): List<NativeReaderAnchorPlacement> =
+        placementsByStableKey[stableLocatorKey].orEmpty()
+
+    class Builder {
+        private val placementsByStableKey = linkedMapOf<String, MutableList<NativeReaderAnchorPlacement>>()
+        private val itemSegmentCounters = mutableMapOf<String, Int>()
+        private var nextItemIndex: Int = 0
+
+        fun reset() {
+            placementsByStableKey.clear()
+            itemSegmentCounters.clear()
+            nextItemIndex = 0
+        }
+
+        fun recordItem(anchorRanges: List<ReaderTextAnchorRange> = emptyList()): NativeReaderTrackedItem {
+            val itemIndex = nextItemIndex++
+            val normalizedRanges =
+                anchorRanges.filter { range ->
+                    range.stableLocatorKey.isNotBlank() && range.endExclusive > range.start
+                }
+            normalizedRanges.forEach { range ->
+                placementsByStableKey.getOrPut(range.stableLocatorKey) { mutableListOf() } +=
+                    NativeReaderAnchorPlacement(
+                        itemIndex = itemIndex,
+                        textStart = range.start,
+                        textEndExclusive = range.endExclusive,
+                    )
+            }
+
+            val primaryAnchor = normalizedRanges.firstOrNull()?.stableLocatorKey
+            val lazyItemKey =
+                primaryAnchor?.let { key ->
+                    val segment = itemSegmentCounters[key] ?: 0
+                    itemSegmentCounters[key] = segment + 1
+                    "origread-reader-anchor:$key:$segment"
+                }
+            return NativeReaderTrackedItem(itemIndex = itemIndex, lazyItemKey = lazyItemKey)
+        }
+
+        fun snapshot(): NativeReaderAnchorMap =
+            NativeReaderAnchorMap(
+                placementsByStableKey.mapValues { (_, placements) -> placements.toList() }
+            )
+    }
+}
+
+data class NativeReaderAnchorHighlight(
+    val stableLocatorKey: String,
+    val revision: Long,
+)
+
+enum class NativeReaderAnchorUnavailableReason {
+    NOT_BOUND,
+    NOT_ORIGINAL_CONTENT,
+    ARTICLE_MISMATCH,
+    ANCHOR_NOT_FOUND,
+    RENDER_ITEM_NOT_FOUND,
+}
+
+sealed interface NativeReaderAnchorNavigationResult {
+    data class Located(
+        val stableLocatorKey: String,
+        val strategy: ReaderEvidenceResolveStrategy,
+        val itemIndex: Int,
+    ) : NativeReaderAnchorNavigationResult
+
+    data class Unavailable(
+        val reason: NativeReaderAnchorUnavailableReason,
+    ) : NativeReaderAnchorNavigationResult
+}
+
+private data class NativeReaderAnchorBinding(
+    val articleId: String?,
+    val originalContent: Boolean,
+    val evidenceDocument: ReaderEvidenceDocument,
+    val anchorMapBuilder: NativeReaderAnchorMap.Builder,
+    val listState: LazyListState,
+    val topInsetPx: Int,
+)
+
+/**
+ * Current native Reader anchor controller. It owns no LLM types: the LLM edition converts a frozen
+ * Citation locator into [ReaderEvidenceAnchorTarget] at the edition bridge.
+ */
+@Stable
+class NativeReaderAnchorState {
+    private var binding: NativeReaderAnchorBinding? = null
+    private var highlightRevision: Long = 0
+
+    var highlight: NativeReaderAnchorHighlight? by mutableStateOf(null)
+        private set
+
+    internal fun bind(
+        articleId: String?,
+        originalContent: Boolean,
+        evidenceDocument: ReaderEvidenceDocument,
+        anchorMapBuilder: NativeReaderAnchorMap.Builder,
+        listState: LazyListState,
+        topInsetPx: Int,
+    ) {
+        binding =
+            NativeReaderAnchorBinding(
+                articleId = articleId,
+                originalContent = originalContent,
+                evidenceDocument = evidenceDocument,
+                anchorMapBuilder = anchorMapBuilder,
+                listState = listState,
+                topInsetPx = topInsetPx.coerceAtLeast(0),
+            )
+    }
+
+    internal fun unbind() {
+        binding = null
+        highlight = null
+    }
+
+    suspend fun navigateTo(target: ReaderEvidenceAnchorTarget): NativeReaderAnchorNavigationResult {
+        val current = binding
+            ?: return NativeReaderAnchorNavigationResult.Unavailable(
+                NativeReaderAnchorUnavailableReason.NOT_BOUND
+            )
+        if (!current.originalContent) {
+            return NativeReaderAnchorNavigationResult.Unavailable(
+                NativeReaderAnchorUnavailableReason.NOT_ORIGINAL_CONTENT
+            )
+        }
+        val targetArticleId = target.articleId?.trim()?.ifBlank { null }
+        val currentArticleId = current.articleId?.trim()?.ifBlank { null }
+        if (targetArticleId != null && targetArticleId != currentArticleId) {
+            return NativeReaderAnchorNavigationResult.Unavailable(
+                NativeReaderAnchorUnavailableReason.ARTICLE_MISMATCH
+            )
+        }
+
+        val resolved = current.evidenceDocument.resolveReaderEvidenceAnchor(target)
+            ?: return NativeReaderAnchorNavigationResult.Unavailable(
+                NativeReaderAnchorUnavailableReason.ANCHOR_NOT_FOUND
+            )
+        val placement = current.anchorMapBuilder.snapshot().placements(resolved.block.stableLocatorKey).firstOrNull()
+            ?: return NativeReaderAnchorNavigationResult.Unavailable(
+                NativeReaderAnchorUnavailableReason.RENDER_ITEM_NOT_FOUND
+            )
+
+        val visibleItemCount = current.listState.layoutInfo.visibleItemsInfo.size.coerceAtLeast(1)
+        nativeReaderApproachIndex(
+            currentIndex = current.listState.firstVisibleItemIndex,
+            targetIndex = placement.itemIndex,
+            visibleItemCount = visibleItemCount,
+        )?.let { approachIndex ->
+            current.listState.scrollToItem(approachIndex)
+        }
+        current.listState.animateScrollToItem(
+            index = placement.itemIndex,
+            scrollOffset = -current.topInsetPx,
+        )
+        highlightRevision += 1
+        highlight =
+            NativeReaderAnchorHighlight(
+                stableLocatorKey = resolved.block.stableLocatorKey,
+                revision = highlightRevision,
+            )
+        return NativeReaderAnchorNavigationResult.Located(
+            stableLocatorKey = resolved.block.stableLocatorKey,
+            strategy = resolved.strategy,
+            itemIndex = placement.itemIndex,
+        )
+    }
+}
+
+internal fun nativeReaderApproachIndex(
+    currentIndex: Int,
+    targetIndex: Int,
+    visibleItemCount: Int,
+): Int? {
+    val viewportItems = visibleItemCount.coerceAtLeast(1)
+    val distance = targetIndex - currentIndex
+    if (abs(distance) <= viewportItems * 3) return null
+    val approachDistance = viewportItems * 2
+    return if (distance > 0) {
+        (targetIndex - approachDistance).coerceAtLeast(0)
+    } else {
+        targetIndex + approachDistance
+    }
+}

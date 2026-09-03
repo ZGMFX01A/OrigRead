@@ -23,10 +23,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -40,7 +42,11 @@ import me.ash.reader.infrastructure.preference.LocalReadingRenderer
 import me.ash.reader.infrastructure.preference.LocalReadingSubheadUpperCase
 import me.ash.reader.infrastructure.preference.ReadingRendererPreference
 import me.ash.reader.ui.component.reader.LocalTextContentWidth
+import me.ash.reader.ui.component.reader.NativeReaderAnchorMap
+import me.ash.reader.ui.component.reader.NativeReaderAnchorState
 import me.ash.reader.ui.component.reader.Reader
+import me.ash.reader.ui.component.reader.ReaderEvidenceDocument
+import me.ash.reader.ui.component.reader.buildReaderEvidenceDocument
 import me.ash.reader.ui.component.scrollbar.drawVerticalScrollIndicator
 import me.ash.reader.ui.component.webview.OrigReadWebView
 import me.ash.reader.ui.ext.extractDomain
@@ -48,10 +54,16 @@ import me.ash.reader.ui.ext.isLlmEdition
 import me.ash.reader.ui.ext.roundClick
 import org.jsoup.Jsoup
 
+private data class NativeReaderParsedContent(
+    val body: org.jsoup.nodes.Element,
+    val evidenceDocument: ReaderEvidenceDocument,
+)
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun Content(
     modifier: Modifier = Modifier,
+    articleId: String? = null,
     content: String,
     feedName: String,
     title: String,
@@ -70,11 +82,13 @@ fun Content(
     onVerifyAndParse: (() -> Unit)? = null,
     onImageClick: ((imgUrl: String, altText: String) -> Unit)? = null,
     onSelectedTextAction: ((String) -> Unit)? = null,
+    isOriginalContent: Boolean = true,
+    nativeReaderAnchorState: NativeReaderAnchorState? = null,
 ) {
     val context = LocalContext.current
     val subheadUpperCase = LocalReadingSubheadUpperCase.current
     val renderer = LocalReadingRenderer.current
-    val nativeReaderBody =
+    val nativeReaderContent =
         remember(content, link, renderer, isLoading, failureReason) {
             if (
                 renderer == ReadingRendererPreference.NativeComponent &&
@@ -82,12 +96,48 @@ fun Content(
                     failureReason == null
             ) {
                 content.byteInputStream().use { inputStream ->
-                    Jsoup.parse(inputStream, null, link ?: "").body()
+                    val body = Jsoup.parse(inputStream, null, link ?: "").body()
+                    NativeReaderParsedContent(
+                        body = body,
+                        evidenceDocument = buildReaderEvidenceDocument(body),
+                    )
                 }
             } else {
                 null
             }
         }
+    val nativeAnchorMapBuilder =
+        remember(nativeReaderContent?.body) { NativeReaderAnchorMap.Builder() }
+    val nativeAnchorTopInsetPx =
+        with(LocalDensity.current) { (topBarSpacerHeight + topContentPadding).roundToPx() }
+
+    DisposableEffect(
+        nativeReaderAnchorState,
+        articleId,
+        isOriginalContent,
+        nativeReaderContent,
+        listState,
+        nativeAnchorTopInsetPx,
+        renderer,
+    ) {
+        if (
+            nativeReaderAnchorState != null &&
+                nativeReaderContent != null &&
+                renderer == ReadingRendererPreference.NativeComponent
+        ) {
+            nativeReaderAnchorState.bind(
+                articleId = articleId,
+                originalContent = isOriginalContent,
+                evidenceDocument = nativeReaderContent.evidenceDocument,
+                anchorMapBuilder = nativeAnchorMapBuilder,
+                listState = listState,
+                topInsetPx = nativeAnchorTopInsetPx,
+            )
+        } else {
+            nativeReaderAnchorState?.unbind()
+        }
+        onDispose { nativeReaderAnchorState?.unbind() }
+    }
 
     val textContentWidth = LocalTextContentWidth.current
     val maxWidthModifier = Modifier.widthIn(max = textContentWidth)
@@ -181,6 +231,7 @@ fun Content(
             }
 
             ReadingRendererPreference.NativeComponent -> {
+                nativeAnchorMapBuilder.reset()
                 PrioritizedProcessTextContextMenu(
                     enabled = onSelectedTextAction != null,
                     targetLabel = selectedTextActionLabel,
@@ -191,6 +242,7 @@ fun Content(
                             state = listState,
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
+                            nativeAnchorMapBuilder.recordItem()
                             item {
                                 // Top bar height
                                 Spacer(modifier = Modifier.height(topBarSpacerHeight))
@@ -204,12 +256,15 @@ fun Content(
                                 subheadUpperCase = subheadUpperCase.value,
                                 link = link ?: "",
                                 content = content,
-                                parsedBody = nativeReaderBody,
+                                parsedBody = nativeReaderContent?.body,
                                 onImageClick = onImageClick,
                                 onLinkClick = { uriHandler.openUri(it) },
+                                anchorMapBuilder = nativeAnchorMapBuilder,
+                                anchorHighlight = nativeReaderAnchorState?.highlight,
                             )
 
                             releaseLinks?.let { links ->
+                                nativeAnchorMapBuilder.recordItem()
                                 item {
                                     OrigReadReleaseActions(
                                         links = links,
@@ -218,6 +273,7 @@ fun Content(
                                 }
                             }
 
+                            nativeAnchorMapBuilder.recordItem()
                             item {
                                 Spacer(modifier = Modifier.height(128.dp))
                                 Spacer(

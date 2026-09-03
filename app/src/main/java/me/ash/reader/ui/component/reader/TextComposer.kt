@@ -28,13 +28,17 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.util.fastLastOrNull
 
 class TextComposer(
-    val paragraphEmitter: (AnnotatedParagraphStringBuilder) -> Unit,
+    val anchorMapBuilder: NativeReaderAnchorMap.Builder? = null,
+    val anchorHighlight: NativeReaderAnchorHighlight? = null,
+    val paragraphEmitter: (AnnotatedParagraphStringBuilder, List<ReaderTextAnchorRange>) -> Unit,
 ) {
 
     val spanStack: MutableList<Span> = mutableListOf()
 
     // The identity of this will change - do not reference it in blocks
     private var builder: AnnotatedParagraphStringBuilder = AnnotatedParagraphStringBuilder()
+    private val activeReaderAnchors = mutableListOf<ActiveReaderAnchor>()
+    private val completedReaderAnchorRanges = mutableListOf<ReaderTextAnchorRange>()
 
     fun terminateCurrentText() {
         if (builder.isEmpty()) {
@@ -42,9 +46,27 @@ class TextComposer(
             return
         }
 
-        paragraphEmitter(builder)
+        val currentEnd = builder.length
+        val readerAnchorRanges =
+            buildList {
+                addAll(completedReaderAnchorRanges)
+                activeReaderAnchors.forEach { active ->
+                    if (currentEnd > active.start) {
+                        add(
+                            ReaderTextAnchorRange(
+                                stableLocatorKey = active.stableLocatorKey,
+                                start = active.start,
+                                endExclusive = currentEnd,
+                            )
+                        )
+                    }
+                }
+            }
+        paragraphEmitter(builder, readerAnchorRanges)
 
         builder = AnnotatedParagraphStringBuilder()
+        completedReaderAnchorRanges.clear()
+        activeReaderAnchors.forEach { active -> active.start = 0 }
 
         for (span in spanStack) {
             when (span) {
@@ -117,9 +139,31 @@ class TextComposer(
 
     fun pushLink(link: LinkAnnotation) = builder.pushLink(link)
 
+    fun pushReaderAnchor(stableLocatorKey: String) {
+        require(stableLocatorKey.isNotBlank()) { "Reader anchor key must not be blank" }
+        activeReaderAnchors += ActiveReaderAnchor(stableLocatorKey, builder.length)
+    }
+
+    fun popReaderAnchor() {
+        val active = activeReaderAnchors.removeLastOrNull() ?: return
+        if (builder.length > active.start) {
+            completedReaderAnchorRanges +=
+                ReaderTextAnchorRange(
+                    stableLocatorKey = active.stableLocatorKey,
+                    start = active.start,
+                    endExclusive = builder.length,
+                )
+        }
+    }
+
     private fun findClosestLink(): String? {
         return (spanStack.fastLastOrNull { it is SpanWithLink } as? SpanWithLink)?.link?.url
     }
+
+    private data class ActiveReaderAnchor(
+        val stableLocatorKey: String,
+        var start: Int,
+    )
 }
 
 inline fun <R : Any> TextComposer.withParagraph(
@@ -127,6 +171,19 @@ inline fun <R : Any> TextComposer.withParagraph(
 ): R {
     ensureDoubleNewline()
     return block(this)
+}
+
+inline fun <R : Any> TextComposer.withReaderAnchor(
+    stableLocatorKey: String?,
+    crossinline block: TextComposer.() -> R,
+): R {
+    if (stableLocatorKey.isNullOrBlank()) return block(this)
+    pushReaderAnchor(stableLocatorKey)
+    return try {
+        block(this)
+    } finally {
+        popReaderAnchor()
+    }
 }
 
 inline fun <R : Any> TextComposer.withStyle(
