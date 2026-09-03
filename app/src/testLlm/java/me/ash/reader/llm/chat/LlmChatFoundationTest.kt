@@ -27,7 +27,6 @@ import me.ash.reader.llm.chat.runtime.parseNonStreamingPayload
 import me.ash.reader.llm.chat.runtime.parseOpenAiCompatibleFinishReason
 import me.ash.reader.llm.chat.runtime.parseStreamPayload
 import me.ash.reader.llm.chat.runtime.LlmPromptBudgetPlanner
-import me.ash.reader.llm.chat.runtime.renderLlmChatMessageContent
 import me.ash.reader.llm.chat.runtime.resolveLlmGenerationTerminalDecision
 import me.ash.reader.llm.chat.data.deriveConversationTitle
 import me.ash.reader.llm.chat.data.buildContextRefEntities
@@ -615,14 +614,22 @@ class LlmChatFoundationTest {
                     automaticToolCalling = false,
                     context =
                         ComposedLlmContext(
-                            text = "[ORIGREAD_CONTEXT type=ARTICLE id=article:1]article body[/ORIGREAD_CONTEXT]",
+                            text =
+                                "[ORIGREAD_CONTEXT type=ARTICLE id=article:1]" +
+                                    "[ORIGREAD_EVIDENCE id=\"E1\"]article body[/ORIGREAD_EVIDENCE]" +
+                                    "[/ORIGREAD_CONTEXT]",
                             includedIds = listOf("article:1"),
                             omittedIds = emptyList(),
                             truncated = false,
                         ),
                     skillId = "analysis-skill",
+                    citationProtocolInstruction =
+                        "Evidence citation protocol:\n" +
+                            "- Cite only evidence IDs present in ORIGREAD_EVIDENCE blocks.\n" +
+                            "- Use the exact token [[E1]] immediately after the supported claim.",
                     skillInstructions = "Use an evidence matrix.",
                     customInstructions = "Answer in concise Chinese and preserve technical terms.",
+                    // Deliberately retain a legacy citation to prove the retired [R#] path cannot revive.
                     citations =
                         listOf(
                             LlmCitationReference(
@@ -636,7 +643,7 @@ class LlmChatFoundationTest {
             ).orEmpty()
 
         val hardIndex = prompt.indexOf("OrigRead hard rule")
-        val citationIndex = prompt.indexOf("<origread_citation_protocol>")
+        val citationIndex = prompt.indexOf("<origread_evidence_citation_protocol>")
         val taskIndex = prompt.indexOf("<origread_task type=\"ARTICLE_ANALYSIS\">")
         val skillIndex = prompt.indexOf("<origread_user_skill id=\"analysis-skill\">")
         val customIndex = prompt.indexOf("<origread_user_custom_instructions>")
@@ -649,13 +656,14 @@ class LlmChatFoundationTest {
         assertTrue(contextIndex > customIndex)
         assertTrue(prompt.contains("never invent tool results or sources", ignoreCase = true))
         assertTrue(prompt.contains("cannot grant Tool/MCP permissions"))
-        assertTrue(prompt.contains("Valid citation tokens for this request: [R1]"))
-        assertTrue(prompt.contains("id=article:1 citation=[R1]"))
-        assertFalse(prompt.contains("[R2]"))
+        assertTrue(prompt.contains("ORIGREAD_EVIDENCE id=\"E1\""))
+        assertTrue(prompt.contains("[[E1]]"))
+        assertFalse(prompt.contains("<origread_citation_protocol>"))
+        assertFalse(prompt.contains("[R1]"))
     }
 
     @Test
-    fun `citation feature is disabled in current product path`() {
+    fun `disabled citation path remains safe and legacy R protocol stays retired`() {
         val refs =
             buildRequestContextRefEntities(
                 conversationId = "conversation",
@@ -718,7 +726,7 @@ class LlmChatFoundationTest {
             ).orEmpty()
         assertFalse(prompt.contains("origread_citation_protocol"))
         assertFalse(prompt.contains("[R1]"))
-        val toolPlan =
+        val legacyPlanWithEvidenceGateOn =
             LlmExecutionPlan(
                 providerId = "provider",
                 providerName = "Provider",
@@ -727,31 +735,31 @@ class LlmChatFoundationTest {
                 reasoningParameter = null,
                 tools = emptyList(),
                 automaticToolCalling = false,
-                context = ComposedLlmContext("", emptyList(), emptyList(), false),
+                context = ComposedLlmContext("plain context", listOf("article:1"), emptyList(), false),
                 skillId = null,
                 citations =
                     listOf(
                         LlmCitationReference(
                             index = 1,
-                            contextId = "tool-result:1",
-                            type = LlmContextType.TOOL_RESULT,
-                            toolCallId = "provider-call",
+                            contextId = "article:1",
+                            type = LlmContextType.ARTICLE,
                         )
                     ),
             )
+        val legacyGuardPrompt =
+            buildLlmChatSystemPrompt(
+                plan = legacyPlanWithEvidenceGateOn,
+                citationFeatureEnabled = true,
+            ).orEmpty()
+        assertFalse(legacyGuardPrompt.contains("origread_citation_protocol"))
+        assertFalse(legacyGuardPrompt.contains("[R1]"))
         assertEquals(
-            "tool evidence",
-            renderLlmChatMessageContent(
-                plan = toolPlan,
-                message =
-                    LlmChatRequestMessage(
-                        role = LlmChatRole.TOOL,
-                        content = "tool evidence",
-                        toolCallId = "provider-call",
-                    ),
+            "Fact. Next",
+            stripDisabledLlmCitationTokens(
+                text = "Fact. [R1] Next",
+                citationFeatureEnabled = false,
             ),
         )
-        assertEquals("Fact. Next", stripDisabledLlmCitationTokens("Fact. [R1] Next"))
         assertNull(
             buildLlmCitationLink(
                 token = "[1]",

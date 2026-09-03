@@ -20,7 +20,7 @@ internal class LlmPromptBudgetPlanner {
             buildLlmChatSystemPrompt(plan)?.let { estimateLlmTokens(it) + MESSAGE_OVERHEAD_TOKENS } ?: 0
         val historyTokens =
             history.sumOf { message ->
-                estimateLlmTokens(renderLlmChatMessageContent(plan, message)) +
+                estimateLlmTokens(message.content) +
                     MESSAGE_OVERHEAD_TOKENS +
                     message.toolCalls.sumOf { call ->
                         estimateLlmTokens(call.id) +

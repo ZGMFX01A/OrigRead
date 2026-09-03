@@ -1,15 +1,16 @@
 package me.ash.reader.llm.chat.data
 
 /**
- * R07 Evidence Citation is implemented incrementally behind one production gate.
- * The legacy whole-ARTICLE [R#] protocol stays retired; only the new Evidence Block / [[E#]]
- * pipeline may be enabled, and the gate must remain false until R07.7 completes device acceptance.
+ * R07 Evidence Citation production gate.
+ * The legacy whole-ARTICLE [R#] protocol is permanently retired; this gate controls only the
+ * Evidence Block / [[E#]] pipeline shared by Standard and OrigRead X.
  */
-internal const val LLM_EVIDENCE_CITATION_ENABLED = false
+internal const val LLM_EVIDENCE_CITATION_ENABLED = true
 
 /**
- * While the product gate is closed, hide both retired [R#] tokens and the new request-local
- * [[E#]] tokens. Ordinary R1/R2 text and normal bracketed numbers are left untouched.
+ * When Citation is explicitly disabled (tests/compatibility fallback), hide both retired [R#]
+ * tokens and request-local [[E#]] tokens. Ordinary R1/R2 text and normal bracketed numbers are
+ * left untouched.
  */
 internal fun stripDisabledLlmCitationTokens(
     text: String,
