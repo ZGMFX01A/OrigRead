@@ -7,6 +7,7 @@ import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -38,13 +39,15 @@ import me.ash.reader.llm.chat.data.LlmToolCallEntity
 import me.ash.reader.llm.chat.data.LlmToolCallStatus
 import me.ash.reader.llm.chat.data.LLM_EVIDENCE_CITATION_ENABLED
 import me.ash.reader.llm.chat.data.LlmCitationProtocolEntry
+import me.ash.reader.llm.chat.data.LlmArticleEvidenceSource
+import me.ash.reader.llm.chat.data.buildArticleEvidenceBlocks
 import me.ash.reader.llm.chat.data.buildEvidencePersistence
 import me.ash.reader.llm.chat.data.buildCitationRefsFromAssistantOutput
 import me.ash.reader.llm.chat.data.buildRequestContextRefEntities
 import me.ash.reader.llm.chat.data.buildUnconsumedContextRefEntities
 import me.ash.reader.llm.chat.data.prepareCitationProtocol
 import me.ash.reader.llm.chat.data.stripHistoricalCitationProtocolTokens
-import me.ash.reader.llm.chat.data.withArticleEvidenceBlocks
+import me.ash.reader.llm.chat.data.withBuiltEvidenceBlocks
 import me.ash.reader.llm.chat.data.withSelectionEvidenceBlock
 import me.ash.reader.llm.chat.data.withToolResultEvidenceBlock
 import me.ash.reader.llm.chat.data.withWebSearchEvidenceBlock
@@ -365,6 +368,7 @@ class LlmChatViewModel @Inject constructor(
     private var generationJob: Job? = null
     private var manualToolJob: Job? = null
     private var articleCandidateJob: Job? = null
+    private var articleCandidateRequestRevision = 0L
     private var conversationSelectionInitialized = false
     /** 会话/文章边界修订号；异步候选加载必须命中同一修订号，禁止旧点击串入新会话。 */
     private var conversationSelectionRevision = 0L
@@ -537,10 +541,12 @@ class LlmChatViewModel @Inject constructor(
                     _uiState.update {
                         it.copy(
                             messages =
-                                mergeChatMessagesWithTransientOverrides(
-                                    persistedMessages = snapshot.persistedMessages,
-                                    transientOverrides = snapshot.transientOverrides,
-                                    conversationId = snapshot.conversationId,
+                                visibleChatPresentationMessages(
+                                    mergeChatMessagesWithTransientOverrides(
+                                        persistedMessages = snapshot.persistedMessages,
+                                        transientOverrides = snapshot.transientOverrides,
+                                        conversationId = snapshot.conversationId,
+                                    )
                                 )
                         )
                     }
@@ -759,6 +765,7 @@ class LlmChatViewModel @Inject constructor(
     fun loadArticleCandidates(query: String = "") {
         val currentArticleId = articleContext.value?.articleId ?: return
         val normalizedQuery = query.trim()
+        val requestRevision = ++articleCandidateRequestRevision
         articleCandidateJob?.cancel()
         _uiState.update {
             it.copy(
@@ -775,7 +782,12 @@ class LlmChatViewModel @Inject constructor(
                         } else {
                             articleCandidateRepository.searchArticles(currentArticleId, normalizedQuery)
                         }
-                    if (articleContext.value?.articleId != currentArticleId) return@launch
+                    if (
+                        articleContext.value?.articleId != currentArticleId ||
+                            articleCandidateRequestRevision != requestRevision
+                    ) {
+                        return@launch
+                    }
                     _uiState.update {
                         it.copy(
                             articleCandidates = candidates,
@@ -786,7 +798,10 @@ class LlmChatViewModel @Inject constructor(
                 } catch (error: CancellationException) {
                     throw error
                 } catch (_: Exception) {
-                    if (articleContext.value?.articleId == currentArticleId) {
+                    if (
+                        articleContext.value?.articleId == currentArticleId &&
+                            articleCandidateRequestRevision == requestRevision
+                    ) {
                         _uiState.update {
                             it.copy(
                                 articleCandidates = emptyList(),
@@ -1530,15 +1545,19 @@ class LlmChatViewModel @Inject constructor(
                     webSearchRoute.errorMessage ?: "Web Search 强制联网失败"
                 )
             }
+            val additionalArticleAttachments = _uiState.value.additionalArticleAttachments
+            val manualToolContexts = _uiState.value.manualToolContexts
             val contextItems =
-                buildRequestArticleContextItems(
-                    currentArticle = currentArticle,
-                    attachments = _uiState.value.additionalArticleAttachments,
-                    // 一键 Article Analysis 语义仍是“分析当前文章”；多文章比较只进入普通 CHAT。
-                    includeAdditionalArticles = requestTask == LlmExecutionTask.CHAT,
-                ) +
-                    _uiState.value.manualToolContexts.map(LlmManualToolContext::toContextItem) +
-                    webSearchContextItems
+                withContext(Dispatchers.Default) {
+                    buildRequestArticleContextItems(
+                        currentArticle = currentArticle,
+                        attachments = additionalArticleAttachments,
+                        // 一键 Article Analysis 语义仍是“分析当前文章”；多文章比较只进入普通 CHAT。
+                        includeAdditionalArticles = requestTask == LlmExecutionTask.CHAT,
+                    ) +
+                        manualToolContexts.map(LlmManualToolContext::toContextItem) +
+                        webSearchContextItems
+                }
             val enabledToolIds =
                 if (advancedSettings.mcpEnabled) {
                     toolRuntime.descriptors()
@@ -1550,30 +1569,32 @@ class LlmChatViewModel @Inject constructor(
                 }
             val runtimePrepareStartedAtNanos = System.nanoTime()
             val plan =
-                llmRuntime.prepare(
-                    profile =
-                        LlmExecutionProfile(
-                            task = requestTask,
-                            providerId = selection.providerId,
-                            model = selection.model,
-                            skillId = requestSkillId,
-                            customInstructions = advancedSettings.customInstructions,
-                            enabledToolIds = enabledToolIds,
-                            reasoningEffort = advancedSettings.reasoningEffort,
-                            capabilityOverride =
-                                if (advancedSettings.streamResponses) {
-                                    null
-                                } else {
-                                    ModelCapabilityOverride(supportsStreaming = false)
-                                },
-                            contextPolicy =
-                                LlmContextPolicy(
-                                    maxTokens = advancedSettings.contextMaxTokens
+                withContext(Dispatchers.Default) {
+                    llmRuntime.prepare(
+                        profile =
+                            LlmExecutionProfile(
+                                task = requestTask,
+                                providerId = selection.providerId,
+                                model = selection.model,
+                                skillId = requestSkillId,
+                                customInstructions = advancedSettings.customInstructions,
+                                enabledToolIds = enabledToolIds,
+                                reasoningEffort = advancedSettings.reasoningEffort,
+                                capabilityOverride =
+                                    if (advancedSettings.streamResponses) {
+                                        null
+                                    } else {
+                                        ModelCapabilityOverride(supportsStreaming = false)
+                                    },
+                                contextPolicy =
+                                    LlmContextPolicy(
+                                        maxTokens = advancedSettings.contextMaxTokens
+                                    ),
                                 ),
-                        ),
-                    contextItems = contextItems,
-                    perfTrace = perfTrace,
-                )
+                        contextItems = contextItems,
+                        perfTrace = perfTrace,
+                    )
+                }
             LlmChatPerfTracker.mark(
                 assistant.id,
                 "runtime_prepare_complete",
@@ -1610,12 +1631,14 @@ class LlmChatViewModel @Inject constructor(
                 }
             val evidenceState =
                 if (LLM_EVIDENCE_CITATION_ENABLED) {
-                    buildEvidencePersistence(
-                        contextItems = contextItems,
-                        contextRefs = contextRefs,
-                        toolCalls = requestToolCalls,
-                        createdAt = contextRefCreatedAt,
-                    )
+                    withContext(Dispatchers.Default) {
+                        buildEvidencePersistence(
+                            contextItems = contextItems,
+                            contextRefs = contextRefs,
+                            toolCalls = requestToolCalls,
+                            createdAt = contextRefCreatedAt,
+                        )
+                    }
                 } else {
                     null
                 }
@@ -1624,8 +1647,8 @@ class LlmChatViewModel @Inject constructor(
                 contextRefs = contextRefs,
                 evidenceBlocks = evidenceState?.evidenceBlocks.orEmpty(),
             )
-            // R07 Evidence Citation transport is wired but remains behind the feature gate.
-            // ContextRef continues to freeze source snapshots, and the legacy [R#] protocol stays disabled.
+            // R07 Evidence Citation uses request-local [[E#]] transport; ContextRef keeps frozen source
+            // snapshots, while the retired legacy [R#] protocol remains disabled.
             val citationReady =
                 evidenceState?.let { state ->
                     prepareCitationProtocol(
@@ -2022,6 +2045,10 @@ internal fun mergeChatMessagesWithTransientOverrides(
         .sortedWith(compareBy<LlmMessageEntity> { it.createdAt }.thenBy { it.id })
 }
 
+internal fun visibleChatPresentationMessages(
+    messages: List<LlmMessageEntity>,
+): List<LlmMessageEntity> = messages.filter(LlmMessageEntity::historyActive)
+
 /** 只有 Room 已经回读到完全相同的终态实体时，内存覆盖才算被持久化层确认。 */
 internal fun acknowledgedChatTransientMessageIds(
     persistedMessages: List<LlmMessageEntity>,
@@ -2103,6 +2130,19 @@ private fun AiProviderProfile?.orEmptyModels(): List<String> = this?.availableMo
 internal fun buildArticleContextItems(context: ArticleAssistantContext): List<LlmContextItem> =
     buildList {
         val originalContent = context.originalContent.trim().takeIf(String::isNotBlank)
+        val articleEvidenceBlocks =
+            if (LLM_EVIDENCE_CITATION_ENABLED && originalContent != null) {
+                buildArticleEvidenceBlocks(
+                    html = originalContent,
+                    source =
+                        LlmArticleEvidenceSource(
+                            articleId = context.articleId,
+                            sourceUrl = context.link,
+                        ),
+                )
+            } else {
+                emptyList()
+            }
         context.selectedText?.trim()?.takeIf(String::isNotBlank)?.let { selection ->
             add(
                 LlmContextItem(
@@ -2115,8 +2155,11 @@ internal fun buildArticleContextItems(context: ArticleAssistantContext): List<Ll
                     // 用户刚刚显式选中的正文与当前问题相关度最高，必须优先于摘要/译文/整篇正文进入预算。
                     priority = 160,
                 ).let { item ->
-                    if (LLM_EVIDENCE_CITATION_ENABLED) {
-                        item.withSelectionEvidenceBlock(articleHtml = originalContent)
+                    if (
+                        LLM_EVIDENCE_CITATION_ENABLED &&
+                            !context.selectedTextFromTranslation
+                    ) {
+                        item.withSelectionEvidenceBlock(articleEvidenceBlocks = articleEvidenceBlocks)
                     } else {
                         item
                     }
@@ -2135,7 +2178,11 @@ internal fun buildArticleContextItems(context: ArticleAssistantContext): List<Ll
                     reserveEvidenceBudget = true,
                     priority = 100,
                 ).let { item ->
-                    if (LLM_EVIDENCE_CITATION_ENABLED) item.withArticleEvidenceBlocks() else item
+                    if (LLM_EVIDENCE_CITATION_ENABLED) {
+                        item.withBuiltEvidenceBlocks(articleEvidenceBlocks)
+                    } else {
+                        item
+                    }
                 }
             )
         }

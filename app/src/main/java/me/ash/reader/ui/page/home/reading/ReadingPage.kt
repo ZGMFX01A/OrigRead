@@ -141,6 +141,9 @@ fun ReadingPage(
     var showArticleAssistant by remember { mutableStateOf(false) }
     var articleAnalysisRequested by remember(readerState.articleId) { mutableStateOf(false) }
     var selectedTextForAssistant by remember(readerState.articleId) { mutableStateOf<String?>(null) }
+    var selectedTextForAssistantFromTranslation by remember(readerState.articleId) {
+        mutableStateOf(false)
+    }
     var pendingCitationNavigation by remember { mutableStateOf<PendingCitationNavigation?>(null) }
     var citationNavigationFailureId by remember { mutableStateOf<String?>(null) }
     var showInteractiveVerification by remember { mutableStateOf(false) }
@@ -153,9 +156,12 @@ fun ReadingPage(
      */
     fun openArticleAssistant(
         selectedText: String? = null,
+        selectedTextFromTranslation: Boolean = false,
         analyzeArticle: Boolean = false,
     ) {
         selectedTextForAssistant = selectedText?.trim()?.takeIf(String::isNotBlank)
+        selectedTextForAssistantFromTranslation =
+            selectedTextForAssistant != null && selectedTextFromTranslation
         articleAnalysisRequested = analyzeArticle
         showArticleAssistant = true
     }
@@ -166,6 +172,15 @@ fun ReadingPage(
         showArticleAssistant = false
         articleAnalysisRequested = false
         selectedTextForAssistant = null
+        selectedTextForAssistantFromTranslation = false
+        readerEvidenceMarkerState.clear()
+    }
+
+    fun hideArticleAssistantForCitation() {
+        showArticleAssistant = false
+        articleAnalysisRequested = false
+        selectedTextForAssistant = null
+        selectedTextForAssistantFromTranslation = false
     }
 
     LaunchedEffect(aiAssistantEnabled) {
@@ -269,9 +284,10 @@ fun ReadingPage(
                 title = readerState.title.orEmpty(),
                 link = readerState.link,
                 originalContent = readerState.content.text.orEmpty(),
-                // Chat 的文章事实来源固定为原文；摘要/译文属于独立阅读产物，不进入 Conversation Context。
-                // 正在查看译文时也不把译文选区当成原始证据传给 Chat。
-                selectedText = selectedTextForAssistant.takeIf { visibleTranslation == null },
+                // Chat 的自动文章事实来源固定为原文；整篇摘要/译文不进入 Conversation Context。
+                // 用户显式选中的译文片段可以参与提问，但 LLM 层不会把它映射成原文 Citation。
+                selectedText = selectedTextForAssistant,
+                selectedTextFromTranslation = selectedTextForAssistantFromTranslation,
             )
         }
     val readingSharePreference = settings.readingShare
@@ -459,6 +475,12 @@ fun ReadingPage(
     }
 
     LaunchedEffect(readerState.articleId) {
+        val currentArticleId = readerState.articleId?.trim()?.ifBlank { null }
+        val keepCitationMarker =
+            currentArticleId != null && pendingCitationNavigation?.isTargetArticle(currentArticleId) == true
+        if (!keepCitationMarker) {
+            readerEvidenceMarkerState.clear()
+        }
         // 阅读对象变化时关闭上一文章的助手，避免旧会话覆盖在新正文之上。
         showArticleAssistant = false
     }
@@ -779,7 +801,10 @@ fun ReadingPage(
                                                 onSelectedTextAction =
                                                     if (aiAssistantEnabled) {
                                                         { selectedText ->
-                                                            openArticleAssistant(selectedText = selectedText)
+                                                            openArticleAssistant(
+                                                                selectedText = selectedText,
+                                                                selectedTextFromTranslation = visibleTranslation != null,
+                                                            )
                                                         }
                                                     } else {
                                                         null
@@ -852,7 +877,10 @@ fun ReadingPage(
                 articleAssistantContext != null &&
                 readingRenderer == ReadingRendererPreference.NativeComponent,
         onSelectedText = { selectedText ->
-            openArticleAssistant(selectedText = selectedText)
+            openArticleAssistant(
+                selectedText = selectedText,
+                selectedTextFromTranslation = visibleTranslation != null,
+            )
         },
     )
     EditionArticleAssistantSheet(
@@ -876,6 +904,7 @@ fun ReadingPage(
         onNavigateReaderCitation = { request ->
             citationNavigationFailureId = null
             pendingCitationNavigation = request
+            hideArticleAssistantForCitation()
             viewModel.showOriginalContentForCitation()
             if (request.articleId != readerState.articleId) {
                 onLoadArticle(request.articleId, -1)

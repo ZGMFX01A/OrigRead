@@ -23,6 +23,7 @@ internal fun projectLlmAssistantCitationDisplay(
     content: String,
     citationRefs: List<LlmCitationRefEntity>,
     citationFeatureEnabled: Boolean = LLM_EVIDENCE_CITATION_ENABLED,
+    preserveStreamingCitationLayout: Boolean = false,
 ): LlmAssistantCitationDisplay {
     if (!citationFeatureEnabled) {
         return LlmAssistantCitationDisplay(
@@ -44,12 +45,25 @@ internal fun projectLlmAssistantCitationDisplay(
         }
     val byProtocolId = validRefs.associateBy(LlmCitationRefEntity::protocolId)
     val byDisplayOrder = validRefs.associateBy { requireNotNull(it.displayOrder) }.toSortedMap()
+    val provisionalDisplayOrders =
+        if (preserveStreamingCitationLayout) {
+            linkedMapOf<String, Int>().apply {
+                NEW_CITATION_PROTOCOL_TOKEN_REGEX.findAll(content).forEach { match ->
+                    val protocolId = match.groupValues[1]
+                    if (protocolId !in this) this[protocolId] = size + 1
+                }
+            }
+        } else {
+            emptyMap()
+        }
 
     val projected =
         content
             .replace(NEW_CITATION_PROTOCOL_TOKEN_REGEX) { match ->
                 val protocolId = match.groupValues[1]
-                byProtocolId[protocolId]?.displayOrder?.let { "[$it]" }.orEmpty()
+                val displayOrder =
+                    byProtocolId[protocolId]?.displayOrder ?: provisionalDisplayOrders[protocolId]
+                displayOrder?.let { "[$it]" }.orEmpty()
             }
             // Legacy whole-context [R#] never becomes a precise Evidence Citation.
             .replace(LEGACY_CITATION_TOKEN_REGEX, "")

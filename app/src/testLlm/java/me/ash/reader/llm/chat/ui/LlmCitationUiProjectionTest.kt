@@ -84,6 +84,37 @@ class LlmCitationUiProjectionTest {
     }
 
     @Test
+    fun `streaming projection keeps provisional citation width until persisted refs arrive`() {
+        val projected =
+            projectLlmAssistantCitationDisplay(
+                assistantMessageId = "assistant-1",
+                content = "First [[E7]], second [[E2]], repeat [[E7]].",
+                citationRefs = emptyList(),
+                citationFeatureEnabled = true,
+                preserveStreamingCitationLayout = true,
+            )
+
+        assertEquals("First [1], second [2], repeat [1].", projected.markdown)
+        assertTrue(projected.validDisplayOrders.isEmpty())
+        assertTrue(projected.refsByDisplayOrder.isEmpty())
+    }
+
+    @Test
+    fun `completed projection still removes hallucinated evidence ids`() {
+        val projected =
+            projectLlmAssistantCitationDisplay(
+                assistantMessageId = "assistant-1",
+                content = "Supported [[E1]], hallucinated [[E999]].",
+                citationRefs = listOf(citationRef(id = "one", protocolId = "E1", displayOrder = 1)),
+                citationFeatureEnabled = true,
+                preserveStreamingCitationLayout = false,
+            )
+
+        assertEquals("Supported [1], hallucinated.", projected.markdown)
+        assertEquals(setOf(1), projected.validDisplayOrders)
+    }
+
+    @Test
     fun `reader marker snapshot keeps each assistant messages own numbering`() {
         val refs =
             listOf(

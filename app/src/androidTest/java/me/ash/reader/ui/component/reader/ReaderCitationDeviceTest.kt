@@ -44,6 +44,7 @@ class ReaderCitationDeviceTest {
             )
         val currentBlock = current.blocks.single { it.kind == ReaderEvidenceBlockKind.PARAGRAPH }
         val anchorMap = NativeReaderAnchorMap.Builder().apply {
+            beginPass()
             recordItem(
                 listOf(
                     ReaderTextAnchorRange(
@@ -53,6 +54,7 @@ class ReaderCitationDeviceTest {
                     )
                 )
             )
+            commitPass()
         }
         val state = NativeReaderAnchorState()
         state.bind(

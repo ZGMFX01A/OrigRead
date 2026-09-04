@@ -37,24 +37,36 @@ class NativeReaderAnchorMap private constructor(
         placementsByStableKey[stableLocatorKey].orEmpty()
 
     class Builder {
-        private val placementsByStableKey = linkedMapOf<String, MutableList<NativeReaderAnchorPlacement>>()
-        private val itemSegmentCounters = mutableMapOf<String, Int>()
-        private var nextItemIndex: Int = 0
+        private var committedPlacementsByStableKey: Map<String, List<NativeReaderAnchorPlacement>> =
+            emptyMap()
+        private var stagingPlacementsByStableKey = linkedMapOf<String, MutableList<NativeReaderAnchorPlacement>>()
+        private var stagingItemSegmentCounters = mutableMapOf<String, Int>()
+        private var stagingNextItemIndex: Int = 0
+        private var passActive: Boolean = false
 
-        fun reset() {
-            placementsByStableKey.clear()
-            itemSegmentCounters.clear()
-            nextItemIndex = 0
+        fun beginPass() {
+            stagingPlacementsByStableKey = linkedMapOf()
+            stagingItemSegmentCounters = mutableMapOf()
+            stagingNextItemIndex = 0
+            passActive = true
+        }
+
+        fun commitPass() {
+            if (!passActive) return
+            committedPlacementsByStableKey =
+                stagingPlacementsByStableKey.mapValues { (_, placements) -> placements.toList() }
+            passActive = false
         }
 
         fun recordItem(anchorRanges: List<ReaderTextAnchorRange> = emptyList()): NativeReaderTrackedItem {
-            val itemIndex = nextItemIndex++
+            if (!passActive) beginPass()
+            val itemIndex = stagingNextItemIndex++
             val normalizedRanges =
                 anchorRanges.filter { range ->
                     range.stableLocatorKey.isNotBlank() && range.endExclusive > range.start
                 }
             normalizedRanges.forEach { range ->
-                placementsByStableKey.getOrPut(range.stableLocatorKey) { mutableListOf() } +=
+                stagingPlacementsByStableKey.getOrPut(range.stableLocatorKey) { mutableListOf() } +=
                     NativeReaderAnchorPlacement(
                         itemIndex = itemIndex,
                         textStart = range.start,
@@ -65,17 +77,14 @@ class NativeReaderAnchorMap private constructor(
             val primaryAnchor = normalizedRanges.firstOrNull()?.stableLocatorKey
             val lazyItemKey =
                 primaryAnchor?.let { key ->
-                    val segment = itemSegmentCounters[key] ?: 0
-                    itemSegmentCounters[key] = segment + 1
+                    val segment = stagingItemSegmentCounters[key] ?: 0
+                    stagingItemSegmentCounters[key] = segment + 1
                     "origread-reader-anchor:$key:$segment"
                 }
             return NativeReaderTrackedItem(itemIndex = itemIndex, lazyItemKey = lazyItemKey)
         }
 
-        fun snapshot(): NativeReaderAnchorMap =
-            NativeReaderAnchorMap(
-                placementsByStableKey.mapValues { (_, placements) -> placements.toList() }
-            )
+        fun snapshot(): NativeReaderAnchorMap = NativeReaderAnchorMap(committedPlacementsByStableKey)
     }
 }
 

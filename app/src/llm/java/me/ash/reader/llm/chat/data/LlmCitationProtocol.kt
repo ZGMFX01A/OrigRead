@@ -58,12 +58,28 @@ internal fun buildEvidencePersistence(
     idFactory: () -> String = { UUID.randomUUID().toString() },
 ): LlmEvidencePersistenceState {
     val contextRefByContextId = contextRefs.associateBy(LlmContextRefEntity::contextId)
-    val articleHtmlByArticleId =
+    val parsedArticleEvidenceByContextId =
+        contextItems
+            .asSequence()
+            .filter { it.type == LlmContextType.ARTICLE && it.evidenceBlocks.isNotEmpty() }
+            .associate { item ->
+                item.id to
+                    buildArticleEvidenceBlocks(
+                        html = item.content,
+                        source =
+                            LlmArticleEvidenceSource(
+                                articleId = item.internalArticleId,
+                                sourceUrl = item.sourceId,
+                            ),
+                    )
+            }
+    val parsedArticleEvidenceByArticleId =
         contextItems
             .asSequence()
             .filter { it.type == LlmContextType.ARTICLE }
             .mapNotNull { item ->
-                item.internalArticleId?.trim()?.ifBlank { null }?.let { it to item.content }
+                val articleId = item.internalArticleId?.trim()?.ifBlank { null } ?: return@mapNotNull null
+                parsedArticleEvidenceByContextId[item.id]?.let { articleId to it }
             }
             .toMap()
     val entities = mutableListOf<LlmEvidenceBlockEntity>()
@@ -78,14 +94,7 @@ internal fun buildEvidencePersistence(
             val parsed =
                 when (item.type) {
                     LlmContextType.ARTICLE ->
-                        buildArticleEvidenceBlocks(
-                            html = item.content,
-                            source =
-                                LlmArticleEvidenceSource(
-                                    articleId = item.internalArticleId,
-                                    sourceUrl = item.sourceId,
-                                ),
-                        )
+                        parsedArticleEvidenceByContextId[item.id].orEmpty()
                     LlmContextType.SELECTED_TEXT ->
                         listOfNotNull(
                             buildSelectionEvidenceBlock(
@@ -95,11 +104,11 @@ internal fun buildEvidencePersistence(
                                         articleId = item.internalArticleId,
                                         sourceUrl = item.sourceId,
                                     ),
-                                articleHtml =
+                                articleEvidenceBlocks =
                                     item.internalArticleId
                                         ?.trim()
                                         ?.ifBlank { null }
-                                        ?.let(articleHtmlByArticleId::get),
+                                        ?.let(parsedArticleEvidenceByArticleId::get),
                             )
                         )
                     LlmContextType.WEB_SEARCH_RESULT ->

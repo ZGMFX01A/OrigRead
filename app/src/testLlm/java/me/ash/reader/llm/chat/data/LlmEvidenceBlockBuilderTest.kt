@@ -129,7 +129,7 @@ class LlmEvidenceBlockBuilderTest {
             buildSelectionEvidenceBlock(
                 content = "selected evidence",
                 source = LlmArticleEvidenceSource(articleId = "article-1"),
-                articleHtml = html,
+                articleEvidenceBlocks = articleBlocks,
             )!!
 
         assertEquals(paragraph.stableLocatorKey, block.stableLocatorKey)
@@ -137,6 +137,33 @@ class LlmEvidenceBlockBuilderTest {
         assertEquals(paragraph.ordinal, block.locator.blockIndex)
         assertEquals(paragraph.locator.headingPath, block.locator.headingPath)
         assertEquals(paragraph.normalizedSha256, block.locator.normalizedHash)
+    }
+
+    @Test
+    fun `selection reuse keeps the exact same locator as reparsing the article`() {
+        val html =
+            "<h2>Section</h2><p>Prefix selected evidence suffix.</p><p>Other text.</p>"
+        val source =
+            LlmArticleEvidenceSource(
+                articleId = "article-1",
+                sourceUrl = "https://example.com/article-1",
+            )
+        val articleBlocks = buildArticleEvidenceBlocks(html, source)
+
+        val reparsed =
+            buildSelectionEvidenceBlock(
+                content = "selected evidence",
+                source = source,
+                articleHtml = html,
+            )!!
+        val reused =
+            buildSelectionEvidenceBlock(
+                content = "selected evidence",
+                source = source,
+                articleEvidenceBlocks = articleBlocks,
+            )!!
+
+        assertEquals(reparsed, reused)
     }
 
     @Test

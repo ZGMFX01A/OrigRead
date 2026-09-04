@@ -39,7 +39,13 @@ internal fun LlmContextItem.withArticleEvidenceBlocks(): LlmContextItem {
             html = content,
             source = LlmArticleEvidenceSource(articleId = internalArticleId, sourceUrl = sourceId),
         )
-    return copy(
+    return withBuiltEvidenceBlocks(blocks)
+}
+
+internal fun LlmContextItem.withBuiltEvidenceBlocks(
+    blocks: List<BuiltLlmEvidenceBlock>,
+): LlmContextItem =
+    copy(
         evidenceBlocks =
             blocks.map { block ->
                 LlmContextEvidenceBlock(
@@ -48,15 +54,18 @@ internal fun LlmContextItem.withArticleEvidenceBlocks(): LlmContextItem {
                 )
             }
     )
-}
 
-internal fun LlmContextItem.withSelectionEvidenceBlock(articleHtml: String?): LlmContextItem {
+internal fun LlmContextItem.withSelectionEvidenceBlock(
+    articleHtml: String? = null,
+    articleEvidenceBlocks: List<BuiltLlmEvidenceBlock>? = null,
+): LlmContextItem {
     if (type != LlmContextType.SELECTED_TEXT) return this
     val block =
         buildSelectionEvidenceBlock(
             content = content,
             source = LlmArticleEvidenceSource(articleId = internalArticleId, sourceUrl = sourceId),
             articleHtml = articleHtml,
+            articleEvidenceBlocks = articleEvidenceBlocks,
         ) ?: return this
     return copy(
         evidenceBlocks =
@@ -165,15 +174,19 @@ fun buildSelectionEvidenceBlock(
     content: String,
     source: LlmArticleEvidenceSource = LlmArticleEvidenceSource(),
     articleHtml: String? = null,
+    articleEvidenceBlocks: List<BuiltLlmEvidenceBlock>? = null,
 ): BuiltLlmEvidenceBlock? {
     val normalized = normalizeReaderEvidenceText(content)
     if (normalized.isBlank()) return null
     val normalizedSha256 = sha256(normalized)
     val syntheticStableLocatorKey = "SELECTION:${normalizedSha256.take(24)}:0"
+    val candidateArticleBlocks =
+        articleEvidenceBlocks
+            ?: articleHtml
+                ?.takeIf(String::isNotBlank)
+                ?.let { html -> buildArticleEvidenceBlocks(html, source) }
     val uniqueArticleBlock =
-        articleHtml
-            ?.takeIf(String::isNotBlank)
-            ?.let { html -> buildArticleEvidenceBlocks(html, source) }
+        candidateArticleBlocks
             ?.filter { block -> normalizeReaderEvidenceText(block.content).contains(normalized) }
             ?.singleOrNull()
     val stableLocatorKey = uniqueArticleBlock?.stableLocatorKey ?: syntheticStableLocatorKey

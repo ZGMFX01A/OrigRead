@@ -177,6 +177,7 @@ class ReaderEvidenceAnchorTest {
     @Test
     fun `anchor map records real lazy item indices and text ranges`() {
         val builder = NativeReaderAnchorMap.Builder()
+        builder.beginPass()
         builder.recordItem() // Reader header.
         builder.recordItem(
             listOf(
@@ -186,6 +187,7 @@ class ReaderEvidenceAnchorTest {
         )
         builder.recordItem() // Image between text items.
         builder.recordItem(listOf(ReaderTextAnchorRange("block-a", 2, 6)))
+        builder.commitPass()
 
         val snapshot = builder.snapshot()
 
@@ -200,6 +202,24 @@ class ReaderEvidenceAnchorTest {
             listOf(NativeReaderAnchorPlacement(itemIndex = 1, textStart = 10, textEndExclusive = 20)),
             snapshot.placements("block-b"),
         )
+    }
+
+    @Test
+    fun `anchor map keeps last committed snapshot while a recomposition pass is rebuilding`() {
+        val builder = NativeReaderAnchorMap.Builder()
+        builder.beginPass()
+        builder.recordItem(listOf(ReaderTextAnchorRange("old-block", 0, 5)))
+        builder.commitPass()
+
+        builder.beginPass()
+        builder.recordItem(listOf(ReaderTextAnchorRange("new-block", 0, 4)))
+
+        assertEquals(1, builder.snapshot().placements("old-block").size)
+        assertTrue(builder.snapshot().placements("new-block").isEmpty())
+
+        builder.commitPass()
+        assertTrue(builder.snapshot().placements("old-block").isEmpty())
+        assertEquals(1, builder.snapshot().placements("new-block").size)
     }
 
     @Test

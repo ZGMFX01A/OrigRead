@@ -1131,6 +1131,7 @@ private fun AssistantMessage(
                 assistantMessageId = message.id,
                 content = message.content,
                 citationRefs = citationRefs,
+                preserveStreamingCitationLayout = message.status == LlmMessageStatus.STREAMING,
             )
         }
     val displayContent = citationDisplay.markdown

@@ -242,7 +242,7 @@ fun Content(
             }
 
             ReadingRendererPreference.NativeComponent -> {
-                nativeAnchorMapBuilder.reset()
+                nativeAnchorMapBuilder.beginPass()
                 PrioritizedProcessTextContextMenu(
                     enabled = onSelectedTextAction != null,
                     targetLabel = selectedTextActionLabel,
@@ -295,7 +295,10 @@ fun Content(
                                 )
                             }
                         }
-                        SideEffect { nativeReaderAnchorState?.markRenderReady() }
+                        SideEffect {
+                            nativeAnchorMapBuilder.commitPass()
+                            nativeReaderAnchorState?.markRenderReady()
+                        }
                     }
                 }
             }

@@ -15,6 +15,8 @@ data class ArticleAssistantContext(
     /** 兼容旧调用/快照字段；Chat 新请求不再消费译文。 */
     val translatedTitle: String? = null,
     val translatedContent: String? = null,
-    /** 当前原文选区的临时文本；若用户正在查看译文则不向 Chat 传入。 */
+    /** 用户显式选中的临时文本；整篇摘要/译文仍不会自动进入 Chat Context。 */
     val selectedText: String? = null,
+    /** 译文选区可参与提问，但不能伪装成原文 Evidence/Citation。 */
+    val selectedTextFromTranslation: Boolean = false,
 )

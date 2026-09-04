@@ -54,6 +54,7 @@ import me.ash.reader.llm.chat.ui.buildLlmCitationLink
 import me.ash.reader.llm.chat.ui.chatPreviewSnippet
 import me.ash.reader.llm.chat.ui.acknowledgedChatTransientMessageIds
 import me.ash.reader.llm.chat.ui.mergeChatMessagesWithTransientOverrides
+import me.ash.reader.llm.chat.ui.visibleChatPresentationMessages
 import me.ash.reader.llm.chat.ui.parseLlmCitationUri
 import me.ash.reader.llm.chat.ui.resolveRequestSkillId
 import me.ash.reader.llm.chat.ui.shouldShowArticleAssistantConfigurationHint
@@ -164,6 +165,30 @@ class LlmChatFoundationTest {
             )
 
         assertEquals(listOf(user, transientAssistant), merged)
+    }
+
+    @Test
+    fun `superseded regenerate assistants stay stored but disappear from normal presentation`() {
+        val active =
+            LlmMessageEntity(
+                id = "assistant-active",
+                conversationId = "conversation-1",
+                role = LlmChatRole.ASSISTANT,
+                content = "new answer",
+                historyActive = true,
+                createdAt = 20L,
+                updatedAt = 20L,
+            )
+        val superseded =
+            active.copy(
+                id = "assistant-old",
+                content = "old answer",
+                historyActive = false,
+                createdAt = 10L,
+                updatedAt = 10L,
+            )
+
+        assertEquals(listOf(active), visibleChatPresentationMessages(listOf(superseded, active)))
     }
 
     @Test
@@ -880,6 +905,32 @@ class LlmChatFoundationTest {
             )
 
         assertEquals(listOf(LlmContextType.ARTICLE), items.map { it.type })
+    }
+
+    @Test
+    fun `explicit translated selection stays usable but never becomes original evidence`() {
+        val items =
+            buildArticleContextItems(
+                ArticleAssistantContext(
+                    articleId = "article-1",
+                    title = "Original title",
+                    link = "https://example.com/article-1",
+                    originalContent = "<p>Original source sentence.</p>",
+                    translatedContent = "Translated article body that must not be auto injected.",
+                    selectedText = "User selected translated sentence.",
+                    selectedTextFromTranslation = true,
+                )
+            )
+
+        val selection = items.single { it.type == LlmContextType.SELECTED_TEXT }
+        val article = items.single { it.type == LlmContextType.ARTICLE }
+        val composed = LlmContextComposer().compose(items, LlmContextPolicy(maxTokens = 512))
+
+        assertEquals("User selected translated sentence.", selection.content)
+        assertTrue(selection.evidenceBlocks.isEmpty())
+        assertTrue(article.evidenceBlocks.isNotEmpty())
+        assertTrue(composed.text.contains("User selected translated sentence."))
+        assertFalse(composed.text.contains("Translated article body that must not be auto injected."))
     }
 
     @Test
