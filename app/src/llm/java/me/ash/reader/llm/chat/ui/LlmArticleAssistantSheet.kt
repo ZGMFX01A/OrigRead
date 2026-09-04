@@ -263,6 +263,8 @@ fun LlmArticleAssistantSheet(
                     conversationId = uiState.currentConversationId.orEmpty(),
                     assistantMessageId = assistantMessageId,
                     citationRefs = uiState.citationRefs,
+                    assistantContent =
+                        uiState.messages.firstOrNull { it.id == assistantMessageId }?.content,
                 )
             }
         )

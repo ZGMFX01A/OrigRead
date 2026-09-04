@@ -32,6 +32,9 @@ class LlmChatRepository @Inject constructor(
     fun observeCitationRefs(conversationId: String): Flow<List<LlmCitationRefEntity>> =
         dao.observeCitationRefs(conversationId)
 
+    fun observeLatestRestorableCitationAssistant(articleId: String): Flow<LlmMessageEntity?> =
+        dao.observeLatestRestorableCitationAssistant(articleId)
+
     /** 查询指定会话。 */
     suspend fun getConversation(conversationId: String): LlmConversationEntity? =
         dao.getConversation(conversationId)

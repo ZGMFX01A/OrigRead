@@ -7,6 +7,7 @@ import me.ash.reader.llm.chat.data.LlmEvidenceSourceKind
 import me.ash.reader.llm.chat.data.resolveCitationNavigationAction
 import me.ash.reader.llm.chat.data.stripDisabledLlmCitationTokens
 import me.ash.reader.ui.component.reader.ReaderEvidenceMarker
+import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerLayerOrigin
 import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerSnapshot
 
 internal data class LlmAssistantCitationDisplay(
@@ -30,6 +31,12 @@ internal data class LlmAssistantCitationGroup(
     val representativeRef: LlmCitationRefEntity
         get() = refs.last()
 }
+
+internal fun shouldReplaceWithHistoricalCitationLayer(
+    currentSnapshot: ReaderEvidenceMarkerSnapshot?,
+): Boolean =
+    currentSnapshot == null ||
+        currentSnapshot.origin == ReaderEvidenceMarkerLayerOrigin.HISTORICAL
 
 internal fun LlmAssistantCitationGroup.directNavigationRefOrNull(): LlmCitationRefEntity? {
     val actions = refs.map(LlmCitationRefEntity::resolveCitationNavigationAction)
@@ -352,6 +359,7 @@ internal fun buildLlmReaderMarkerSnapshot(
     assistantMessageId: String,
     citationRefs: List<LlmCitationRefEntity>,
     assistantContent: String? = null,
+    origin: ReaderEvidenceMarkerLayerOrigin = ReaderEvidenceMarkerLayerOrigin.INTERACTION,
     citationFeatureEnabled: Boolean = LLM_EVIDENCE_CITATION_ENABLED,
 ): ReaderEvidenceMarkerSnapshot? {
     if (
@@ -407,6 +415,7 @@ internal fun buildLlmReaderMarkerSnapshot(
             conversationId = conversationId.trim(),
             assistantMessageId = assistantMessageId,
             markers = markerList,
+            origin = origin,
         )
     }
 }

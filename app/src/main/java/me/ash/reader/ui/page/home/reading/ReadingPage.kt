@@ -1047,6 +1047,12 @@ fun ReadingPage(
                 readerEvidenceMarkerState.clear()
             },
             readerEvidenceMarkerState = readerEvidenceMarkerState,
+            restoreHistoricalCitationLayer =
+                aiAssistantEnabled &&
+                    !showArticleAssistant &&
+                    pendingCitationNavigation == null &&
+                    pendingCitationReturn == null &&
+                    citationNavigationFailure == null,
             continueGenerationInBackground = llmSettings.continueGenerationInBackground,
             presentation = assistantPresentation,
             modifier =

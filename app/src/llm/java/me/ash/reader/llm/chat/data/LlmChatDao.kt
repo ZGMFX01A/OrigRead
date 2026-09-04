@@ -49,6 +49,28 @@ interface LlmChatDao {
     )
     fun observeCitationRefs(conversationId: String): Flow<List<LlmCitationRefEntity>>
 
+    /**
+     * 恢复文章自己的默认 Citation Layer：先锁定最近活动 Conversation，再只在该会话中选择
+     * 最近一条仍属于活动历史分支、已完成且确实拥有 CitationRef 的 Assistant Message。
+     * 不能跨到旧 Conversation 找“有引用的回答”，否则普通重开文章会恢复错误的会话层。
+     */
+    @Query(
+        "SELECT m.* FROM llm_messages m " +
+            "WHERE m.conversation_id = (" +
+            "SELECT c.id FROM llm_conversations c WHERE c.article_id = :articleId " +
+            "ORDER BY c.updated_at DESC, c.created_at DESC, c.id DESC LIMIT 1" +
+            ") " +
+            "AND m.role = 'ASSISTANT' " +
+            "AND m.history_active = 1 " +
+            "AND m.status = 'COMPLETE' " +
+            "AND EXISTS (" +
+            "SELECT 1 FROM llm_citation_refs r " +
+            "WHERE r.assistant_message_id = m.id AND r.conversation_id = m.conversation_id" +
+            ") " +
+            "ORDER BY m.created_at DESC, m.updated_at DESC, m.id DESC LIMIT 1"
+    )
+    fun observeLatestRestorableCitationAssistant(articleId: String): Flow<LlmMessageEntity?>
+
     /** 查询指定会话。 */
     @Query("SELECT * FROM llm_conversations WHERE id = :conversationId LIMIT 1")
     suspend fun getConversation(conversationId: String): LlmConversationEntity?

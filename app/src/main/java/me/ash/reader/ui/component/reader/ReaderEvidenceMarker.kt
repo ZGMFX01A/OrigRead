@@ -34,11 +34,17 @@ data class ReaderEvidenceMarkerNavigationTarget(
     }
 }
 
+enum class ReaderEvidenceMarkerLayerOrigin {
+    INTERACTION,
+    HISTORICAL,
+}
+
 data class ReaderEvidenceMarkerSnapshot(
     val ownerArticleId: String,
     val conversationId: String,
     val assistantMessageId: String,
     val markers: List<ReaderEvidenceMarker>,
+    val origin: ReaderEvidenceMarkerLayerOrigin = ReaderEvidenceMarkerLayerOrigin.INTERACTION,
 ) {
     init {
         require(ownerArticleId.isNotBlank()) { "Reader marker owner article id must not be blank" }

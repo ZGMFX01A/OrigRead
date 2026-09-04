@@ -8,6 +8,7 @@ import kotlinx.coroutines.runBlocking
 import me.ash.reader.llm.runtime.LlmContextType
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -261,4 +262,160 @@ class LlmEvidenceDaoTest {
             assertEquals(listOf("context-atomic"), dao.getContextRefsForAssistant("assistant-atomic").map { it.id })
             assertEquals(listOf("evidence-atomic"), dao.getEvidenceBlocksForContextRef("context-atomic").map { it.id })
         }
+
+    @Test
+    fun historicalCitationRestore_staysInsideLatestConversationAndActiveBranch() =
+        runBlocking {
+            dao.insertConversation(
+                LlmConversationEntity(
+                    id = "conversation-old",
+                    title = "Old conversation",
+                    providerId = null,
+                    model = null,
+                    articleId = "article-history",
+                    createdAt = 1,
+                    updatedAt = 10,
+                )
+            )
+            insertCitedAssistant(
+                conversationId = "conversation-old",
+                articleId = "article-history",
+                assistantId = "assistant-old",
+                createdAt = 11,
+            )
+
+            dao.insertConversation(
+                LlmConversationEntity(
+                    id = "conversation-new",
+                    title = "Latest conversation",
+                    providerId = null,
+                    model = null,
+                    articleId = "article-history",
+                    createdAt = 20,
+                    updatedAt = 30,
+                )
+            )
+            insertCitedAssistant(
+                conversationId = "conversation-new",
+                articleId = "article-history",
+                assistantId = "assistant-inactive",
+                createdAt = 31,
+                historyActive = false,
+            )
+
+            // 最新 Conversation 没有可恢复的活动 Citation 时，不能越过它去捞旧 Conversation。
+            assertNull(dao.observeLatestRestorableCitationAssistant("article-history").first())
+
+            insertCitedAssistant(
+                conversationId = "conversation-new",
+                articleId = "article-history",
+                assistantId = "assistant-valid-1",
+                createdAt = 32,
+            )
+            insertCitedAssistant(
+                conversationId = "conversation-new",
+                articleId = "article-history",
+                assistantId = "assistant-valid-2",
+                createdAt = 33,
+            )
+
+            assertEquals(
+                "assistant-valid-2",
+                dao.observeLatestRestorableCitationAssistant("article-history").first()?.id,
+            )
+
+            dao.setMessagesHistoryActive(
+                messageIds = listOf("assistant-valid-2"),
+                active = false,
+                updatedAt = 34,
+            )
+            assertEquals(
+                "assistant-valid-1",
+                dao.observeLatestRestorableCitationAssistant("article-history").first()?.id,
+            )
+        }
+
+    private suspend fun insertCitedAssistant(
+        conversationId: String,
+        articleId: String,
+        assistantId: String,
+        createdAt: Long,
+        historyActive: Boolean = true,
+    ) {
+        val contextRefId = "context-$assistantId"
+        val evidenceId = "evidence-$assistantId"
+        val locator =
+            LlmEvidenceLocatorV1(
+                sourceKind = LlmEvidenceSourceKind.ARTICLE,
+                stableLocatorKey = "PARAGRAPH:root:$assistantId:0",
+                blockIndex = 0,
+                articleId = articleId,
+                normalizedHash = "hash-$assistantId",
+            )
+        dao.insertMessage(
+            LlmMessageEntity(
+                id = assistantId,
+                conversationId = conversationId,
+                role = LlmChatRole.ASSISTANT,
+                content = "answer [[$assistantId]]",
+                status = LlmMessageStatus.COMPLETE,
+                historyActive = historyActive,
+                createdAt = createdAt,
+                updatedAt = createdAt,
+            )
+        )
+        dao.insertContextRefs(
+            listOf(
+                LlmContextRefEntity(
+                    id = contextRefId,
+                    conversationId = conversationId,
+                    assistantMessageId = assistantId,
+                    contextId = "article:$articleId:original",
+                    type = LlmContextType.ARTICLE,
+                    articleId = articleId,
+                    contentSnapshot = "Evidence for $assistantId",
+                    promptContentSnapshot = "Evidence for $assistantId",
+                    contentSha256 = "context-hash-$assistantId",
+                    priority = 100,
+                    includedInPrompt = true,
+                    truncatedInPrompt = false,
+                    createdAt = createdAt,
+                )
+            )
+        )
+        dao.replaceEvidenceBlocksForContextRef(
+            contextRefId,
+            listOf(
+                LlmEvidenceBlockEntity(
+                    id = evidenceId,
+                    contextRefId = contextRefId,
+                    stableLocatorKey = requireNotNull(locator.stableLocatorKey),
+                    kind = LlmEvidenceBlockKind.PARAGRAPH,
+                    ordinal = 0,
+                    textSnapshot = "Evidence for $assistantId",
+                    normalizedSha256 = "hash-$assistantId",
+                    locator = locator,
+                    createdAt = createdAt,
+                )
+            ),
+        )
+        dao.replaceCitationRefsForAssistant(
+            assistantId,
+            listOf(
+                LlmCitationRefEntity(
+                    id = "citation-$assistantId",
+                    conversationId = conversationId,
+                    assistantMessageId = assistantId,
+                    contextRefId = contextRefId,
+                    evidenceBlockId = evidenceId,
+                    targetKind = LlmCitationTargetKind.EVIDENCE_BLOCK,
+                    protocolId = "E1",
+                    displayOrder = 1,
+                    quoteSnapshot = "Evidence for $assistantId",
+                    locatorSnapshot = locator,
+                    createdAt = createdAt,
+                )
+            ),
+        )
+    }
 }

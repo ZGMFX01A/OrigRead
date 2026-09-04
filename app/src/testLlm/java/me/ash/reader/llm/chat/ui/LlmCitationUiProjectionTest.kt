@@ -4,6 +4,8 @@ import me.ash.reader.llm.chat.data.LlmCitationRefEntity
 import me.ash.reader.llm.chat.data.LlmCitationTargetKind
 import me.ash.reader.llm.chat.data.LlmEvidenceLocatorV1
 import me.ash.reader.llm.chat.data.LlmEvidenceSourceKind
+import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerLayerOrigin
+import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerSnapshot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -156,6 +158,46 @@ class LlmCitationUiProjectionTest {
         assertEquals("article-owner", first?.ownerArticleId)
         assertEquals("conversation-1", first?.conversationId)
         assertEquals("first", first?.markers?.single()?.citationId)
+    }
+
+    @Test
+    fun `historical reader marker snapshot is explicitly tagged as historical`() {
+        val snapshot =
+            buildLlmReaderMarkerSnapshot(
+                ownerArticleId = "article-1",
+                conversationId = "conversation-1",
+                assistantMessageId = "assistant-1",
+                citationRefs =
+                    listOf(
+                        citationRef(
+                            id = "historical",
+                            protocolId = "E1",
+                            displayOrder = 1,
+                        )
+                    ),
+                assistantContent = "Historical claim [[E1]].",
+                origin = ReaderEvidenceMarkerLayerOrigin.HISTORICAL,
+            )
+
+        assertEquals(ReaderEvidenceMarkerLayerOrigin.HISTORICAL, snapshot?.origin)
+        assertEquals("historical", snapshot?.markers?.single()?.citationId)
+    }
+
+    @Test
+    fun `historical restore never replaces an explicit interaction layer`() {
+        val interaction =
+            ReaderEvidenceMarkerSnapshot(
+                ownerArticleId = "article-a",
+                conversationId = "conversation-a",
+                assistantMessageId = "assistant-a",
+                markers = emptyList(),
+                origin = ReaderEvidenceMarkerLayerOrigin.INTERACTION,
+            )
+        val historical = interaction.copy(origin = ReaderEvidenceMarkerLayerOrigin.HISTORICAL)
+
+        assertFalse(shouldReplaceWithHistoricalCitationLayer(interaction))
+        assertTrue(shouldReplaceWithHistoricalCitationLayer(historical))
+        assertTrue(shouldReplaceWithHistoricalCitationLayer(null))
     }
 
     @Test
