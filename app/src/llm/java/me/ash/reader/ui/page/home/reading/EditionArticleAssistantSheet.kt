@@ -3,6 +3,7 @@ package me.ash.reader.ui.page.home.reading
 import androidx.compose.runtime.Composable
 import me.ash.reader.infrastructure.ai.AiSummaryLength
 import me.ash.reader.llm.chat.ui.LlmArticleAssistantSheet
+import me.ash.reader.llm.chat.ui.LlmCitationNavigationFailureFallbackSheet
 import me.ash.reader.ui.component.reader.PendingCitationNavigation
 import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerState
 
@@ -17,12 +18,18 @@ internal fun EditionArticleAssistantSheet(
     showQuickSummary: Boolean,
     onQuickSummary: (AiSummaryLength) -> Unit,
     onNavigateReaderCitation: (PendingCitationNavigation) -> Unit,
-    citationNavigationFailureId: String?,
+    citationNavigationFailure: PendingCitationNavigation?,
     onCitationNavigationFailureConsumed: () -> Unit,
     readerEvidenceMarkerState: ReaderEvidenceMarkerState,
     continueGenerationInBackground: Boolean,
     onDismiss: () -> Unit,
 ) {
+    LlmCitationNavigationFailureFallbackSheet(
+        request = citationNavigationFailure,
+        currentArticleId = context?.articleId ?: citationNavigationFailure?.articleId.orEmpty(),
+        onOpenArticle = onOpenArticle,
+        onDismiss = onCitationNavigationFailureConsumed,
+    )
     if (!visible || context == null) return
     LlmArticleAssistantSheet(
         articleContext = context,
@@ -32,8 +39,6 @@ internal fun EditionArticleAssistantSheet(
         showQuickSummary = showQuickSummary,
         onQuickSummary = onQuickSummary,
         onNavigateReaderCitation = onNavigateReaderCitation,
-        citationNavigationFailureId = citationNavigationFailureId,
-        onCitationNavigationFailureConsumed = onCitationNavigationFailureConsumed,
         readerEvidenceMarkerState = readerEvidenceMarkerState,
         continueGenerationInBackground = continueGenerationInBackground,
         onDismiss = onDismiss,

@@ -374,6 +374,16 @@ class LlmChatViewModel @Inject constructor(
     private var conversationSelectionRevision = 0L
     private val attachmentPersistenceMutex = Mutex()
 
+    /** Citation 跳转失败兜底按历史 Assistant Message 直接读取冻结来源，不依赖当前会话选择。 */
+    internal suspend fun loadContextRefsForAssistant(
+        assistantMessageId: String,
+    ): List<LlmContextRefEntity> = repository.getContextRefsForAssistant(assistantMessageId)
+
+    /** 与 ContextRef 成对读取历史 CitationRef，跨文章后仍可恢复原回答的来源详情。 */
+    internal suspend fun loadCitationRefsForAssistant(
+        assistantMessageId: String,
+    ): List<LlmCitationRefEntity> = repository.getCitationRefsForAssistant(assistantMessageId)
+
     init {
         // Chat 不依赖用户先进入 MCP 设置页；重启后恢复已缓存且启用的 MCP Tool。
         mcpToolRegistry.restoreCachedTools()

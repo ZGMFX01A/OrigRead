@@ -145,7 +145,7 @@ fun ReadingPage(
         mutableStateOf(false)
     }
     var pendingCitationNavigation by remember { mutableStateOf<PendingCitationNavigation?>(null) }
-    var citationNavigationFailureId by remember { mutableStateOf<String?>(null) }
+    var citationNavigationFailure by remember { mutableStateOf<PendingCitationNavigation?>(null) }
     var showInteractiveVerification by remember { mutableStateOf(false) }
     var showReadingShareFirstUse by remember { mutableStateOf(false) }
     var showReadingShareConfig by remember { mutableStateOf(false) }
@@ -169,6 +169,7 @@ fun ReadingPage(
     /** 关闭助手即结束本次临时 Selection，防止同一文章稍后从普通入口重开时静默复用旧选区。 */
     fun dismissArticleAssistant() {
         pendingCitationNavigation = null
+        citationNavigationFailure = null
         showArticleAssistant = false
         articleAnalysisRequested = false
         selectedTextForAssistant = null
@@ -207,7 +208,7 @@ fun ReadingPage(
             return@LaunchedEffect
         }
         if (readerState.content is ReaderState.Error) {
-            citationNavigationFailureId = pending.citationId
+            citationNavigationFailure = pending
             pendingCitationNavigation = null
             return@LaunchedEffect
         }
@@ -227,7 +228,7 @@ fun ReadingPage(
                     }
                     is NativeReaderAnchorNavigationResult.Unavailable -> {
                         if (pending.sameRequest(pendingCitationNavigation)) {
-                            citationNavigationFailureId = pending.citationId
+                            citationNavigationFailure = pending
                             pendingCitationNavigation = null
                         }
                     }
@@ -243,7 +244,7 @@ fun ReadingPage(
                         }
                         WebViewReaderAnchorNavigationResult.Pending -> Unit
                         is WebViewReaderAnchorNavigationResult.Unavailable -> {
-                            citationNavigationFailureId = pending.citationId
+                            citationNavigationFailure = pending
                             pendingCitationNavigation = null
                         }
                     }
@@ -902,7 +903,7 @@ fun ReadingPage(
             viewModel.summarizeArticle(lengthOverride = length)
         },
         onNavigateReaderCitation = { request ->
-            citationNavigationFailureId = null
+            citationNavigationFailure = null
             pendingCitationNavigation = request
             hideArticleAssistantForCitation()
             viewModel.showOriginalContentForCitation()
@@ -910,8 +911,8 @@ fun ReadingPage(
                 onLoadArticle(request.articleId, -1)
             }
         },
-        citationNavigationFailureId = citationNavigationFailureId,
-        onCitationNavigationFailureConsumed = { citationNavigationFailureId = null },
+        citationNavigationFailure = citationNavigationFailure,
+        onCitationNavigationFailureConsumed = { citationNavigationFailure = null },
         readerEvidenceMarkerState = readerEvidenceMarkerState,
         continueGenerationInBackground = llmSettings.continueGenerationInBackground,
         onDismiss = ::dismissArticleAssistant,

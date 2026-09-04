@@ -134,10 +134,42 @@ class LlmEvidenceDaoTest {
                 dao.observeCitationRefs("conversation-1").first().map { it.id },
             )
 
+            // 模拟 Reader 已经切到另一篇文章/另一会话：失败兜底仍必须能按原 Assistant Message
+            // 直接恢复冻结来源，不能依赖“当前会话”的 observe state。
+            dao.insertConversation(
+                LlmConversationEntity(
+                    id = "conversation-2",
+                    title = "Other article",
+                    providerId = null,
+                    model = null,
+                    articleId = "article-2",
+                    createdAt = 6,
+                    updatedAt = 6,
+                )
+            )
+            dao.insertMessage(
+                LlmMessageEntity(
+                    id = "assistant-2",
+                    conversationId = "conversation-2",
+                    role = LlmChatRole.ASSISTANT,
+                    content = "other answer",
+                    createdAt = 7,
+                    updatedAt = 7,
+                )
+            )
+            assertEquals(
+                listOf("context-ref-1"),
+                dao.getContextRefsForAssistant("assistant-1").map { it.id },
+            )
+            assertEquals(
+                listOf("citation-1"),
+                dao.getCitationRefsForAssistant("assistant-1").map { it.id },
+            )
+
             dao.setMessagesHistoryActive(
                 messageIds = listOf("assistant-1"),
                 active = false,
-                updatedAt = 6,
+                updatedAt = 8,
             )
             assertEquals(
                 listOf("citation-1"),

@@ -175,8 +175,6 @@ fun LlmArticleAssistantSheet(
     showQuickSummary: Boolean = false,
     onQuickSummary: (AiSummaryLength) -> Unit = {},
     onNavigateReaderCitation: (PendingCitationNavigation) -> Unit = {},
-    citationNavigationFailureId: String? = null,
-    onCitationNavigationFailureConsumed: () -> Unit = {},
     readerEvidenceMarkerState: ReaderEvidenceMarkerState? = null,
     continueGenerationInBackground: Boolean = true,
     onDismiss: () -> Unit,
@@ -244,14 +242,6 @@ fun LlmArticleAssistantSheet(
         citationInteractionAssistantId = null
         contextSourcesAssistantId = null
         webSearchResultsAssistantId = null
-    }
-    LaunchedEffect(citationNavigationFailureId, uiState.citationRefs) {
-        val citationId = citationNavigationFailureId ?: return@LaunchedEffect
-        uiState.citationRefs.firstOrNull { it.id == citationId }?.let { citation ->
-            citationInteractionAssistantId = citation.assistantMessageId
-            contextSourcesAssistantId = citation.assistantMessageId
-        }
-        onCitationNavigationFailureConsumed()
     }
 
     LaunchedEffect(articleContext) {
@@ -2619,6 +2609,45 @@ private fun WebSearchUsageBadge(state: WebSearchResultUsageState) {
             maxLines = 1,
         )
     }
+}
+
+/**
+ * Reader Citation 跳转失败后的独立兜底。
+ *
+ * 点击 Citation 后主 Chat Sheet 会先收起给正文让位，因此失败处理不能再依赖主 Sheet 仍在组合树中。
+ * 这里按原 Assistant Message ID 直接从 Room 读取冻结 Context/Citation；即使已经跨文章切换，也不会
+ * 被当前 Chat 会话状态覆盖。
+ */
+@Composable
+internal fun LlmCitationNavigationFailureFallbackSheet(
+    request: PendingCitationNavigation?,
+    currentArticleId: String,
+    onOpenArticle: (String) -> Unit,
+    onDismiss: () -> Unit,
+    viewModel: LlmChatViewModel = hiltViewModel(),
+) {
+    val failure = request ?: return
+    var refs by remember(failure.assistantMessageId, failure.citationId) {
+        mutableStateOf<List<LlmContextRefEntity>?>(null)
+    }
+    var citations by remember(failure.assistantMessageId, failure.citationId) {
+        mutableStateOf<List<LlmCitationRefEntity>?>(null)
+    }
+
+    LaunchedEffect(failure.assistantMessageId, failure.citationId) {
+        refs = viewModel.loadContextRefsForAssistant(failure.assistantMessageId)
+        citations = viewModel.loadCitationRefsForAssistant(failure.assistantMessageId)
+    }
+
+    val loadedRefs = refs ?: return
+    val loadedCitations = citations ?: return
+    ContextSourcesSheet(
+        refs = loadedRefs,
+        citations = loadedCitations,
+        currentArticleId = currentArticleId,
+        onOpenArticle = onOpenArticle,
+        onDismiss = onDismiss,
+    )
 }
 
 /**
