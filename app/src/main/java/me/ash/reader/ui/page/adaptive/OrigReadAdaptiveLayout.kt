@@ -52,6 +52,19 @@ data class OrigReadAdaptiveLayoutProfile(
         get() =
             heightClass != OrigReadWindowHeightClass.Compact &&
                 widthDp >= ThreePaneReaderWorkspaceMinWidthDp
+
+    /** Settings 根页在可稳定并排展示两张设置卡片时提高信息密度。 */
+    val settingsRootColumnCount: Int
+        get() = if (supportsListDetailWorkspace) 2 else 1
+
+    /**
+     * Discovery 的分类区只有在能同时保留约 300dp 分类栏和舒适结果区时才常驻。
+     * 840dp 刚进入 Expanded 时仍保留原 BottomSheet，避免为了“大屏”把结果列表挤窄。
+     */
+    val showsPersistentDiscoveryCategories: Boolean
+        get() =
+            heightClass != OrigReadWindowHeightClass.Compact &&
+                widthDp >= PersistentDiscoveryCategoriesMinWidthDp
 }
 
 // 400dp list + 24dp list/detail spacer + (600dp readable text + 48dp reader padding)
@@ -59,6 +72,7 @@ data class OrigReadAdaptiveLayoutProfile(
 // forced into three panes, so Large is a candidate class rather than an unconditional three-pane
 // decision.
 internal const val ThreePaneReaderWorkspaceMinWidthDp = 1456
+internal const val PersistentDiscoveryCategoriesMinWidthDp = 1000
 
 internal fun articleAssistantPresentation(
     profile: OrigReadAdaptiveLayoutProfile,

@@ -46,6 +46,8 @@ import me.ash.reader.ui.component.base.OrigReadSwitch
 import me.ash.reader.ui.component.base.TextFieldDialog
 import me.ash.reader.ui.ext.MimeType
 import me.ash.reader.ui.ext.collectAsStateValue
+import me.ash.reader.ui.page.adaptive.OrigReadAdaptiveContent
+import me.ash.reader.ui.page.adaptive.OrigReadContentWidth
 import me.ash.reader.ui.page.settings.RuleMarkdownGuideDialog
 import me.ash.reader.ui.page.settings.AiRuleGenerationDialog
 import me.ash.reader.ui.page.settings.AiRulePreviewDialog
@@ -126,7 +128,8 @@ fun WebsiteRulesPage(
             )
         },
         content = {
-            LazyColumn {
+            OrigReadAdaptiveContent(width = OrigReadContentWidth.Comfortable) {
+                LazyColumn {
                 item {
                     DisplayText(text = stringResource(R.string.website_rules), desc = "")
                     Spacer(Modifier.height(16.dp))
@@ -231,6 +234,7 @@ fun WebsiteRulesPage(
 
                 item {
                     Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+                }
                 }
             }
         },

@@ -24,6 +24,8 @@ class OrigReadAdaptiveLayoutProfileTest {
         assertEquals(OrigReadWindowWidthClass.Medium, profile.widthClass)
         assertTrue(profile.usesPhoneLikeFlow)
         assertFalse(profile.supportsListDetailWorkspace)
+        assertEquals(1, profile.settingsRootColumnCount)
+        assertFalse(profile.showsPersistentDiscoveryCategories)
     }
 
     @Test
@@ -34,6 +36,8 @@ class OrigReadAdaptiveLayoutProfileTest {
         assertFalse(profile.usesPhoneLikeFlow)
         assertTrue(profile.supportsListDetailWorkspace)
         assertFalse(profile.supportsThreePaneWorkspace)
+        assertEquals(2, profile.settingsRootColumnCount)
+        assertTrue(profile.showsPersistentDiscoveryCategories)
         assertEquals(
             OrigReadArticleAssistantPresentation.SupportingPane,
             articleAssistantPresentation(profile),
@@ -71,6 +75,24 @@ class OrigReadAdaptiveLayoutProfileTest {
 
         assertFalse(below.supportsThreePaneWorkspace)
         assertTrue(atThreshold.supportsThreePaneWorkspace)
+    }
+
+    @Test
+    fun `discovery categories stay in sheet until result pane remains comfortable`() {
+        val below =
+            origReadAdaptiveLayoutProfile(
+                widthDp = PersistentDiscoveryCategoriesMinWidthDp - 1,
+                heightDp = 800,
+            )
+        val atThreshold =
+            origReadAdaptiveLayoutProfile(
+                widthDp = PersistentDiscoveryCategoriesMinWidthDp,
+                heightDp = 800,
+            )
+
+        assertEquals(2, below.settingsRootColumnCount)
+        assertFalse(below.showsPersistentDiscoveryCategories)
+        assertTrue(atThreshold.showsPersistentDiscoveryCategories)
     }
 
     @Test
@@ -127,6 +149,8 @@ class OrigReadAdaptiveLayoutProfileTest {
         assertTrue(profile.usesPhoneLikeFlow)
         assertFalse(profile.supportsListDetailWorkspace)
         assertFalse(profile.supportsThreePaneWorkspace)
+        assertEquals(1, profile.settingsRootColumnCount)
+        assertFalse(profile.showsPersistentDiscoveryCategories)
     }
 
     @Test

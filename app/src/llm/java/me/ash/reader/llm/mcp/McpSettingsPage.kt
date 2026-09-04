@@ -65,6 +65,8 @@ import me.ash.reader.ui.component.base.DisplayText
 import me.ash.reader.ui.component.base.FeedbackIconButton
 import me.ash.reader.ui.component.base.OrigReadScaffold
 import me.ash.reader.ui.component.base.OrigReadSwitch
+import me.ash.reader.ui.page.adaptive.OrigReadAdaptiveContent
+import me.ash.reader.ui.page.adaptive.OrigReadContentWidth
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 data class McpServerUiState(
@@ -581,74 +583,76 @@ fun McpSettingsPage(
             )
         },
         content = {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                item {
-                    DisplayText(
-                        text = stringResource(R.string.llm_mcp_title),
-                        desc = stringResource(R.string.llm_mcp_desc),
-                    )
-                }
-                if (uiState.servers.isEmpty()) {
+            OrigReadAdaptiveContent(width = OrigReadContentWidth.Comfortable) {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     item {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 24.dp),
-                            verticalArrangement = Arrangement.spacedBy(14.dp),
-                        ) {
-                            Text(
-                                text = stringResource(R.string.llm_mcp_empty),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            FilledTonalButton(
-                                onClick = {
-                                    editorProfile = null
-                                    editorVisible = true
-                                }
+                        DisplayText(
+                            text = stringResource(R.string.llm_mcp_title),
+                            desc = stringResource(R.string.llm_mcp_desc),
+                        )
+                    }
+                    if (uiState.servers.isEmpty()) {
+                        item {
+                            Column(
+                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 24.dp),
+                                verticalArrangement = Arrangement.spacedBy(14.dp),
                             ) {
-                                Icon(Icons.Outlined.Add, contentDescription = null)
-                                Spacer(Modifier.size(8.dp))
-                                Text(stringResource(R.string.llm_mcp_add_server))
+                                Text(
+                                    text = stringResource(R.string.llm_mcp_empty),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                FilledTonalButton(
+                                    onClick = {
+                                        editorProfile = null
+                                        editorVisible = true
+                                    }
+                                ) {
+                                    Icon(Icons.Outlined.Add, contentDescription = null)
+                                    Spacer(Modifier.size(8.dp))
+                                    Text(stringResource(R.string.llm_mcp_add_server))
+                                }
                             }
                         }
-                    }
-                } else {
-                    items(uiState.servers, key = { it.profile.id }) { server ->
-                        McpServerCard(
-                            state = server,
-                            oauthAuthorized = viewModel.hasOAuthAuthorization(server.profile.id),
-                            onEnabledChange = {
-                                viewModel.setEnabled(
-                                    server.profile.id,
-                                    it,
-                                    saveMessages.connectionFailed,
-                                )
-                            },
-                            onEdit = {
-                                editorProfile = server.profile
-                                editorVisible = true
-                            },
-                            onRefresh = {
-                                viewModel.refreshServer(
-                                    server.profile.id,
-                                    saveMessages.connectionFailed,
-                                )
-                            },
-                            onTest = {
-                                viewModel.testServer(
-                                    server.profile.id,
-                                    saveMessages.connectionFailed,
-                                )
-                            },
-                            onAuthorize = {
-                                viewModel.authorizeServer(
-                                    serverId = server.profile.id,
-                                    openAuthorizationUrl = { url ->
-                                        CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(url))
-                                    },
-                                    fallbackError = saveMessages.signInFailed,
-                                )
-                            },
-                            onShowTools = { toolsServerId = server.profile.id },
-                        )
+                    } else {
+                        items(uiState.servers, key = { it.profile.id }) { server ->
+                            McpServerCard(
+                                state = server,
+                                oauthAuthorized = viewModel.hasOAuthAuthorization(server.profile.id),
+                                onEnabledChange = {
+                                    viewModel.setEnabled(
+                                        server.profile.id,
+                                        it,
+                                        saveMessages.connectionFailed,
+                                    )
+                                },
+                                onEdit = {
+                                    editorProfile = server.profile
+                                    editorVisible = true
+                                },
+                                onRefresh = {
+                                    viewModel.refreshServer(
+                                        server.profile.id,
+                                        saveMessages.connectionFailed,
+                                    )
+                                },
+                                onTest = {
+                                    viewModel.testServer(
+                                        server.profile.id,
+                                        saveMessages.connectionFailed,
+                                    )
+                                },
+                                onAuthorize = {
+                                    viewModel.authorizeServer(
+                                        serverId = server.profile.id,
+                                        openAuthorizationUrl = { url ->
+                                            CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(url))
+                                        },
+                                        fallbackError = saveMessages.signInFailed,
+                                    )
+                                },
+                                onShowTools = { toolsServerId = server.profile.id },
+                            )
+                        }
                     }
                 }
             }

@@ -7,7 +7,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.windowInsetsBottomHeight
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.outlined.AccountCircle
@@ -32,6 +35,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -49,6 +53,7 @@ import me.ash.reader.ui.ext.getCurrentVersion
 import me.ash.reader.ui.ext.isGitHub
 import me.ash.reader.ui.page.adaptive.OrigReadAdaptiveContent
 import me.ash.reader.ui.page.adaptive.OrigReadContentWidth
+import me.ash.reader.ui.page.adaptive.LocalOrigReadAdaptiveLayoutProfile
 import me.ash.reader.ui.page.settings.tips.UpdateDialog
 import me.ash.reader.ui.page.settings.tips.UpdateViewModel
 import me.ash.reader.ui.theme.palette.onLight
@@ -76,6 +81,117 @@ fun SettingsPage(
     val newVersion = LocalNewVersionNumber.current
     val skipVersion = LocalSkipVersionNumber.current
     val currentVersion by remember { mutableStateOf(context.getCurrentVersion()) }
+    val adaptiveProfile = LocalOrigReadAdaptiveLayoutProfile.current
+    val settingsColumns = adaptiveProfile.settingsRootColumnCount
+    val destinations =
+        buildList {
+            add(
+                SettingsDestination(
+                    title = stringResource(R.string.ai_settings),
+                    desc = stringResource(R.string.ai_settings_desc),
+                    icon = Icons.Outlined.AutoAwesome,
+                    onClick = navigateToAiSettings,
+                )
+            )
+            add(
+                SettingsDestination(
+                    title = stringResource(R.string.translation_settings),
+                    desc = stringResource(R.string.translation_settings_desc),
+                    icon = Icons.Outlined.Translate,
+                    onClick = navigateToTranslationSettings,
+                )
+            )
+            add(
+                SettingsDestination(
+                    title = stringResource(R.string.article_filter_settings),
+                    desc = stringResource(R.string.article_filter_settings_desc),
+                    icon = Icons.Outlined.FilterAlt,
+                    onClick = navigateToArticleFilters,
+                )
+            )
+            add(
+                SettingsDestination(
+                    title = stringResource(R.string.json_rules),
+                    desc = stringResource(R.string.json_rules_desc),
+                    icon = Icons.Outlined.DataObject,
+                    onClick = navigateToJsonRules,
+                )
+            )
+            add(
+                SettingsDestination(
+                    title = stringResource(R.string.website_rules),
+                    desc = stringResource(R.string.website_rules_desc),
+                    icon = Icons.Outlined.Rule,
+                    onClick = navigateToWebsiteRules,
+                )
+            )
+            add(
+                SettingsDestination(
+                    title = stringResource(R.string.rsshub_settings),
+                    desc = stringResource(R.string.rsshub_settings_desc),
+                    icon = Icons.Outlined.RssFeed,
+                    onClick = navigateToRssHubSettings,
+                )
+            )
+            add(
+                SettingsDestination(
+                    title = stringResource(R.string.accounts),
+                    desc = stringResource(R.string.accounts_desc),
+                    icon = Icons.Outlined.AccountCircle,
+                    onClick = navigateToAccounts,
+                )
+            )
+            add(
+                SettingsDestination(
+                    title = stringResource(R.string.configuration_backup_title),
+                    desc = stringResource(R.string.configuration_backup_desc),
+                    icon = Icons.Outlined.SettingsBackupRestore,
+                    onClick = navigateToConfigurationBackup,
+                )
+            )
+            if (isGitHub) {
+                add(
+                    SettingsDestination(
+                        title = stringResource(R.string.software_update),
+                        desc = stringResource(R.string.software_update_desc),
+                        icon = Icons.Outlined.SystemUpdate,
+                        onClick = navigateToUpdateSettings,
+                    )
+                )
+            }
+            add(
+                SettingsDestination(
+                    title = stringResource(R.string.color_and_style),
+                    desc = stringResource(R.string.color_and_style_desc),
+                    icon = Icons.Outlined.Palette,
+                    onClick = navigateToColorAndStyle,
+                )
+            )
+            add(
+                SettingsDestination(
+                    title = stringResource(R.string.interaction),
+                    desc = stringResource(R.string.interaction_desc),
+                    icon = Icons.Outlined.TouchApp,
+                    onClick = navigateToInteraction,
+                )
+            )
+            add(
+                SettingsDestination(
+                    title = stringResource(R.string.languages),
+                    desc = Locale.getDefault().toDisplayName(),
+                    icon = Icons.Outlined.Language,
+                    onClick = navigateToLanguages,
+                )
+            )
+            add(
+                SettingsDestination(
+                    title = stringResource(R.string.tips_and_support),
+                    desc = stringResource(R.string.tips_and_support_desc),
+                    icon = Icons.Outlined.TipsAndUpdates,
+                    onClick = navigateToTipsAndSupport,
+                )
+            )
+        }
 
     OrigReadScaffold(
         containerColor = MaterialTheme.colorScheme.surface onLight MaterialTheme.colorScheme.inverseOnSurface,
@@ -88,12 +204,17 @@ fun SettingsPage(
             )
         },
         content = {
-            OrigReadAdaptiveContent(width = OrigReadContentWidth.Compact) {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                item {
+            OrigReadAdaptiveContent(
+                width = if (settingsColumns > 1) OrigReadContentWidth.Editor else OrigReadContentWidth.Compact
+            ) {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(settingsColumns),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
                     DisplayText(text = stringResource(R.string.settings), desc = "")
                 }
-                item {
+                item(span = { GridItemSpan(maxLineSpan) }) {
                     Box {
                         if (newVersion.whetherNeedUpdate(currentVersion, skipVersion)) {
                             Banner(
@@ -122,113 +243,15 @@ fun SettingsPage(
                         // )
                     }
                 }
-                item {
+                items(destinations) { destination ->
                     SelectableSettingGroupItem(
-                        title = stringResource(R.string.ai_settings),
-                        desc = stringResource(R.string.ai_settings_desc),
-                        icon = Icons.Outlined.AutoAwesome,
-                        onClick = navigateToAiSettings,
+                        title = destination.title,
+                        desc = destination.desc,
+                        icon = destination.icon,
+                        onClick = destination.onClick,
                     )
                 }
-                item {
-                    SelectableSettingGroupItem(
-                        title = stringResource(R.string.translation_settings),
-                        desc = stringResource(R.string.translation_settings_desc),
-                        icon = Icons.Outlined.Translate,
-                        onClick = navigateToTranslationSettings,
-                    )
-                }
-                item {
-                    SelectableSettingGroupItem(
-                        title = stringResource(R.string.article_filter_settings),
-                        desc = stringResource(R.string.article_filter_settings_desc),
-                        icon = Icons.Outlined.FilterAlt,
-                        onClick = navigateToArticleFilters,
-                    )
-                }
-                item {
-                    SelectableSettingGroupItem(
-                        title = stringResource(R.string.json_rules),
-                        desc = stringResource(R.string.json_rules_desc),
-                        icon = Icons.Outlined.DataObject,
-                        onClick = navigateToJsonRules,
-                    )
-                }
-                item {
-                    SelectableSettingGroupItem(
-                        title = stringResource(R.string.website_rules),
-                        desc = stringResource(R.string.website_rules_desc),
-                        icon = Icons.Outlined.Rule,
-                        onClick = navigateToWebsiteRules,
-                    )
-                }
-                item {
-                    SelectableSettingGroupItem(
-                        title = stringResource(R.string.rsshub_settings),
-                        desc = stringResource(R.string.rsshub_settings_desc),
-                        icon = Icons.Outlined.RssFeed,
-                        onClick = navigateToRssHubSettings,
-                    )
-                }
-                item {
-                    SelectableSettingGroupItem(
-                        title = stringResource(R.string.accounts),
-                        desc = stringResource(R.string.accounts_desc),
-                        icon = Icons.Outlined.AccountCircle,
-                        onClick = navigateToAccounts
-                    )
-                }
-                item {
-                    SelectableSettingGroupItem(
-                        title = stringResource(R.string.configuration_backup_title),
-                        desc = stringResource(R.string.configuration_backup_desc),
-                        icon = Icons.Outlined.SettingsBackupRestore,
-                        onClick = navigateToConfigurationBackup,
-                    )
-                }
-                if (isGitHub) {
-                    item {
-                        SelectableSettingGroupItem(
-                            title = stringResource(R.string.software_update),
-                            desc = stringResource(R.string.software_update_desc),
-                            icon = Icons.Outlined.SystemUpdate,
-                            onClick = navigateToUpdateSettings,
-                        )
-                    }
-                }
-                item {
-                    SelectableSettingGroupItem(
-                        title = stringResource(R.string.color_and_style),
-                        desc = stringResource(R.string.color_and_style_desc),
-                        icon = Icons.Outlined.Palette,
-                        onClick = navigateToColorAndStyle
-                    )
-                }
-                item {
-                    SelectableSettingGroupItem(
-                        title = stringResource(R.string.interaction),
-                        desc = stringResource(R.string.interaction_desc),
-                        icon = Icons.Outlined.TouchApp,
-                        onClick = navigateToInteraction
-                    )
-                }
-                item {
-                    SelectableSettingGroupItem(
-                        title = stringResource(R.string.languages),
-                        desc = Locale.getDefault().toDisplayName(),
-                        icon = Icons.Outlined.Language,
-                        onClick = navigateToLanguages
-                    )
-                }
-                item {
-                    SelectableSettingGroupItem(
-                        title = stringResource(R.string.tips_and_support),
-                        desc = stringResource(R.string.tips_and_support_desc),
-                        icon = Icons.Outlined.TipsAndUpdates,
-                        onClick = navigateToTipsAndSupport
-                    )
-                }
-                item {
+                item(span = { GridItemSpan(maxLineSpan) }) {
                     Spacer(modifier = Modifier.height(24.dp))
                     Spacer(modifier = Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
                 }
@@ -239,3 +262,10 @@ fun SettingsPage(
 
     UpdateDialog()
 }
+
+private data class SettingsDestination(
+    val title: String,
+    val desc: String,
+    val icon: ImageVector,
+    val onClick: () -> Unit,
+)

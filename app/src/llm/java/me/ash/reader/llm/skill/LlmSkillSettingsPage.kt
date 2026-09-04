@@ -71,6 +71,8 @@ import me.ash.reader.ui.component.base.DisplayText
 import me.ash.reader.ui.component.base.FeedbackIconButton
 import me.ash.reader.ui.component.base.OrigReadScaffold
 import me.ash.reader.ui.component.base.OrigReadSwitch
+import me.ash.reader.ui.page.adaptive.OrigReadAdaptiveContent
+import me.ash.reader.ui.page.adaptive.OrigReadContentWidth
 
 data class LlmSkillSettingsUiState(
     val skillState: LlmSkillState = LlmSkillState(),
@@ -175,95 +177,97 @@ fun LlmSkillSettingsPage(
             )
         },
         content = {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                item {
-                    DisplayText(
-                        text = stringResource(R.string.llm_skill_title),
-                        desc = stringResource(R.string.llm_skill_desc),
-                    )
-                }
-                item {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            OrigReadAdaptiveContent(width = OrigReadContentWidth.Comfortable) {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    item {
+                        DisplayText(
+                            text = stringResource(R.string.llm_skill_title),
+                            desc = stringResource(R.string.llm_skill_desc),
+                        )
+                    }
+                    item {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            FilledTonalButton(
-                                onClick = {
-                                    createDraft = readClipboardText(context).orEmpty()
-                                    draftError = null
-                                    createSkillVisible = true
-                                },
-                                modifier = Modifier.weight(1f),
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
-                                Icon(Icons.Outlined.Add, contentDescription = null)
-                                Spacer(Modifier.size(8.dp))
-                                Text(stringResource(R.string.llm_skill_create))
-                            }
-                            OutlinedButton(
-                                onClick = {
-                                    launcher.launch(
-                                        arrayOf(
-                                            "application/zip",
-                                            "application/x-zip-compressed",
-                                            "text/markdown",
-                                            "text/plain",
-                                            "application/octet-stream",
+                                FilledTonalButton(
+                                    onClick = {
+                                        createDraft = readClipboardText(context).orEmpty()
+                                        draftError = null
+                                        createSkillVisible = true
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Icon(Icons.Outlined.Add, contentDescription = null)
+                                    Spacer(Modifier.size(8.dp))
+                                    Text(stringResource(R.string.llm_skill_create))
+                                }
+                                OutlinedButton(
+                                    onClick = {
+                                        launcher.launch(
+                                            arrayOf(
+                                                "application/zip",
+                                                "application/x-zip-compressed",
+                                                "text/markdown",
+                                                "text/plain",
+                                                "application/octet-stream",
+                                            )
                                         )
-                                    )
-                                },
-                                modifier = Modifier.weight(1f),
-                            ) {
-                                Icon(Icons.Outlined.UploadFile, contentDescription = null)
-                                Spacer(Modifier.size(8.dp))
-                                Text(stringResource(R.string.llm_skill_import))
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Icon(Icons.Outlined.UploadFile, contentDescription = null)
+                                    Spacer(Modifier.size(8.dp))
+                                    Text(stringResource(R.string.llm_skill_import))
+                                }
                             }
-                        }
-                        Text(
-                            text = stringResource(R.string.llm_skill_folder_hint),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                uiState.importMessage?.let { message ->
-                    item { StatusText(message, error = false) }
-                }
-                uiState.importError?.let { message ->
-                    item { StatusText(message, error = true) }
-                }
-                if (uiState.skillState.skills.any(LlmSkillRecord::enabled)) {
-                    item {
-                        SkillBindingsCard(
-                            state = uiState.skillState,
-                            onBind = viewModel::bind,
-                        )
-                    }
-                }
-                if (uiState.skillState.skills.isEmpty()) {
-                    item {
-                        Text(
-                            text = stringResource(R.string.llm_skill_empty),
-                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                } else {
-                    uiState.skillState.skills.forEach { skill ->
-                        item(key = skill.id) {
-                            SkillCard(
-                                skill = skill,
-                                onEnabledChange = { viewModel.setEnabled(skill.id, it) },
-                                onPreview = { previewSkill = skill },
-                                onDelete = { viewModel.delete(skill.id) },
+                            Text(
+                                text = stringResource(R.string.llm_skill_folder_hint),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
+                    uiState.importMessage?.let { message ->
+                        item { StatusText(message, error = false) }
+                    }
+                    uiState.importError?.let { message ->
+                        item { StatusText(message, error = true) }
+                    }
+                    if (uiState.skillState.skills.any(LlmSkillRecord::enabled)) {
+                        item {
+                            SkillBindingsCard(
+                                state = uiState.skillState,
+                                onBind = viewModel::bind,
+                            )
+                        }
+                    }
+                    if (uiState.skillState.skills.isEmpty()) {
+                        item {
+                            Text(
+                                text = stringResource(R.string.llm_skill_empty),
+                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    } else {
+                        uiState.skillState.skills.forEach { skill ->
+                            item(key = skill.id) {
+                                SkillCard(
+                                    skill = skill,
+                                    onEnabledChange = { viewModel.setEnabled(skill.id, it) },
+                                    onPreview = { previewSkill = skill },
+                                    onDelete = { viewModel.delete(skill.id) },
+                                )
+                            }
+                        }
+                    }
+                    item { Spacer(Modifier.size(12.dp)) }
                 }
-                item { Spacer(Modifier.size(12.dp)) }
             }
         },
     )

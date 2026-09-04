@@ -57,6 +57,8 @@ import me.ash.reader.ui.component.base.DisplayText
 import me.ash.reader.ui.component.base.FeedbackIconButton
 import me.ash.reader.ui.component.base.OrigReadScaffold
 import me.ash.reader.ui.component.base.OrigReadSwitch
+import me.ash.reader.ui.page.adaptive.OrigReadAdaptiveContent
+import me.ash.reader.ui.page.adaptive.OrigReadContentWidth
 
 data class WebSearchSettingsUiState(
     val settings: WebSearchSettings = WebSearchSettings(),
@@ -261,7 +263,8 @@ fun WebSearchSettingsPage(
             )
         },
         content = {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            OrigReadAdaptiveContent(width = OrigReadContentWidth.Comfortable) {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 item {
                     DisplayText(
                         text = stringResource(R.string.llm_web_search_title),
@@ -401,6 +404,7 @@ fun WebSearchSettingsPage(
                             )
                         }
                     }
+                }
                 }
             }
         },

@@ -9,11 +9,13 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -42,8 +44,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -71,6 +75,7 @@ import me.ash.reader.ui.motion.origReadVisibilityEnter
 import me.ash.reader.ui.motion.origReadVisibilityExit
 import me.ash.reader.ui.page.adaptive.OrigReadAdaptiveContent
 import me.ash.reader.ui.page.adaptive.OrigReadContentWidth
+import me.ash.reader.ui.page.adaptive.LocalOrigReadAdaptiveLayoutProfile
 
 /** 按上游原分类浏览内置 RSS 目录；分类仅做本地化展示，不分析或重分类 Feed 内容。 */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -84,13 +89,14 @@ fun SourceDiscoveryPage(
     val configuration = LocalConfiguration.current
     val languageTag = configuration.locales[0].toLanguageTag()
     var categorySheetVisible by rememberSaveable { mutableStateOf(false) }
+    val adaptiveProfile = LocalOrigReadAdaptiveLayoutProfile.current
+    val persistentCategories = adaptiveProfile.showsPersistentDiscoveryCategories
 
-    val selectedCategoryLabel =
-        state.selectedCategory?.let { SourceCategoryLabels.localized(it, languageTag) }
-            ?: stringResource(R.string.source_discovery_all_categories)
-    val fadeThroughTransform = origReadFadeThroughTransform()
+    LaunchedEffect(persistentCategories) {
+        if (persistentCategories) categorySheetVisible = false
+    }
 
-    if (categorySheetVisible) {
+    if (categorySheetVisible && !persistentCategories) {
         CategoryFilterSheet(
             categories = state.categories,
             categoryCounts = state.categoryCounts,
@@ -120,111 +126,235 @@ fun SourceDiscoveryPage(
             )
         },
         content = {
-            OrigReadAdaptiveContent(width = OrigReadContentWidth.Comfortable) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                OutlinedTextField(
-                    value = state.query,
-                    onValueChange = viewModel::setQuery,
-                    modifier =
-                        Modifier.fillMaxWidth()
-                            .padding(start = 16.dp, top = 2.dp, end = 16.dp, bottom = 8.dp),
-                    singleLine = true,
-                    shape = RoundedCornerShape(18.dp),
-                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
-                    trailingIcon = {
-                        AnimatedVisibility(
-                            visible = state.query.isNotEmpty(),
-                            enter = origReadVisibilityEnter(),
-                            exit = origReadVisibilityExit(),
-                        ) {
-                            IconButton(onClick = { viewModel.setQuery("") }) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Close,
-                                    contentDescription = stringResource(R.string.clear),
-                                )
-                            }
-                        }
-                    },
-                    placeholder = { Text(stringResource(R.string.source_discovery_search_hint)) },
-                )
-
-                Row(
-                    modifier =
-                        Modifier.fillMaxWidth()
-                            .padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    FilterChip(
-                        selected = state.selectedCategory != null,
-                        onClick = { categorySheetVisible = true },
-                        label = {
-                            Text(
-                                text = selectedCategoryLabel,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Rounded.Tune,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                            )
-                        },
-                        trailingIcon = {
-                            Icon(
-                                imageVector = Icons.Rounded.KeyboardArrowDown,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                            )
-                        },
-                    )
-                    Spacer(modifier = Modifier.weight(1f))
-                    AnimatedContent(
-                        targetState = state.feeds.size,
-                        transitionSpec = { fadeThroughTransform },
-                        label = "source-discovery-count",
-                    ) { count ->
-                        Text(
-                            text = stringResource(R.string.source_discovery_count, count),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            OrigReadAdaptiveContent(
+                width =
+                    if (persistentCategories) {
+                        OrigReadContentWidth.Editor
+                    } else {
+                        OrigReadContentWidth.Comfortable
+                    }
+            ) {
+                if (persistentCategories) {
+                    Row(modifier = Modifier.fillMaxSize()) {
+                        PersistentCategoryPane(
+                            state = state,
+                            languageTag = languageTag,
+                            onSelected = viewModel::setCategory,
+                            modifier = Modifier.width(300.dp).fillMaxHeight(),
+                        )
+                        VerticalDivider()
+                        DiscoveryResultsPane(
+                            state = state,
+                            languageTag = languageTag,
+                            showCategoryPicker = false,
+                            onQueryChange = viewModel::setQuery,
+                            onClearQuery = { viewModel.setQuery("") },
+                            onOpenCategories = {},
+                            onSubscribe = onSubscribe,
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
                         )
                     }
+                } else {
+                    DiscoveryResultsPane(
+                        state = state,
+                        languageTag = languageTag,
+                        showCategoryPicker = true,
+                        onQueryChange = viewModel::setQuery,
+                        onClearQuery = { viewModel.setQuery("") },
+                        onOpenCategories = { categorySheetVisible = true },
+                        onSubscribe = onSubscribe,
+                        modifier = Modifier.fillMaxSize(),
+                    )
                 }
-
-                AnimatedContent(
-                    targetState = state.feeds.isEmpty(),
-                    modifier = Modifier.weight(1f),
-                    transitionSpec = { fadeThroughTransform },
-                    label = "source-discovery-results",
-                ) { isEmpty ->
-                    if (isEmpty) {
-                        EmptyDiscoveryResult(modifier = Modifier.fillMaxSize())
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(bottom = 24.dp),
-                        ) {
-                            items(state.feeds, key = { it.id }) { feed ->
-                                SourceResultItem(
-                                    feed = feed,
-                                    languageTag = languageTag,
-                                    onSubscribe = { onSubscribe(feed) },
-                                )
-                                HorizontalDivider(
-                                    modifier = Modifier.padding(start = 72.dp, end = 16.dp),
-                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
-                                )
-                            }
-                        }
-                    }
-                }
-            }
             }
         },
     )
+}
+
+@Composable
+private fun DiscoveryResultsPane(
+    state: SourceDiscoveryUiState,
+    languageTag: String,
+    showCategoryPicker: Boolean,
+    onQueryChange: (String) -> Unit,
+    onClearQuery: () -> Unit,
+    onOpenCategories: () -> Unit,
+    onSubscribe: (FeedCatalogEntry) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val selectedCategoryLabel =
+        state.selectedCategory?.let { SourceCategoryLabels.localized(it, languageTag) }
+            ?: stringResource(R.string.source_discovery_all_categories)
+    val fadeThroughTransform = origReadFadeThroughTransform()
+
+    Column(modifier = modifier) {
+        OutlinedTextField(
+            value = state.query,
+            onValueChange = onQueryChange,
+            modifier =
+                Modifier.fillMaxWidth()
+                    .padding(start = 16.dp, top = 2.dp, end = 16.dp, bottom = 8.dp),
+            singleLine = true,
+            shape = RoundedCornerShape(18.dp),
+            leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+            trailingIcon = {
+                AnimatedVisibility(
+                    visible = state.query.isNotEmpty(),
+                    enter = origReadVisibilityEnter(),
+                    exit = origReadVisibilityExit(),
+                ) {
+                    IconButton(onClick = onClearQuery) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = stringResource(R.string.clear),
+                        )
+                    }
+                }
+            },
+            placeholder = { Text(stringResource(R.string.source_discovery_search_hint)) },
+        )
+
+        Row(
+            modifier =
+                Modifier.fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (showCategoryPicker) {
+                FilterChip(
+                    selected = state.selectedCategory != null,
+                    onClick = onOpenCategories,
+                    label = {
+                        Text(
+                            text = selectedCategoryLabel,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Rounded.Tune,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    },
+                    trailingIcon = {
+                        Icon(
+                            imageVector = Icons.Rounded.KeyboardArrowDown,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    },
+                )
+            } else {
+                Text(
+                    text = selectedCategoryLabel,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Spacer(modifier = Modifier.weight(1f))
+            AnimatedContent(
+                targetState = state.feeds.size,
+                transitionSpec = { fadeThroughTransform },
+                label = "source-discovery-count",
+            ) { count ->
+                Text(
+                    text = stringResource(R.string.source_discovery_count, count),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        AnimatedContent(
+            targetState = state.feeds.isEmpty(),
+            modifier = Modifier.weight(1f),
+            transitionSpec = { fadeThroughTransform },
+            label = "source-discovery-results",
+        ) { isEmpty ->
+            if (isEmpty) {
+                EmptyDiscoveryResult(modifier = Modifier.fillMaxSize())
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 24.dp),
+                ) {
+                    items(state.feeds, key = { it.id }) { feed ->
+                        SourceResultItem(
+                            feed = feed,
+                            languageTag = languageTag,
+                            onSubscribe = { onSubscribe(feed) },
+                        )
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 72.dp, end = 16.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PersistentCategoryPane(
+    state: SourceDiscoveryUiState,
+    languageTag: String,
+    onSelected: (String?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.padding(top = 4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.source_discovery_choose_category),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = stringResource(R.string.source_discovery_category_sheet_hint, state.categories.size),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (state.selectedCategory != null) {
+                TextButton(onClick = { onSelected(null) }) {
+                    Text(stringResource(R.string.source_discovery_clear_filter))
+                }
+            }
+        }
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            item(key = "__all__") {
+                CategoryTile(
+                    title = stringResource(R.string.source_discovery_all_categories),
+                    subtitle = if (languageTag.lowercase().startsWith("zh")) "All categories" else null,
+                    count = state.totalFeedCount,
+                    selected = state.selectedCategory == null,
+                    onClick = { onSelected(null) },
+                )
+            }
+            items(state.categories, key = { it }) { category ->
+                CategoryTile(
+                    title = SourceCategoryLabels.localized(category, languageTag),
+                    subtitle = SourceCategoryLabels.secondary(category, languageTag),
+                    count = state.categoryCounts[category] ?: 0,
+                    selected = state.selectedCategory == category,
+                    onClick = { onSelected(category) },
+                )
+            }
+        }
+    }
 }
 
 /** 单个来源只展示用户做订阅决策真正需要的信息，数据集归属不再占据每一行主视觉。 */
