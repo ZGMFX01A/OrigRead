@@ -34,16 +34,80 @@ class OrigReadAdaptiveLayoutProfileTest {
         assertFalse(profile.usesPhoneLikeFlow)
         assertTrue(profile.supportsListDetailWorkspace)
         assertFalse(profile.supportsThreePaneWorkspace)
+        assertEquals(
+            OrigReadArticleAssistantPresentation.SupportingPane,
+            articleAssistantPresentation(profile),
+        )
+        assertTrue(shouldTemporarilyHideListForAssistant(profile, assistantPaneVisible = true))
     }
 
     @Test
-    fun `pixel tablet large baseline allows future three pane workspace`() {
+    fun `pixel tablet large baseline keeps readable reader width with two panes`() {
         val profile = origReadAdaptiveLayoutProfile(widthDp = 1280, heightDp = 800)
 
         assertEquals(OrigReadWindowWidthClass.Large, profile.widthClass)
         assertEquals(OrigReadWindowHeightClass.Medium, profile.heightClass)
         assertTrue(profile.supportsListDetailWorkspace)
-        assertTrue(profile.supportsThreePaneWorkspace)
+        assertFalse(profile.supportsThreePaneWorkspace)
+        assertEquals(
+            OrigReadArticleAssistantPresentation.SupportingPane,
+            articleAssistantPresentation(profile),
+        )
+        assertTrue(shouldTemporarilyHideListForAssistant(profile, assistantPaneVisible = true))
+    }
+
+    @Test
+    fun `three pane workspace starts only when list reader and assistant all fit`() {
+        val below =
+            origReadAdaptiveLayoutProfile(
+                widthDp = ThreePaneReaderWorkspaceMinWidthDp - 1,
+                heightDp = 900,
+            )
+        val atThreshold =
+            origReadAdaptiveLayoutProfile(
+                widthDp = ThreePaneReaderWorkspaceMinWidthDp,
+                heightDp = 900,
+            )
+
+        assertFalse(below.supportsThreePaneWorkspace)
+        assertTrue(atThreshold.supportsThreePaneWorkspace)
+    }
+
+    @Test
+    fun `phone like windows keep assistant as bottom sheet`() {
+        val compact = origReadAdaptiveLayoutProfile(widthDp = 412, heightDp = 915)
+        val medium = origReadAdaptiveLayoutProfile(widthDp = 800, heightDp = 1280)
+        val compactHeight = origReadAdaptiveLayoutProfile(widthDp = 1400, heightDp = 420)
+
+        listOf(compact, medium, compactHeight).forEach { profile ->
+            assertEquals(
+                OrigReadArticleAssistantPresentation.BottomSheet,
+                articleAssistantPresentation(profile),
+            )
+            assertFalse(shouldTemporarilyHideListForAssistant(profile, assistantPaneVisible = true))
+        }
+    }
+
+    @Test
+    fun `supporting pane keeps only same article citation beside reader`() {
+        assertTrue(
+            shouldKeepAssistantVisibleForReaderCitation(
+                presentation = OrigReadArticleAssistantPresentation.SupportingPane,
+                targetIsCurrentArticle = true,
+            )
+        )
+        assertFalse(
+            shouldKeepAssistantVisibleForReaderCitation(
+                presentation = OrigReadArticleAssistantPresentation.SupportingPane,
+                targetIsCurrentArticle = false,
+            )
+        )
+        assertFalse(
+            shouldKeepAssistantVisibleForReaderCitation(
+                presentation = OrigReadArticleAssistantPresentation.BottomSheet,
+                targetIsCurrentArticle = true,
+            )
+        )
     }
 
     @Test

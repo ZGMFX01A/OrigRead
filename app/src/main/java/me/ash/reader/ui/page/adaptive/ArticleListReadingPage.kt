@@ -54,17 +54,19 @@ import me.ash.reader.ui.page.home.reading.ReadingPage
 internal fun readerWorkspaceNavigationAction(
     isTwoPane: Boolean,
     isListHiddenByUser: Boolean,
+    isListTemporarilyHidden: Boolean = false,
 ): NavigationAction =
     when {
         !isTwoPane -> NavigationAction.Close
-        isListHiddenByUser -> NavigationAction.ExpandList
+        isListHiddenByUser || isListTemporarilyHidden -> NavigationAction.ExpandList
         else -> NavigationAction.HideList
     }
 
 internal fun readerWorkspaceUsesExpandedContent(
     isTwoPane: Boolean,
     isListHiddenByUser: Boolean,
-): Boolean = isTwoPane && isListHiddenByUser
+    isListTemporarilyHidden: Boolean = false,
+): Boolean = isTwoPane && (isListHiddenByUser || isListTemporarilyHidden)
 
 @OptIn(
     ExperimentalMaterial3AdaptiveApi::class,
@@ -85,6 +87,7 @@ fun ArticleListReaderPage(
 
     val scope = rememberCoroutineScope()
     val motionScheme = MaterialTheme.motionScheme
+    val adaptiveLayoutProfile = LocalOrigReadAdaptiveLayoutProfile.current
 
     val backBehavior = BackNavigationBehavior.PopUntilScaffoldValueChange
 
@@ -98,6 +101,12 @@ fun ArticleListReaderPage(
     // the window temporarily becomes single-pane so returning to a large window restores the
     // workspace the user chose instead of silently reopening the list.
     var isListHiddenByUser by rememberSaveable { mutableStateOf(false) }
+    var isAssistantPaneVisible by remember { mutableStateOf(false) }
+    val isListTemporarilyHiddenForAssistant =
+        shouldTemporarilyHideListForAssistant(
+            profile = adaptiveLayoutProfile,
+            assistantPaneVisible = isAssistantPaneVisible,
+        )
 
     val hiddenAnchor = remember(scaffoldDirective) { PaneExpansionAnchor.Offset.fromStart(0.dp) }
 
@@ -109,7 +118,14 @@ fun ArticleListReaderPage(
     val paneExpansionState =
         rememberPaneExpansionState(
             initialAnchoredIndex =
-                if (readerWorkspaceUsesExpandedContent(isTwoPane, isListHiddenByUser)) 0 else 1,
+                if (
+                    readerWorkspaceUsesExpandedContent(
+                        isTwoPane = isTwoPane,
+                        isListHiddenByUser = isListHiddenByUser,
+                        isListTemporarilyHidden = isListTemporarilyHiddenForAssistant,
+                    )
+                ) 0
+                else 1,
             anchors = listOf(hiddenAnchor, expandedAnchor),
             anchoringAnimationSpec =
                 motionScheme.defaultSpatialSpec(),
@@ -119,14 +135,22 @@ fun ArticleListReaderPage(
         readerWorkspaceNavigationAction(
             isTwoPane = isTwoPane,
             isListHiddenByUser = isListHiddenByUser,
+            isListTemporarilyHidden = isListTemporarilyHiddenForAssistant,
         )
     val useExpandedReaderContent =
         readerWorkspaceUsesExpandedContent(
             isTwoPane = isTwoPane,
             isListHiddenByUser = isListHiddenByUser,
+            isListTemporarilyHidden = isListTemporarilyHiddenForAssistant,
         )
 
-    LaunchedEffect(isTwoPane, isListHiddenByUser, hiddenAnchor, expandedAnchor) {
+    LaunchedEffect(
+        isTwoPane,
+        isListHiddenByUser,
+        isListTemporarilyHiddenForAssistant,
+        hiddenAnchor,
+        expandedAnchor,
+    ) {
         paneExpansionState.animateTo(
             if (useExpandedReaderContent) hiddenAnchor else expandedAnchor
         )
@@ -154,7 +178,7 @@ fun ArticleListReaderPage(
         paneExpansionDragHandle = { Spacer(modifier = Modifier.width(2.dp)) },
         paneExpansionState = paneExpansionState,
         listPane = {
-            if (useExpandedReaderContent) {
+            if (useExpandedReaderContent && !isListTemporarilyHiddenForAssistant) {
                 BackHandler { isListHiddenByUser = false }
             }
             AnimatedPane(
@@ -243,6 +267,7 @@ fun ArticleListReaderPage(
                             }
                         },
                         onNavigateToStylePage = onNavigateToStylePage,
+                        onAssistantPaneVisibilityChange = { isAssistantPaneVisible = it },
                     )
                 }
             }

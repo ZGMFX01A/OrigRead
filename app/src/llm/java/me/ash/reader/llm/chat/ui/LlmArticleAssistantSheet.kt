@@ -1,5 +1,6 @@
 package me.ash.reader.llm.chat.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -14,13 +15,19 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.systemGestures
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.heightIn
@@ -77,6 +84,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -138,6 +146,7 @@ import me.ash.reader.ui.motion.origReadVisibilityEnter
 import me.ash.reader.ui.motion.origReadVisibilityExit
 import me.ash.reader.ui.component.reader.PendingCitationNavigation
 import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerState
+import me.ash.reader.ui.page.adaptive.OrigReadArticleAssistantPresentation
 import me.ash.reader.ui.page.home.reading.AiSummaryAccentIcon
 import me.ash.reader.ui.page.home.reading.ArticleAssistantContext
 
@@ -177,6 +186,9 @@ fun LlmArticleAssistantSheet(
     onNavigateReaderCitation: (PendingCitationNavigation) -> Unit = {},
     readerEvidenceMarkerState: ReaderEvidenceMarkerState? = null,
     continueGenerationInBackground: Boolean = true,
+    presentation: OrigReadArticleAssistantPresentation =
+        OrigReadArticleAssistantPresentation.BottomSheet,
+    modifier: Modifier = Modifier,
     onDismiss: () -> Unit,
     viewModel: LlmChatViewModel = hiltViewModel(),
 ) {
@@ -283,17 +295,9 @@ fun LlmArticleAssistantSheet(
     val currentConversation =
         uiState.conversations.firstOrNull { it.id == uiState.currentConversationId }
 
-    ModalBottomSheet(
-        onDismissRequest = dismissAssistant,
-        sheetState = sheetState,
-        // 主 Chat 内部已经有可滚动 LazyColumn。禁用 Sheet 自身纵向拖拽，避免列表快速 fling 到边界后
-        // 剩余 nested-scroll velocity 被 ModalBottomSheet 接管，导致整个聊天窗口上下弹动。
-        sheetGesturesEnabled = false,
-        dragHandle = null,
-        containerColor = MaterialTheme.colorScheme.surface,
-    ) {
+    val assistantContent: @Composable (Modifier, Boolean) -> Unit = { contentModifier, compactActions ->
         Column(
-            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.92f),
+            modifier = contentModifier,
         ) {
             AssistantHeader(
                 providerName =
@@ -322,6 +326,8 @@ fun LlmArticleAssistantSheet(
                 },
                 onRenameConversation = { renameTarget = it },
                 onDeleteConversation = { deleteTarget = it },
+                compactActions = compactActions,
+                onDismiss = dismissAssistant,
             )
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -551,6 +557,42 @@ fun LlmArticleAssistantSheet(
         }
     }
 
+    when (presentation) {
+        OrigReadArticleAssistantPresentation.BottomSheet ->
+            ModalBottomSheet(
+                onDismissRequest = dismissAssistant,
+                sheetState = sheetState,
+                // 主 Chat 内部已经有可滚动 LazyColumn。禁用 Sheet 自身纵向拖拽，避免列表快速 fling 到边界后
+                // 剩余 nested-scroll velocity 被 ModalBottomSheet 接管，导致整个聊天窗口上下弹动。
+                sheetGesturesEnabled = false,
+                dragHandle = null,
+                containerColor = MaterialTheme.colorScheme.surface,
+            ) {
+                assistantContent(Modifier.fillMaxWidth().fillMaxHeight(0.92f), false)
+            }
+
+        OrigReadArticleAssistantPresentation.SupportingPane -> {
+            BackHandler(onBack = dismissAssistant)
+            Surface(
+                modifier = modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.surface,
+            ) {
+                Row(modifier = Modifier.fillMaxSize()) {
+                    VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    assistantContent(
+                        Modifier.weight(1f)
+                            .fillMaxHeight()
+                            .statusBarsPadding()
+                            .windowInsetsPadding(
+                                WindowInsets.systemGestures.only(WindowInsetsSides.End)
+                            ),
+                        true,
+                    )
+                }
+            }
+        }
+    }
+
     if (modelPickerVisible) {
         ModelPickerSheet(
             uiState = uiState,
@@ -681,6 +723,8 @@ private fun AssistantHeader(
     onSelectConversation: (String) -> Unit,
     onRenameConversation: (LlmConversationEntity) -> Unit,
     onDeleteConversation: (LlmConversationEntity) -> Unit,
+    compactActions: Boolean,
+    onDismiss: () -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, bottom = 10.dp),
@@ -769,8 +813,10 @@ private fun AssistantHeader(
             }
         }
 
-        IconButton(onClick = onNewConversation) {
-            Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.llm_chat_new))
+        if (!compactActions) {
+            IconButton(onClick = onNewConversation) {
+                Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.llm_chat_new))
+            }
         }
 
         Box {
@@ -802,6 +848,11 @@ private fun AssistantHeader(
                         },
                     )
                 }
+            }
+        }
+        if (compactActions) {
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.close))
             }
         }
     }

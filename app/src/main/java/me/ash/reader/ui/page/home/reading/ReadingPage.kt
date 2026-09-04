@@ -3,6 +3,7 @@ package me.ash.reader.ui.page.home.reading
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -13,9 +14,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.ExperimentalMaterialApi
@@ -31,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -86,12 +90,18 @@ import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerState
 import me.ash.reader.ui.component.webview.WebViewReaderAnchorNavigationResult
 import me.ash.reader.ui.component.webview.WebViewReaderAnchorState
 import me.ash.reader.ui.page.adaptive.ArticleListReaderViewModel
+import me.ash.reader.ui.page.adaptive.LocalOrigReadAdaptiveLayoutProfile
 import me.ash.reader.ui.page.adaptive.NavigationAction
+import me.ash.reader.ui.page.adaptive.OrigReadArticleAssistantPresentation
 import me.ash.reader.ui.page.adaptive.ReaderState
+import me.ash.reader.ui.page.adaptive.articleAssistantPresentation
+import me.ash.reader.ui.page.adaptive.shouldKeepAssistantVisibleForReaderCitation
+import me.ash.reader.ui.page.adaptive.shouldTemporarilyHideListForAssistant
 import me.ash.reader.ui.page.home.reading.tts.TtsButton
 
 private const val UPWARD = 1
 private const val DOWNWARD = -1
+private val ArticleAssistantPaneWidth = 384.dp
 
 @OptIn(
     ExperimentalFoundationApi::class,
@@ -106,10 +116,13 @@ fun ReadingPage(
     onLoadArticle: (String, Int) -> Unit,
     onNavAction: (NavigationAction) -> Unit,
     onNavigateToStylePage: () -> Unit,
+    onAssistantPaneVisibilityChange: (Boolean) -> Unit = {},
 ) {
     val context = LocalContext.current
     val settings = LocalSettings.current
     val motionScheme = MaterialTheme.motionScheme
+    val adaptiveLayoutProfile = LocalOrigReadAdaptiveLayoutProfile.current
+    val assistantPresentation = articleAssistantPresentation(adaptiveLayoutProfile)
     val readingRenderer = LocalReadingRenderer.current
     val coroutineScope = rememberCoroutineScope()
     val hapticFeedback = LocalHapticFeedback.current
@@ -291,6 +304,36 @@ fun ReadingPage(
                 selectedTextFromTranslation = selectedTextForAssistantFromTranslation,
             )
         }
+    val assistantPaneVisible =
+        showArticleAssistant &&
+            aiAssistantEnabled &&
+            articleAssistantContext != null &&
+            assistantPresentation == OrigReadArticleAssistantPresentation.SupportingPane
+    val temporarilyHidesListForAssistant =
+        shouldTemporarilyHideListForAssistant(
+            profile = adaptiveLayoutProfile,
+            assistantPaneVisible = assistantPaneVisible,
+        )
+    val assistantPaneReservedWidth by
+        animateDpAsState(
+            targetValue = if (assistantPaneVisible) ArticleAssistantPaneWidth else 0.dp,
+            animationSpec = motionScheme.defaultSpatialSpec(),
+            label = "article-assistant-pane-width",
+        )
+    // Spatial spring animations may overshoot slightly below 0dp while the pane closes.
+    // Padding rejects negative values, so clamp only at the layout boundary and preserve
+    // the existing motion parameters.
+    val assistantPanePadding = assistantPaneReservedWidth.coerceAtLeast(0.dp)
+    val currentOnAssistantPaneVisibilityChange by
+        rememberUpdatedState(onAssistantPaneVisibilityChange)
+
+    LaunchedEffect(assistantPaneVisible) {
+        currentOnAssistantPaneVisibilityChange(assistantPaneVisible)
+    }
+    DisposableEffect(Unit) {
+        onDispose { currentOnAssistantPaneVisibilityChange(false) }
+    }
+
     val readingSharePreference = settings.readingShare
     val readingShareLabels =
         ReadingShareLabels(
@@ -500,9 +543,11 @@ fun ReadingPage(
         }
     }
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.surface,
-        content = { paddings ->
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize().padding(end = assistantPanePadding),
+            containerColor = MaterialTheme.colorScheme.surface,
+            content = { paddings ->
             Box(modifier = Modifier.fillMaxSize()) {
                 if (readerState.articleId != null) {
                     TopBar(
@@ -512,7 +557,17 @@ fun ReadingPage(
                         link = readerState.link,
                         onClick = { bringToTop = true },
                         navigationAction = navigationAction,
-                        onNavButtonClick = onNavAction,
+                        onNavButtonClick = { action ->
+                            if (
+                                assistantPaneVisible &&
+                                    temporarilyHidesListForAssistant &&
+                                    action == NavigationAction.ExpandList
+                            ) {
+                                dismissArticleAssistant()
+                            } else {
+                                onNavAction(action)
+                            }
+                        },
                         onNavigateToStylePage = onNavigateToStylePage,
                         showReadAloudButton = readerState.content.text?.isNotBlank() == true,
                         showReadOriginalButton =
@@ -869,57 +924,71 @@ fun ReadingPage(
                     )
                 }
             }
-        },
-    )
-    EditionSelectedTextActionHost(
-        // WebView 正文已有应用内 ActionMode；PROCESS_TEXT 只给 Compose NativeComponent 提供选区文本兼容通道。
-        enabled =
-            aiAssistantEnabled &&
-                articleAssistantContext != null &&
-                readingRenderer == ReadingRendererPreference.NativeComponent,
-        onSelectedText = { selectedText ->
-            openArticleAssistant(
-                selectedText = selectedText,
-                selectedTextFromTranslation = visibleTranslation != null,
-            )
-        },
-    )
-    EditionArticleAssistantSheet(
-        visible = showArticleAssistant && aiAssistantEnabled,
-        context = articleAssistantContext,
-        articleAnalysisRequested = articleAnalysisRequested,
-        onArticleAnalysisConsumed = { articleAnalysisRequested = false },
-        onOpenArticle = { articleId ->
-            dismissArticleAssistant()
-            if (articleId != readerState.articleId) {
-                // ContextRef 只保存稳定 articleId，不依赖当时列表位置；-1 会让阅读页按 ID 从当前列表/数据库恢复。
-                onLoadArticle(articleId, -1)
-            }
-        },
-        showQuickSummary = aiAssistantEnabled && !llmSettings.defaultGenerateSummary,
-        onQuickSummary = { length ->
-            // 与 Desktop 一致：快捷摘要切回独立摘要链路，不创建/追加 Chat 消息。
-            dismissArticleAssistant()
-            viewModel.summarizeArticle(lengthOverride = length)
-        },
-        onNavigateReaderCitation = { request ->
-            citationNavigationFailure = null
-            pendingCitationNavigation = request
-            hideArticleAssistantForCitation()
-            viewModel.showOriginalContentForCitation()
-            if (request.articleId != readerState.articleId) {
-                onLoadArticle(request.articleId, -1)
-            }
-        },
-        citationNavigationFailure = citationNavigationFailure,
-        onCitationNavigationFailureConsumed = {
-            citationNavigationFailure = null
-            readerEvidenceMarkerState.clear()
-        },
-        readerEvidenceMarkerState = readerEvidenceMarkerState,
-        continueGenerationInBackground = llmSettings.continueGenerationInBackground,
-        onDismiss = ::dismissArticleAssistant,
-    )
+            },
+        )
+        EditionSelectedTextActionHost(
+            // WebView 正文已有应用内 ActionMode；PROCESS_TEXT 只给 Compose NativeComponent 提供选区文本兼容通道。
+            enabled =
+                aiAssistantEnabled &&
+                    articleAssistantContext != null &&
+                    readingRenderer == ReadingRendererPreference.NativeComponent,
+            onSelectedText = { selectedText ->
+                openArticleAssistant(
+                    selectedText = selectedText,
+                    selectedTextFromTranslation = visibleTranslation != null,
+                )
+            },
+        )
+        EditionArticleAssistantSheet(
+            visible = showArticleAssistant && aiAssistantEnabled,
+            context = articleAssistantContext,
+            articleAnalysisRequested = articleAnalysisRequested,
+            onArticleAnalysisConsumed = { articleAnalysisRequested = false },
+            onOpenArticle = { articleId ->
+                dismissArticleAssistant()
+                if (articleId != readerState.articleId) {
+                    // ContextRef 只保存稳定 articleId，不依赖当时列表位置；-1 会让阅读页按 ID 从当前列表/数据库恢复。
+                    onLoadArticle(articleId, -1)
+                }
+            },
+            showQuickSummary = aiAssistantEnabled && !llmSettings.defaultGenerateSummary,
+            onQuickSummary = { length ->
+                // 与 Desktop 一致：快捷摘要切回独立摘要链路，不创建/追加 Chat 消息。
+                dismissArticleAssistant()
+                viewModel.summarizeArticle(lengthOverride = length)
+            },
+            onNavigateReaderCitation = { request ->
+                citationNavigationFailure = null
+                pendingCitationNavigation = request
+                val targetIsCurrentArticle = request.articleId == readerState.articleId
+                if (
+                    !shouldKeepAssistantVisibleForReaderCitation(
+                        presentation = assistantPresentation,
+                        targetIsCurrentArticle = targetIsCurrentArticle,
+                    )
+                ) {
+                    hideArticleAssistantForCitation()
+                }
+                viewModel.showOriginalContentForCitation()
+                if (!targetIsCurrentArticle) {
+                    onLoadArticle(request.articleId, -1)
+                }
+            },
+            citationNavigationFailure = citationNavigationFailure,
+            onCitationNavigationFailureConsumed = {
+                citationNavigationFailure = null
+                readerEvidenceMarkerState.clear()
+            },
+            readerEvidenceMarkerState = readerEvidenceMarkerState,
+            continueGenerationInBackground = llmSettings.continueGenerationInBackground,
+            presentation = assistantPresentation,
+            modifier =
+                Modifier.align(Alignment.CenterEnd)
+                    .width(ArticleAssistantPaneWidth)
+                    .fillMaxHeight(),
+            onDismiss = ::dismissArticleAssistant,
+        )
+    }
     if (showFullScreenImageViewer) {
 
         ReaderImageViewer(

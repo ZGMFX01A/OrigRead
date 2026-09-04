@@ -27,8 +27,15 @@ enum class OrigReadWindowHeightClass {
     Expanded,
 }
 
+enum class OrigReadArticleAssistantPresentation {
+    BottomSheet,
+    SupportingPane,
+}
+
 /** OrigRead 对当前 app window 的统一产品级能力描述。 */
 data class OrigReadAdaptiveLayoutProfile(
+    val widthDp: Int,
+    val heightDp: Int,
     val widthClass: OrigReadWindowWidthClass,
     val heightClass: OrigReadWindowHeightClass,
 ) {
@@ -44,9 +51,37 @@ data class OrigReadAdaptiveLayoutProfile(
     val supportsThreePaneWorkspace: Boolean
         get() =
             heightClass != OrigReadWindowHeightClass.Compact &&
-                (widthClass == OrigReadWindowWidthClass.Large ||
-                    widthClass == OrigReadWindowWidthClass.ExtraLarge)
+                widthDp >= ThreePaneReaderWorkspaceMinWidthDp
 }
+
+// 400dp list + 24dp list/detail spacer + (600dp readable text + 48dp reader padding)
+// + 384dp assistant. Pixel Tablet 1280dp was verified to leave only ~424dp readable text when
+// forced into three panes, so Large is a candidate class rather than an unconditional three-pane
+// decision.
+internal const val ThreePaneReaderWorkspaceMinWidthDp = 1456
+
+internal fun articleAssistantPresentation(
+    profile: OrigReadAdaptiveLayoutProfile,
+): OrigReadArticleAssistantPresentation =
+    if (profile.supportsListDetailWorkspace) {
+        OrigReadArticleAssistantPresentation.SupportingPane
+    } else {
+        OrigReadArticleAssistantPresentation.BottomSheet
+    }
+
+internal fun shouldTemporarilyHideListForAssistant(
+    profile: OrigReadAdaptiveLayoutProfile,
+    assistantPaneVisible: Boolean,
+): Boolean =
+    assistantPaneVisible &&
+        profile.supportsListDetailWorkspace &&
+        !profile.supportsThreePaneWorkspace
+
+internal fun shouldKeepAssistantVisibleForReaderCitation(
+    presentation: OrigReadArticleAssistantPresentation,
+    targetIsCurrentArticle: Boolean,
+): Boolean =
+    presentation == OrigReadArticleAssistantPresentation.SupportingPane && targetIsCurrentArticle
 
 /**
  * 使用 Android 官方 Window Size Class 断点做集中分类。
@@ -59,6 +94,8 @@ internal fun origReadAdaptiveLayoutProfile(
     heightDp: Int,
 ): OrigReadAdaptiveLayoutProfile =
     OrigReadAdaptiveLayoutProfile(
+        widthDp = widthDp,
+        heightDp = heightDp,
         widthClass =
             when {
                 widthDp >= 1600 -> OrigReadWindowWidthClass.ExtraLarge
@@ -78,6 +115,8 @@ internal fun origReadAdaptiveLayoutProfile(
 val LocalOrigReadAdaptiveLayoutProfile =
     staticCompositionLocalOf {
         OrigReadAdaptiveLayoutProfile(
+            widthDp = 0,
+            heightDp = 0,
             widthClass = OrigReadWindowWidthClass.Compact,
             heightClass = OrigReadWindowHeightClass.Medium,
         )

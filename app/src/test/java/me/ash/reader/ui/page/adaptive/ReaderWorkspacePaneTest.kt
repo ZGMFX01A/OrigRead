@@ -29,6 +29,37 @@ class ReaderWorkspacePaneTest {
     }
 
     @Test
+    fun `assistant can temporarily borrow list space without changing user preference`() {
+        val userHiddenPreference = false
+
+        assertEquals(
+            NavigationAction.ExpandList,
+            readerWorkspaceNavigationAction(
+                isTwoPane = true,
+                isListHiddenByUser = userHiddenPreference,
+                isListTemporarilyHidden = true,
+            ),
+        )
+        assertTrue(
+            readerWorkspaceUsesExpandedContent(
+                isTwoPane = true,
+                isListHiddenByUser = userHiddenPreference,
+                isListTemporarilyHidden = true,
+            )
+        )
+
+        assertFalse(userHiddenPreference)
+        assertEquals(
+            NavigationAction.HideList,
+            readerWorkspaceNavigationAction(
+                isTwoPane = true,
+                isListHiddenByUser = userHiddenPreference,
+                isListTemporarilyHidden = false,
+            ),
+        )
+    }
+
+    @Test
     fun `single pane temporarily ignores hidden preference without destroying it`() {
         val hiddenPreference = true
 

@@ -17,6 +17,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.NavBackStack
@@ -28,6 +30,7 @@ import androidx.navigation3.ui.NavDisplay
 import kotlinx.coroutines.delay
 import me.ash.reader.ui.motion.OrigReadMotionDirection
 import me.ash.reader.ui.motion.origReadNavigationTransform
+import kotlin.math.roundToInt
 import me.ash.reader.ui.page.adaptive.ArticleData
 import me.ash.reader.ui.page.adaptive.ArticleListReaderPage
 import me.ash.reader.ui.page.adaptive.ArticleListReaderViewModel
@@ -82,11 +85,15 @@ fun AppEntry(backStack: NavBackStack<NavKey>) {
 
     val windowAdaptiveInfo = currentWindowAdaptiveInfo(supportLargeAndXLargeWidth = true)
     val scaffoldDirective = calculatePaneScaffoldDirective(windowAdaptiveInfo)
+    val windowContainerSize = LocalWindowInfo.current.containerSize
+    val density = LocalDensity.current
+    val windowWidthDp = with(density) { windowContainerSize.width.toDp().value.roundToInt() }
+    val windowHeightDp = with(density) { windowContainerSize.height.toDp().value.roundToInt() }
     val adaptiveLayoutProfile =
-        remember(windowAdaptiveInfo.windowSizeClass) {
+        remember(windowWidthDp, windowHeightDp) {
             origReadAdaptiveLayoutProfile(
-                widthDp = windowAdaptiveInfo.windowSizeClass.minWidthDp,
-                heightDp = windowAdaptiveInfo.windowSizeClass.minHeightDp,
+                widthDp = windowWidthDp,
+                heightDp = windowHeightDp,
             )
         }
 
