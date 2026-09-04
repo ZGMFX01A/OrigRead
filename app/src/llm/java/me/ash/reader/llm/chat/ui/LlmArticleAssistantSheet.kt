@@ -102,6 +102,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
@@ -194,6 +196,7 @@ fun LlmArticleAssistantSheet(
     val uiState by viewModel.uiState.collectAsState()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val listState = rememberLazyListState()
+    val inputFocusRequester = remember { FocusRequester() }
     var input by rememberSaveable(articleContext.articleId) { mutableStateOf("") }
     var historyExpanded by remember { mutableStateOf(false) }
     var conversationMenuExpanded by remember { mutableStateOf(false) }
@@ -263,6 +266,15 @@ fun LlmArticleAssistantSheet(
 
     LaunchedEffect(articleContext) {
         viewModel.bindArticleContext(articleContext)
+    }
+    LaunchedEffect(articleContext.articleId, articleContext.selectedText) {
+        articleContext.selectedText?.trim()?.takeIf(String::isNotBlank)?.let { selectedText ->
+            // Selection -> AI is an explicit compose intent: surface the exact selection in the
+            // composer and put the caret there. Ordinary Chat openings keep the existing draft and
+            // do not steal focus because selectedText is null on those paths.
+            input = selectedText
+            inputFocusRequester.requestFocus()
+        }
     }
     LaunchedEffect(articleAnalysisRequested) {
         if (articleAnalysisRequested) {
@@ -543,6 +555,7 @@ fun LlmArticleAssistantSheet(
             if (!previewMode) {
                 AssistantComposer(
                     input = input,
+                    inputFocusRequester = inputFocusRequester,
                     uiState = uiState,
                     onInputChange = { input = it },
                     onOpenModelPicker = { modelPickerVisible = true },
@@ -1920,6 +1933,7 @@ private fun formatDuration(durationMs: Long): String =
 @Composable
 private fun AssistantComposer(
     input: String,
+    inputFocusRequester: FocusRequester,
     uiState: LlmChatUiState,
     onInputChange: (String) -> Unit,
     onOpenModelPicker: () -> Unit,
@@ -2133,7 +2147,7 @@ private fun AssistantComposer(
             OutlinedTextField(
                 value = input,
                 onValueChange = onInputChange,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().focusRequester(inputFocusRequester),
                 enabled = !uiState.isGenerating,
                 placeholder = { Text(stringResource(R.string.llm_article_input_hint)) },
                 shape = RoundedCornerShape(22.dp),
