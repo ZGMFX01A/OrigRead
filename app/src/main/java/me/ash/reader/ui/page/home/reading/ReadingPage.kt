@@ -108,6 +108,14 @@ private const val UPWARD = 1
 private const val DOWNWARD = -1
 private val ArticleAssistantPaneWidth = 384.dp
 
+internal fun shouldResetArticleAssistantForArticleChange(
+    previousArticleId: String?,
+    currentArticleId: String?,
+): Boolean =
+    previousArticleId?.trim()?.takeIf(String::isNotEmpty) != null &&
+        currentArticleId?.trim()?.takeIf(String::isNotEmpty) != null &&
+        previousArticleId.trim() != currentArticleId.trim()
+
 @OptIn(
     ExperimentalFoundationApi::class,
     ExperimentalMaterialApi::class,
@@ -157,12 +165,13 @@ fun ReadingPage(
     var isReaderScrollingDown by remember { mutableStateOf(false) }
     var showFullScreenImageViewer by remember { mutableStateOf(false) }
     var showAiSummaryOptions by remember { mutableStateOf(false) }
-    var showArticleAssistant by rememberSaveable(readerState.articleId) { mutableStateOf(false) }
-    var articleAnalysisRequested by rememberSaveable(readerState.articleId) { mutableStateOf(false) }
-    var selectedTextForAssistant by rememberSaveable(readerState.articleId) { mutableStateOf<String?>(null) }
-    var selectedTextForAssistantFromTranslation by rememberSaveable(readerState.articleId) {
+    var showArticleAssistant by rememberSaveable { mutableStateOf(false) }
+    var articleAnalysisRequested by rememberSaveable { mutableStateOf(false) }
+    var selectedTextForAssistant by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedTextForAssistantFromTranslation by rememberSaveable {
         mutableStateOf(false)
     }
+    var lastAssistantArticleId by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingCitationNavigation by remember { mutableStateOf<PendingCitationNavigation?>(null) }
     var citationNavigationFailure by remember { mutableStateOf<PendingCitationNavigation?>(null) }
     var showInteractiveVerification by remember { mutableStateOf(false) }
@@ -546,13 +555,26 @@ fun ReadingPage(
 
     LaunchedEffect(readerState.articleId) {
         val currentArticleId = readerState.articleId?.trim()?.ifBlank { null }
-        val keepCitationMarker =
-            currentArticleId != null && pendingCitationNavigation?.isTargetArticle(currentArticleId) == true
-        if (!keepCitationMarker) {
-            readerEvidenceMarkerState.clear()
+        if (
+            shouldResetArticleAssistantForArticleChange(
+                previousArticleId = lastAssistantArticleId,
+                currentArticleId = currentArticleId,
+            )
+        ) {
+            val keepCitationMarker =
+                currentArticleId != null &&
+                    pendingCitationNavigation?.isTargetArticle(currentArticleId) == true
+            if (!keepCitationMarker) {
+                readerEvidenceMarkerState.clear()
+            }
+            // 只在真实文章切换时关闭上一文章的助手。Activity / window 重建期间 readerState
+            // 可能短暂回到 null；这不能被当成文章切换，否则 resize / rotation 会丢当前 Chat UI。
+            showArticleAssistant = false
+            articleAnalysisRequested = false
+            selectedTextForAssistant = null
+            selectedTextForAssistantFromTranslation = false
         }
-        // 阅读对象变化时关闭上一文章的助手，避免旧会话覆盖在新正文之上。
-        showArticleAssistant = false
+        if (currentArticleId != null) lastAssistantArticleId = currentArticleId
     }
 
     LaunchedEffect(translationState.errorMessage) {
