@@ -591,6 +591,22 @@ fun LlmArticleAssistantSheet(
                 }
             }
         }
+
+        OrigReadArticleAssistantPresentation.TabletopSupportingPane -> {
+            BackHandler(onBack = dismissAssistant)
+            Surface(
+                modifier = modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.surface,
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    assistantContent(
+                        Modifier.weight(1f).fillMaxWidth(),
+                        true,
+                    )
+                }
+            }
+        }
     }
 
     if (modelPickerVisible) {

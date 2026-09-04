@@ -83,11 +83,13 @@ fun ArticleListReaderPage(
     viewModel: ArticleListReaderViewModel,
     onBack: () -> Unit,
     onNavigateToStylePage: () -> Unit,
+    onAssistantPaneVisibilityChange: (Boolean) -> Unit = {},
 ) {
 
     val scope = rememberCoroutineScope()
     val motionScheme = MaterialTheme.motionScheme
     val adaptiveLayoutProfile = LocalOrigReadAdaptiveLayoutProfile.current
+    val foldManagedListRegion = foldPrimaryInteractiveRegion(adaptiveLayoutProfile)
 
     val backBehavior = BackNavigationBehavior.PopUntilScaffoldValueChange
 
@@ -193,22 +195,24 @@ fun ArticleListReaderPage(
                     LocalBackgroundTextMeasurementExecutor provides
                         Executors.newSingleThreadExecutor()
                 ) {
-                    Box(modifier = Modifier.alpha(animatedListAlpha)) {
-                        FlowPage(
-                            sharedTransitionScope = sharedTransitionScope,
-                            animatedVisibilityScope = animatedVisibilityScope,
-                            viewModel = viewModel,
-                            onNavigateUp = onBack,
-                            isTwoPane = isTwoPane,
-                            navigateToArticle = { id, index ->
-                                scope.launch {
-                                    navigator.navigateTo(
-                                        pane = ListDetailPaneScaffoldRole.Detail,
-                                        contentKey = ArticleData(articleId = id, listIndex = index),
-                                    )
-                                }
-                            },
-                        )
+                    OrigReadWindowRegionBox(targetRegion = foldManagedListRegion) {
+                        Box(modifier = Modifier.alpha(animatedListAlpha)) {
+                            FlowPage(
+                                sharedTransitionScope = sharedTransitionScope,
+                                animatedVisibilityScope = animatedVisibilityScope,
+                                viewModel = viewModel,
+                                onNavigateUp = onBack,
+                                isTwoPane = isTwoPane,
+                                navigateToArticle = { id, index ->
+                                    scope.launch {
+                                        navigator.navigateTo(
+                                            pane = ListDetailPaneScaffoldRole.Detail,
+                                            contentKey = ArticleData(articleId = id, listIndex = index),
+                                        )
+                                    }
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -267,7 +271,10 @@ fun ArticleListReaderPage(
                             }
                         },
                         onNavigateToStylePage = onNavigateToStylePage,
-                        onAssistantPaneVisibilityChange = { isAssistantPaneVisible = it },
+                        onAssistantPaneVisibilityChange = {
+                            isAssistantPaneVisible = it
+                            onAssistantPaneVisibilityChange(it)
+                        },
                     )
                 }
             }

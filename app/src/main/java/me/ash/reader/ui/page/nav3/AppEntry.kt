@@ -10,15 +10,20 @@ import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.material3.adaptive.layout.ListDetailPaneScaffoldRole
 import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirective
+import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirectiveWithTwoPanesOnMediumWidth
 import androidx.compose.material3.adaptive.navigation.rememberListDetailPaneScaffoldNavigator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.NavBackStack
@@ -35,7 +40,11 @@ import me.ash.reader.ui.page.adaptive.ArticleData
 import me.ash.reader.ui.page.adaptive.ArticleListReaderPage
 import me.ash.reader.ui.page.adaptive.ArticleListReaderViewModel
 import me.ash.reader.ui.page.adaptive.LocalOrigReadAdaptiveLayoutProfile
+import me.ash.reader.ui.page.adaptive.OrigReadFoldFeatureInfo
+import me.ash.reader.ui.page.adaptive.OrigReadFoldLayoutInfo
+import me.ash.reader.ui.page.adaptive.OrigReadReaderScaffoldMode
 import me.ash.reader.ui.page.adaptive.origReadAdaptiveLayoutProfile
+import me.ash.reader.ui.page.adaptive.readerScaffoldMode
 import me.ash.reader.ui.page.home.feeds.FeedsPage
 import me.ash.reader.ui.page.home.feeds.discovery.SourceDiscoveryPage
 import me.ash.reader.ui.page.home.feeds.subscribe.SubscribeViewModel
@@ -84,17 +93,54 @@ fun AppEntry(backStack: NavBackStack<NavKey>) {
     }
 
     val windowAdaptiveInfo = currentWindowAdaptiveInfo(supportLargeAndXLargeWidth = true)
-    val scaffoldDirective = calculatePaneScaffoldDirective(windowAdaptiveInfo)
     val windowContainerSize = LocalWindowInfo.current.containerSize
     val density = LocalDensity.current
     val windowWidthDp = with(density) { windowContainerSize.width.toDp().value.roundToInt() }
     val windowHeightDp = with(density) { windowContainerSize.height.toDp().value.roundToInt() }
+    val foldLayoutInfo =
+        remember(windowAdaptiveInfo.windowPosture, density) {
+            OrigReadFoldLayoutInfo(
+                isTabletop = windowAdaptiveInfo.windowPosture.isTabletop,
+                hinges =
+                    windowAdaptiveInfo.windowPosture.hingeList.map { hinge ->
+                        with(density) {
+                            OrigReadFoldFeatureInfo(
+                                leftDp = hinge.bounds.left.toDp().value,
+                                topDp = hinge.bounds.top.toDp().value,
+                                rightDp = hinge.bounds.right.toDp().value,
+                                bottomDp = hinge.bounds.bottom.toDp().value,
+                                isFlat = hinge.isFlat,
+                                isVertical = hinge.isVertical,
+                                isSeparating = hinge.isSeparating,
+                                isOccluding = hinge.isOccluding,
+                            )
+                        }
+                    },
+            )
+        }
     val adaptiveLayoutProfile =
-        remember(windowWidthDp, windowHeightDp) {
+        remember(windowWidthDp, windowHeightDp, foldLayoutInfo) {
             origReadAdaptiveLayoutProfile(
                 widthDp = windowWidthDp,
                 heightDp = windowHeightDp,
+                foldLayoutInfo = foldLayoutInfo,
             )
+        }
+    var readingAssistantPaneVisible by remember { mutableStateOf(false) }
+    val scaffoldDirective =
+        when (readerScaffoldMode(adaptiveLayoutProfile, readingAssistantPaneVisible)) {
+            OrigReadReaderScaffoldMode.Standard ->
+                calculatePaneScaffoldDirective(windowAdaptiveInfo)
+            OrigReadReaderScaffoldMode.TwoPaneOnMediumVerticalHinge ->
+                calculatePaneScaffoldDirectiveWithTwoPanesOnMediumWidth(windowAdaptiveInfo)
+            OrigReadReaderScaffoldMode.FoldManagedSinglePane ->
+                calculatePaneScaffoldDirective(windowAdaptiveInfo).copy(
+                    maxHorizontalPartitions = 1,
+                    horizontalPartitionSpacerSize = 0.dp,
+                    maxVerticalPartitions = 1,
+                    verticalPartitionSpacerSize = 0.dp,
+                    excludedBounds = emptyList(),
+                )
         }
 
     val navigator =
@@ -178,6 +224,7 @@ fun AppEntry(backStack: NavBackStack<NavKey>) {
                                 viewModel = viewModel,
                                 onBack = onBack,
                                 onNavigateToStylePage = { backStack.add(Route.ReadingPageStyle) },
+                                onAssistantPaneVisibilityChange = { readingAssistantPaneVisible = it },
                             )
                         }
                     }

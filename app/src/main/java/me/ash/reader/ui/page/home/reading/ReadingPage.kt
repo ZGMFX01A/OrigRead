@@ -42,6 +42,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -93,8 +95,11 @@ import me.ash.reader.ui.page.adaptive.ArticleListReaderViewModel
 import me.ash.reader.ui.page.adaptive.LocalOrigReadAdaptiveLayoutProfile
 import me.ash.reader.ui.page.adaptive.NavigationAction
 import me.ash.reader.ui.page.adaptive.OrigReadArticleAssistantPresentation
+import me.ash.reader.ui.page.adaptive.OrigReadWindowRegionBox
 import me.ash.reader.ui.page.adaptive.ReaderState
 import me.ash.reader.ui.page.adaptive.articleAssistantPresentation
+import me.ash.reader.ui.page.adaptive.foldPrimaryReaderRegion
+import me.ash.reader.ui.page.adaptive.foldReaderAssistantRegions
 import me.ash.reader.ui.page.adaptive.shouldKeepAssistantVisibleForReaderCitation
 import me.ash.reader.ui.page.adaptive.shouldTemporarilyHideListForAssistant
 import me.ash.reader.ui.page.home.reading.tts.TtsButton
@@ -123,6 +128,7 @@ fun ReadingPage(
     val motionScheme = MaterialTheme.motionScheme
     val adaptiveLayoutProfile = LocalOrigReadAdaptiveLayoutProfile.current
     val assistantPresentation = articleAssistantPresentation(adaptiveLayoutProfile)
+    val layoutDirection = LocalLayoutDirection.current
     val readingRenderer = LocalReadingRenderer.current
     val coroutineScope = rememberCoroutineScope()
     val hapticFeedback = LocalHapticFeedback.current
@@ -151,10 +157,10 @@ fun ReadingPage(
     var isReaderScrollingDown by remember { mutableStateOf(false) }
     var showFullScreenImageViewer by remember { mutableStateOf(false) }
     var showAiSummaryOptions by remember { mutableStateOf(false) }
-    var showArticleAssistant by remember { mutableStateOf(false) }
-    var articleAnalysisRequested by remember(readerState.articleId) { mutableStateOf(false) }
-    var selectedTextForAssistant by remember(readerState.articleId) { mutableStateOf<String?>(null) }
-    var selectedTextForAssistantFromTranslation by remember(readerState.articleId) {
+    var showArticleAssistant by rememberSaveable(readerState.articleId) { mutableStateOf(false) }
+    var articleAnalysisRequested by rememberSaveable(readerState.articleId) { mutableStateOf(false) }
+    var selectedTextForAssistant by rememberSaveable(readerState.articleId) { mutableStateOf<String?>(null) }
+    var selectedTextForAssistantFromTranslation by rememberSaveable(readerState.articleId) {
         mutableStateOf(false)
     }
     var pendingCitationNavigation by remember { mutableStateOf<PendingCitationNavigation?>(null) }
@@ -308,7 +314,26 @@ fun ReadingPage(
         showArticleAssistant &&
             aiAssistantEnabled &&
             articleAssistantContext != null &&
-            assistantPresentation == OrigReadArticleAssistantPresentation.SupportingPane
+            assistantPresentation != OrigReadArticleAssistantPresentation.BottomSheet
+    val foldReaderAssistantRegions =
+        remember(adaptiveLayoutProfile, layoutDirection) {
+            foldReaderAssistantRegions(
+                profile = adaptiveLayoutProfile,
+                isRtl = layoutDirection == LayoutDirection.Rtl,
+            )
+        }
+    val foldManagedAssistant =
+        assistantPaneVisible &&
+            (adaptiveLayoutProfile.foldLayoutInfo.hasSeparatingVerticalHinge ||
+                assistantPresentation == OrigReadArticleAssistantPresentation.TabletopSupportingPane)
+    val readerTargetRegion =
+        when {
+            foldManagedAssistant -> foldReaderAssistantRegions?.reader
+            assistantPresentation == OrigReadArticleAssistantPresentation.TabletopSupportingPane ->
+                foldPrimaryReaderRegion(adaptiveLayoutProfile)
+            else -> null
+        }
+    val assistantTargetRegion = foldReaderAssistantRegions?.assistant.takeIf { foldManagedAssistant }
     val temporarilyHidesListForAssistant =
         shouldTemporarilyHideListForAssistant(
             profile = adaptiveLayoutProfile,
@@ -316,7 +341,8 @@ fun ReadingPage(
         )
     val assistantPaneReservedWidth by
         animateDpAsState(
-            targetValue = if (assistantPaneVisible) ArticleAssistantPaneWidth else 0.dp,
+            targetValue =
+                if (assistantPaneVisible && !foldManagedAssistant) ArticleAssistantPaneWidth else 0.dp,
             animationSpec = motionScheme.defaultSpatialSpec(),
             label = "article-assistant-pane-width",
         )
@@ -544,6 +570,7 @@ fun ReadingPage(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        OrigReadWindowRegionBox(targetRegion = readerTargetRegion) {
         Scaffold(
             modifier = Modifier.fillMaxSize().padding(end = assistantPanePadding),
             containerColor = MaterialTheme.colorScheme.surface,
@@ -939,6 +966,8 @@ fun ReadingPage(
                 )
             },
         )
+        }
+        OrigReadWindowRegionBox(targetRegion = assistantTargetRegion) {
         EditionArticleAssistantSheet(
             visible = showArticleAssistant && aiAssistantEnabled,
             context = articleAssistantContext,
@@ -983,11 +1012,16 @@ fun ReadingPage(
             continueGenerationInBackground = llmSettings.continueGenerationInBackground,
             presentation = assistantPresentation,
             modifier =
-                Modifier.align(Alignment.CenterEnd)
-                    .width(ArticleAssistantPaneWidth)
-                    .fillMaxHeight(),
+                if (assistantTargetRegion != null) {
+                    Modifier.fillMaxSize()
+                } else {
+                    Modifier.align(Alignment.CenterEnd)
+                        .width(ArticleAssistantPaneWidth)
+                        .fillMaxHeight()
+                },
             onDismiss = ::dismissArticleAssistant,
         )
+        }
     }
     if (showFullScreenImageViewer) {
 
