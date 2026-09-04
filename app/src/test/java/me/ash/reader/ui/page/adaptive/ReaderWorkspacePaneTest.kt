@@ -85,4 +85,40 @@ class ReaderWorkspacePaneTest {
             ),
         )
     }
+
+    @Test
+    fun `visible assistant owns close action before article navigation`() {
+        assertTrue(
+            shouldDismissAssistantBeforeReaderNavigation(
+                assistantPaneVisible = true,
+                isListTemporarilyHiddenForAssistant = false,
+                navigationAction = NavigationAction.Close,
+            )
+        )
+        assertFalse(
+            shouldDismissAssistantBeforeReaderNavigation(
+                assistantPaneVisible = false,
+                isListTemporarilyHiddenForAssistant = false,
+                navigationAction = NavigationAction.Close,
+            )
+        )
+    }
+
+    @Test
+    fun `three pane list toggle stays a list action while assistant is visible`() {
+        assertFalse(
+            shouldDismissAssistantBeforeReaderNavigation(
+                assistantPaneVisible = true,
+                isListTemporarilyHiddenForAssistant = false,
+                navigationAction = NavigationAction.HideList,
+            )
+        )
+        assertTrue(
+            shouldDismissAssistantBeforeReaderNavigation(
+                assistantPaneVisible = true,
+                isListTemporarilyHiddenForAssistant = true,
+                navigationAction = NavigationAction.ExpandList,
+            )
+        )
+    }
 }

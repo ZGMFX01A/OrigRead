@@ -101,6 +101,7 @@ import me.ash.reader.ui.page.adaptive.articleAssistantPresentation
 import me.ash.reader.ui.page.adaptive.foldPrimaryReaderRegion
 import me.ash.reader.ui.page.adaptive.foldReaderAssistantRegions
 import me.ash.reader.ui.page.adaptive.shouldKeepAssistantVisibleForReaderCitation
+import me.ash.reader.ui.page.adaptive.shouldDismissAssistantBeforeReaderNavigation
 import me.ash.reader.ui.page.adaptive.shouldTemporarilyHideListForAssistant
 import me.ash.reader.ui.page.home.reading.tts.TtsButton
 
@@ -608,9 +609,12 @@ fun ReadingPage(
                         navigationAction = navigationAction,
                         onNavButtonClick = { action ->
                             if (
-                                assistantPaneVisible &&
-                                    temporarilyHidesListForAssistant &&
-                                    action == NavigationAction.ExpandList
+                                shouldDismissAssistantBeforeReaderNavigation(
+                                    assistantPaneVisible = assistantPaneVisible,
+                                    isListTemporarilyHiddenForAssistant =
+                                        temporarilyHidesListForAssistant,
+                                    navigationAction = action,
+                                )
                             ) {
                                 dismissArticleAssistant()
                             } else {

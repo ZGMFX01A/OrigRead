@@ -126,7 +126,10 @@ fun AppEntry(backStack: NavBackStack<NavKey>) {
                 foldLayoutInfo = foldLayoutInfo,
             )
         }
-    var readingAssistantPaneVisible by remember { mutableStateOf(false) }
+    // The child ReadingPage persists assistant visibility across Activity/window recreation.
+    // Keep the parent scaffold input on the same lifecycle so the first restored frame does not
+    // briefly derive a different pane directive and then jump after the child republishes state.
+    var readingAssistantPaneVisible by rememberSaveable { mutableStateOf(false) }
     val scaffoldDirective =
         when (readerScaffoldMode(adaptiveLayoutProfile, readingAssistantPaneVisible)) {
             OrigReadReaderScaffoldMode.Standard ->

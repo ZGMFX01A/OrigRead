@@ -284,6 +284,16 @@ internal fun shouldTemporarilyHideListForAssistant(
         !profile.foldLayoutInfo.isTabletop &&
         !profile.supportsThreePaneWorkspace
 
+internal fun shouldDismissAssistantBeforeReaderNavigation(
+    assistantPaneVisible: Boolean,
+    isListTemporarilyHiddenForAssistant: Boolean,
+    navigationAction: NavigationAction,
+): Boolean =
+    assistantPaneVisible &&
+        (navigationAction == NavigationAction.Close ||
+            (isListTemporarilyHiddenForAssistant &&
+                navigationAction == NavigationAction.ExpandList))
+
 internal fun readerScaffoldMode(
     profile: OrigReadAdaptiveLayoutProfile,
     assistantPaneVisible: Boolean,
@@ -294,7 +304,8 @@ internal fun readerScaffoldMode(
             OrigReadReaderScaffoldMode.FoldManagedSinglePane
         assistantPaneVisible && profile.foldLayoutInfo.hasSeparatingVerticalHinge ->
             OrigReadReaderScaffoldMode.FoldManagedSinglePane
-        profile.widthClass == OrigReadWindowWidthClass.Medium &&
+        profile.supportsListDetailWorkspace &&
+            profile.widthClass == OrigReadWindowWidthClass.Medium &&
             profile.foldLayoutInfo.hasSeparatingVerticalHinge ->
             OrigReadReaderScaffoldMode.TwoPaneOnMediumVerticalHinge
         else -> OrigReadReaderScaffoldMode.Standard

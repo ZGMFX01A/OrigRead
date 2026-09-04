@@ -126,6 +126,30 @@ class OrigReadAdaptiveLayoutProfileTest {
     }
 
     @Test
+    fun `compact height medium fold window keeps phone like single pane flow`() {
+        val profile =
+            origReadAdaptiveLayoutProfile(
+                widthDp = 800,
+                heightDp = 420,
+                foldLayoutInfo =
+                    OrigReadFoldLayoutInfo(
+                        hinges = listOf(verticalHinge(left = 392f, right = 408f, flat = false)),
+                    ),
+            )
+
+        assertTrue(profile.usesPhoneLikeFlow)
+        assertFalse(profile.supportsListDetailWorkspace)
+        assertEquals(
+            OrigReadReaderScaffoldMode.Standard,
+            readerScaffoldMode(profile, assistantPaneVisible = false),
+        )
+        assertEquals(
+            OrigReadArticleAssistantPresentation.BottomSheet,
+            articleAssistantPresentation(profile),
+        )
+    }
+
+    @Test
     fun `separating hinge always suppresses width only three pane decision`() {
         val profile =
             origReadAdaptiveLayoutProfile(
