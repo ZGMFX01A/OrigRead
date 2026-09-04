@@ -913,6 +913,7 @@ fun ReadingPage(
         citationNavigationFailureId = citationNavigationFailureId,
         onCitationNavigationFailureConsumed = { citationNavigationFailureId = null },
         readerEvidenceMarkerState = readerEvidenceMarkerState,
+        continueGenerationInBackground = llmSettings.continueGenerationInBackground,
         onDismiss = ::dismissArticleAssistant,
     )
     if (showFullScreenImageViewer) {

@@ -15,6 +15,8 @@ import me.ash.reader.llm.search.WebSearchMode
 data class LlmAdvancedSettings(
     /** Chat/阅读助手总开关。数据类默认保持旧 X 行为，真正首次默认值由 Repository 按 Edition 决定。 */
     val assistantEnabled: Boolean = true,
+    /** 收起阅读助手后是否允许当前回答继续生成。缺失旧 key 时默认开启。 */
+    val continueGenerationInBackground: Boolean = true,
     /** Reader 中央 AI 按钮的默认短按动作：true=摘要，false=直接进入 Chat。 */
     val defaultGenerateSummary: Boolean = true,
     /** 仅控制设置页是否展开 Provider 兼容能力等高级配置；关闭 Chat 时只隐藏，不清空该偏好。 */
@@ -43,6 +45,9 @@ class LlmSettingsRepository @Inject constructor(
     fun current(): LlmAdvancedSettings = _settings.value
 
     fun setAssistantEnabled(value: Boolean) = update { it.copy(assistantEnabled = value) }
+
+    fun setContinueGenerationInBackground(value: Boolean) =
+        update { it.copy(continueGenerationInBackground = value) }
 
     fun setDefaultGenerateSummary(value: Boolean) =
         update { it.copy(defaultGenerateSummary = value) }
@@ -102,6 +107,8 @@ class LlmSettingsRepository @Inject constructor(
         LlmAdvancedSettings(
             assistantEnabled =
                 preferences.getBoolean(KEY_ASSISTANT_ENABLED, defaultAssistantEnabled()),
+            continueGenerationInBackground =
+                preferences.getBoolean(KEY_CONTINUE_GENERATION_IN_BACKGROUND, true),
             defaultGenerateSummary =
                 preferences.getBoolean(KEY_DEFAULT_GENERATE_SUMMARY, true),
             advancedAiConfigEnabled =
@@ -139,6 +146,10 @@ class LlmSettingsRepository @Inject constructor(
     private fun persist(settings: LlmAdvancedSettings) {
         preferences.edit()
             .putBoolean(KEY_ASSISTANT_ENABLED, settings.assistantEnabled)
+            .putBoolean(
+                KEY_CONTINUE_GENERATION_IN_BACKGROUND,
+                settings.continueGenerationInBackground,
+            )
             .putBoolean(KEY_DEFAULT_GENERATE_SUMMARY, settings.defaultGenerateSummary)
             .putBoolean(KEY_ADVANCED_AI_CONFIG_ENABLED, settings.advancedAiConfigEnabled)
             .putString(KEY_REASONING_EFFORT, settings.reasoningEffort.name)
@@ -178,6 +189,7 @@ class LlmSettingsRepository @Inject constructor(
 
         private const val PREFERENCES_NAME = "origread_llm_runtime_settings"
         private const val KEY_ASSISTANT_ENABLED = "assistant_enabled"
+        private const val KEY_CONTINUE_GENERATION_IN_BACKGROUND = "continue_generation_in_background"
         private const val KEY_DEFAULT_GENERATE_SUMMARY = "default_generate_summary"
         private const val KEY_ADVANCED_AI_CONFIG_ENABLED = "advanced_ai_config_enabled"
         private const val KEY_REASONING_EFFORT = "reasoning_effort"

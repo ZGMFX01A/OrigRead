@@ -55,6 +55,7 @@ import me.ash.reader.llm.chat.ui.chatPreviewSnippet
 import me.ash.reader.llm.chat.ui.acknowledgedChatTransientMessageIds
 import me.ash.reader.llm.chat.ui.mergeChatMessagesWithTransientOverrides
 import me.ash.reader.llm.chat.ui.visibleChatPresentationMessages
+import me.ash.reader.llm.chat.ui.shouldStopGenerationWhenAssistantCloses
 import me.ash.reader.llm.chat.ui.parseLlmCitationUri
 import me.ash.reader.llm.chat.ui.resolveRequestSkillId
 import me.ash.reader.llm.chat.ui.shouldShowArticleAssistantConfigurationHint
@@ -87,6 +88,12 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class LlmChatFoundationTest {
+    @Test
+    fun `assistant close keeps generation by default and stops when background mode is off`() {
+        assertFalse(shouldStopGenerationWhenAssistantCloses(continueGenerationInBackground = true))
+        assertTrue(shouldStopGenerationWhenAssistantCloses(continueGenerationInBackground = false))
+    }
+
     @Test
     fun `chat preview snippet keeps matching text visible in long messages`() {
         val source = "A".repeat(240) + " important keyword " + "B".repeat(240)

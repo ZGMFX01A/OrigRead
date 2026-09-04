@@ -79,6 +79,8 @@
   <string name="llm_settings_assistant_title">AI 对话助手</string>
   <string name="llm_settings_assistant_switch">AI 对话助手</string>
   <string name="llm_settings_assistant_switch_desc">开启 AI 对话、联网搜索和扩展功能</string>
+  <string name="llm_settings_background_generation">后台继续生成</string>
+  <string name="llm_settings_background_generation_desc">开启后，收起 AI 对话仍会继续生成；关闭后，离开对话即停止生成，可节省 Token</string>
   <string name="llm_settings_default_summary">阅读页摘要</string>
   <string name="llm_settings_default_summary_desc">开启后点 AI 按钮生成摘要；关闭后打开 AI 对话</string>
   <string name="llm_settings_advanced_ai_config">AI 高级配置</string>

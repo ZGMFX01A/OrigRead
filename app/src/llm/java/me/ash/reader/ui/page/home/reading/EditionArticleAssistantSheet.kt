@@ -20,6 +20,7 @@ internal fun EditionArticleAssistantSheet(
     citationNavigationFailureId: String?,
     onCitationNavigationFailureConsumed: () -> Unit,
     readerEvidenceMarkerState: ReaderEvidenceMarkerState,
+    continueGenerationInBackground: Boolean,
     onDismiss: () -> Unit,
 ) {
     if (!visible || context == null) return
@@ -34,6 +35,7 @@ internal fun EditionArticleAssistantSheet(
         citationNavigationFailureId = citationNavigationFailureId,
         onCitationNavigationFailureConsumed = onCitationNavigationFailureConsumed,
         readerEvidenceMarkerState = readerEvidenceMarkerState,
+        continueGenerationInBackground = continueGenerationInBackground,
         onDismiss = onDismiss,
     )
 }

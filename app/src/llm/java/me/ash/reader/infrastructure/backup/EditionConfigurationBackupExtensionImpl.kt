@@ -151,6 +151,7 @@ private data class LlmEditionConfigurationBackup(
 private data class LlmAdvancedSettingsBackup(
     // 旧 OrigRead X 备份没有这些字段；缺失时保持旧 X 行为：助手开启、默认先摘要。
     val assistantEnabled: Boolean = true,
+    val continueGenerationInBackground: Boolean = true,
     val defaultGenerateSummary: Boolean = true,
     val advancedAiConfigEnabled: Boolean = false,
     val reasoningEffort: String = LlmReasoningEffort.AUTO.name,
@@ -286,6 +287,7 @@ private fun LlmEditionConfigurationBackup.toValidatedDomain(): ValidatedLlmEditi
         settings =
             LlmAdvancedSettings(
                 assistantEnabled = settings.assistantEnabled,
+                continueGenerationInBackground = settings.continueGenerationInBackground,
                 defaultGenerateSummary = settings.defaultGenerateSummary,
                 advancedAiConfigEnabled = settings.advancedAiConfigEnabled,
                 reasoningEffort = reasoningEffort,
@@ -313,6 +315,7 @@ private const val CURRENT_LLM_BACKUP_SCHEMA_VERSION = 2
 private fun LlmAdvancedSettings.toBackup() =
     LlmAdvancedSettingsBackup(
         assistantEnabled = assistantEnabled,
+        continueGenerationInBackground = continueGenerationInBackground,
         defaultGenerateSummary = defaultGenerateSummary,
         advancedAiConfigEnabled = advancedAiConfigEnabled,
         reasoningEffort = reasoningEffort.name,

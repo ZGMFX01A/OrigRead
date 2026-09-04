@@ -83,6 +83,8 @@
   <string name="llm_settings_assistant_title">AI chat assistant</string>
   <string name="llm_settings_assistant_switch">AI Chat</string>
   <string name="llm_settings_assistant_switch_desc">Turn on AI chat, web search, and extra tools.</string>
+  <string name="llm_settings_background_generation">Continue in background</string>
+  <string name="llm_settings_background_generation_desc">Keep generating after AI Chat is dismissed. Turn this off to stop generation when leaving Chat and save tokens.</string>
   <string name="llm_settings_default_summary">Reader summary</string>
   <string name="llm_settings_default_summary_desc">On: the AI button summarizes the article. Off: it opens AI chat.</string>
   <string name="llm_settings_advanced_ai_config">Advanced AI settings</string>

@@ -420,6 +420,9 @@ class LlmChatViewModel @Inject constructor(
     private fun observeLlmSettings() {
         viewModelScope.launch {
             llmSettingsRepository.settings.collect { settings ->
+                if (!settings.assistantEnabled) {
+                    stopGeneration()
+                }
                 if (!settings.webSearchEnabled) {
                     // 总开关关闭时立即解除“一次性强制联网”，避免以后重新打开后意外消费一次搜索请求。
                     forceWebSearchNextRequest = false

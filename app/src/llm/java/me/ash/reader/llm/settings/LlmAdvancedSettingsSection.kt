@@ -41,6 +41,8 @@ class LlmAdvancedSettingsViewModel @Inject constructor(
     val settings = repository.settings
 
     fun setAssistantEnabled(value: Boolean) = repository.setAssistantEnabled(value)
+    fun setContinueGenerationInBackground(value: Boolean) =
+        repository.setContinueGenerationInBackground(value)
     fun setDefaultGenerateSummary(value: Boolean) = repository.setDefaultGenerateSummary(value)
     fun setAdvancedAiConfigEnabled(value: Boolean) = repository.setAdvancedAiConfigEnabled(value)
     fun setReasoningEffort(value: LlmReasoningEffort) = repository.setReasoningEffort(value)
@@ -323,6 +325,13 @@ fun LlmAssistantFeatureSettingsSection(
                 onCheckedChange = viewModel::setAssistantEnabled,
             )
             if (settings.assistantEnabled) {
+                HorizontalDivider()
+                SettingsSwitchRow(
+                    title = stringResource(R.string.llm_settings_background_generation),
+                    desc = stringResource(R.string.llm_settings_background_generation_desc),
+                    checked = settings.continueGenerationInBackground,
+                    onCheckedChange = viewModel::setContinueGenerationInBackground,
+                )
                 HorizontalDivider()
                 SettingsSwitchRow(
                     title = stringResource(R.string.llm_settings_default_summary),

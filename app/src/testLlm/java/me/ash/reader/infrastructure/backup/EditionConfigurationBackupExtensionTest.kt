@@ -11,6 +11,7 @@ import me.ash.reader.llm.settings.LlmSettingsRepository
 import me.ash.reader.llm.skill.LlmSkillRepository
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.mockito.kotlin.check
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
@@ -83,6 +84,7 @@ class EditionConfigurationBackupExtensionTest {
                   "schemaVersion": 2,
                   "settings": {
                     "assistantEnabled": false,
+                    "continueGenerationInBackground": false,
                     "defaultGenerateSummary": false,
                     "advancedAiConfigEnabled": true
                   }
@@ -99,6 +101,7 @@ class EditionConfigurationBackupExtensionTest {
         verify(llmSettingsRepository).restoreBackup(
             LlmAdvancedSettings(
                 assistantEnabled = false,
+                continueGenerationInBackground = false,
                 defaultGenerateSummary = false,
                 advancedAiConfigEnabled = true,
             )
@@ -110,6 +113,7 @@ class EditionConfigurationBackupExtensionTest {
         whenever(llmSettingsRepository.current()).thenReturn(
             LlmAdvancedSettings(
                 assistantEnabled = true,
+                continueGenerationInBackground = false,
                 defaultGenerateSummary = false,
                 advancedAiConfigEnabled = true,
             )
@@ -122,8 +126,34 @@ class EditionConfigurationBackupExtensionTest {
         val exported = extension().exportConfiguration().toString()
 
         assertTrue(exported.contains("\"assistantEnabled\":true"))
+        assertTrue(exported.contains("\"continueGenerationInBackground\":false"))
         assertTrue(exported.contains("\"defaultGenerateSummary\":false"))
         assertTrue(exported.contains("\"advancedAiConfigEnabled\":true"))
+    }
+
+    @Test
+    fun `old backup defaults background generation on`() {
+        val configuration =
+            Json.parseToJsonElement(
+                """
+                {
+                  "schemaVersion": 2,
+                  "settings": {
+                    "assistantEnabled": true
+                  }
+                }
+                """.trimIndent()
+            )
+
+        extension().restoreBackup(
+            configuration = configuration,
+            secrets = null,
+            replaceSecrets = false,
+        )
+
+        verify(llmSettingsRepository).restoreBackup(
+            check { settings -> assertTrue(settings.continueGenerationInBackground) }
+        )
     }
 
 }

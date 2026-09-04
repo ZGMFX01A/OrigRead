@@ -79,6 +79,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -86,6 +87,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
@@ -153,6 +155,10 @@ private enum class AssistantMessageBodyMode {
     Empty,
 }
 
+internal fun shouldStopGenerationWhenAssistantCloses(
+    continueGenerationInBackground: Boolean,
+): Boolean = !continueGenerationInBackground
+
 /**
  * 文章级 LLM 阅读助手。
  *
@@ -172,6 +178,7 @@ fun LlmArticleAssistantSheet(
     citationNavigationFailureId: String? = null,
     onCitationNavigationFailureConsumed: () -> Unit = {},
     readerEvidenceMarkerState: ReaderEvidenceMarkerState? = null,
+    continueGenerationInBackground: Boolean = true,
     onDismiss: () -> Unit,
     viewModel: LlmChatViewModel = hiltViewModel(),
 ) {
@@ -194,6 +201,16 @@ fun LlmArticleAssistantSheet(
     val canScrollDown by remember { derivedStateOf { listState.canScrollForward } }
     val uriHandler = LocalUriHandler.current
     val articleAnalysisPrompt = stringResource(R.string.llm_article_analysis_request)
+    val currentContinueGenerationInBackground by
+        rememberUpdatedState(continueGenerationInBackground)
+
+    DisposableEffect(viewModel) {
+        onDispose {
+            if (shouldStopGenerationWhenAssistantCloses(currentContinueGenerationInBackground)) {
+                viewModel.stopGeneration()
+            }
+        }
+    }
 
     val latestCompletedCitationAssistantId =
         remember(uiState.messages, uiState.citationRefs) {
@@ -268,7 +285,9 @@ fun LlmArticleAssistantSheet(
     }
 
     val dismissAssistant = {
-        viewModel.stopGeneration()
+        if (shouldStopGenerationWhenAssistantCloses(continueGenerationInBackground)) {
+            viewModel.stopGeneration()
+        }
         onDismiss()
     }
     val currentConversation =

@@ -17,6 +17,11 @@ class LlmSettingsDefaultsTest {
     }
 
     @Test
+    fun `background generation defaults on`() {
+        assertTrue(LlmAdvancedSettings().continueGenerationInBackground)
+    }
+
+    @Test
     fun `advanced ai configuration defaults off`() {
         assertFalse(LlmAdvancedSettings().advancedAiConfigEnabled)
     }
