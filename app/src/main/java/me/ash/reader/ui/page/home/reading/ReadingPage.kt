@@ -1007,11 +1007,6 @@ fun ReadingPage(
                 }
             },
             showQuickSummary = aiAssistantEnabled && !llmSettings.defaultGenerateSummary,
-            onQuickSummary = { length ->
-                // 与 Desktop 一致：快捷摘要切回独立摘要链路，不创建/追加 Chat 消息。
-                dismissArticleAssistant()
-                viewModel.summarizeArticle(lengthOverride = length)
-            },
             onNavigateReaderCitation = { request ->
                 citationNavigationFailure = null
                 pendingCitationNavigation = request

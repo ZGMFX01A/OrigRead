@@ -180,12 +180,29 @@ fun BottomBar(
                                 if (showTranslationButton) {
                                     if (isTranslationLoading) {
                                         Box(
-                                            modifier = Modifier.size(40.dp),
+                                            modifier =
+                                                Modifier.size(40.dp)
+                                                    .clip(CircleShape)
+                                                    .combinedClickable(
+                                                        onClick = {
+                                                            view.performHapticFeedback(
+                                                                HapticFeedbackConstants.KEYBOARD_TAP
+                                                            )
+                                                            onTranslate()
+                                                        },
+                                                        onLongClick = {},
+                                                    ),
                                             contentAlignment = Alignment.Center,
                                         ) {
                                             CircularProgressIndicator(
-                                                modifier = Modifier.size(20.dp),
+                                                modifier = Modifier.size(28.dp),
                                                 strokeWidth = 2.dp,
+                                            )
+                                            androidx.compose.material3.Icon(
+                                                imageVector = Icons.Rounded.Stop,
+                                                contentDescription = stringResource(R.string.cancel),
+                                                modifier = Modifier.size(14.dp),
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                             )
                                         }
                                     } else {

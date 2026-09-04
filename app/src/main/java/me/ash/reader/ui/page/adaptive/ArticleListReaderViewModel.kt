@@ -519,15 +519,26 @@ constructor(
         _readerState.update { it.copy(content = ReaderState.Loading) }
     }
 
-    /** 首次点击翻译当前显示内容；已有译文时只在原文和译文之间切换。 */
+    /** 首次点击开始翻译；翻译中再次点击立即取消；已有译文时只在原文和译文之间切换。 */
     fun translateOrToggle() {
         val state = _translationUiState.value
+        if (state.isLoading) {
+            stopTranslation()
+            return
+        }
         if (state.document != null) {
             _translationUiState.update { it.copy(showTranslation = !it.showTranslation) }
             return
         }
-        if (state.isLoading) return
         translateWithTarget(resolveDefaultTranslationTarget())
+    }
+
+    fun stopTranslation() {
+        if (!_translationUiState.value.isLoading) return
+        translationRequestSerial++
+        translationJob?.cancel()
+        translationJob = null
+        _translationUiState.update { it.copy(isLoading = false, errorMessage = null) }
     }
 
     /** Citation 永远核验原文；这里只切当前阅读瞬时状态，不修改默认翻译目标或持久设置。 */
@@ -585,10 +596,11 @@ constructor(
         val previousState = _translationUiState.value
         translationJob?.cancel()
         val requestSerial = ++translationRequestSerial
+        // Publish loading before the coroutine starts so an immediate second tap is guaranteed to
+        // observe the in-flight state and cancel this request instead of starting another one.
+        _translationUiState.value = previousState.copy(isLoading = true, errorMessage = null)
         translationJob =
             viewModelScope.launch {
-                _translationUiState.value =
-                    previousState.copy(isLoading = true, errorMessage = null)
                 runCatching {
                         translationService.translateArticle(
                             articleId = articleId,

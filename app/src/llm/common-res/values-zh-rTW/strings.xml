@@ -88,7 +88,10 @@
   <string name="ai_restore_defaults_confirm_title">恢復預設設定？</string>
   <string name="ai_restore_defaults_confirm_desc">已儲存的 AI 服務和存取密鑰會被清除。</string>
   <string name="llm_chat_quick_summary">快捷摘要</string>
-  <string name="llm_chat_quick_summary_desc">依文章原文產生摘要，不會加入目前對話。</string>
+  <string name="llm_chat_quick_summary_desc">直接作為目前對話的第一個問題傳送。</string>
+  <string name="llm_chat_quick_summary_request_brief">用一小段話總結這篇文章。</string>
+  <string name="llm_chat_quick_summary_request_standard">總結這篇文章，並列出 4～6 個重點。</string>
+  <string name="llm_chat_quick_summary_request_detailed">詳細總結這篇文章，並列出 5～8 個重點以及重要限制或風險。</string>
   <string name="llm_settings_runtime_desc">調整 AI 對話的產生方式。</string>
   <string name="llm_settings_reasoning_effort">思考強度</string>
   <string name="llm_settings_reasoning_effort_desc">所選模型支援時生效。</string>

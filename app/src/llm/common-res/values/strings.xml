@@ -92,7 +92,10 @@
   <string name="ai_restore_defaults_confirm_title">Restore AI settings?</string>
   <string name="ai_restore_defaults_confirm_desc">Saved AI services and access keys will be removed.</string>
   <string name="llm_chat_quick_summary">Quick Summary</string>
-  <string name="llm_chat_quick_summary_desc">Summarize the original article without adding anything to this chat.</string>
+  <string name="llm_chat_quick_summary_desc">Send a summary request as the first question in this chat.</string>
+  <string name="llm_chat_quick_summary_request_brief">Summarize this article in one short paragraph.</string>
+  <string name="llm_chat_quick_summary_request_standard">Summarize this article and list 4–6 key points.</string>
+  <string name="llm_chat_quick_summary_request_detailed">Give me a detailed summary of this article, including 5–8 key points and important limits or risks.</string>
   <string name="llm_settings_runtime_desc">Choose how Chat generates replies.</string>
   <string name="llm_settings_reasoning_effort">Thinking level</string>
   <string name="llm_settings_reasoning_effort_desc">Used when the selected model supports it.</string>

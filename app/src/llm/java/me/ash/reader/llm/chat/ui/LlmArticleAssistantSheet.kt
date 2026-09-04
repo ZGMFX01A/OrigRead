@@ -182,7 +182,6 @@ fun LlmArticleAssistantSheet(
     onArticleAnalysisConsumed: () -> Unit = {},
     onOpenArticle: (String) -> Unit = {},
     showQuickSummary: Boolean = false,
-    onQuickSummary: (AiSummaryLength) -> Unit = {},
     onNavigateReaderCitation: (PendingCitationNavigation) -> Unit = {},
     readerEvidenceMarkerState: ReaderEvidenceMarkerState? = null,
     continueGenerationInBackground: Boolean = true,
@@ -211,6 +210,12 @@ fun LlmArticleAssistantSheet(
     val canScrollDown by remember { derivedStateOf { listState.canScrollForward } }
     val uriHandler = LocalUriHandler.current
     val articleAnalysisPrompt = stringResource(R.string.llm_article_analysis_request)
+    val quickSummaryBriefPrompt =
+        stringResource(R.string.llm_chat_quick_summary_request_brief)
+    val quickSummaryStandardPrompt =
+        stringResource(R.string.llm_chat_quick_summary_request_standard)
+    val quickSummaryDetailedPrompt =
+        stringResource(R.string.llm_chat_quick_summary_request_detailed)
     val currentContinueGenerationInBackground by
         rememberUpdatedState(continueGenerationInBackground)
 
@@ -364,7 +369,15 @@ fun LlmArticleAssistantSheet(
                             configured =
                                 uiState.selectedProviderId != null && uiState.selectedModel != null,
                             showQuickSummary = showQuickSummary,
-                            onQuickSummary = onQuickSummary,
+                            onQuickSummary = { length ->
+                                viewModel.sendMessage(
+                                    when (length) {
+                                        AiSummaryLength.BRIEF -> quickSummaryBriefPrompt
+                                        AiSummaryLength.STANDARD -> quickSummaryStandardPrompt
+                                        AiSummaryLength.DETAILED -> quickSummaryDetailedPrompt
+                                    }
+                                )
+                            },
                             modifier = Modifier.fillMaxSize(),
                         )
 

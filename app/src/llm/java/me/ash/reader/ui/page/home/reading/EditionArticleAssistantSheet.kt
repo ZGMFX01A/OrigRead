@@ -2,7 +2,6 @@ package me.ash.reader.ui.page.home.reading
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import me.ash.reader.infrastructure.ai.AiSummaryLength
 import me.ash.reader.llm.chat.ui.LlmArticleAssistantSheet
 import me.ash.reader.llm.chat.ui.LlmCitationNavigationFailureFallbackSheet
 import me.ash.reader.ui.component.reader.PendingCitationNavigation
@@ -18,7 +17,6 @@ internal fun EditionArticleAssistantSheet(
     onArticleAnalysisConsumed: () -> Unit,
     onOpenArticle: (String) -> Unit,
     showQuickSummary: Boolean,
-    onQuickSummary: (AiSummaryLength) -> Unit,
     onNavigateReaderCitation: (PendingCitationNavigation) -> Unit,
     citationNavigationFailure: PendingCitationNavigation?,
     onCitationNavigationFailureConsumed: () -> Unit,
@@ -43,7 +41,6 @@ internal fun EditionArticleAssistantSheet(
         onArticleAnalysisConsumed = onArticleAnalysisConsumed,
         onOpenArticle = onOpenArticle,
         showQuickSummary = showQuickSummary,
-        onQuickSummary = onQuickSummary,
         onNavigateReaderCitation = onNavigateReaderCitation,
         readerEvidenceMarkerState = readerEvidenceMarkerState,
         continueGenerationInBackground = continueGenerationInBackground,
