@@ -912,7 +912,10 @@ fun ReadingPage(
             }
         },
         citationNavigationFailure = citationNavigationFailure,
-        onCitationNavigationFailureConsumed = { citationNavigationFailure = null },
+        onCitationNavigationFailureConsumed = {
+            citationNavigationFailure = null
+            readerEvidenceMarkerState.clear()
+        },
         readerEvidenceMarkerState = readerEvidenceMarkerState,
         continueGenerationInBackground = llmSettings.continueGenerationInBackground,
         onDismiss = ::dismissArticleAssistant,

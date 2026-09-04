@@ -24,12 +24,14 @@ internal fun EditionArticleAssistantSheet(
     continueGenerationInBackground: Boolean,
     onDismiss: () -> Unit,
 ) {
-    LlmCitationNavigationFailureFallbackSheet(
-        request = citationNavigationFailure,
-        currentArticleId = context?.articleId ?: citationNavigationFailure?.articleId.orEmpty(),
-        onOpenArticle = onOpenArticle,
-        onDismiss = onCitationNavigationFailureConsumed,
-    )
+    if (citationNavigationFailure != null) {
+        LlmCitationNavigationFailureFallbackSheet(
+            request = citationNavigationFailure,
+            currentArticleId = context?.articleId ?: citationNavigationFailure.articleId,
+            onOpenArticle = onOpenArticle,
+            onDismiss = onCitationNavigationFailureConsumed,
+        )
+    }
     if (!visible || context == null) return
     LlmArticleAssistantSheet(
         articleContext = context,
