@@ -7,7 +7,6 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
@@ -28,7 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -49,9 +48,23 @@ import me.ash.reader.ui.motion.origReadPushEnter
 import me.ash.reader.ui.motion.origReadPushExit
 import me.ash.reader.ui.page.home.flow.FlowPage
 import me.ash.reader.ui.page.home.reading.ReadingPage
-import timber.log.Timber
 
 @Parcelize data class ArticleData(val articleId: String, val listIndex: Int? = null) : Parcelable
+
+internal fun readerWorkspaceNavigationAction(
+    isTwoPane: Boolean,
+    isListHiddenByUser: Boolean,
+): NavigationAction =
+    when {
+        !isTwoPane -> NavigationAction.Close
+        isListHiddenByUser -> NavigationAction.ExpandList
+        else -> NavigationAction.HideList
+    }
+
+internal fun readerWorkspaceUsesExpandedContent(
+    isTwoPane: Boolean,
+    isListHiddenByUser: Boolean,
+): Boolean = isTwoPane && isListHiddenByUser
 
 @OptIn(
     ExperimentalMaterial3AdaptiveApi::class,
@@ -75,6 +88,17 @@ fun ArticleListReaderPage(
 
     val backBehavior = BackNavigationBehavior.PopUntilScaffoldValueChange
 
+    val isTwoPane =
+        navigator.scaffoldValue.run {
+            get(ListDetailPaneScaffoldRole.List) == PaneAdaptedValue.Expanded &&
+                get(ListDetailPaneScaffoldRole.Detail) == PaneAdaptedValue.Expanded
+        }
+
+    // This is a user preference rather than the transient physical pane position. Keep it when
+    // the window temporarily becomes single-pane so returning to a large window restores the
+    // workspace the user chose instead of silently reopening the list.
+    var isListHiddenByUser by rememberSaveable { mutableStateOf(false) }
+
     val hiddenAnchor = remember(scaffoldDirective) { PaneExpansionAnchor.Offset.fromStart(0.dp) }
 
     val expandedAnchor =
@@ -84,49 +108,44 @@ fun ArticleListReaderPage(
 
     val paneExpansionState =
         rememberPaneExpansionState(
-            initialAnchoredIndex = 1,
+            initialAnchoredIndex =
+                if (readerWorkspaceUsesExpandedContent(isTwoPane, isListHiddenByUser)) 0 else 1,
             anchors = listOf(hiddenAnchor, expandedAnchor),
             anchoringAnimationSpec =
-                spring(dampingRatio = 1f, stiffness = 380f, visibilityThreshold = 1f),
+                motionScheme.defaultSpatialSpec(),
         )
 
-    val isTwoPane =
-        navigator.scaffoldValue.run {
-            get(ListDetailPaneScaffoldRole.List) == PaneAdaptedValue.Expanded &&
-                get(ListDetailPaneScaffoldRole.Detail) == PaneAdaptedValue.Expanded
-        }
-
     val navigationAction =
-        if (isTwoPane) {
-            val currentAnchor = paneExpansionState.currentAnchor
-            if (currentAnchor == null || currentAnchor == expandedAnchor) {
-                NavigationAction.HideList
-            } else {
-                NavigationAction.ExpandList
-            }
-        } else {
-            NavigationAction.Close
-        }
+        readerWorkspaceNavigationAction(
+            isTwoPane = isTwoPane,
+            isListHiddenByUser = isListHiddenByUser,
+        )
+    val useExpandedReaderContent =
+        readerWorkspaceUsesExpandedContent(
+            isTwoPane = isTwoPane,
+            isListHiddenByUser = isListHiddenByUser,
+        )
 
-    var listAlpha by rememberSaveable { mutableFloatStateOf(1f) }
-
-    LaunchedEffect(isTwoPane) {
-        Timber.d("isTwoPane: $isTwoPane")
-        if (!isTwoPane) {
-            listAlpha = 1f
-            paneExpansionState.animateTo(expandedAnchor)
-        }
+    LaunchedEffect(isTwoPane, isListHiddenByUser, hiddenAnchor, expandedAnchor) {
+        paneExpansionState.animateTo(
+            if (useExpandedReaderContent) hiddenAnchor else expandedAnchor
+        )
     }
 
-    val contentWidth =
-        when (navigationAction) {
-            NavigationAction.HideList,
-            NavigationAction.Close -> MediumContentWidth
-            NavigationAction.ExpandList -> ExpandedContentWidth
-        }
+    val contentWidth = if (useExpandedReaderContent) ExpandedContentWidth else MediumContentWidth
 
-    val animatedContentWidth by animateDpAsState(contentWidth)
-    val animatedListAlpha by animateFloatAsState(listAlpha)
+    val animatedContentWidth by
+        animateDpAsState(
+            targetValue = contentWidth,
+            animationSpec = motionScheme.defaultSpatialSpec(),
+            label = "reader-content-width",
+        )
+    val animatedListAlpha by
+        animateFloatAsState(
+            targetValue = if (useExpandedReaderContent) 0f else 1f,
+            animationSpec = motionScheme.fastEffectsSpec(),
+            label = "reader-list-alpha",
+        )
 
     NavigableListDetailPaneScaffold(
         navigator = navigator,
@@ -135,11 +154,8 @@ fun ArticleListReaderPage(
         paneExpansionDragHandle = { Spacer(modifier = Modifier.width(2.dp)) },
         paneExpansionState = paneExpansionState,
         listPane = {
-            if (navigationAction == NavigationAction.ExpandList) {
-                BackHandler {
-                    listAlpha = 1f
-                    scope.launch { paneExpansionState.animateTo(expandedAnchor) }
-                }
+            if (useExpandedReaderContent) {
+                BackHandler { isListHiddenByUser = false }
             }
             AnimatedPane(
                 enterTransition =
@@ -219,14 +235,10 @@ fun ArticleListReaderPage(
                                     }
                                 }
                                 NavigationAction.HideList -> {
-                                    scope.launch {
-                                        listAlpha = 0f
-                                        paneExpansionState.animateTo(hiddenAnchor)
-                                    }
+                                    isListHiddenByUser = true
                                 }
                                 NavigationAction.ExpandList -> {
-                                    listAlpha = 1f
-                                    scope.launch { paneExpansionState.animateTo(expandedAnchor) }
+                                    isListHiddenByUser = false
                                 }
                             }
                         },
