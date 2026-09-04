@@ -169,7 +169,7 @@
   <string name="tos_content">
     <h5>關於原讀</h5>
     <br />
-    <p><b>原讀（OrigRead）</b>是一款由 ZGMFX01A 開發和維護的個人資訊閱讀器。本專案基於開源應用 Read You 二次開發，並繼續遵循 GNU GPL v3 開源授權。</p>
+    <p><b>原讀（OrigRead）</b>是一款由 ZGMFX01A 開發和維護的個人資訊閱讀器。本專案基於開源應用 Read You 二次開發，目前以 GNU Affero General Public License v3.0（AGPL v3）發布。繼承自 Read You 及其他第三方元件的程式碼繼續保留各自適用的原始授權聲明。</p>
     <br />
     <h5>隱私說明</h5>
     <br />
@@ -193,7 +193,7 @@
     <br />
     <p>[1] https://github.com/ZGMFX01A/OrigRead</p>
     <p>[2] https://github.com/ReadYouApp/ReadYou</p>
-    <p>[3] https://www.gnu.org/licenses/gpl-3.0.html</p>
+    <p>[3] https://www.gnu.org/licenses/agpl-3.0.html</p>
   </string>
   <string name="agree">同意</string>
   <string name="wallpaper_colors">桌布顏色</string>

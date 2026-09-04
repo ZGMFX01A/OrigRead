@@ -316,8 +316,9 @@
     <h5>About OrigRead</h5>
     <br />
     <p><b>OrigRead</b> is a personal information reader developed and maintained by ZGMFX01A. The
-  project is based on the open-source Read You application and continues to comply with the GNU GPL
-  v3 license.</p>
+  project is based on the open-source Read You application and is distributed under the GNU Affero
+  General Public License v3.0 (AGPL v3). Code inherited from Read You and other third-party
+  components retains its applicable original license notices.</p>
     <br />
     <h5>Privacy</h5>
     <br />
@@ -350,7 +351,7 @@
     <br />
     <p>[1] https://github.com/ZGMFX01A/OrigRead</p>
     <p>[2] https://github.com/ReadYouApp/ReadYou</p>
-    <p>[3] https://www.gnu.org/licenses/gpl-3.0.html</p>
+    <p>[3] https://www.gnu.org/licenses/agpl-3.0.html</p>
   </string>
     <string name="agree">Agree</string>
     <string

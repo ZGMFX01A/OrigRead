@@ -253,8 +253,7 @@
     name="tos_content">
     <h5>关于原读</h5>
     <br />
-    <p><b>原读（OrigRead）</b>是一款由 ZGMFX01A 开发和维护的个人信息阅读器。本项目基于开源应用 Read You 二次开发，并继续遵循 GNU GPL v3
-  开源许可证。</p>
+    <p><b>原读（OrigRead）</b>是一款由 ZGMFX01A 开发和维护的个人信息阅读器。本项目基于开源应用 Read You 二次开发，当前以 GNU Affero General Public License v3.0（AGPL v3）发布。继承自 Read You 及其他第三方组件的代码继续保留各自适用的原始许可声明。</p>
     <br />
     <h5>隐私说明</h5>
     <br />
@@ -279,7 +278,7 @@
     <br />
     <p>[1] https://github.com/ZGMFX01A/OrigRead</p>
     <p>[2] https://github.com/ReadYouApp/ReadYou</p>
-    <p>[3] https://www.gnu.org/licenses/gpl-3.0.html</p>
+    <p>[3] https://www.gnu.org/licenses/agpl-3.0.html</p>
   </string>
     <string name="agree">同意并继续</string>
     <string

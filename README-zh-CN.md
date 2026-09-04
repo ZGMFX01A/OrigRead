@@ -19,7 +19,7 @@
 <div align="center">
   <img alt="Android 8.0+" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white" />
   <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?logo=kotlin&logoColor=white" />
-  <a href="LICENSE"><img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-blue.svg" /></a>
+  <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" /></a>
   <img alt="Latest release" src="https://img.shields.io/github/v/release/ZGMFX01A/OrigRead?display_name=tag&sort=semver" />
   <img alt="GitHub Release 总下载次数" src="https://img.shields.io/github/downloads/ZGMFX01A/OrigRead/total?label=%E4%B8%8B%E8%BD%BD%E6%AC%A1%E6%95%B0&logo=github" />
   <img alt="GitHub stars" src="https://img.shields.io/github/stars/ZGMFX01A/OrigRead?style=flat" />
@@ -368,7 +368,9 @@ Read You 提供了项目最初的重要基础，包括大量 Compose UI、RSS �
 
 感谢 Read You 原作者及所有贡献者提供的开源基础。
 
-本项目继续遵循 **GNU General Public License v3.0（GPL-3.0）**，详见 [`LICENSE`](LICENSE)。任何修改和衍生版本都应继续遵守 GPLv3 的相关要求。
+OrigRead 当前以 **GNU Affero General Public License v3.0（AGPL-3.0-only）** 发布，详见 [`LICENSE`](LICENSE)。
+
+继承自 Read You 及其他第三方组件的代码继续保留各自适用的原始许可声明；上游 Read You 代码所使用的 GNU GPL v3 许可证全文保留在 [`LICENSES/GPL-3.0.txt`](LICENSES/GPL-3.0.txt)。
 
 ## 相关链接
 
