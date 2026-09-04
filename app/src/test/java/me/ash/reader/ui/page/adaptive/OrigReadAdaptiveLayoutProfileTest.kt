@@ -391,6 +391,14 @@ class OrigReadAdaptiveLayoutProfileTest {
         assertFalse(profile.supportsThreePaneWorkspace)
         assertEquals(1, profile.settingsRootColumnCount)
         assertFalse(profile.showsPersistentDiscoveryCategories)
+        assertEquals(1, readerMaxHorizontalPartitions(profile, recommendedPartitions = 3))
+    }
+
+    @Test
+    fun `normal large height preserves material horizontal partition recommendation`() {
+        val profile = origReadAdaptiveLayoutProfile(widthDp = 1280, heightDp = 800)
+
+        assertEquals(2, readerMaxHorizontalPartitions(profile, recommendedPartitions = 2))
     }
 
     @Test

@@ -44,6 +44,7 @@ import me.ash.reader.ui.page.adaptive.OrigReadFoldFeatureInfo
 import me.ash.reader.ui.page.adaptive.OrigReadFoldLayoutInfo
 import me.ash.reader.ui.page.adaptive.OrigReadReaderScaffoldMode
 import me.ash.reader.ui.page.adaptive.origReadAdaptiveLayoutProfile
+import me.ash.reader.ui.page.adaptive.readerMaxHorizontalPartitions
 import me.ash.reader.ui.page.adaptive.readerScaffoldMode
 import me.ash.reader.ui.page.home.feeds.FeedsPage
 import me.ash.reader.ui.page.home.feeds.discovery.SourceDiscoveryPage
@@ -130,7 +131,7 @@ fun AppEntry(backStack: NavBackStack<NavKey>) {
     // Keep the parent scaffold input on the same lifecycle so the first restored frame does not
     // briefly derive a different pane directive and then jump after the child republishes state.
     var readingAssistantPaneVisible by rememberSaveable { mutableStateOf(false) }
-    val scaffoldDirective =
+    val baseScaffoldDirective =
         when (readerScaffoldMode(adaptiveLayoutProfile, readingAssistantPaneVisible)) {
             OrigReadReaderScaffoldMode.Standard ->
                 calculatePaneScaffoldDirective(windowAdaptiveInfo)
@@ -144,6 +145,23 @@ fun AppEntry(backStack: NavBackStack<NavKey>) {
                     verticalPartitionSpacerSize = 0.dp,
                     excludedBounds = emptyList(),
                 )
+        }
+    // Material Adaptive derives horizontal partitions from width. OrigRead intentionally treats
+    // Compact Height as phone-like, so prevent a wide-but-short window from becoming list/detail
+    // multi-pane while keeping the rest of the recommended directive unchanged.
+    val maxHorizontalPartitions =
+        readerMaxHorizontalPartitions(
+            profile = adaptiveLayoutProfile,
+            recommendedPartitions = baseScaffoldDirective.maxHorizontalPartitions,
+        )
+    val scaffoldDirective =
+        if (maxHorizontalPartitions != baseScaffoldDirective.maxHorizontalPartitions) {
+            baseScaffoldDirective.copy(
+                maxHorizontalPartitions = maxHorizontalPartitions,
+                horizontalPartitionSpacerSize = 0.dp,
+            )
+        } else {
+            baseScaffoldDirective
         }
 
     val navigator =
@@ -227,6 +245,7 @@ fun AppEntry(backStack: NavBackStack<NavKey>) {
                                 viewModel = viewModel,
                                 onBack = onBack,
                                 onNavigateToStylePage = { backStack.add(Route.ReadingPageStyle) },
+                                assistantPaneVisible = readingAssistantPaneVisible,
                                 onAssistantPaneVisibilityChange = { readingAssistantPaneVisible = it },
                             )
                         }

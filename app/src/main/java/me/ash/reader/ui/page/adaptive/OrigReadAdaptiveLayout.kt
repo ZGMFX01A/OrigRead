@@ -294,6 +294,12 @@ internal fun shouldDismissAssistantBeforeReaderNavigation(
             (isListTemporarilyHiddenForAssistant &&
                 navigationAction == NavigationAction.ExpandList))
 
+internal fun readerMaxHorizontalPartitions(
+    profile: OrigReadAdaptiveLayoutProfile,
+    recommendedPartitions: Int,
+): Int =
+    if (profile.heightClass == OrigReadWindowHeightClass.Compact) 1 else recommendedPartitions
+
 internal fun readerScaffoldMode(
     profile: OrigReadAdaptiveLayoutProfile,
     assistantPaneVisible: Boolean,

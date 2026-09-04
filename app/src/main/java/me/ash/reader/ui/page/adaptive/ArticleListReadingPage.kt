@@ -83,6 +83,7 @@ fun ArticleListReaderPage(
     viewModel: ArticleListReaderViewModel,
     onBack: () -> Unit,
     onNavigateToStylePage: () -> Unit,
+    assistantPaneVisible: Boolean = false,
     onAssistantPaneVisibilityChange: (Boolean) -> Unit = {},
 ) {
 
@@ -103,11 +104,10 @@ fun ArticleListReaderPage(
     // the window temporarily becomes single-pane so returning to a large window restores the
     // workspace the user chose instead of silently reopening the list.
     var isListHiddenByUser by rememberSaveable { mutableStateOf(false) }
-    var isAssistantPaneVisible by remember { mutableStateOf(false) }
     val isListTemporarilyHiddenForAssistant =
         shouldTemporarilyHideListForAssistant(
             profile = adaptiveLayoutProfile,
-            assistantPaneVisible = isAssistantPaneVisible,
+            assistantPaneVisible = assistantPaneVisible,
         )
 
     val hiddenAnchor = remember(scaffoldDirective) { PaneExpansionAnchor.Offset.fromStart(0.dp) }
@@ -271,10 +271,7 @@ fun ArticleListReaderPage(
                             }
                         },
                         onNavigateToStylePage = onNavigateToStylePage,
-                        onAssistantPaneVisibilityChange = {
-                            isAssistantPaneVisible = it
-                            onAssistantPaneVisibilityChange(it)
-                        },
+                        onAssistantPaneVisibilityChange = onAssistantPaneVisibilityChange,
                     )
                 }
             }
