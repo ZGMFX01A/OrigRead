@@ -81,8 +81,6 @@ private data class LlmCitationReplacement(
 )
 
 internal const val MAX_INLINE_CITATION_GROUPS = 20
-private const val MAX_SAME_SOURCE_CLAIM_GAP_CHARS = 120
-private const val MAX_SAME_SOURCE_GROUP_SPAN_CHARS = 220
 
 /**
  * Project request-local [[E#]] protocol tokens into one Assistant message's transient UI Citation
@@ -262,28 +260,25 @@ private fun canMergeCitationOccurrence(
     val previous = group.last()
     val gap = content.substring(previous.endExclusive, next.start)
     if (gap.contains('\n')) return false
-    if (citationSourceKey(previous.ref) != citationSourceKey(next.ref)) return false
-    if (gap.none(Char::isLetterOrDigit)) return true
-    if (next.start - group.first().endExclusive > MAX_SAME_SOURCE_GROUP_SPAN_CHARS) return false
-    if (gap.length > MAX_SAME_SOURCE_CLAIM_GAP_CHARS) return false
-    return citationEvidenceIsNearby(previous.ref, next.ref)
+    // UI grouping must never guess that two natural-language statements form one semantic claim.
+    // Only collapse a pure citation cluster when every ref points at the exact same navigation
+    // target. This still removes duplicate adjacent markers without sacrificing evidence precision.
+    if (gap.any(Char::isLetterOrDigit)) return false
+    val previousTarget = citationUiMergeTargetKey(previous.ref) ?: return false
+    return previousTarget == citationUiMergeTargetKey(next.ref)
 }
 
-private fun citationEvidenceIsNearby(
-    first: LlmCitationRefEntity,
-    second: LlmCitationRefEntity,
-): Boolean {
-    if (first.id == second.id || first.evidenceBlockId == second.evidenceBlockId) return true
-    val firstLocator = first.locatorSnapshot ?: return first.contextRefId == second.contextRefId
-    val secondLocator = second.locatorSnapshot ?: return first.contextRefId == second.contextRefId
-    val firstIndex = firstLocator.blockIndex
-    val secondIndex = secondLocator.blockIndex
-    return if (firstIndex != null && secondIndex != null) {
-        kotlin.math.abs(firstIndex - secondIndex) <= 2
-    } else {
-        first.contextRefId == second.contextRefId
+private fun citationUiMergeTargetKey(ref: LlmCitationRefEntity): String? =
+    when (val action = ref.resolveCitationNavigationAction()) {
+        is LlmCitationNavigationAction.Reader -> {
+            val articleId = action.target.articleId?.trim()?.ifBlank { null } ?: return null
+            val stableKey = action.target.stableLocatorKey?.trim()?.ifBlank { null } ?: return null
+            "reader:$articleId:$stableKey"
+        }
+        is LlmCitationNavigationAction.ExternalUrl ->
+            normalizedCitationUrl(action.url)?.let { "url:$it" }
+        LlmCitationNavigationAction.SourcesDetail -> null
     }
-}
 
 private fun citationSourceKey(ref: LlmCitationRefEntity): String {
     val locator = ref.locatorSnapshot
@@ -398,9 +393,9 @@ internal fun buildLlmReaderMarkerSnapshot(
                     val stableKey = locator.stableLocatorKey?.trim()?.ifBlank { null } ?: return@mapNotNull null
                     Triple(articleId, stableKey, ref)
                 }
-                .groupBy { it.first }
-                .map { (_, refsForArticle) ->
-                    val (articleId, stableKey, ref) = refsForArticle.last()
+                .groupBy { (articleId, stableKey, _) -> articleId to stableKey }
+                .map { (_, refsForLocator) ->
+                    val (articleId, stableKey, ref) = refsForLocator.last()
                     ReaderEvidenceMarker(
                         citationId = ref.id,
                         stableLocatorKey = stableKey,

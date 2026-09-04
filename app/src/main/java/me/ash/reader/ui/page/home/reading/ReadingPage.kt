@@ -36,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -90,6 +91,8 @@ import me.ash.reader.ui.component.reader.NativeReaderAnchorState
 import me.ash.reader.ui.component.reader.PendingCitationNavigation
 import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerState
 import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerNavigationTarget
+import me.ash.reader.ui.component.reader.ReaderEvidenceAnchorTarget
+import me.ash.reader.ui.component.reader.stripReaderEvidenceMarkersFromSelectedText
 import me.ash.reader.ui.component.webview.WebViewReaderAnchorNavigationResult
 import me.ash.reader.ui.component.webview.WebViewReaderAnchorState
 import me.ash.reader.ui.page.adaptive.ArticleListReaderViewModel
@@ -109,6 +112,83 @@ import me.ash.reader.ui.page.home.reading.tts.TtsButton
 private const val UPWARD = 1
 private const val DOWNWARD = -1
 private val ArticleAssistantPaneWidth = 384.dp
+
+private val PendingCitationNavigationStateSaver =
+    Saver<PendingCitationNavigation?, ArrayList<String>>(
+        save = { request ->
+            if (request == null) {
+                arrayListOf()
+            } else {
+                arrayListOf(
+                    request.conversationId,
+                    request.assistantMessageId,
+                    request.citationId,
+                    request.articleId,
+                    request.target.stableLocatorKey.orEmpty(),
+                    request.target.normalizedHash.orEmpty(),
+                    request.target.quote.orEmpty(),
+                    request.requestedAt.toString(),
+                    request.originArticleId.orEmpty(),
+                    request.target.headingPath.size.toString(),
+                ).apply { addAll(request.target.headingPath) }
+            }
+        },
+        restore = { values ->
+            if (values.isEmpty() || values.size < 10) {
+                null
+            } else {
+                val headingCount = values[9].toIntOrNull()?.coerceAtLeast(0) ?: return@Saver null
+                if (values.size < 10 + headingCount) return@Saver null
+                val articleId = values[3]
+                PendingCitationNavigation(
+                    conversationId = values[0],
+                    assistantMessageId = values[1],
+                    citationId = values[2],
+                    articleId = articleId,
+                    target =
+                        ReaderEvidenceAnchorTarget(
+                            articleId = articleId,
+                            stableLocatorKey = values[4].ifBlank { null },
+                            normalizedHash = values[5].ifBlank { null },
+                            quote = values[6].ifBlank { null },
+                            headingPath = values.drop(10).take(headingCount),
+                        ),
+                    requestedAt = values[7].toLongOrNull() ?: return@Saver null,
+                    originArticleId = values[8].ifBlank { null },
+                )
+            }
+        },
+    )
+
+private val CitationReturnTargetStateSaver =
+    Saver<ReaderEvidenceMarkerNavigationTarget?, ArrayList<String>>(
+        save = { target ->
+            if (target == null) {
+                arrayListOf()
+            } else {
+                arrayListOf(
+                    target.ownerArticleId,
+                    target.conversationId,
+                    target.assistantMessageId,
+                    target.citationId,
+                    target.displayOrder.toString(),
+                )
+            }
+        },
+        restore = { values ->
+            if (values.size != 5) {
+                null
+            } else {
+                ReaderEvidenceMarkerNavigationTarget(
+                    ownerArticleId = values[0],
+                    conversationId = values[1],
+                    assistantMessageId = values[2],
+                    citationId = values[3],
+                    displayOrder = values[4].toIntOrNull() ?: return@Saver null,
+                )
+            }
+        },
+    )
 
 internal fun shouldResetArticleAssistantForArticleChange(
     previousArticleId: String?,
@@ -174,11 +254,15 @@ fun ReadingPage(
         mutableStateOf(false)
     }
     var lastAssistantArticleId by rememberSaveable { mutableStateOf<String?>(null) }
-    var pendingCitationNavigation by remember { mutableStateOf<PendingCitationNavigation?>(null) }
-    var pendingCitationReturn by remember {
+    var pendingCitationNavigation by rememberSaveable(stateSaver = PendingCitationNavigationStateSaver) {
+        mutableStateOf<PendingCitationNavigation?>(null)
+    }
+    var pendingCitationReturn by rememberSaveable(stateSaver = CitationReturnTargetStateSaver) {
         mutableStateOf<ReaderEvidenceMarkerNavigationTarget?>(null)
     }
-    var citationNavigationFailure by remember { mutableStateOf<PendingCitationNavigation?>(null) }
+    var citationNavigationFailure by rememberSaveable(stateSaver = PendingCitationNavigationStateSaver) {
+        mutableStateOf<PendingCitationNavigation?>(null)
+    }
     var showInteractiveVerification by remember { mutableStateOf(false) }
     var showReadingShareFirstUse by remember { mutableStateOf(false) }
     var showReadingShareConfig by remember { mutableStateOf(false) }
@@ -192,7 +276,11 @@ fun ReadingPage(
         selectedTextFromTranslation: Boolean = false,
         analyzeArticle: Boolean = false,
     ) {
-        selectedTextForAssistant = selectedText?.trim()?.takeIf(String::isNotBlank)
+        selectedTextForAssistant =
+            selectedText
+                ?.let(::stripReaderEvidenceMarkersFromSelectedText)
+                ?.trim()
+                ?.takeIf(String::isNotBlank)
         selectedTextForAssistantFromTranslation =
             selectedTextForAssistant != null && selectedTextFromTranslation
         articleAnalysisRequested = analyzeArticle
@@ -208,7 +296,7 @@ fun ReadingPage(
         articleAnalysisRequested = false
         selectedTextForAssistant = null
         selectedTextForAssistantFromTranslation = false
-        readerEvidenceMarkerState.clear()
+        readerEvidenceMarkerState.retainAsHistoricalFallback()
     }
 
     fun hideArticleAssistantForCitation() {
@@ -219,7 +307,10 @@ fun ReadingPage(
     }
 
     LaunchedEffect(aiAssistantEnabled) {
-        if (!aiAssistantEnabled) dismissArticleAssistant()
+        if (!aiAssistantEnabled) {
+            dismissArticleAssistant()
+            readerEvidenceMarkerState.clear()
+        }
     }
 
     LaunchedEffect(

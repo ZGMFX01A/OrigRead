@@ -848,6 +848,7 @@ private fun AnnotatedString.withReaderEvidenceDecorations(
             val end = insertion.endExclusive.coerceIn(cursor, highlighted.length)
             append(highlighted.subSequence(cursor, end))
             insertion.displayOrders.forEach { displayOrder ->
+                append(READER_EVIDENCE_MARKER_SELECTION_SENTINEL)
                 append(" ")
                 val start = length
                 append("[$displayOrder]")
@@ -869,6 +870,7 @@ private fun AnnotatedString.withReaderEvidenceDecorations(
                     start = start,
                     end = length,
                 )
+                append(READER_EVIDENCE_MARKER_SELECTION_SENTINEL)
             }
             cursor = end
         }

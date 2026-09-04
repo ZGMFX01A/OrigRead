@@ -2,6 +2,7 @@ package me.ash.reader.ui.component.webview
 
 import me.ash.reader.ui.component.reader.READER_EVIDENCE_BLOCK_HASH_ATTRIBUTE
 import me.ash.reader.ui.component.reader.READER_EVIDENCE_BLOCK_ID_ATTRIBUTE
+import me.ash.reader.ui.component.reader.READER_EVIDENCE_MARKER_SELECTION_SENTINEL
 import me.ash.reader.ui.component.reader.ReaderEvidenceMarker
 import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerSnapshot
 import org.junit.Assert.assertEquals
@@ -165,6 +166,7 @@ class WebViewReaderAnchorTest {
         assertTrue(script.contains("backgroundColor"))
         assertTrue(script.contains("borderRadius"))
         assertTrue(script.contains("system-ui, sans-serif"))
+        assertTrue(script.contains(READER_EVIDENCE_MARKER_SELECTION_SENTINEL.toString()))
     }
 
     @Test

@@ -234,7 +234,7 @@ class LlmCitationUiProjectionTest {
     }
 
     @Test
-    fun `nearby evidence from the same article becomes one claim group at the end`() {
+    fun `separate factual claims from the same article stay independently navigable`() {
         val refs =
             listOf(
                 citationRef(
@@ -260,9 +260,44 @@ class LlmCitationUiProjectionTest {
                 citationRefs = refs,
             )
 
-        assertEquals("Revenue rose, while profit rose [1].", projected.markdown)
+        assertEquals("Revenue rose [1], while profit rose [2].", projected.markdown)
+        assertEquals(2, projected.groupsByDisplayOrder.size)
+        assertEquals("revenue", projected.groupsByDisplayOrder[1]?.directNavigationRefOrNull()?.id)
+        assertEquals("profit", projected.groupsByDisplayOrder[2]?.directNavigationRefOrNull()?.id)
+    }
+
+    @Test
+    fun `pure duplicate citation cluster for the exact same reader target is collapsed`() {
+        val refs =
+            listOf(
+                citationRef(
+                    id = "first",
+                    protocolId = "E1",
+                    displayOrder = 1,
+                    articleId = "article-a",
+                    blockIndex = 4,
+                    stableLocatorKey = "PARAGRAPH:root:shared:0",
+                ),
+                citationRef(
+                    id = "duplicate",
+                    protocolId = "E2",
+                    displayOrder = 2,
+                    articleId = "article-a",
+                    blockIndex = 4,
+                    stableLocatorKey = "PARAGRAPH:root:shared:0",
+                ),
+            )
+
+        val projected =
+            projectLlmAssistantCitationDisplay(
+                assistantMessageId = "assistant-1",
+                content = "Same claim [[E1]][[E2]].",
+                citationRefs = refs,
+            )
+
+        assertEquals("Same claim [1].", projected.markdown)
+        assertEquals(1, projected.groupsByDisplayOrder.size)
         assertEquals(2, projected.groupsByDisplayOrder[1]?.refs?.size)
-        assertEquals("profit", projected.groupsByDisplayOrder[1]?.directNavigationRefOrNull()?.id)
     }
 
     @Test
@@ -344,7 +379,7 @@ class LlmCitationUiProjectionTest {
     }
 
     @Test
-    fun `reader marker projection keeps one marker per grouped target article`() {
+    fun `reader marker projection keeps distinct evidence locations in the same article`() {
         val refs =
             listOf(
                 citationRef(
@@ -378,11 +413,11 @@ class LlmCitationUiProjectionTest {
                 assistantContent = "Comparison [[E1]][[E2]][[E3]].",
             )
 
-        assertEquals(2, snapshot?.markers?.size)
+        assertEquals(3, snapshot?.markers?.size)
         assertEquals(setOf("article-a", "article-b"), snapshot?.markers?.mapNotNull { it.articleId }?.toSet())
-        assertEquals(1, snapshot?.markers?.first { it.articleId == "article-a" }?.displayOrder)
-        assertEquals(2, snapshot?.markers?.first { it.articleId == "article-b" }?.displayOrder)
-        assertEquals("a-2", snapshot?.markers?.first { it.articleId == "article-a" }?.citationId)
+        assertEquals(setOf("a-1", "a-2"), snapshot?.markers?.filter { it.articleId == "article-a" }?.map { it.citationId }?.toSet())
+        assertEquals(listOf(1, 2), snapshot?.markers?.filter { it.articleId == "article-a" }?.map { it.displayOrder }?.sorted())
+        assertEquals(3, snapshot?.markers?.first { it.articleId == "article-b" }?.displayOrder)
     }
 
     @Test
@@ -471,6 +506,7 @@ class LlmCitationUiProjectionTest {
         articleId: String? = "article-1",
         sourceUrl: String = "https://example.com/$id",
         blockIndex: Int? = null,
+        stableLocatorKey: String = "PARAGRAPH:root:$id:0",
     ) =
         LlmCitationRefEntity(
             id = id,
@@ -486,7 +522,7 @@ class LlmCitationUiProjectionTest {
             locatorSnapshot =
                 LlmEvidenceLocatorV1(
                     sourceKind = sourceKind,
-                    stableLocatorKey = "PARAGRAPH:root:$id:0",
+                    stableLocatorKey = stableLocatorKey,
                     blockIndex = blockIndex,
                     articleId = articleId,
                     sourceUrl = sourceUrl,

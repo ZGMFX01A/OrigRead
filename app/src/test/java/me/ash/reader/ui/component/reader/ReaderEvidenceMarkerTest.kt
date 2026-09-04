@@ -99,4 +99,34 @@ class ReaderEvidenceMarkerTest {
         assertEquals(null, readerEvidenceMarkerDisplayOrder("origread-citation://marker/nope"))
         assertEquals(null, readerEvidenceMarkerDisplayOrder("origread-citation://marker/0"))
     }
+
+    @Test
+    fun `selection sanitizer removes only OrigRead injected marker text`() {
+        val sentinel = READER_EVIDENCE_MARKER_SELECTION_SENTINEL
+        val selected = "Revenue${sentinel} [1]${sentinel} rose while article text [1] remains."
+
+        assertEquals(
+            "Revenue rose while article text [1] remains.",
+            stripReaderEvidenceMarkersFromSelectedText(selected),
+        )
+    }
+
+    @Test
+    fun `closing chat can retain markers as replaceable historical fallback`() {
+        val state = ReaderEvidenceMarkerState()
+        state.show(
+            ReaderEvidenceMarkerSnapshot(
+                ownerArticleId = "article-a",
+                conversationId = "conversation-a",
+                assistantMessageId = "assistant-a",
+                markers = listOf(ReaderEvidenceMarker("citation-a", "block-a", 1, "article-a")),
+                origin = ReaderEvidenceMarkerLayerOrigin.INTERACTION,
+            )
+        )
+
+        state.retainAsHistoricalFallback()
+
+        assertEquals(ReaderEvidenceMarkerLayerOrigin.HISTORICAL, state.snapshot?.origin)
+        assertEquals("citation-a", state.snapshot?.markers?.single()?.citationId)
+    }
 }

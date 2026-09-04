@@ -384,6 +384,26 @@ class LlmChatViewModel @Inject constructor(
         assistantMessageId: String,
     ): List<LlmCitationRefEntity> = repository.getCitationRefsForAssistant(assistantMessageId)
 
+    /**
+     * A Reader -> Chat target can disappear while navigation is in flight (conversation delete or
+     * regenerate). Query Room directly so the UI can distinguish a real missing target from the
+     * normal transient empty state before conversation/message Flows have delivered their first row.
+     */
+    internal suspend fun citationReturnTargetExists(
+        ownerArticleId: String,
+        conversationId: String,
+        assistantMessageId: String,
+    ): Boolean {
+        val conversation = repository.getConversation(conversationId) ?: return false
+        if (conversation.articleId != ownerArticleId) return false
+        return repository.getMessages(conversationId).any { message ->
+            message.id == assistantMessageId &&
+                message.role == LlmChatRole.ASSISTANT &&
+                message.historyActive &&
+                message.status == LlmMessageStatus.COMPLETE
+        }
+    }
+
     init {
         // Chat 不依赖用户先进入 MCP 设置页；重启后恢复已缓存且启用的 MCP Tool。
         mcpToolRegistry.restoreCachedTools()
@@ -1055,6 +1075,13 @@ class LlmChatViewModel @Inject constructor(
                         )
                         .id
                         .also { createdId ->
+                            // A user send is an explicit conversation selection. Invalidate any
+                            // initial Room restoration that may still be suspended in
+                            // selectConversationInternal(), otherwise that older restore can resume
+                            // after this create and switch the UI away from the conversation that is
+                            // currently generating the first answer.
+                            nextConversationSelectionRevision()
+                            conversationSelectionInitialized = true
                             selectedConversationId.value = createdId
                             _uiState.update { it.copy(currentConversationId = createdId) }
                         }

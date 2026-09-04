@@ -254,7 +254,7 @@ fun LlmArticleAssistantSheet(
     val visibleCitationMarkerAssistantId =
         contextSourcesAssistantId ?: citationInteractionAssistantId ?: latestCompletedCitationAssistantId
 
-    LaunchedEffect(visibleCitationMarkerAssistantId, uiState.citationRefs) {
+    LaunchedEffect(visibleCitationMarkerAssistantId, uiState.citationRefs, citationReturnTarget) {
         if (citationReturnTarget != null) return@LaunchedEffect
         readerEvidenceMarkerState?.show(
             visibleCitationMarkerAssistantId?.let { assistantMessageId ->
@@ -290,11 +290,30 @@ fun LlmArticleAssistantSheet(
         if (uiState.currentConversationId != target.conversationId) {
             if (uiState.conversations.any { it.id == target.conversationId }) {
                 viewModel.selectConversation(target.conversationId)
+            } else if (
+                !viewModel.citationReturnTargetExists(
+                    ownerArticleId = target.ownerArticleId,
+                    conversationId = target.conversationId,
+                    assistantMessageId = target.assistantMessageId,
+                )
+            ) {
+                onCitationReturnConsumed()
             }
             return@LaunchedEffect
         }
         val messageIndex = uiState.messages.indexOfFirst { it.id == target.assistantMessageId }
-        if (messageIndex < 0) return@LaunchedEffect
+        if (messageIndex < 0) {
+            if (
+                !viewModel.citationReturnTargetExists(
+                    ownerArticleId = target.ownerArticleId,
+                    conversationId = target.conversationId,
+                    assistantMessageId = target.assistantMessageId,
+                )
+            ) {
+                onCitationReturnConsumed()
+            }
+            return@LaunchedEffect
+        }
         listState.animateScrollToItem(messageIndex)
         citationInteractionAssistantId = target.assistantMessageId
         citationReturnHighlightAssistantId = target.assistantMessageId
@@ -1288,7 +1307,7 @@ private fun AssistantMessage(
 
     val clipboardManager = LocalClipboardManager.current
     val citationDisplay =
-        remember(message.id, message.content, citationRefs) {
+        remember(message.id, message.content, message.status, citationRefs) {
             projectLlmAssistantCitationDisplay(
                 assistantMessageId = message.id,
                 content = message.content,

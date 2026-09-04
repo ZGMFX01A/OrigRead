@@ -9,6 +9,7 @@ import java.util.concurrent.atomic.AtomicLong
 import me.ash.reader.ui.component.reader.ReaderEvidenceAnchorTarget
 import me.ash.reader.ui.component.reader.ReaderEvidenceDocument
 import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerSnapshot
+import me.ash.reader.ui.component.reader.READER_EVIDENCE_MARKER_SELECTION_SENTINEL
 import me.ash.reader.ui.component.reader.ReaderEvidenceResolveStrategy
 import me.ash.reader.ui.component.reader.READER_EVIDENCE_MARKER_URL_PREFIX
 import me.ash.reader.ui.component.reader.buildReaderEvidenceDocument
@@ -349,6 +350,7 @@ internal fun buildWebViewReaderMarkerScript(
         }
     val foreground = markerForegroundCss.toJavaScriptStringLiteral()
     val background = markerBackgroundCss.toJavaScriptStringLiteral()
+    val selectionSentinel = READER_EVIDENCE_MARKER_SELECTION_SENTINEL.toString().toJavaScriptStringLiteral()
     return """
         (function() {
           document.querySelectorAll('[data-origread-citation-marker="true"]').forEach(function(marker) {
@@ -362,7 +364,7 @@ internal fun buildWebViewReaderMarkerScript(
               const marker = document.createElement('a');
               marker.setAttribute('data-origread-citation-marker', 'true');
               marker.href = '${READER_EVIDENCE_MARKER_URL_PREFIX}' + order;
-              marker.textContent = '[' + order + ']';
+              marker.textContent = $selectionSentinel + '[' + order + ']' + $selectionSentinel;
               marker.style.color = $foreground;
               marker.style.backgroundColor = $background;
               marker.style.fontSize = '0.72em';

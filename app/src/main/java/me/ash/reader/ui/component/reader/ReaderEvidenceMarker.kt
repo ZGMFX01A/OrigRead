@@ -101,6 +101,16 @@ class ReaderEvidenceMarkerState {
     fun clear() {
         snapshot = null
     }
+
+    /**
+     * Keep the currently visible markers while the Chat surface closes, but release interaction
+     * priority so the Room-backed historical layer can replace them as soon as it is available.
+     * This avoids a deterministic empty-marker frame without letting an old interaction layer pin
+     * itself forever.
+     */
+    fun retainAsHistoricalFallback() {
+        snapshot = snapshot?.copy(origin = ReaderEvidenceMarkerLayerOrigin.HISTORICAL)
+    }
 }
 
 data class ReaderEvidenceMarkerInsertion(
@@ -109,6 +119,14 @@ data class ReaderEvidenceMarkerInsertion(
 )
 
 internal const val READER_EVIDENCE_MARKER_URL_PREFIX = "origread-citation://marker/"
+internal const val READER_EVIDENCE_MARKER_SELECTION_SENTINEL = '\u2063'
+
+/**
+ * Remove only marker text that OrigRead itself injected into a selectable Reader surface.
+ * Ordinary article text such as "[1]" is intentionally left untouched because it has no sentinel.
+ */
+internal fun stripReaderEvidenceMarkersFromSelectedText(text: String): String =
+    text.replace(READER_EVIDENCE_MARKER_SELECTION_REGEX, "")
 
 internal fun readerEvidenceMarkerUrl(displayOrder: Int): String =
     "$READER_EVIDENCE_MARKER_URL_PREFIX${displayOrder.coerceAtLeast(1)}"
@@ -119,6 +137,13 @@ internal fun readerEvidenceMarkerDisplayOrder(url: String): Int? =
         ?.takeIf { it.isNotBlank() && it.all(Char::isDigit) }
         ?.toIntOrNull()
         ?.takeIf { it > 0 }
+
+private val READER_EVIDENCE_MARKER_SELECTION_REGEX =
+    Regex(
+        Regex.escape(READER_EVIDENCE_MARKER_SELECTION_SENTINEL.toString()) +
+            "[ \\t]*\\[\\d+]" +
+            Regex.escape(READER_EVIDENCE_MARKER_SELECTION_SENTINEL.toString())
+    )
 
 internal fun buildReaderEvidenceMarkerInsertions(
     anchorRanges: List<ReaderTextAnchorRange>,
