@@ -48,6 +48,8 @@ import me.ash.reader.ui.component.reader.NativeReaderAnchorState
 import me.ash.reader.ui.component.reader.Reader
 import me.ash.reader.ui.component.reader.ReaderEvidenceDocument
 import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerState
+import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerNavigationTarget
+import me.ash.reader.ui.component.reader.readerEvidenceMarkerDisplayOrder
 import me.ash.reader.ui.component.reader.buildReaderEvidenceDocument
 import me.ash.reader.ui.component.scrollbar.drawVerticalScrollIndicator
 import me.ash.reader.ui.component.webview.OrigReadWebView
@@ -89,6 +91,7 @@ fun Content(
     nativeReaderAnchorState: NativeReaderAnchorState? = null,
     webViewReaderAnchorState: WebViewReaderAnchorState? = null,
     readerEvidenceMarkerState: ReaderEvidenceMarkerState? = null,
+    onReaderEvidenceMarkerClick: ((ReaderEvidenceMarkerNavigationTarget) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val subheadUpperCase = LocalReadingSubheadUpperCase.current
@@ -225,6 +228,7 @@ fun Content(
                                 readerAnchorState = webViewReaderAnchorState,
                                 markerSnapshot =
                                     readerEvidenceMarkerState?.snapshot.takeIf { isOriginalContent },
+                                onEvidenceMarkerClick = onReaderEvidenceMarkerClick,
                             )
                             releaseLinks?.let {
                                 OrigReadReleaseActions(
@@ -269,7 +273,16 @@ fun Content(
                                 content = content,
                                 parsedBody = nativeReaderContent?.body,
                                 onImageClick = onImageClick,
-                                onLinkClick = { uriHandler.openUri(it) },
+                                onLinkClick = { url ->
+                                    val displayOrder = readerEvidenceMarkerDisplayOrder(url)
+                                    if (displayOrder != null) {
+                                        readerEvidenceMarkerState?.snapshot
+                                            ?.navigationTargetFor(articleId, displayOrder)
+                                            ?.let { target -> onReaderEvidenceMarkerClick?.invoke(target) }
+                                    } else {
+                                        uriHandler.openUri(url)
+                                    }
+                                },
                                 anchorMapBuilder = nativeAnchorMapBuilder,
                                 anchorHighlight = nativeReaderAnchorState?.highlight,
                                 markerSnapshot =

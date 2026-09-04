@@ -6,21 +6,43 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
 data class ReaderEvidenceMarker(
+    val citationId: String,
     val stableLocatorKey: String,
     val displayOrder: Int,
     val articleId: String? = null,
 ) {
     init {
+        require(citationId.isNotBlank()) { "Reader marker citation id must not be blank" }
         require(stableLocatorKey.isNotBlank()) { "Reader marker anchor key must not be blank" }
         require(displayOrder > 0) { "Reader marker display order must be positive" }
     }
 }
 
+data class ReaderEvidenceMarkerNavigationTarget(
+    val ownerArticleId: String,
+    val conversationId: String,
+    val assistantMessageId: String,
+    val citationId: String,
+    val displayOrder: Int,
+) {
+    init {
+        require(ownerArticleId.isNotBlank()) { "Reader marker owner article id must not be blank" }
+        require(conversationId.isNotBlank()) { "Reader marker conversation id must not be blank" }
+        require(assistantMessageId.isNotBlank()) { "Reader marker assistant message id must not be blank" }
+        require(citationId.isNotBlank()) { "Reader marker citation id must not be blank" }
+        require(displayOrder > 0) { "Reader marker display order must be positive" }
+    }
+}
+
 data class ReaderEvidenceMarkerSnapshot(
+    val ownerArticleId: String,
+    val conversationId: String,
     val assistantMessageId: String,
     val markers: List<ReaderEvidenceMarker>,
 ) {
     init {
+        require(ownerArticleId.isNotBlank()) { "Reader marker owner article id must not be blank" }
+        require(conversationId.isNotBlank()) { "Reader marker conversation id must not be blank" }
         require(assistantMessageId.isNotBlank()) { "Reader marker assistant message id must not be blank" }
     }
 
@@ -39,6 +61,25 @@ data class ReaderEvidenceMarkerSnapshot(
             .distinct()
             .sorted()
             .toList()
+    }
+
+    fun navigationTargetFor(
+        currentArticleId: String?,
+        displayOrder: Int,
+    ): ReaderEvidenceMarkerNavigationTarget? {
+        val normalizedArticleId = currentArticleId?.trim()?.ifBlank { null } ?: return null
+        val marker =
+            markers.firstOrNull { marker ->
+                marker.displayOrder == displayOrder &&
+                    marker.articleId?.trim()?.ifBlank { null } == normalizedArticleId
+            } ?: return null
+        return ReaderEvidenceMarkerNavigationTarget(
+            ownerArticleId = ownerArticleId,
+            conversationId = conversationId,
+            assistantMessageId = assistantMessageId,
+            citationId = marker.citationId,
+            displayOrder = marker.displayOrder,
+        )
     }
 }
 
@@ -60,6 +101,18 @@ data class ReaderEvidenceMarkerInsertion(
     val endExclusive: Int,
     val displayOrders: List<Int>,
 )
+
+internal const val READER_EVIDENCE_MARKER_URL_PREFIX = "origread-citation://marker/"
+
+internal fun readerEvidenceMarkerUrl(displayOrder: Int): String =
+    "$READER_EVIDENCE_MARKER_URL_PREFIX${displayOrder.coerceAtLeast(1)}"
+
+internal fun readerEvidenceMarkerDisplayOrder(url: String): Int? =
+    url.takeIf { it.startsWith(READER_EVIDENCE_MARKER_URL_PREFIX) }
+        ?.removePrefix(READER_EVIDENCE_MARKER_URL_PREFIX)
+        ?.takeIf { it.isNotBlank() && it.all(Char::isDigit) }
+        ?.toIntOrNull()
+        ?.takeIf { it > 0 }
 
 internal fun buildReaderEvidenceMarkerInsertions(
     anchorRanges: List<ReaderTextAnchorRange>,

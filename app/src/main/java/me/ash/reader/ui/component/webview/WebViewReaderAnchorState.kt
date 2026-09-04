@@ -10,6 +10,7 @@ import me.ash.reader.ui.component.reader.ReaderEvidenceAnchorTarget
 import me.ash.reader.ui.component.reader.ReaderEvidenceDocument
 import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerSnapshot
 import me.ash.reader.ui.component.reader.ReaderEvidenceResolveStrategy
+import me.ash.reader.ui.component.reader.READER_EVIDENCE_MARKER_URL_PREFIX
 import me.ash.reader.ui.component.reader.buildReaderEvidenceDocument
 import me.ash.reader.ui.component.reader.resolveReaderEvidenceAnchor
 import org.jsoup.Jsoup
@@ -333,8 +334,8 @@ internal fun buildWebViewReaderMarkerScript(
             .toList()
     val entriesLiteral =
         markerEntries.joinToString(prefix = "[", postfix = "]") { (stableKey, orders) ->
-            val label = orders.joinToString(prefix = " [", postfix = "]", separator = "][")
-            "{key:${stableKey.toJavaScriptStringLiteral()},label:${label.toJavaScriptStringLiteral()}}"
+            val orderLiteral = orders.joinToString(prefix = "[", postfix = "]")
+            "{key:${stableKey.toJavaScriptStringLiteral()},orders:$orderLiteral}"
         }
     val color = markerColorCss.toJavaScriptStringLiteral()
     return """
@@ -346,15 +347,19 @@ internal fun buildWebViewReaderMarkerScript(
           entries.forEach(function(entry) {
             const node = document.querySelector('[data-origread-block-id="' + CSS.escape(entry.key) + '"]');
             if (!node) return;
-            const marker = document.createElement('span');
-            marker.setAttribute('data-origread-citation-marker', 'true');
-            marker.textContent = entry.label;
-            marker.style.color = $color;
-            marker.style.fontSize = '0.72em';
-            marker.style.fontWeight = '650';
-            marker.style.verticalAlign = 'super';
-            marker.style.whiteSpace = 'nowrap';
-            node.appendChild(marker);
+            entry.orders.forEach(function(order) {
+              const marker = document.createElement('a');
+              marker.setAttribute('data-origread-citation-marker', 'true');
+              marker.href = '${READER_EVIDENCE_MARKER_URL_PREFIX}' + order;
+              marker.textContent = ' [' + order + ']';
+              marker.style.color = $color;
+              marker.style.fontSize = '0.72em';
+              marker.style.fontWeight = '650';
+              marker.style.verticalAlign = 'super';
+              marker.style.whiteSpace = 'nowrap';
+              marker.style.textDecoration = 'none';
+              node.appendChild(marker);
+            });
           });
           return entries.length;
         })()

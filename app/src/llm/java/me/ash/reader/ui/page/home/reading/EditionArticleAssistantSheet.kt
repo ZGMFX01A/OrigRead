@@ -6,6 +6,7 @@ import me.ash.reader.llm.chat.ui.LlmArticleAssistantSheet
 import me.ash.reader.llm.chat.ui.LlmCitationNavigationFailureFallbackSheet
 import me.ash.reader.ui.component.reader.PendingCitationNavigation
 import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerState
+import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerNavigationTarget
 import me.ash.reader.ui.page.adaptive.OrigReadArticleAssistantPresentation
 
 /** LLM edition 在当前正文之上展示文章级阅读助手。 */
@@ -18,6 +19,8 @@ internal fun EditionArticleAssistantSheet(
     onOpenArticle: (String) -> Unit,
     showQuickSummary: Boolean,
     onNavigateReaderCitation: (PendingCitationNavigation) -> Unit,
+    citationReturnTarget: ReaderEvidenceMarkerNavigationTarget?,
+    onCitationReturnConsumed: () -> Unit,
     citationNavigationFailure: PendingCitationNavigation?,
     onCitationNavigationFailureConsumed: () -> Unit,
     readerEvidenceMarkerState: ReaderEvidenceMarkerState,
@@ -42,6 +45,8 @@ internal fun EditionArticleAssistantSheet(
         onOpenArticle = onOpenArticle,
         showQuickSummary = showQuickSummary,
         onNavigateReaderCitation = onNavigateReaderCitation,
+        citationReturnTarget = citationReturnTarget,
+        onCitationReturnConsumed = onCitationReturnConsumed,
         readerEvidenceMarkerState = readerEvidenceMarkerState,
         continueGenerationInBackground = continueGenerationInBackground,
         presentation = presentation,

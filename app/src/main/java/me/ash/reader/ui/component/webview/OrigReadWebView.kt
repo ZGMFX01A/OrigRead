@@ -8,6 +8,8 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -32,6 +34,8 @@ import me.ash.reader.infrastructure.preference.LocalReadingTextLetterSpacing
 import me.ash.reader.infrastructure.preference.LocalReadingTextLineHeight
 import me.ash.reader.infrastructure.preference.ReadingFontsPreference
 import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerSnapshot
+import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerNavigationTarget
+import me.ash.reader.ui.component.reader.readerEvidenceMarkerDisplayOrder
 import me.ash.reader.ui.ext.ExternalFonts
 import me.ash.reader.ui.ext.openURL
 import me.ash.reader.ui.ext.surfaceColorAtElevation
@@ -51,6 +55,7 @@ fun OrigReadWebView(
     onSelectedTextAction: ((String) -> Unit)? = null,
     readerAnchorState: WebViewReaderAnchorState? = null,
     markerSnapshot: ReaderEvidenceMarkerSnapshot? = null,
+    onEvidenceMarkerClick: ((ReaderEvidenceMarkerNavigationTarget) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val maxWidth = LocalConfiguration.current.screenWidthDp.dp.value
@@ -134,6 +139,9 @@ fun OrigReadWebView(
             boldCharacters = boldCharacters.value,
         )
     val renderGuard = remember { WebViewRenderGuard() }
+    val currentArticleId by rememberUpdatedState(articleId)
+    val currentMarkerSnapshot by rememberUpdatedState(markerSnapshot)
+    val currentEvidenceMarkerClick by rememberUpdatedState(onEvidenceMarkerClick)
 
     AndroidView(
         modifier = modifier,
@@ -148,7 +156,14 @@ fun OrigReadWebView(
                         context = context,
                         refererDomain = refererDomain,
                         onOpenLink = { url ->
-                            context.openURL(url, openLink, openLinkSpecificBrowser)
+                            val displayOrder = readerEvidenceMarkerDisplayOrder(url)
+                            if (displayOrder != null) {
+                                currentMarkerSnapshot
+                                    ?.navigationTargetFor(currentArticleId, displayOrder)
+                                    ?.let { target -> currentEvidenceMarkerClick?.invoke(target) }
+                            } else {
+                                context.openURL(url, openLink, openLinkSpecificBrowser)
+                            }
                         },
                         onPageFinishedReady = { view, pageUrl ->
                             renderGuard.acceptedReaderGeneration(pageUrl)?.let { generation ->

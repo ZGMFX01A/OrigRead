@@ -7,6 +7,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -101,6 +102,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -148,6 +150,7 @@ import me.ash.reader.ui.motion.origReadVisibilityEnter
 import me.ash.reader.ui.motion.origReadVisibilityExit
 import me.ash.reader.ui.component.reader.PendingCitationNavigation
 import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerState
+import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerNavigationTarget
 import me.ash.reader.ui.page.adaptive.OrigReadArticleAssistantPresentation
 import me.ash.reader.ui.page.home.reading.AiSummaryAccentIcon
 import me.ash.reader.ui.page.home.reading.ArticleAssistantContext
@@ -185,6 +188,8 @@ fun LlmArticleAssistantSheet(
     onOpenArticle: (String) -> Unit = {},
     showQuickSummary: Boolean = false,
     onNavigateReaderCitation: (PendingCitationNavigation) -> Unit = {},
+    citationReturnTarget: ReaderEvidenceMarkerNavigationTarget? = null,
+    onCitationReturnConsumed: () -> Unit = {},
     readerEvidenceMarkerState: ReaderEvidenceMarkerState? = null,
     continueGenerationInBackground: Boolean = true,
     presentation: OrigReadArticleAssistantPresentation =
@@ -205,6 +210,7 @@ fun LlmArticleAssistantSheet(
     var contextSourcesAssistantId by remember { mutableStateOf<String?>(null) }
     var webSearchResultsAssistantId by remember { mutableStateOf<String?>(null) }
     var citationInteractionAssistantId by remember { mutableStateOf<String?>(null) }
+    var citationReturnHighlightAssistantId by remember { mutableStateOf<String?>(null) }
     var renameTarget by remember { mutableStateOf<LlmConversationEntity?>(null) }
     var deleteTarget by remember { mutableStateOf<LlmConversationEntity?>(null) }
     var previewMode by rememberSaveable { mutableStateOf(false) }
@@ -249,9 +255,12 @@ fun LlmArticleAssistantSheet(
         contextSourcesAssistantId ?: citationInteractionAssistantId ?: latestCompletedCitationAssistantId
 
     LaunchedEffect(visibleCitationMarkerAssistantId, uiState.citationRefs) {
+        if (citationReturnTarget != null) return@LaunchedEffect
         readerEvidenceMarkerState?.show(
             visibleCitationMarkerAssistantId?.let { assistantMessageId ->
                 buildLlmReaderMarkerSnapshot(
+                    ownerArticleId = articleContext.articleId,
+                    conversationId = uiState.currentConversationId.orEmpty(),
                     assistantMessageId = assistantMessageId,
                     citationRefs = uiState.citationRefs,
                 )
@@ -266,6 +275,34 @@ fun LlmArticleAssistantSheet(
 
     LaunchedEffect(articleContext) {
         viewModel.bindArticleContext(articleContext)
+    }
+    LaunchedEffect(
+        citationReturnTarget,
+        articleContext.articleId,
+        uiState.currentConversationId,
+        uiState.conversations,
+        uiState.messages,
+    ) {
+        val target = citationReturnTarget ?: return@LaunchedEffect
+        if (target.ownerArticleId != articleContext.articleId) return@LaunchedEffect
+        if (uiState.currentConversationId != target.conversationId) {
+            if (uiState.conversations.any { it.id == target.conversationId }) {
+                viewModel.selectConversation(target.conversationId)
+            }
+            return@LaunchedEffect
+        }
+        val messageIndex = uiState.messages.indexOfFirst { it.id == target.assistantMessageId }
+        if (messageIndex < 0) return@LaunchedEffect
+        listState.animateScrollToItem(messageIndex)
+        citationInteractionAssistantId = target.assistantMessageId
+        citationReturnHighlightAssistantId = target.assistantMessageId
+        onCitationReturnConsumed()
+        coroutineScope.launch {
+            delay(1100L)
+            if (citationReturnHighlightAssistantId == target.assistantMessageId) {
+                citationReturnHighlightAssistantId = null
+            }
+        }
     }
     LaunchedEffect(articleContext.articleId, articleContext.selectedText) {
         articleContext.selectedText?.trim()?.takeIf(String::isNotBlank)?.let { selectedText ->
@@ -420,6 +457,8 @@ fun LlmArticleAssistantSheet(
                                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                         AssistantMessage(
                                             message = message,
+                                            citationReturnHighlighted =
+                                                citationReturnHighlightAssistantId == message.id,
                                             showReasoning = uiState.showReasoning,
                                             contextRefs = messageContextRefs,
                                             citationRefs = messageCitationRefs,
@@ -427,6 +466,8 @@ fun LlmArticleAssistantSheet(
                                                 citationInteractionAssistantId = message.id
                                                 readerEvidenceMarkerState?.show(
                                                     buildLlmReaderMarkerSnapshot(
+                                                        ownerArticleId = articleContext.articleId,
+                                                        conversationId = uiState.currentConversationId.orEmpty(),
                                                         assistantMessageId = message.id,
                                                         citationRefs = uiState.citationRefs,
                                                     )
@@ -438,16 +479,19 @@ fun LlmArticleAssistantSheet(
                                                         if (targetArticleId == null) {
                                                             contextSourcesAssistantId = message.id
                                                         } else {
-                                                            onNavigateReaderCitation(
-                                                                PendingCitationNavigation(
-                                                                    assistantMessageId = message.id,
-                                                                    citationId = citationRef.id,
-                                                                    articleId = targetArticleId,
-                                                                    target = action.target,
-                                                                    requestedAt = System.currentTimeMillis(),
-                                                                    originArticleId = articleContext.articleId,
+                                                            uiState.currentConversationId?.let { conversationId ->
+                                                                onNavigateReaderCitation(
+                                                                    PendingCitationNavigation(
+                                                                        conversationId = conversationId,
+                                                                        assistantMessageId = message.id,
+                                                                        citationId = citationRef.id,
+                                                                        articleId = targetArticleId,
+                                                                        target = action.target,
+                                                                        requestedAt = System.currentTimeMillis(),
+                                                                        originArticleId = articleContext.articleId,
+                                                                    )
                                                                 )
-                                                            )
+                                                            }
                                                         }
                                                     }
                                                     is LlmCitationNavigationAction.ExternalUrl ->
@@ -1194,6 +1238,7 @@ private fun ScrollJumpButton(
 @Composable
 private fun AssistantMessage(
     message: LlmMessageEntity,
+    citationReturnHighlighted: Boolean = false,
     showReasoning: Boolean,
     contextRefs: List<LlmContextRefEntity>,
     citationRefs: List<LlmCitationRefEntity>,
@@ -1266,7 +1311,21 @@ private fun AssistantMessage(
         ) {
             projectWebSearchMessage(message, contextRefs)
         }
-    Column(modifier = Modifier.fillMaxWidth()) {
+    val citationReturnColor by
+        animateColorAsState(
+            targetValue =
+                if (citationReturnHighlighted) {
+                    MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.52f)
+                } else {
+                    Color.Transparent
+                },
+            label = "citation_return_message_highlight",
+        )
+    Column(
+        modifier =
+            Modifier.fillMaxWidth()
+                .background(citationReturnColor, RoundedCornerShape(12.dp))
+    ) {
         Text(
             text = stringResource(R.string.llm_assistant_name),
             style = MaterialTheme.typography.labelMedium,

@@ -77,11 +77,20 @@ internal fun projectLlmAssistantCitationDisplay(
 }
 
 internal fun buildLlmReaderMarkerSnapshot(
+    ownerArticleId: String,
+    conversationId: String,
     assistantMessageId: String,
     citationRefs: List<LlmCitationRefEntity>,
     citationFeatureEnabled: Boolean = LLM_EVIDENCE_CITATION_ENABLED,
 ): ReaderEvidenceMarkerSnapshot? {
-    if (!citationFeatureEnabled || assistantMessageId.isBlank()) return null
+    if (
+        !citationFeatureEnabled ||
+            ownerArticleId.isBlank() ||
+            conversationId.isBlank() ||
+            assistantMessageId.isBlank()
+    ) {
+        return null
+    }
     val display =
         projectLlmAssistantCitationDisplay(
             assistantMessageId = assistantMessageId,
@@ -100,6 +109,7 @@ internal fun buildLlmReaderMarkerSnapshot(
             }
             val stableKey = locator.stableLocatorKey?.trim()?.ifBlank { null } ?: return@mapNotNull null
             ReaderEvidenceMarker(
+                citationId = ref.id,
                 stableLocatorKey = stableKey,
                 displayOrder = displayOrder,
                 articleId = locator.articleId?.trim()?.ifBlank { null },
@@ -107,6 +117,8 @@ internal fun buildLlmReaderMarkerSnapshot(
         }
     return markers.takeIf(List<ReaderEvidenceMarker>::isNotEmpty)?.let { markerList ->
         ReaderEvidenceMarkerSnapshot(
+            ownerArticleId = ownerArticleId.trim(),
+            conversationId = conversationId.trim(),
             assistantMessageId = assistantMessageId,
             markers = markerList,
         )

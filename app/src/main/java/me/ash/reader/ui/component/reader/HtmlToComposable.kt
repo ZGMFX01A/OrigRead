@@ -141,8 +141,15 @@ private fun LazyListScope.formatBody(
     ) { paragraphBuilder, anchorRanges ->
         readerTrackedItem(anchorMapBuilder, anchorRanges) {
             val textLinkStyles = textLinkStyles()
-            val linkedParagraph =
-                paragraphBuilder.toAnnotatedString().mapAnnotations {
+            val decoratedParagraph =
+                paragraphBuilder.toAnnotatedString().withReaderEvidenceDecorations(
+                    anchorRanges = anchorRanges,
+                    highlight = anchorHighlight,
+                    markerSnapshot = markerSnapshot,
+                    markerArticleId = markerArticleId,
+                )
+            val paragraph =
+                decoratedParagraph.mapAnnotations {
                     when (it.item) {
                         is LinkAnnotation.Url -> {
                             val link = (it.item as LinkAnnotation.Url)
@@ -157,13 +164,6 @@ private fun LazyListScope.formatBody(
                         else -> it
                     }
                 }
-            val paragraph =
-                linkedParagraph.withReaderEvidenceDecorations(
-                    anchorRanges = anchorRanges,
-                    highlight = anchorHighlight,
-                    markerSnapshot = markerSnapshot,
-                    markerArticleId = markerArticleId,
-                )
             val requiresBidi = paragraph.toString().requiresBidi()
             val textStyle = bodyStyle().applyTextDirection(requiresBidi = requiresBidi)
             val contentWidth = LocalTextContentWidth.current
@@ -846,6 +846,11 @@ private fun AnnotatedString.withReaderEvidenceDecorations(
             insertion.displayOrders.forEach { displayOrder ->
                 val start = length
                 append(" [$displayOrder]")
+                addLink(
+                    LinkAnnotation.Url(readerEvidenceMarkerUrl(displayOrder)),
+                    start = start,
+                    end = length,
+                )
                 addStyle(
                     SpanStyle(
                         color = markerColor,

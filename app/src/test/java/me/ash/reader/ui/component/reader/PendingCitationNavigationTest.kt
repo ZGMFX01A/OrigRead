@@ -31,6 +31,7 @@ class PendingCitationNavigationTest {
         requestedAt: Long = 10L,
     ): PendingCitationNavigation =
         PendingCitationNavigation(
+            conversationId = "conversation-1",
             assistantMessageId = "assistant-1",
             citationId = "citation-1",
             articleId = "article-target",

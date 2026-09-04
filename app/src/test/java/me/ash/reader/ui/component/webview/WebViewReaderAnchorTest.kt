@@ -140,11 +140,13 @@ class WebViewReaderAnchorTest {
             buildWebViewReaderMarkerScript(
                 snapshot =
                     ReaderEvidenceMarkerSnapshot(
+                        ownerArticleId = "article-owner",
+                        conversationId = "conversation-1",
                         assistantMessageId = "assistant-1",
                         markers =
                             listOf(
-                                ReaderEvidenceMarker("current\"key", 2, "article-1"),
-                                ReaderEvidenceMarker("other-key", 1, "article-2"),
+                                ReaderEvidenceMarker("citation-2", "current\"key", 2, "article-1"),
+                                ReaderEvidenceMarker("citation-1", "other-key", 1, "article-2"),
                             ),
                     ),
                 currentArticleId = "article-1",
@@ -152,7 +154,8 @@ class WebViewReaderAnchorTest {
             )
 
         assertTrue(script.contains("current\\\"key"))
-        assertTrue(script.contains("[2]"))
+        assertTrue(script.contains("orders:[2]"))
+        assertTrue(script.contains("origread-citation://marker/"))
         assertFalse(script.contains("other-key"))
         assertTrue(script.contains("data-origread-citation-marker"))
         assertTrue(script.contains("CSS.escape(entry.key)"))

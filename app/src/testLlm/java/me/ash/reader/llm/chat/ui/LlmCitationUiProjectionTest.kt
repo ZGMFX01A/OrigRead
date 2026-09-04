@@ -134,12 +134,16 @@ class LlmCitationUiProjectionTest {
 
         val first =
             buildLlmReaderMarkerSnapshot(
+                ownerArticleId = "article-owner",
+                conversationId = "conversation-1",
                 assistantMessageId = "assistant-1",
                 citationRefs = refs,
                 citationFeatureEnabled = true,
             )
         val second =
             buildLlmReaderMarkerSnapshot(
+                ownerArticleId = "article-owner",
+                conversationId = "conversation-1",
                 assistantMessageId = "assistant-2",
                 citationRefs = refs,
                 citationFeatureEnabled = true,
@@ -149,6 +153,9 @@ class LlmCitationUiProjectionTest {
         assertEquals(listOf(2), second?.markers?.map { it.displayOrder })
         assertEquals("assistant-1", first?.assistantMessageId)
         assertEquals("assistant-2", second?.assistantMessageId)
+        assertEquals("article-owner", first?.ownerArticleId)
+        assertEquals("conversation-1", first?.conversationId)
+        assertEquals("first", first?.markers?.single()?.citationId)
     }
 
     private fun citationRef(

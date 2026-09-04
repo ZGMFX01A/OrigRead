@@ -89,6 +89,7 @@ import me.ash.reader.ui.component.reader.NativeReaderAnchorNavigationResult
 import me.ash.reader.ui.component.reader.NativeReaderAnchorState
 import me.ash.reader.ui.component.reader.PendingCitationNavigation
 import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerState
+import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerNavigationTarget
 import me.ash.reader.ui.component.webview.WebViewReaderAnchorNavigationResult
 import me.ash.reader.ui.component.webview.WebViewReaderAnchorState
 import me.ash.reader.ui.page.adaptive.ArticleListReaderViewModel
@@ -174,6 +175,9 @@ fun ReadingPage(
     }
     var lastAssistantArticleId by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingCitationNavigation by remember { mutableStateOf<PendingCitationNavigation?>(null) }
+    var pendingCitationReturn by remember {
+        mutableStateOf<ReaderEvidenceMarkerNavigationTarget?>(null)
+    }
     var citationNavigationFailure by remember { mutableStateOf<PendingCitationNavigation?>(null) }
     var showInteractiveVerification by remember { mutableStateOf(false) }
     var showReadingShareFirstUse by remember { mutableStateOf(false) }
@@ -198,6 +202,7 @@ fun ReadingPage(
     /** 关闭助手即结束本次临时 Selection，防止同一文章稍后从普通入口重开时静默复用旧选区。 */
     fun dismissArticleAssistant() {
         pendingCitationNavigation = null
+        pendingCitationReturn = null
         citationNavigationFailure = null
         showArticleAssistant = false
         articleAnalysisRequested = false
@@ -564,13 +569,14 @@ fun ReadingPage(
         ) {
             val keepCitationMarker =
                 currentArticleId != null &&
-                    pendingCitationNavigation?.isTargetArticle(currentArticleId) == true
+                    (pendingCitationNavigation?.isTargetArticle(currentArticleId) == true ||
+                        pendingCitationReturn?.ownerArticleId == currentArticleId)
             if (!keepCitationMarker) {
                 readerEvidenceMarkerState.clear()
             }
             // 只在真实文章切换时关闭上一文章的助手。Activity / window 重建期间 readerState
             // 可能短暂回到 null；这不能被当成文章切换，否则 resize / rotation 会丢当前 Chat UI。
-            showArticleAssistant = false
+            showArticleAssistant = pendingCitationReturn?.ownerArticleId == currentArticleId
             articleAnalysisRequested = false
             selectedTextForAssistant = null
             selectedTextForAssistantFromTranslation = false
@@ -865,6 +871,15 @@ fun ReadingPage(
                                                 nativeReaderAnchorState = nativeReaderAnchorState,
                                                 webViewReaderAnchorState = webViewReaderAnchorState,
                                                 readerEvidenceMarkerState = readerEvidenceMarkerState,
+                                                onReaderEvidenceMarkerClick = { target ->
+                                                    pendingCitationReturn = target
+                                                    citationNavigationFailure = null
+                                                    if (target.ownerArticleId == readerState.articleId) {
+                                                        showArticleAssistant = true
+                                                    } else {
+                                                        onLoadArticle(target.ownerArticleId, -1)
+                                                    }
+                                                },
                                                 feedName = feedName,
                                                 title =
                                                     if (translationState.showTranslation) {
@@ -1024,6 +1039,8 @@ fun ReadingPage(
                     onLoadArticle(request.articleId, -1)
                 }
             },
+            citationReturnTarget = pendingCitationReturn,
+            onCitationReturnConsumed = { pendingCitationReturn = null },
             citationNavigationFailure = citationNavigationFailure,
             onCitationNavigationFailureConsumed = {
                 citationNavigationFailure = null
