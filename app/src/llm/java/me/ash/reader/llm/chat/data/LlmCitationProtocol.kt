@@ -281,7 +281,8 @@ internal fun prepareCitationProtocol(
             listOf(
                 "Evidence citation protocol:",
                 "- Cite only evidence IDs present in ORIGREAD_EVIDENCE blocks.",
-                "- Use the exact token [[E1]], [[E2]], etc. immediately after the supported claim.",
+                "- Use the exact token [[E1]], [[E2]], etc. after an important supported claim or closely related claim group; avoid redundant citations.",
+                "- When comparing sources, preserve coverage of the sources materially used in the answer.",
                 "- Never invent an evidence ID and never cite context that was not included.",
             ).joinToString("\n")
         }

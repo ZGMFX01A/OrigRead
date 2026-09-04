@@ -462,7 +462,7 @@ fun LlmArticleAssistantSheet(
                                             showReasoning = uiState.showReasoning,
                                             contextRefs = messageContextRefs,
                                             citationRefs = messageCitationRefs,
-                                            onCitationClick = { citationRef ->
+                                            onCitationClick = { citationGroup ->
                                                 citationInteractionAssistantId = message.id
                                                 readerEvidenceMarkerState?.show(
                                                     buildLlmReaderMarkerSnapshot(
@@ -470,9 +470,14 @@ fun LlmArticleAssistantSheet(
                                                         conversationId = uiState.currentConversationId.orEmpty(),
                                                         assistantMessageId = message.id,
                                                         citationRefs = uiState.citationRefs,
+                                                        assistantContent = message.content,
                                                     )
                                                 )
-                                                when (val action = citationRef.resolveCitationNavigationAction()) {
+                                                val citationRef =
+                                                    citationGroup.directNavigationRefOrNull()
+                                                if (citationRef == null) {
+                                                    contextSourcesAssistantId = message.id
+                                                } else when (val action = citationRef.resolveCitationNavigationAction()) {
                                                     is LlmCitationNavigationAction.Reader -> {
                                                         val targetArticleId =
                                                             action.target.articleId?.trim()?.ifBlank { null }
@@ -1250,7 +1255,7 @@ private fun AssistantMessage(
     showReasoning: Boolean,
     contextRefs: List<LlmContextRefEntity>,
     citationRefs: List<LlmCitationRefEntity>,
-    onCitationClick: (LlmCitationRefEntity) -> Unit,
+    onCitationClick: (LlmAssistantCitationGroup) -> Unit,
     onShowContextSources: () -> Unit,
     onShowWebSearchResults: () -> Unit,
     canRegenerate: Boolean,
@@ -1376,7 +1381,7 @@ private fun AssistantMessage(
                         markdown = displayContent,
                         validCitationIndices = citationDisplay.validDisplayOrders,
                         onCitationClick = { displayOrder ->
-                            citationDisplay.refsByDisplayOrder[displayOrder]?.let(onCitationClick)
+                            citationDisplay.groupsByDisplayOrder[displayOrder]?.let(onCitationClick)
                         },
                         perfMessageId = message.id,
                     )
@@ -2882,12 +2887,9 @@ private fun ContextSourcesSheet(
                         ) {
                             Text(
                                 text =
-                                    buildString {
-                                        append('[')
-                                        append(citation.displayOrder)
-                                        append("] ")
-                                        append(contextRef?.title ?: contextRef?.sourceId.orEmpty())
-                                    }.trim(),
+                                    (contextRef?.title ?: contextRef?.sourceId.orEmpty())
+                                        .trim()
+                                        .ifBlank { citation.sourceUrl.orEmpty().trim() },
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 2,

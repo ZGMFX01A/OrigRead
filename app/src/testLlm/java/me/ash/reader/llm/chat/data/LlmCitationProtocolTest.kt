@@ -52,6 +52,8 @@ class LlmCitationProtocolTest {
         assertTrue(prepared.text.contains("[ORIGREAD_EVIDENCE id=\"E1\"]"))
         assertFalse(prepared.text.contains("E2"))
         assertFalse(prepared.text.contains("p:first"))
+        assertTrue(prepared.instruction.contains("closely related claim group"))
+        assertTrue(prepared.instruction.contains("preserve coverage"))
     }
 
     @Test
