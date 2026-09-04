@@ -3,6 +3,7 @@ package me.ash.reader.ui.page.settings
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.windowInsetsBottomHeight
@@ -46,6 +47,8 @@ import me.ash.reader.ui.component.base.FeedbackIconButton
 import me.ash.reader.ui.component.base.OrigReadScaffold
 import me.ash.reader.ui.ext.getCurrentVersion
 import me.ash.reader.ui.ext.isGitHub
+import me.ash.reader.ui.page.adaptive.OrigReadAdaptiveContent
+import me.ash.reader.ui.page.adaptive.OrigReadContentWidth
 import me.ash.reader.ui.page.settings.tips.UpdateDialog
 import me.ash.reader.ui.page.settings.tips.UpdateViewModel
 import me.ash.reader.ui.theme.palette.onLight
@@ -85,7 +88,8 @@ fun SettingsPage(
             )
         },
         content = {
-            LazyColumn {
+            OrigReadAdaptiveContent(width = OrigReadContentWidth.Compact) {
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
                 item {
                     DisplayText(text = stringResource(R.string.settings), desc = "")
                 }
@@ -227,6 +231,7 @@ fun SettingsPage(
                 item {
                     Spacer(modifier = Modifier.height(24.dp))
                     Spacer(modifier = Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+                }
                 }
             }
         }

@@ -12,7 +12,9 @@ import androidx.compose.material3.adaptive.layout.ListDetailPaneScaffoldRole
 import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirective
 import androidx.compose.material3.adaptive.navigation.rememberListDetailPaneScaffoldNavigator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -29,6 +31,8 @@ import me.ash.reader.ui.motion.origReadNavigationTransform
 import me.ash.reader.ui.page.adaptive.ArticleData
 import me.ash.reader.ui.page.adaptive.ArticleListReaderPage
 import me.ash.reader.ui.page.adaptive.ArticleListReaderViewModel
+import me.ash.reader.ui.page.adaptive.LocalOrigReadAdaptiveLayoutProfile
+import me.ash.reader.ui.page.adaptive.origReadAdaptiveLayoutProfile
 import me.ash.reader.ui.page.home.feeds.FeedsPage
 import me.ash.reader.ui.page.home.feeds.discovery.SourceDiscoveryPage
 import me.ash.reader.ui.page.home.feeds.subscribe.SubscribeViewModel
@@ -76,7 +80,15 @@ fun AppEntry(backStack: NavBackStack<NavKey>) {
         if (backStack.size == 1) backStack[0] = Route.Feeds else backStack.removeLastOrNull()
     }
 
-    val scaffoldDirective = calculatePaneScaffoldDirective(currentWindowAdaptiveInfo())
+    val windowAdaptiveInfo = currentWindowAdaptiveInfo(supportLargeAndXLargeWidth = true)
+    val scaffoldDirective = calculatePaneScaffoldDirective(windowAdaptiveInfo)
+    val adaptiveLayoutProfile =
+        remember(windowAdaptiveInfo.windowSizeClass) {
+            origReadAdaptiveLayoutProfile(
+                widthDp = windowAdaptiveInfo.windowSizeClass.minWidthDp,
+                heightDp = windowAdaptiveInfo.windowSizeClass.minHeightDp,
+            )
+        }
 
     val navigator =
         rememberListDetailPaneScaffoldNavigator<ArticleData>(
@@ -84,8 +96,9 @@ fun AppEntry(backStack: NavBackStack<NavKey>) {
             isDestinationHistoryAware = false,
         )
 
-    SharedTransitionLayout {
-        NavDisplay(
+    CompositionLocalProvider(LocalOrigReadAdaptiveLayoutProfile provides adaptiveLayoutProfile) {
+        SharedTransitionLayout {
+            NavDisplay(
             modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface),
             backStack = backStack,
             entryDecorators =
@@ -306,6 +319,7 @@ fun AppEntry(backStack: NavBackStack<NavKey>) {
                     else -> NavEntry(key) { throw Exception("Unknown destination") }
                 }
             },
-        )
+            )
+        }
     }
 }

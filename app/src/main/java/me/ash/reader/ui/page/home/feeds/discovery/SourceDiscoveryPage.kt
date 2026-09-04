@@ -69,6 +69,8 @@ import me.ash.reader.ui.ext.collectAsStateValue
 import me.ash.reader.ui.motion.origReadFadeThroughTransform
 import me.ash.reader.ui.motion.origReadVisibilityEnter
 import me.ash.reader.ui.motion.origReadVisibilityExit
+import me.ash.reader.ui.page.adaptive.OrigReadAdaptiveContent
+import me.ash.reader.ui.page.adaptive.OrigReadContentWidth
 
 /** 按上游原分类浏览内置 RSS 目录；分类仅做本地化展示，不分析或重分类 Feed 内容。 */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -118,7 +120,8 @@ fun SourceDiscoveryPage(
             )
         },
         content = {
-            Column(modifier = Modifier.fillMaxSize()) {
+            OrigReadAdaptiveContent(width = OrigReadContentWidth.Comfortable) {
+                Column(modifier = Modifier.fillMaxSize()) {
                 OutlinedTextField(
                     value = state.query,
                     onValueChange = viewModel::setQuery,
@@ -218,6 +221,7 @@ fun SourceDiscoveryPage(
                         }
                     }
                 }
+            }
             }
         },
     )

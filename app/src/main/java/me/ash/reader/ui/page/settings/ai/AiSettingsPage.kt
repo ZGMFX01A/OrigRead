@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -61,6 +62,8 @@ import me.ash.reader.ui.component.base.FeedbackIconButton
 import me.ash.reader.ui.component.base.OrigReadScaffold
 import me.ash.reader.ui.component.base.OrigReadSwitch
 import me.ash.reader.ui.ext.collectAsStateValue
+import me.ash.reader.ui.page.adaptive.OrigReadAdaptiveContent
+import me.ash.reader.ui.page.adaptive.OrigReadContentWidth
 
 /**
  * 展示公共 AI 阅读设置。
@@ -96,7 +99,11 @@ fun AiSettingsPage(
             )
         },
         content = {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            OrigReadAdaptiveContent(width = OrigReadContentWidth.Comfortable) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
                 item {
                     DisplayText(
                         text = stringResource(R.string.ai_settings),
@@ -476,6 +483,7 @@ fun AiSettingsPage(
                 }
                 item {
                     Spacer(modifier = Modifier.height(24.dp))
+                }
                 }
             }
         },
