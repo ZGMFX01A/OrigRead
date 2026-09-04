@@ -251,6 +251,28 @@ class ReaderEvidenceAnchorTest {
     }
 
     @Test
+    fun `native citation placement centers target inside readable viewport`() {
+        assertEquals(
+            -550,
+            nativeReaderCenteredScrollOffset(
+                viewportStartOffset = 0,
+                viewportEndOffset = 1200,
+                topInsetPx = 100,
+                estimatedItemSizePx = 200,
+            ),
+        )
+        assertEquals(
+            -100,
+            nativeReaderCenteredScrollOffset(
+                viewportStartOffset = 0,
+                viewportEndOffset = 1200,
+                topInsetPx = 100,
+                estimatedItemSizePx = 1400,
+            ),
+        )
+    }
+
+    @Test
     fun `native controller refuses translated content before resolving an anchor`() = runBlocking {
         val document = buildReaderEvidenceDocument(Jsoup.parse("<p>Original fact.</p>").body())
         val state = NativeReaderAnchorState()

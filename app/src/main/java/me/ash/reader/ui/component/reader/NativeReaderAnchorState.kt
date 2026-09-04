@@ -210,9 +210,27 @@ class NativeReaderAnchorState {
         )?.let { approachIndex ->
             current.listState.scrollToItem(approachIndex)
         }
+        val layoutInfo = current.listState.layoutInfo
+        val estimatedTargetSize =
+            layoutInfo.visibleItemsInfo
+                .firstOrNull { it.index == placement.itemIndex }
+                ?.size
+                ?: layoutInfo.visibleItemsInfo
+                    .map { it.size }
+                    .filter { it > 0 }
+                    .average()
+                    .takeIf { !it.isNaN() }
+                    ?.toInt()
+                ?: 0
         current.listState.animateScrollToItem(
             index = placement.itemIndex,
-            scrollOffset = -current.topInsetPx,
+            scrollOffset =
+                nativeReaderCenteredScrollOffset(
+                    viewportStartOffset = layoutInfo.viewportStartOffset,
+                    viewportEndOffset = layoutInfo.viewportEndOffset,
+                    topInsetPx = current.topInsetPx,
+                    estimatedItemSizePx = estimatedTargetSize,
+                ),
         )
         highlightRevision += 1
         highlight =
@@ -226,6 +244,20 @@ class NativeReaderAnchorState {
             itemIndex = placement.itemIndex,
         )
     }
+}
+
+internal fun nativeReaderCenteredScrollOffset(
+    viewportStartOffset: Int,
+    viewportEndOffset: Int,
+    topInsetPx: Int,
+    estimatedItemSizePx: Int,
+): Int {
+    val viewportHeight = (viewportEndOffset - viewportStartOffset).coerceAtLeast(0)
+    val safeTopInset = topInsetPx.coerceIn(0, viewportHeight)
+    val readableHeight = (viewportHeight - safeTopInset).coerceAtLeast(0)
+    val itemSize = estimatedItemSizePx.coerceIn(0, readableHeight)
+    val distanceFromViewportStart = safeTopInset + ((readableHeight - itemSize) / 2)
+    return -distanceFromViewportStart
 }
 
 internal fun nativeReaderApproachIndex(

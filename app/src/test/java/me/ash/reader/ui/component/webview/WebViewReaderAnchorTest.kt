@@ -125,8 +125,10 @@ class WebViewReaderAnchorTest {
 
         assertTrue(script.contains("CSS.escape(key)"))
         assertTrue(script.contains("scrollIntoView"))
-        assertTrue(script.contains("IntersectionObserver"))
-        assertTrue(script.indexOf("scrollIntoView") < script.indexOf("setTimeout(pulse, 900)"))
+        assertTrue(script.contains("waitForScrollSettle"))
+        assertTrue(script.contains("settledFrames >= 2"))
+        assertTrue(script.contains("elapsed >= 1200"))
+        assertTrue(script.indexOf("scrollIntoView") < script.indexOf("requestAnimationFrame(waitForScrollSettle)"))
         assertTrue(script.contains("node.animate"))
         assertTrue(script.contains("duration: 420"))
         assertTrue(script.contains("key\\\"\\\\\\n</script>"))
@@ -150,7 +152,8 @@ class WebViewReaderAnchorTest {
                             ),
                     ),
                 currentArticleId = "article-1",
-                markerColorCss = "rgba(1,2,3,1)",
+                markerForegroundCss = "rgba(1,2,3,1)",
+                markerBackgroundCss = "rgba(4,5,6,0.7)",
             )
 
         assertTrue(script.contains("current\\\"key"))
@@ -159,6 +162,9 @@ class WebViewReaderAnchorTest {
         assertFalse(script.contains("other-key"))
         assertTrue(script.contains("data-origread-citation-marker"))
         assertTrue(script.contains("CSS.escape(entry.key)"))
+        assertTrue(script.contains("backgroundColor"))
+        assertTrue(script.contains("borderRadius"))
+        assertTrue(script.contains("system-ui, sans-serif"))
     }
 
     @Test

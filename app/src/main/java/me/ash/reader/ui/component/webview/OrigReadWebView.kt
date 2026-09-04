@@ -86,7 +86,10 @@ fun OrigReadWebView(
     val boldCharacters = LocalReadingBoldCharacters.current
     val citationHighlightColorCss =
         MaterialTheme.colorScheme.secondaryContainer.toArgb().toWebCssColor()
-    val citationMarkerColorCss = MaterialTheme.colorScheme.primary.toArgb().toWebCssColor()
+    val citationMarkerForegroundCss =
+        MaterialTheme.colorScheme.onSecondaryContainer.toArgb().toWebCssColor()
+    val citationMarkerBackgroundCss =
+        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f).toArgb().toWebCssColor()
     val citationHighlightSpec = MaterialTheme.motionScheme.slowEffectsSpec<Float>()
     val citationHighlightDurationMillis =
         remember(citationHighlightSpec) {
@@ -202,7 +205,8 @@ fun OrigReadWebView(
                         renderGeneration = renderGeneration,
                         webView = this,
                         highlightColorCss = citationHighlightColorCss,
-                        markerColorCss = citationMarkerColorCss,
+                        markerForegroundCss = citationMarkerForegroundCss,
+                        markerBackgroundCss = citationMarkerBackgroundCss,
                         highlightDurationMillis = citationHighlightDurationMillis,
                     )
                     loadDataWithBaseURL(

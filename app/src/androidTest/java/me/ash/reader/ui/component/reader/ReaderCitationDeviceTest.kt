@@ -118,7 +118,8 @@ class ReaderCitationDeviceTest {
                         renderGeneration = generation,
                         webView = webView,
                         highlightColorCss = "rgba(255, 235, 59, 0.45)",
-                        markerColorCss = "#666666",
+                        markerForegroundCss = "#333333",
+                        markerBackgroundCss = "#DDDDDD",
                         highlightDurationMillis = 500,
                     )
                     val pending =

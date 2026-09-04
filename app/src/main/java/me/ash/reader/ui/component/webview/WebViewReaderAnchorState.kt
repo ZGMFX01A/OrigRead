@@ -44,7 +44,8 @@ private data class WebViewReaderAnchorBinding(
     val renderGeneration: Long,
     val webView: WebView,
     val highlightColorCss: String,
-    val markerColorCss: String,
+    val markerForegroundCss: String,
+    val markerBackgroundCss: String,
     val highlightDurationMillis: Long,
     var ready: Boolean = false,
 )
@@ -77,7 +78,8 @@ class WebViewReaderAnchorState {
         renderGeneration: Long,
         webView: WebView,
         highlightColorCss: String,
-        markerColorCss: String,
+        markerForegroundCss: String,
+        markerBackgroundCss: String,
         highlightDurationMillis: Long,
     ) {
         val preservePending =
@@ -95,7 +97,8 @@ class WebViewReaderAnchorState {
                 renderGeneration = renderGeneration,
                 webView = webView,
                 highlightColorCss = highlightColorCss,
-                markerColorCss = markerColorCss,
+                markerForegroundCss = markerForegroundCss,
+                markerBackgroundCss = markerBackgroundCss,
                 highlightDurationMillis = highlightDurationMillis.coerceAtLeast(1L),
             )
         readyArticleId = null
@@ -200,7 +203,8 @@ class WebViewReaderAnchorState {
             buildWebViewReaderMarkerScript(
                 snapshot = markerSnapshot,
                 currentArticleId = current.articleId,
-                markerColorCss = current.markerColorCss,
+                markerForegroundCss = current.markerForegroundCss,
+                markerBackgroundCss = current.markerBackgroundCss,
             )
         expectedView.evaluateJavascript(script) {
             val latest = binding
@@ -278,11 +282,9 @@ internal fun buildWebViewReaderAnchorScript(
           const pulseId = $pulseId;
           node.__origreadCitationPulse = pulseId;
           let started = false;
-          let observer = null;
           const pulse = function() {
             if (started || node.__origreadCitationPulse !== pulseId) return;
             started = true;
-            if (observer) observer.disconnect();
             if (node.__origreadCitationAnimation) node.__origreadCitationAnimation.cancel();
             node.__origreadCitationAnimation = node.animate(
               [
@@ -293,21 +295,28 @@ internal fun buildWebViewReaderAnchorScript(
               { duration: $duration, easing: 'ease-out' }
             );
           };
-          const rect = node.getBoundingClientRect();
-          const visible = rect.bottom > 0 && rect.top < window.innerHeight;
-          if (!visible && 'IntersectionObserver' in window) {
-            observer = new IntersectionObserver(function(entries) {
-              if (entries.some(function(entry) { return entry.isIntersecting; })) pulse();
-            }, { threshold: 0.01 });
-            observer.observe(node);
-          }
           node.scrollIntoView({behavior: 'smooth', block: 'center', inline: 'nearest'});
-          if (visible) {
-            requestAnimationFrame(pulse);
-          } else {
-            // Old/limited WebView fallback. pulse() is idempotent, so the observer still wins first.
-            setTimeout(pulse, 900);
-          }
+          const startedAt = Date.now();
+          let lastTop = null;
+          let settledFrames = 0;
+          const waitForScrollSettle = function(now) {
+            if (started || node.__origreadCitationPulse !== pulseId) return;
+            const rect = node.getBoundingClientRect();
+            const center = (rect.top + rect.bottom) / 2;
+            const viewportCenter = window.innerHeight / 2;
+            const centerTolerance = Math.max(36, window.innerHeight * 0.12);
+            const centered = Math.abs(center - viewportCenter) <= centerTolerance;
+            const stable = lastTop !== null && Math.abs(rect.top - lastTop) < 1.5;
+            settledFrames = centered && stable ? settledFrames + 1 : 0;
+            lastTop = rect.top;
+            const elapsed = Date.now() - startedAt;
+            if (settledFrames >= 2 || elapsed >= 1200) {
+              pulse();
+              return;
+            }
+            requestAnimationFrame(waitForScrollSettle);
+          };
+          requestAnimationFrame(waitForScrollSettle);
           return '$WEBVIEW_ANCHOR_JS_LOCATED';
         })()
     """.trimIndent()
@@ -316,7 +325,8 @@ internal fun buildWebViewReaderAnchorScript(
 internal fun buildWebViewReaderMarkerScript(
     snapshot: ReaderEvidenceMarkerSnapshot?,
     currentArticleId: String?,
-    markerColorCss: String,
+    markerForegroundCss: String,
+    markerBackgroundCss: String,
 ): String {
     val currentSnapshot = snapshot
     val markerEntries =
@@ -337,7 +347,8 @@ internal fun buildWebViewReaderMarkerScript(
             val orderLiteral = orders.joinToString(prefix = "[", postfix = "]")
             "{key:${stableKey.toJavaScriptStringLiteral()},orders:$orderLiteral}"
         }
-    val color = markerColorCss.toJavaScriptStringLiteral()
+    val foreground = markerForegroundCss.toJavaScriptStringLiteral()
+    val background = markerBackgroundCss.toJavaScriptStringLiteral()
     return """
         (function() {
           document.querySelectorAll('[data-origread-citation-marker="true"]').forEach(function(marker) {
@@ -351,11 +362,17 @@ internal fun buildWebViewReaderMarkerScript(
               const marker = document.createElement('a');
               marker.setAttribute('data-origread-citation-marker', 'true');
               marker.href = '${READER_EVIDENCE_MARKER_URL_PREFIX}' + order;
-              marker.textContent = ' [' + order + ']';
-              marker.style.color = $color;
+              marker.textContent = '[' + order + ']';
+              marker.style.color = $foreground;
+              marker.style.backgroundColor = $background;
               marker.style.fontSize = '0.72em';
-              marker.style.fontWeight = '650';
-              marker.style.verticalAlign = 'super';
+              marker.style.fontFamily = 'system-ui, sans-serif';
+              marker.style.fontWeight = '600';
+              marker.style.lineHeight = '1.2';
+              marker.style.verticalAlign = '0.12em';
+              marker.style.borderRadius = '0.34em';
+              marker.style.padding = '0.04em 0.28em';
+              marker.style.marginLeft = '0.18em';
               marker.style.whiteSpace = 'nowrap';
               marker.style.textDecoration = 'none';
               node.appendChild(marker);

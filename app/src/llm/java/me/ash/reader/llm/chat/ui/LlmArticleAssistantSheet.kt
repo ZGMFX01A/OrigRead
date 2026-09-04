@@ -1173,7 +1173,15 @@ private fun ArticleAssistantEmptyState(
                                 FilterChip(
                                     selected = false,
                                     onClick = { onQuickSummary(length) },
-                                    label = { Text(summaryLengthLabel(length)) },
+                                    label = {
+                                        Text(
+                                            text = summaryLengthLabel(length),
+                                            style = MaterialTheme.typography.labelMedium,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            overflow = TextOverflow.Clip,
+                                        )
+                                    },
                                     modifier = Modifier.weight(1f),
                                 )
                             }

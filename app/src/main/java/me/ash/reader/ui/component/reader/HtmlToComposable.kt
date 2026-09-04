@@ -56,7 +56,9 @@ import androidx.compose.ui.text.style.BaselineShift
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import java.io.InputStream
+import kotlinx.coroutines.delay
 import me.ash.reader.R
 import me.ash.reader.infrastructure.preference.LocalReadingImageMaximize
 import me.ash.reader.ui.ext.requiresBidi
@@ -153,9 +155,10 @@ private fun LazyListScope.formatBody(
                     when (it.item) {
                         is LinkAnnotation.Url -> {
                             val link = (it.item as LinkAnnotation.Url)
+                            val isEvidenceMarker = readerEvidenceMarkerDisplayOrder(link.url) != null
                             val newLink =
                                 link.copy(
-                                    styles = textLinkStyles,
+                                    styles = if (isEvidenceMarker) null else textLinkStyles,
                                     linkInteractionListener = { onLinkClick(link.url) },
                                 )
                             (it as AnnotatedString.Range<LinkAnnotation.Url>).copy(item = newLink)
@@ -837,15 +840,17 @@ private fun AnnotatedString.withReaderEvidenceDecorations(
         }
     if (insertions.isEmpty()) return highlighted
 
-    val markerColor = MaterialTheme.colorScheme.primary
+    val markerForeground = MaterialTheme.colorScheme.onSecondaryContainer
+    val markerBackground = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f)
     return buildAnnotatedString {
         var cursor = 0
         insertions.forEach { insertion ->
             val end = insertion.endExclusive.coerceIn(cursor, highlighted.length)
             append(highlighted.subSequence(cursor, end))
             insertion.displayOrders.forEach { displayOrder ->
+                append(" ")
                 val start = length
-                append(" [$displayOrder]")
+                append("[$displayOrder]")
                 addLink(
                     LinkAnnotation.Url(readerEvidenceMarkerUrl(displayOrder)),
                     start = start,
@@ -853,9 +858,13 @@ private fun AnnotatedString.withReaderEvidenceDecorations(
                 )
                 addStyle(
                     SpanStyle(
-                        color = markerColor,
-                        fontWeight = FontWeight.SemiBold,
-                        baselineShift = BaselineShift.Superscript,
+                        color = markerForeground,
+                        background = markerBackground,
+                        fontFamily = FontFamily.SansSerif,
+                        fontSize = 0.72.em,
+                        fontWeight = FontWeight.Medium,
+                        baselineShift = BaselineShift(0.18f),
+                        textDecoration = TextDecoration.None,
                     ),
                     start = start,
                     end = length,
@@ -892,11 +901,12 @@ private fun AnnotatedString.withReaderEvidenceHighlight(
     LaunchedEffect(highlight.revision, matchingRanges) {
         intensity.snapTo(0f)
         intensity.animateTo(1f, animationSpec = highlightInSpec)
+        delay(180)
         intensity.animateTo(0f, animationSpec = highlightOutSpec)
     }
 
     val background =
-        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.82f * intensity.value)
+        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.74f * intensity.value)
     return buildAnnotatedString {
         append(this@withReaderEvidenceHighlight)
         matchingRanges.forEach { range ->
