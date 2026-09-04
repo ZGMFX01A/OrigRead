@@ -19,6 +19,8 @@ class WebSearchService @Inject constructor(
     perplexity: PerplexityWebSearchProvider,
     linkup: LinkupWebSearchProvider,
     firecrawl: FirecrawlWebSearchProvider,
+    bocha: BochaWebSearchProvider,
+    zhipu: ZhipuWebSearchProvider,
     keenable: KeenableWebSearchProvider,
     searxng: SearxngWebSearchProvider,
 ) {
@@ -30,6 +32,8 @@ class WebSearchService @Inject constructor(
                 perplexity,
                 linkup,
                 firecrawl,
+                bocha,
+                zhipu,
                 keenable,
                 searxng,
             )

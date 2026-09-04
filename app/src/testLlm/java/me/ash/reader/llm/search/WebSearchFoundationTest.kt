@@ -42,6 +42,8 @@ class WebSearchFoundationTest {
                     perplexity = PerplexityWebSearchProvider(httpClient, Dispatchers.IO),
                     linkup = LinkupWebSearchProvider(httpClient, Dispatchers.IO),
                     firecrawl = FirecrawlWebSearchProvider(httpClient, Dispatchers.IO),
+                    bocha = BochaWebSearchProvider(httpClient, Dispatchers.IO),
+                    zhipu = ZhipuWebSearchProvider(httpClient, Dispatchers.IO),
                     keenable = KeenableWebSearchProvider(httpClient, Dispatchers.IO),
                     searxng = SearxngWebSearchProvider(httpClient, Dispatchers.IO),
                 )
@@ -189,6 +191,126 @@ class WebSearchFoundationTest {
             assertEquals("current java release", json.getString("query"))
             assertEquals(4, json.getInt("max_results"))
             assertTrue(json.getBoolean("include_raw_content"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `bocha adapter sends bearer key and normalizes bing compatible results`() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(200)
+                    .setHeader("Content-Type", "application/json")
+                    .setBody(
+                        """
+                        {
+                          "code": 200,
+                          "data": {
+                            "webPages": {
+                              "value": [{
+                                "name": "Bocha result",
+                                "url": "https://example.com/bocha",
+                                "snippet": "short snippet",
+                                "summary": "long summary",
+                                "siteName": "Example",
+                                "datePublished": "2026-09-04T08:00:00+08:00"
+                              }]
+                            }
+                          }
+                        }
+                        """.trimIndent()
+                    )
+            )
+            val provider = BochaWebSearchProvider(AiHttpClient(), Dispatchers.IO)
+            val response =
+                provider.search(
+                    profile =
+                        WebSearchProviderProfile(
+                            id = "bocha-test",
+                            kind = WebSearchProviderKind.BOCHA,
+                            endpoint = server.url("/v1/web-search").toString(),
+                        ),
+                    apiKey = "bocha-secret",
+                    request =
+                        WebSearchRequest(
+                            query = "android adaptive latest",
+                            maxResults = 6,
+                            includeContent = true,
+                        ),
+                )
+
+            val recorded = server.takeRequest()
+            assertEquals("Bearer bocha-secret", recorded.getHeader("Authorization"))
+            val json = JSONObject(recorded.body.readUtf8())
+            assertEquals("android adaptive latest", json.getString("query"))
+            assertEquals("noLimit", json.getString("freshness"))
+            assertEquals(6, json.getInt("count"))
+            assertTrue(json.getBoolean("summary"))
+            assertEquals("Bocha result", response.results.single().title)
+            assertEquals("long summary", response.results.single().content)
+            assertEquals("Example", response.results.single().source)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `zhipu adapter uses standard engine and respects query limit`() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(200)
+                    .setHeader("Content-Type", "application/json")
+                    .setBody(
+                        """
+                        {
+                          "search_result": [{
+                            "title": "Zhipu result",
+                            "link": "https://example.org/zhipu",
+                            "content": "search content",
+                            "media": "Example Media",
+                            "publish_date": "2026-09-04"
+                          }]
+                        }
+                        """.trimIndent()
+                    )
+            )
+            val provider = ZhipuWebSearchProvider(AiHttpClient(), Dispatchers.IO)
+            val response =
+                provider.search(
+                    profile =
+                        WebSearchProviderProfile(
+                            id = "zhipu-test",
+                            kind = WebSearchProviderKind.ZHIPU,
+                            endpoint = server.url("/api/paas/v4/web_search").toString(),
+                        ),
+                    apiKey = "zhipu-secret",
+                    request =
+                        WebSearchRequest(
+                            query = "a".repeat(80),
+                            maxResults = 8,
+                            includeContent = true,
+                        ),
+                )
+
+            val recorded = server.takeRequest()
+            assertEquals("Bearer zhipu-secret", recorded.getHeader("Authorization"))
+            val json = JSONObject(recorded.body.readUtf8())
+            assertEquals(70, json.getString("search_query").length)
+            assertEquals("search_std", json.getString("search_engine"))
+            assertFalse(json.getBoolean("search_intent"))
+            assertEquals(8, json.getInt("count"))
+            assertEquals("noLimit", json.getString("search_recency_filter"))
+            assertEquals("high", json.getString("content_size"))
+            assertEquals("Zhipu result", response.results.single().title)
+            assertEquals("search content", response.results.single().content)
+            assertEquals("Example Media", response.results.single().source)
         } finally {
             server.shutdown()
         }

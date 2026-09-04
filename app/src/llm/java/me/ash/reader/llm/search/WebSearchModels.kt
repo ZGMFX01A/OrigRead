@@ -127,6 +127,16 @@ enum class WebSearchProviderKind(
         "https://api.firecrawl.dev/v2/search",
         WebSearchBackendKind.RAW_SEARCH,
     ),
+    BOCHA(
+        "Bocha AI Search",
+        "https://api.bochaai.com/v1/web-search",
+        WebSearchBackendKind.RAW_SEARCH,
+    ),
+    ZHIPU(
+        "Zhipu AI Search",
+        "https://open.bigmodel.cn/api/paas/v4/web_search",
+        WebSearchBackendKind.RAW_SEARCH,
+    ),
     KEENABLE(
         "Keenable",
         "https://api.keenable.ai/v1/search/public",
