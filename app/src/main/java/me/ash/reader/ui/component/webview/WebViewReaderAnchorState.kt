@@ -1,11 +1,17 @@
 package me.ash.reader.ui.component.webview
 
 import android.webkit.WebView
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ScrollState
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import me.ash.reader.ui.component.reader.ReaderEvidenceAnchorTarget
 import me.ash.reader.ui.component.reader.CitationMotion
 import me.ash.reader.ui.component.reader.ReaderEvidenceDocument
@@ -49,7 +55,19 @@ private data class WebViewReaderAnchorBinding(
     val markerForegroundCss: String,
     val markerBackgroundCss: String,
     val highlightDurationMillis: Long,
+    val outerScrollHost: WebViewReaderOuterScrollHost?,
     var ready: Boolean = false,
+)
+
+internal data class WebViewReaderOuterScrollHost(
+    val scrollState: ScrollState,
+    val webViewTopInScrollContentPx: () -> Int,
+    val coroutineScope: CoroutineScope,
+)
+
+internal data class WebViewReaderAnchorGeometry(
+    val documentTopPx: Float,
+    val heightPx: Float,
 )
 
 private data class PendingWebViewReaderAnchor(
@@ -67,6 +85,8 @@ class WebViewReaderAnchorState {
     private var binding: WebViewReaderAnchorBinding? = null
     private var pending: PendingWebViewReaderAnchor? = null
     private var markerSnapshot: ReaderEvidenceMarkerSnapshot? = null
+    private var outerScrollJob: Job? = null
+    private var navigationRevision: Long = 0L
 
     var readyArticleId: String? by mutableStateOf(null)
         private set
@@ -83,7 +103,14 @@ class WebViewReaderAnchorState {
         markerForegroundCss: String,
         markerBackgroundCss: String,
         highlightDurationMillis: Long,
+        outerScrollHost: WebViewReaderOuterScrollHost? = null,
     ) {
+        // A WebView reload can replace the document while a Compose-hosted citation animation is
+        // still running. Cancel it immediately so stale coordinates cannot keep scrolling the next
+        // render/article after the generation changes.
+        navigationRevision += 1
+        outerScrollJob?.cancel()
+        outerScrollJob = null
         val preservePending =
             pending != null &&
                 shouldPreservePendingWebViewAnchor(
@@ -102,6 +129,7 @@ class WebViewReaderAnchorState {
                 markerForegroundCss = markerForegroundCss,
                 markerBackgroundCss = markerBackgroundCss,
                 highlightDurationMillis = highlightDurationMillis.coerceAtLeast(1L),
+                outerScrollHost = outerScrollHost,
             )
         readyArticleId = null
         if (!preservePending) pending = null
@@ -132,6 +160,9 @@ class WebViewReaderAnchorState {
     internal fun unbind(webView: WebView? = null) {
         val current = binding
         if (webView != null && current?.webView !== webView) return
+        navigationRevision += 1
+        outerScrollJob?.cancel()
+        outerScrollJob = null
         binding = null
         pending = null
         markerSnapshot = null
@@ -163,6 +194,97 @@ class WebViewReaderAnchorState {
         val expectedGeneration = current.renderGeneration
         val expectedView = current.webView
         val stableKey = resolved.block.stableLocatorKey
+        val outerScrollHost = current.outerScrollHost
+        if (outerScrollHost != null) {
+            navigationRevision += 1
+            val expectedNavigationRevision = navigationRevision
+            outerScrollJob?.cancel()
+            outerScrollJob = null
+            expectedView.evaluateJavascript(buildWebViewReaderAnchorGeometryScript(stableKey)) { rawResult ->
+                val latest = binding
+                if (
+                    latest == null ||
+                        latest.webView !== expectedView ||
+                        latest.renderGeneration != expectedGeneration ||
+                        navigationRevision != expectedNavigationRevision
+                ) {
+                    return@evaluateJavascript
+                }
+                val geometry = parseWebViewReaderAnchorGeometry(rawResult)
+                if (geometry == null) {
+                    onResult(
+                        WebViewReaderAnchorNavigationResult.Unavailable(
+                            WebViewReaderAnchorUnavailableReason.DOM_ANCHOR_NOT_FOUND
+                        )
+                    )
+                    return@evaluateJavascript
+                }
+
+                outerScrollJob =
+                    outerScrollHost.coroutineScope.launch {
+                        val scrollState = outerScrollHost.scrollState
+                        val target =
+                            webViewOuterScrollTarget(
+                                webViewTopInScrollContentPx = outerScrollHost.webViewTopInScrollContentPx(),
+                                nodeDocumentTopPx = geometry.documentTopPx,
+                                nodeHeightPx = geometry.heightPx,
+                                viewportSizePx = scrollState.viewportSize,
+                                maxScrollPx = scrollState.maxValue,
+                            )
+                        scrollState.animateScrollTo(
+                            value = target,
+                            animationSpec =
+                                tween(
+                                    durationMillis = CitationMotion.ScrollMillis,
+                                    easing = FastOutSlowInEasing,
+                                ),
+                        )
+                        val afterScroll = binding
+                        if (
+                            afterScroll == null ||
+                                afterScroll.webView !== expectedView ||
+                                afterScroll.renderGeneration != expectedGeneration ||
+                                navigationRevision != expectedNavigationRevision
+                        ) {
+                            return@launch
+                        }
+
+                        expectedView.evaluateJavascript(
+                            buildWebViewReaderHighlightScript(
+                                stableLocatorKey = stableKey,
+                                highlightColorCss = current.highlightColorCss,
+                                highlightDurationMillis = current.highlightDurationMillis,
+                            )
+                        ) { highlightResult ->
+                            val afterHighlight = binding
+                            if (
+                                afterHighlight == null ||
+                                    afterHighlight.webView !== expectedView ||
+                                    afterHighlight.renderGeneration != expectedGeneration ||
+                                    navigationRevision != expectedNavigationRevision
+                            ) {
+                                return@evaluateJavascript
+                            }
+                            val located =
+                                highlightResult?.trim()?.trim('"') == WEBVIEW_ANCHOR_JS_LOCATED
+                            onResult(
+                                if (located) {
+                                    WebViewReaderAnchorNavigationResult.Located(
+                                        stableKey,
+                                        resolved.strategy,
+                                    )
+                                } else {
+                                    WebViewReaderAnchorNavigationResult.Unavailable(
+                                        WebViewReaderAnchorUnavailableReason.DOM_ANCHOR_NOT_FOUND
+                                    )
+                                }
+                            )
+                        }
+                    }
+            }
+            return WebViewReaderAnchorNavigationResult.Pending
+        }
+
         val script =
             buildWebViewReaderAnchorScript(
                 stableLocatorKey = stableKey,
@@ -265,6 +387,84 @@ internal fun shouldPreservePendingWebViewAnchor(
     val previous = previousArticleId?.trim()?.ifBlank { null } ?: return false
     val next = nextArticleId?.trim()?.ifBlank { null } ?: return false
     return previous == next
+}
+
+internal fun buildWebViewReaderAnchorGeometryScript(stableLocatorKey: String): String {
+    val key = stableLocatorKey.toJavaScriptStringLiteral()
+    return """
+        (function() {
+          const key = $key;
+          const node = document.querySelector('[data-origread-block-id="' + CSS.escape(key) + '"]');
+          if (!node) return '$WEBVIEW_ANCHOR_JS_MISSING';
+          const rect = node.getBoundingClientRect();
+          const scale = Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0
+            ? window.devicePixelRatio
+            : 1;
+          const documentTopPx = (window.scrollY + rect.top) * scale;
+          const heightPx = rect.height * scale;
+          return '$WEBVIEW_ANCHOR_JS_GEOMETRY_PREFIX' + documentTopPx + '|' + heightPx;
+        })()
+    """.trimIndent()
+}
+
+internal fun parseWebViewReaderAnchorGeometry(rawResult: String?): WebViewReaderAnchorGeometry? {
+    val decoded = rawResult?.trim()?.trim('"') ?: return null
+    if (!decoded.startsWith(WEBVIEW_ANCHOR_JS_GEOMETRY_PREFIX)) return null
+    val values = decoded.removePrefix(WEBVIEW_ANCHOR_JS_GEOMETRY_PREFIX).split('|')
+    if (values.size != 2) return null
+    val top = values[0].toFloatOrNull()?.takeIf(Float::isFinite) ?: return null
+    val height = values[1].toFloatOrNull()?.takeIf(Float::isFinite) ?: return null
+    if (top < 0f || height < 0f) return null
+    return WebViewReaderAnchorGeometry(documentTopPx = top, heightPx = height)
+}
+
+internal fun webViewOuterScrollTarget(
+    webViewTopInScrollContentPx: Int,
+    nodeDocumentTopPx: Float,
+    nodeHeightPx: Float,
+    viewportSizePx: Int,
+    maxScrollPx: Int,
+): Int {
+    val viewport = viewportSizePx.coerceAtLeast(0)
+    val readableNodeHeight = nodeHeightPx.coerceIn(0f, viewport.toFloat())
+    val desiredTop = (viewport - readableNodeHeight) / 2f
+    return (webViewTopInScrollContentPx + nodeDocumentTopPx - desiredTop)
+        .toInt()
+        .coerceIn(0, maxScrollPx.coerceAtLeast(0))
+}
+
+internal fun buildWebViewReaderHighlightScript(
+    stableLocatorKey: String,
+    highlightColorCss: String,
+    highlightDurationMillis: Long,
+): String {
+    val key = stableLocatorKey.toJavaScriptStringLiteral()
+    val color = highlightColorCss.toJavaScriptStringLiteral()
+    val duration = highlightDurationMillis.coerceAtLeast(1L)
+    val pulseId = WEBVIEW_HIGHLIGHT_SEQUENCE.incrementAndGet()
+    return """
+        (function() {
+          const key = $key;
+          const node = document.querySelector('[data-origread-block-id="' + CSS.escape(key) + '"]');
+          if (!node) return '$WEBVIEW_ANCHOR_JS_MISSING';
+          const pulseId = $pulseId;
+          document.__origreadCitationNavigation = pulseId;
+          if (document.__origreadCitationAnimation) document.__origreadCitationAnimation.cancel();
+          requestAnimationFrame(function() {
+            if (document.__origreadCitationNavigation !== pulseId) return;
+            document.__origreadCitationAnimation = node.animate(
+              [
+                { backgroundColor: 'transparent' },
+                { backgroundColor: $color, offset: ${CitationMotion.FadeInMillis.toDouble() / CitationMotion.HighlightMillis} },
+                { backgroundColor: $color, offset: ${(CitationMotion.FadeInMillis + CitationMotion.HoldMillis).toDouble() / CitationMotion.HighlightMillis} },
+                { backgroundColor: 'transparent' }
+              ],
+              { duration: $duration, easing: 'linear' }
+            );
+          });
+          return '$WEBVIEW_ANCHOR_JS_LOCATED';
+        })()
+    """.trimIndent()
 }
 
 internal fun buildWebViewReaderAnchorScript(
@@ -399,6 +599,7 @@ private const val WEBVIEW_RENDER_FRAGMENT_PREFIX = "origread-render-"
 private const val WEBVIEW_FALLBACK_BASE_URL = "https://origread.invalid/reader"
 private const val WEBVIEW_ANCHOR_JS_LOCATED = "origread-located"
 private const val WEBVIEW_ANCHOR_JS_MISSING = "origread-missing"
+private const val WEBVIEW_ANCHOR_JS_GEOMETRY_PREFIX = "origread-geometry:"
 private val WEBVIEW_HIGHLIGHT_SEQUENCE = AtomicLong(0L)
 
 private fun String.toJavaScriptStringLiteral(): String =

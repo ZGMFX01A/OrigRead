@@ -226,6 +226,7 @@ fun Content(
                                 onSelectedTextAction =
                                     onSelectedTextAction,
                                 readerAnchorState = webViewReaderAnchorState,
+                                outerScrollState = scrollState,
                                 markerSnapshot =
                                     readerEvidenceMarkerState?.snapshot.takeIf { isOriginalContent },
                                 onEvidenceMarkerClick = onReaderEvidenceMarkerClick,

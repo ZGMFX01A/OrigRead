@@ -2,19 +2,25 @@ package me.ash.reader.ui.component.webview
 
 import android.util.Log
 import android.webkit.WebView
+import androidx.compose.foundation.ScrollState
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import kotlin.math.roundToInt
 import me.ash.reader.infrastructure.preference.LocalOpenLink
 import me.ash.reader.infrastructure.preference.LocalOpenLinkSpecificBrowser
 import me.ash.reader.infrastructure.preference.LocalReadingBoldCharacters
@@ -52,6 +58,7 @@ fun OrigReadWebView(
     selectionActionLabel: String? = null,
     onSelectedTextAction: ((String) -> Unit)? = null,
     readerAnchorState: WebViewReaderAnchorState? = null,
+    outerScrollState: ScrollState? = null,
     markerSnapshot: ReaderEvidenceMarkerSnapshot? = null,
     onEvidenceMarkerClick: ((ReaderEvidenceMarkerNavigationTarget) -> Unit)? = null,
 ) {
@@ -131,9 +138,15 @@ fun OrigReadWebView(
     val currentArticleId by rememberUpdatedState(articleId)
     val currentMarkerSnapshot by rememberUpdatedState(markerSnapshot)
     val currentEvidenceMarkerClick by rememberUpdatedState(onEvidenceMarkerClick)
+    val citationScrollScope = rememberCoroutineScope()
+    val webViewTopInScrollContentPx = remember { mutableIntStateOf(0) }
 
     AndroidView(
-        modifier = modifier,
+        modifier =
+            modifier.onGloballyPositioned { coordinates ->
+                webViewTopInScrollContentPx.intValue =
+                    coordinates.positionInParent().y.roundToInt()
+            },
         factory = {
             // factory 重新创建了实体时必须让新 WebView 完成首次正文加载。
             renderGuard.reset()
@@ -194,6 +207,16 @@ fun OrigReadWebView(
                         markerForegroundCss = citationMarkerForegroundCss,
                         markerBackgroundCss = citationMarkerBackgroundCss,
                         highlightDurationMillis = citationHighlightDurationMillis,
+                        outerScrollHost =
+                            outerScrollState?.let { scrollState ->
+                                WebViewReaderOuterScrollHost(
+                                    scrollState = scrollState,
+                                    webViewTopInScrollContentPx = {
+                                        webViewTopInScrollContentPx.intValue
+                                    },
+                                    coroutineScope = citationScrollScope,
+                                )
+                            },
                     )
                     loadDataWithBaseURL(
                         webViewReaderBaseUrl(sourceUrl, renderGeneration),

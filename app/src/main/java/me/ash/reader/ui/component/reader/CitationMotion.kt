@@ -23,18 +23,14 @@ internal suspend fun LazyListState.animateCitationScrollToItem(
     index: Int,
     scrollOffset: (LazyListLayoutInfo) -> Int = { 0 },
 ) {
-    val visibleItemCount = layoutInfo.visibleItemsInfo.size.coerceAtLeast(1)
-    val itemDistance = kotlin.math.abs(index - firstVisibleItemIndex)
-    val longDistanceTarget =
-        layoutInfo.visibleItemsInfo.none { it.index == index } &&
-            itemDistance > visibleItemCount * 3
-    if (longDistanceTarget) {
-        // Let Compose own the long-distance traversal. LazyListState.animateScrollToItem() has
-        // dedicated handling for targets well outside the measured window, so it can reach a
-        // paragraph near the end of a long article without composing every intermediate item.
-        // This replaces the old explicit scrollToItem() pre-jump: the long jump is no longer a
-        // hard snap controlled by OrigRead, while the final centering still gets a short animated
-        // correction after the real target item has been measured.
+    val targetIsMeasured = layoutInfo.visibleItemsInfo.any { it.index == index }
+    if (!targetIsMeasured) {
+        // If the citation paragraph is outside the currently measured window, let Compose own the
+        // traversal regardless of how many logical paragraph items away it is. Real articles are
+        // often only 5-15 blocks long, so an item-count threshold incorrectly sent many off-screen
+        // targets through the estimate-only path. Once the item is measured, make one small
+        // best-effort correction. Near the physical end of the article the target may not be able
+        // to sit exactly at the viewport center; visibility is the invariant, not perfect centering.
         animateScrollToItem(index = index, scrollOffset = scrollOffset(layoutInfo))
         settleCitationTarget(index, scrollOffset, CitationMotion.LongDistanceSettleMillis)
         return

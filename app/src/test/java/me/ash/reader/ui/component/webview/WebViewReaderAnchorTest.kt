@@ -145,6 +145,51 @@ class WebViewReaderAnchorTest {
     }
 
     @Test
+    fun `outer scroll geometry script measures dom without scrolling webview`() {
+        val script = buildWebViewReaderAnchorGeometryScript("key\"\\\n</script>")
+
+        assertTrue(script.contains("CSS.escape(key)"))
+        assertTrue(script.contains("window.devicePixelRatio"))
+        assertTrue(script.contains("window.scrollY + rect.top"))
+        assertFalse(script.contains("window.scrollTo"))
+        assertTrue(script.contains("key\\\"\\\\\\n</script>"))
+    }
+
+    @Test
+    fun `outer scroll target centers when possible and clamps at article end`() {
+        assertEquals(
+            2_150,
+            webViewOuterScrollTarget(
+                webViewTopInScrollContentPx = 300,
+                nodeDocumentTopPx = 2_000f,
+                nodeHeightPx = 100f,
+                viewportSizePx = 400,
+                maxScrollPx = 5_000,
+            ),
+        )
+        assertEquals(
+            2_400,
+            webViewOuterScrollTarget(
+                webViewTopInScrollContentPx = 300,
+                nodeDocumentTopPx = 2_500f,
+                nodeHeightPx = 100f,
+                viewportSizePx = 400,
+                maxScrollPx = 2_400,
+            ),
+        )
+    }
+
+    @Test
+    fun `outer scroll geometry parser rejects missing and malformed results`() {
+        assertEquals(
+            WebViewReaderAnchorGeometry(documentTopPx = 1234.5f, heightPx = 88f),
+            parseWebViewReaderAnchorGeometry("\"origread-geometry:1234.5|88\""),
+        )
+        assertNull(parseWebViewReaderAnchorGeometry("\"origread-missing\""))
+        assertNull(parseWebViewReaderAnchorGeometry("\"origread-geometry:nope|88\""))
+    }
+
+    @Test
     fun `webview marker script is message scoped and filters other articles`() {
         val script =
             buildWebViewReaderMarkerScript(
