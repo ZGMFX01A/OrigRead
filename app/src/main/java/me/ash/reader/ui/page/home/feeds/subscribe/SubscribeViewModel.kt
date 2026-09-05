@@ -265,9 +265,9 @@ constructor(
                             }.onFailure { lastError = it }
                         catalogProbe?.let { probe ->
                             // Catalog 只能“搭顺风车”，绝不能让已有 RSS 探测多等一毫秒：
-                            // 原 RSS 已经得到健康候选时完全沿用旧结果；仅原 RSS 无可用候选且目录探测
-                            // 已经完成时才补入目录 Feed。否则立刻取消并继续 RSSHub。
-                            val directRssAccepted = SubscribeCandidateSelector.rank(candidates).isNotEmpty()
+                            // 原输入已经得到健康 RSS 时完全沿用旧结果；仅原 RSS 无可用候选且目录探测
+                            // 已经完成时才补入目录 Feed。否则立刻取消，交由后续 fallback 决定。
+                            val directRssAccepted = SubscribeCandidateSelector.hasConfirmedRss(candidates)
                             if (!directRssAccepted && probe.isCompleted) {
                                 probe.await().onSuccess { discovered ->
                                     candidates +=
@@ -283,6 +283,15 @@ constructor(
                             } else {
                                 probe.cancel()
                             }
+                        }
+
+                        // RSS / Atom 一旦由结构化解析器确认成功，来源类型已经确定。
+                        // 此时继续探测 RSSHub、JSON、Website 或动态 WebView 既没有意义，
+                        // 还会给一个已经可订阅的 Feed 额外制造网络等待和误导性的“流程验证”。
+                        // 这条短路对直接 RSS、网页 alternate 发现到的 RSS，以及内置目录 Feed 一视同仁。
+                        if (SubscribeCandidateSelector.hasConfirmedRss(candidates)) {
+                            applyBestCandidate(candidates, discoveryIdleState, firstGroupId, lastError)
+                            return@launch
                         }
 
                         if (accountService.getCurrentAccount().type.id != AccountType.Local.id) {

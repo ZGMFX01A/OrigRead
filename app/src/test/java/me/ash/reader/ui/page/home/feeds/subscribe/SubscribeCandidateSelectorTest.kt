@@ -67,6 +67,51 @@ class SubscribeCandidateSelectorTest {
     }
 
     @Test
+    fun `confirmed direct rss stops fallback discovery even when feed is currently empty`() {
+        val candidates =
+            listOf(
+                probe(
+                    SourceCandidateKind.RSS_DIRECT,
+                    SourceType.RSS,
+                    "https://example.com/feed.xml",
+                    0,
+                )
+            )
+
+        assertTrue(SubscribeCandidateSelector.hasConfirmedRss(candidates))
+    }
+
+    @Test
+    fun `rss discovered from page also stops fallback discovery`() {
+        val candidates =
+            listOf(
+                probe(
+                    SourceCandidateKind.RSS_DISCOVERED,
+                    SourceType.RSS,
+                    "https://example.com/feed.xml",
+                    10,
+                )
+            )
+
+        assertTrue(SubscribeCandidateSelector.hasConfirmedRss(candidates))
+    }
+
+    @Test
+    fun `rsshub candidate alone does not masquerade as confirmed rss input`() {
+        val candidates =
+            listOf(
+                probe(
+                    SourceCandidateKind.RSSHUB,
+                    SourceType.RSS,
+                    "https://rsshub.app/example/feed",
+                    10,
+                )
+            )
+
+        assertEquals(false, SubscribeCandidateSelector.hasConfirmedRss(candidates))
+    }
+
+    @Test
     fun `website candidate defaults to in app reading`() {
         val ranked =
             SubscribeCandidateSelector.rank(

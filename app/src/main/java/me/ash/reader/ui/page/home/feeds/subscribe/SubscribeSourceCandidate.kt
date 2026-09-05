@@ -37,6 +37,17 @@ internal data class SubscribeCandidateProbe(
 
 /** 将不同来源探测结果统一评分、排序并去重。 */
 internal object SubscribeCandidateSelector {
+    /**
+     * RSS / Atom 已经由结构化解析器确认成功时，来源类型就已经确定。
+     * 这里仅识别普通 RSS 发现结果，不把后续 fallback 产生的 RSSHub 候选算进来。
+     */
+    fun hasConfirmedRss(candidates: List<SubscribeCandidateProbe>): Boolean =
+        rank(candidates).any { candidate ->
+            candidate.sourceType == SourceType.RSS &&
+                (candidate.kind == SourceCandidateKind.RSS_DIRECT ||
+                    candidate.kind == SourceCandidateKind.RSS_DISCOVERED)
+        }
+
     fun rank(candidates: List<SubscribeCandidateProbe>): List<SubscribeSourceCandidate> =
         candidates
             .mapNotNull { candidate ->
