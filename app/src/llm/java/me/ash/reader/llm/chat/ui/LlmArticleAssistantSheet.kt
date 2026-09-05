@@ -2060,12 +2060,13 @@ private fun AssistantComposer(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (uiState.additionalArticleAttachments.isNotEmpty()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     uiState.additionalArticleAttachments.forEach { attachment ->
                         AssistChip(
+                            modifier = Modifier.fillMaxWidth(),
                             onClick = { },
                             label = {
                                 Text(
@@ -2295,6 +2296,7 @@ private fun AssistantComposer(
             onDismiss = { relatedArticleSheetVisible = false },
             onLoadCandidates = onLoadArticleCandidates,
             onAttach = onAttachArticleCandidate,
+            onRemove = onRemoveAdditionalArticle,
         )
     }
 }
@@ -2313,6 +2315,7 @@ private fun RelatedArticlePickerSheet(
     onDismiss: () -> Unit,
     onLoadCandidates: (String) -> Unit,
     onAttach: (LlmArticleCandidate) -> Unit,
+    onRemove: (String) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var query by rememberSaveable { mutableStateOf("") }
@@ -2414,11 +2417,16 @@ private fun RelatedArticlePickerSheet(
                         ) { candidate ->
                             val attached = candidate.articleId in attachedIds
                             val canAttach = canModify && !attached && !selectionLimitReached
+                            val canToggle = canModify && (attached || canAttach)
                             Row(
                                 modifier =
                                     Modifier.fillMaxWidth()
-                                        .clickable(enabled = canAttach) {
-                                            onAttach(candidate)
+                                        .clickable(enabled = canToggle) {
+                                            if (attached) {
+                                                onRemove(candidate.articleId)
+                                            } else {
+                                                onAttach(candidate)
+                                            }
                                         }
                                         .padding(vertical = 12.dp),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
