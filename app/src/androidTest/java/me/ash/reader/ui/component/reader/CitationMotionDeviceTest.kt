@@ -238,7 +238,11 @@ class CitationMotionDeviceTest {
                             .height(3600.dp)
                             .onGloballyPositioned { coordinates ->
                                 webViewTopInScrollContent.set(
-                                    coordinates.positionInParent().y.roundToInt()
+                                    me.ash.reader.ui.component.webview.webViewScrollContentCoordinate(
+                                        positionInParentPx =
+                                            coordinates.positionInParent().y.roundToInt(),
+                                        outerScrollPx = outerScroll.value,
+                                    )
                                 )
                             },
                     factory = { context ->
@@ -299,6 +303,17 @@ class CitationMotionDeviceTest {
                 )
             ) { navigationResult.set(it) }
         }
+        // Wait until the initial outer-host animation is actually in progress, then trigger a
+        // layout shift above the citation. A single pre-scroll DOM measurement would now be stale;
+        // the post-scroll geometry pass must detect the reflow and settle again before highlight.
+        compose.waitUntil(5_000) { outerScroll.value > 50 }
+        val reflowApplied = AtomicReference<String?>()
+        compose.runOnIdle {
+            web.evaluateJavascript(
+                "document.querySelectorAll('p')[5].style.height='800px'; 'reflowed'"
+            ) { reflowApplied.set(it) }
+        }
+        compose.waitUntil(5_000) { reflowApplied.get() != null }
         compose.waitUntil(10_000) {
             navigationResult.get() is WebViewReaderAnchorNavigationResult.Located
         }

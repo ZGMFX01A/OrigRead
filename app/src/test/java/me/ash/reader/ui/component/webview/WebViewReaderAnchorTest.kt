@@ -180,6 +180,19 @@ class WebViewReaderAnchorTest {
     }
 
     @Test
+    fun `outer scroll settle only runs for meaningful post scroll reflow`() {
+        assertFalse(webViewOuterScrollNeedsSettle(currentScrollPx = 2_000, targetScrollPx = 2_002))
+        assertTrue(webViewOuterScrollNeedsSettle(currentScrollPx = 2_000, targetScrollPx = 2_003))
+        assertTrue(webViewOuterScrollNeedsSettle(currentScrollPx = 2_100, targetScrollPx = 1_900))
+    }
+
+    @Test
+    fun `webview top remains stable in outer scroll content coordinates`() {
+        assertEquals(180, webViewScrollContentCoordinate(positionInParentPx = 180, outerScrollPx = 0))
+        assertEquals(180, webViewScrollContentCoordinate(positionInParentPx = -820, outerScrollPx = 1_000))
+    }
+
+    @Test
     fun `outer scroll geometry parser rejects missing and malformed results`() {
         assertEquals(
             WebViewReaderAnchorGeometry(documentTopPx = 1234.5f, heightPx = 88f),

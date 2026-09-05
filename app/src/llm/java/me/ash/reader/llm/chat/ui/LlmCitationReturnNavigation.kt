@@ -53,7 +53,7 @@ internal suspend fun LazyListState.scrollToCitationParagraph(
     placement: LlmCitationReturnPlacement,
 ) {
     snapshotFlow { layoutInfo.totalItemsCount }.first { it > messageIndex }
-    if (layoutInfo.visibleItemsInfo.none { it.key == messageId }) scrollToItem(messageIndex)
+    if (layoutInfo.visibleItemsInfo.none { it.key == messageId }) animateScrollToItem(messageIndex)
     snapshotFlow { layoutInfo.visibleItemsInfo.any { it.key == messageId } }.first { it }
     snapshotFlow { placement.paragraphBounds != null && placement.viewportBounds != null }.first { it }
     // Global placement callbacks run after measurement. Use the same frame for both rectangles.
@@ -61,8 +61,8 @@ internal suspend fun LazyListState.scrollToCitationParagraph(
     var item = layoutInfo.visibleItemsInfo.firstOrNull { it.key == messageId }
     if (item == null) {
         // A user scroll/re-layout can evict the row between the visibility check and this frame.
-        // Re-anchor once instead of throwing or leaving the navigation coroutine suspended forever.
-        scrollToItem(messageIndex)
+        // Re-anchor once with the same smooth LazyList primitive instead of snapping the whole Chat.
+        animateScrollToItem(messageIndex)
         snapshotFlow { layoutInfo.visibleItemsInfo.any { it.key == messageId } }.first { it }
         withFrameNanos { }
         item = layoutInfo.visibleItemsInfo.firstOrNull { it.key == messageId } ?: return

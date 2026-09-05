@@ -145,7 +145,10 @@ fun OrigReadWebView(
         modifier =
             modifier.onGloballyPositioned { coordinates ->
                 webViewTopInScrollContentPx.intValue =
-                    coordinates.positionInParent().y.roundToInt()
+                    webViewScrollContentCoordinate(
+                        positionInParentPx = coordinates.positionInParent().y.roundToInt(),
+                        outerScrollPx = outerScrollState?.value ?: 0,
+                    )
             },
         factory = {
             // factory 重新创建了实体时必须让新 WebView 完成首次正文加载。

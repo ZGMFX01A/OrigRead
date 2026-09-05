@@ -527,8 +527,17 @@ constructor(
         _translationUiState.update { it.copy(isLoading = false, errorMessage = null) }
     }
 
-    /** Citation 永远核验原文；这里只切当前阅读瞬时状态，不修改默认翻译目标或持久设置。 */
+    /**
+     * Citation 永远核验原文。
+     *
+     * 如果翻译仍在生成，必须先失效并取消当前请求；否则旧请求可能在 Citation 已经定位成功后
+     * 再次把 showTranslation 写回 true，把用户从原文证据位置切回译文。
+     * 这里只改变当前阅读瞬时状态，不修改默认翻译目标或持久设置。
+     */
     fun showOriginalContentForCitation() {
+        if (_translationUiState.value.isLoading) {
+            stopTranslation()
+        }
         _translationUiState.update { state ->
             if (state.showTranslation) state.copy(showTranslation = false) else state
         }

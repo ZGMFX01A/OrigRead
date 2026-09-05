@@ -9,9 +9,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.coroutines.resume
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import me.ash.reader.ui.component.reader.ReaderEvidenceAnchorTarget
 import me.ash.reader.ui.component.reader.CitationMotion
 import me.ash.reader.ui.component.reader.ReaderEvidenceDocument
@@ -199,89 +201,114 @@ class WebViewReaderAnchorState {
             navigationRevision += 1
             val expectedNavigationRevision = navigationRevision
             outerScrollJob?.cancel()
-            outerScrollJob = null
-            expectedView.evaluateJavascript(buildWebViewReaderAnchorGeometryScript(stableKey)) { rawResult ->
-                val latest = binding
-                if (
-                    latest == null ||
-                        latest.webView !== expectedView ||
-                        latest.renderGeneration != expectedGeneration ||
-                        navigationRevision != expectedNavigationRevision
-                ) {
-                    return@evaluateJavascript
-                }
-                val geometry = parseWebViewReaderAnchorGeometry(rawResult)
-                if (geometry == null) {
-                    onResult(
-                        WebViewReaderAnchorNavigationResult.Unavailable(
-                            WebViewReaderAnchorUnavailableReason.DOM_ANCHOR_NOT_FOUND
-                        )
-                    )
-                    return@evaluateJavascript
-                }
+            outerScrollJob =
+                outerScrollHost.coroutineScope.launch {
+                    fun navigationStillCurrent(): Boolean {
+                        val latest = binding
+                        return latest != null &&
+                            latest.webView === expectedView &&
+                            latest.renderGeneration == expectedGeneration &&
+                            navigationRevision == expectedNavigationRevision
+                    }
 
-                outerScrollJob =
-                    outerScrollHost.coroutineScope.launch {
-                        val scrollState = outerScrollHost.scrollState
-                        val target =
-                            webViewOuterScrollTarget(
-                                webViewTopInScrollContentPx = outerScrollHost.webViewTopInScrollContentPx(),
-                                nodeDocumentTopPx = geometry.documentTopPx,
-                                nodeHeightPx = geometry.heightPx,
-                                viewportSizePx = scrollState.viewportSize,
-                                maxScrollPx = scrollState.maxValue,
+                    val geometry =
+                        parseWebViewReaderAnchorGeometry(
+                            expectedView.awaitJavascriptResult(
+                                buildWebViewReaderAnchorGeometryScript(stableKey)
                             )
+                        )
+                    if (!navigationStillCurrent()) return@launch
+                    if (geometry == null) {
+                        onResult(
+                            WebViewReaderAnchorNavigationResult.Unavailable(
+                                WebViewReaderAnchorUnavailableReason.DOM_ANCHOR_NOT_FOUND
+                            )
+                        )
+                        return@launch
+                    }
+
+                    val scrollState = outerScrollHost.scrollState
+                    val target =
+                        webViewOuterScrollTarget(
+                            webViewTopInScrollContentPx = outerScrollHost.webViewTopInScrollContentPx(),
+                            nodeDocumentTopPx = geometry.documentTopPx,
+                            nodeHeightPx = geometry.heightPx,
+                            viewportSizePx = scrollState.viewportSize,
+                            maxScrollPx = scrollState.maxValue,
+                        )
+                    scrollState.animateScrollTo(
+                        value = target,
+                        animationSpec =
+                            tween(
+                                durationMillis = CitationMotion.ScrollMillis,
+                                easing = FastOutSlowInEasing,
+                            ),
+                    )
+                    if (!navigationStillCurrent()) return@launch
+
+                    // Images/fonts can reflow the expanded WebView while the outer Compose host is
+                    // animating. Re-measure the same frozen DOM anchor once after the main scroll;
+                    // if its target moved, make one short correction before highlighting. Keep this
+                    // bounded to one settle pass instead of installing a long-lived DOM observer.
+                    val settledGeometry =
+                        parseWebViewReaderAnchorGeometry(
+                            expectedView.awaitJavascriptResult(
+                                buildWebViewReaderAnchorGeometryScript(stableKey)
+                            )
+                        )
+                    if (!navigationStillCurrent()) return@launch
+                    if (settledGeometry == null) {
+                        onResult(
+                            WebViewReaderAnchorNavigationResult.Unavailable(
+                                WebViewReaderAnchorUnavailableReason.DOM_ANCHOR_NOT_FOUND
+                            )
+                        )
+                        return@launch
+                    }
+                    val settledTarget =
+                        webViewOuterScrollTarget(
+                            webViewTopInScrollContentPx = outerScrollHost.webViewTopInScrollContentPx(),
+                            nodeDocumentTopPx = settledGeometry.documentTopPx,
+                            nodeHeightPx = settledGeometry.heightPx,
+                            viewportSizePx = scrollState.viewportSize,
+                            maxScrollPx = scrollState.maxValue,
+                        )
+                    if (webViewOuterScrollNeedsSettle(scrollState.value, settledTarget)) {
                         scrollState.animateScrollTo(
-                            value = target,
+                            value = settledTarget,
                             animationSpec =
                                 tween(
-                                    durationMillis = CitationMotion.ScrollMillis,
+                                    durationMillis = CitationMotion.SettleScrollMillis,
                                     easing = FastOutSlowInEasing,
                                 ),
                         )
-                        val afterScroll = binding
-                        if (
-                            afterScroll == null ||
-                                afterScroll.webView !== expectedView ||
-                                afterScroll.renderGeneration != expectedGeneration ||
-                                navigationRevision != expectedNavigationRevision
-                        ) {
-                            return@launch
-                        }
+                    }
+                    if (!navigationStillCurrent()) return@launch
 
-                        expectedView.evaluateJavascript(
+                    val highlightResult =
+                        expectedView.awaitJavascriptResult(
                             buildWebViewReaderHighlightScript(
                                 stableLocatorKey = stableKey,
                                 highlightColorCss = current.highlightColorCss,
                                 highlightDurationMillis = current.highlightDurationMillis,
                             )
-                        ) { highlightResult ->
-                            val afterHighlight = binding
-                            if (
-                                afterHighlight == null ||
-                                    afterHighlight.webView !== expectedView ||
-                                    afterHighlight.renderGeneration != expectedGeneration ||
-                                    navigationRevision != expectedNavigationRevision
-                            ) {
-                                return@evaluateJavascript
-                            }
-                            val located =
-                                highlightResult?.trim()?.trim('"') == WEBVIEW_ANCHOR_JS_LOCATED
-                            onResult(
-                                if (located) {
-                                    WebViewReaderAnchorNavigationResult.Located(
-                                        stableKey,
-                                        resolved.strategy,
-                                    )
-                                } else {
-                                    WebViewReaderAnchorNavigationResult.Unavailable(
-                                        WebViewReaderAnchorUnavailableReason.DOM_ANCHOR_NOT_FOUND
-                                    )
-                                }
+                        )
+                    if (!navigationStillCurrent()) return@launch
+                    val located =
+                        highlightResult?.trim()?.trim('"') == WEBVIEW_ANCHOR_JS_LOCATED
+                    onResult(
+                        if (located) {
+                            WebViewReaderAnchorNavigationResult.Located(
+                                stableKey,
+                                resolved.strategy,
+                            )
+                        } else {
+                            WebViewReaderAnchorNavigationResult.Unavailable(
+                                WebViewReaderAnchorUnavailableReason.DOM_ANCHOR_NOT_FOUND
                             )
                         }
-                    }
-            }
+                    )
+                }
             return WebViewReaderAnchorNavigationResult.Pending
         }
 
@@ -342,6 +369,17 @@ class WebViewReaderAnchorState {
         }
     }
 }
+
+private suspend fun WebView.awaitJavascriptResult(script: String): String? =
+    suspendCancellableCoroutine { continuation ->
+        try {
+            evaluateJavascript(script) { rawResult ->
+                if (continuation.isActive) continuation.resume(rawResult)
+            }
+        } catch (_: RuntimeException) {
+            if (continuation.isActive) continuation.resume(null)
+        }
+    }
 
 internal data class WebViewPreparedReaderContent(
     val html: String,
@@ -432,6 +470,20 @@ internal fun webViewOuterScrollTarget(
         .toInt()
         .coerceIn(0, maxScrollPx.coerceAtLeast(0))
 }
+
+/**
+ * `positionInParent()` for a child inside `verticalScroll` moves as the viewport scrolls.
+ * Add the host ScrollState value so Citation calculations keep one stable content-space origin.
+ */
+internal fun webViewScrollContentCoordinate(
+    positionInParentPx: Int,
+    outerScrollPx: Int,
+): Int = positionInParentPx + outerScrollPx
+
+internal fun webViewOuterScrollNeedsSettle(
+    currentScrollPx: Int,
+    targetScrollPx: Int,
+): Boolean = kotlin.math.abs(targetScrollPx - currentScrollPx) > 2
 
 internal fun buildWebViewReaderHighlightScript(
     stableLocatorKey: String,
