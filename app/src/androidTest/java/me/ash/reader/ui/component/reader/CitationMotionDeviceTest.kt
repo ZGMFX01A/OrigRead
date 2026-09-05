@@ -37,10 +37,12 @@ class CitationMotionDeviceTest {
         var completed = -1
         compose.setContent {
             MaterialTheme {
-                list = rememberLazyListState()
+                // Start around one third into a long article. The first target is deliberately
+                // near the end, far outside the initial measured LazyColumn window.
+                list = rememberLazyListState(initialFirstVisibleItemIndex = 90)
                 Box(Modifier.width(384.dp).height(420.dp)) {
                     LazyColumn(state = list) {
-                        items(40) { index ->
+                        items(300) { index ->
                             Text("Evidence paragraph $index", Modifier.height((40 + index % 4 * 35).dp))
                         }
                     }
@@ -58,8 +60,13 @@ class CitationMotionDeviceTest {
                 }
             }
         }
+        compose.runOnIdle {
+            assertTrue("Far citation target must begin outside the measured viewport",
+                list.layoutInfo.visibleItemsInfo.none { it.index == 270 })
+        }
         // Both targets have enough surrounding content to center without hitting a list edge.
-        for (index in listOf(28, 5)) {
+        // 90 -> 270 is the regression for "read about one third, citation is near article end".
+        for (index in listOf(270, 30)) {
             compose.runOnIdle { target = index }
             compose.waitUntil(10_000) { completed == index }
             compose.runOnIdle {

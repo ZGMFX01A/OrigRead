@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyListState
 internal object CitationMotion {
     const val ScrollMillis = 820
     const val SettleScrollMillis = 140
+    const val LongDistanceSettleMillis = 180
     const val FadeInMillis = 180
     const val HoldMillis = 2000L
     const val FadeOutMillis = 600
@@ -22,6 +23,23 @@ internal suspend fun LazyListState.animateCitationScrollToItem(
     index: Int,
     scrollOffset: (LazyListLayoutInfo) -> Int = { 0 },
 ) {
+    val visibleItemCount = layoutInfo.visibleItemsInfo.size.coerceAtLeast(1)
+    val itemDistance = kotlin.math.abs(index - firstVisibleItemIndex)
+    val longDistanceTarget =
+        layoutInfo.visibleItemsInfo.none { it.index == index } &&
+            itemDistance > visibleItemCount * 3
+    if (longDistanceTarget) {
+        // Let Compose own the long-distance traversal. LazyListState.animateScrollToItem() has
+        // dedicated handling for targets well outside the measured window, so it can reach a
+        // paragraph near the end of a long article without composing every intermediate item.
+        // This replaces the old explicit scrollToItem() pre-jump: the long jump is no longer a
+        // hard snap controlled by OrigRead, while the final centering still gets a short animated
+        // correction after the real target item has been measured.
+        animateScrollToItem(index = index, scrollOffset = scrollOffset(layoutInfo))
+        settleCitationTarget(index, scrollOffset, CitationMotion.LongDistanceSettleMillis)
+        return
+    }
+
     scroll {
         val scope = LazyLayoutScrollScope(this@animateCitationScrollToItem, this)
         var previous = 0f
@@ -45,6 +63,28 @@ internal suspend fun LazyListState.animateCitationScrollToItem(
                 scope.scrollBy(value - settled)
                 settled = value
             }
+        }
+    }
+}
+
+private suspend fun LazyListState.settleCitationTarget(
+    index: Int,
+    scrollOffset: (LazyListLayoutInfo) -> Int,
+    durationMillis: Int,
+) {
+    scroll {
+        val scope = LazyLayoutScrollScope(this@settleCitationTarget, this)
+        val remaining = scope.calculateDistanceTo(index, scrollOffset(layoutInfo))
+        if (kotlin.math.abs(remaining) <= 1f) return@scroll
+
+        var settled = 0f
+        animate(
+            initialValue = 0f,
+            targetValue = remaining.toFloat(),
+            animationSpec = tween<Float>(durationMillis, easing = FastOutSlowInEasing),
+        ) { value: Float, _: Float ->
+            scope.scrollBy(value - settled)
+            settled = value
         }
     }
 }
