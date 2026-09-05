@@ -345,18 +345,23 @@ fun FlowPage(
                         title = {
                             val textStyle = LocalTextStyle.current
                             val color = LocalContentColor.current
-                            val titleModifier =
-                                sharedTitleKey?.let { key ->
-                                    Modifier.origReadSharedTextBounds(
-                                        key = key,
-                                        sharedTransitionScope = sharedTransitionScope,
-                                        animatedVisibilityScope = animatedVisibilityScope,
-                                    )
-                                } ?: Modifier
                             if (textStyle.fontSize.value > 18f) {
+                                // LargeTopAppBar composes the same title lambda for both its expanded
+                                // and collapsed rows. Registering the same shared-content key in both
+                                // rows produces two active targets and can render duplicated/garbled
+                                // source titles during navigation. Only the expanded title is the
+                                // visual continuation of the source-list title.
+                                val expandedTitleModifier =
+                                    sharedTitleKey?.let { key ->
+                                        Modifier.origReadSharedTextBounds(
+                                            key = key,
+                                            sharedTransitionScope = sharedTransitionScope,
+                                            animatedVisibilityScope = animatedVisibilityScope,
+                                        )
+                                    } ?: Modifier
                                 BasicText(
                                     modifier =
-                                        titleModifier.padding(
+                                        expandedTitleModifier.padding(
                                             start = if (articleListFeedIcon.value) 34.dp else 8.dp,
                                             end = 24.dp,
                                         ),
@@ -373,7 +378,6 @@ fun FlowPage(
                                 )
                             } else {
                                 Text(
-                                    modifier = titleModifier,
                                     text = titleText,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
