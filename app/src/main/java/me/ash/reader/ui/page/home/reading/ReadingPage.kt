@@ -160,7 +160,7 @@ private val PendingCitationNavigationStateSaver =
         },
     )
 
-private val CitationReturnTargetStateSaver =
+internal val CitationReturnTargetStateSaver =
     Saver<ReaderEvidenceMarkerNavigationTarget?, ArrayList<String>>(
         save = { target ->
             if (target == null) {
@@ -172,11 +172,12 @@ private val CitationReturnTargetStateSaver =
                     target.assistantMessageId,
                     target.citationId,
                     target.displayOrder.toString(),
+                    target.originArticleId.orEmpty(),
                 )
             }
         },
         restore = { values ->
-            if (values.size != 5) {
+            if (values.size !in 5..6) {
                 null
             } else {
                 ReaderEvidenceMarkerNavigationTarget(
@@ -185,6 +186,7 @@ private val CitationReturnTargetStateSaver =
                     assistantMessageId = values[2],
                     citationId = values[3],
                     displayOrder = values[4].toIntOrNull() ?: return@Saver null,
+                    originArticleId = values.getOrNull(5)?.ifBlank { null },
                 )
             }
         },
@@ -242,7 +244,7 @@ fun ReadingPage(
     val notionShareInProgress = notionShareRepository.shareInProgress.collectAsStateValue()
     val nativeReaderAnchorState = remember { NativeReaderAnchorState() }
     val webViewReaderAnchorState = remember { WebViewReaderAnchorState() }
-    val readerEvidenceMarkerState = remember { ReaderEvidenceMarkerState() }
+    val readerEvidenceMarkerState = rememberSaveable(saver = ReaderEvidenceMarkerState.Saver) { ReaderEvidenceMarkerState() }
 
     var isReaderScrollingDown by remember { mutableStateOf(false) }
     var showFullScreenImageViewer by remember { mutableStateOf(false) }
@@ -263,6 +265,10 @@ fun ReadingPage(
     var citationNavigationFailure by rememberSaveable(stateSaver = PendingCitationNavigationStateSaver) {
         mutableStateOf<PendingCitationNavigation?>(null)
     }
+    // A pending request is persisted immediately, but phone BottomSheet navigation waits until the
+    // sheet has finished its own exit animation before Reader content starts moving underneath it.
+    // This is transient on purpose: after recreation a saved pending request should resume.
+    var citationNavigationArmed by remember { mutableStateOf(true) }
     var showInteractiveVerification by remember { mutableStateOf(false) }
     var showReadingShareFirstUse by remember { mutableStateOf(false) }
     var showReadingShareConfig by remember { mutableStateOf(false) }
@@ -313,8 +319,38 @@ fun ReadingPage(
         }
     }
 
+    // Cross-article loading belongs to the persisted pending request rather than the original click
+    // callback. This makes the same request resume after Activity/process recreation without issuing
+    // duplicate loads when unrelated Reader state changes while the target article is still loading.
+    LaunchedEffect(pendingCitationNavigation, readerState.articleId, citationNavigationArmed) {
+        val pending = pendingCitationNavigation ?: return@LaunchedEffect
+        if (!citationNavigationArmed) return@LaunchedEffect
+        val currentArticleId = readerState.articleId?.trim()?.ifBlank { null } ?: return@LaunchedEffect
+        if (pending.isTargetArticle(currentArticleId)) return@LaunchedEffect
+        if (pending.shouldInvalidateForArticle(currentArticleId)) {
+            pendingCitationNavigation = null
+            return@LaunchedEffect
+        }
+        onLoadArticle(pending.articleId, -1)
+    }
+
+    LaunchedEffect(pendingCitationReturn, readerState.articleId) {
+        val target = pendingCitationReturn ?: return@LaunchedEffect
+        val currentArticleId = readerState.articleId?.trim()?.ifBlank { null } ?: return@LaunchedEffect
+        if (target.isOwnerArticle(currentArticleId)) {
+            showArticleAssistant = true
+            return@LaunchedEffect
+        }
+        if (target.shouldInvalidateForArticle(currentArticleId)) {
+            pendingCitationReturn = null
+            return@LaunchedEffect
+        }
+        onLoadArticle(target.ownerArticleId, -1)
+    }
+
     LaunchedEffect(
         pendingCitationNavigation,
+        citationNavigationArmed,
         readerState.articleId,
         readerState.content,
         translationState.showTranslation,
@@ -323,6 +359,7 @@ fun ReadingPage(
         webViewReaderAnchorState.readyRevision,
     ) {
         val pending = pendingCitationNavigation ?: return@LaunchedEffect
+        if (!citationNavigationArmed) return@LaunchedEffect
         val currentArticleId = readerState.articleId?.trim()?.ifBlank { null } ?: return@LaunchedEffect
         val targetArticleId = pending.articleId.trim()
 
@@ -965,11 +1002,6 @@ fun ReadingPage(
                                                 onReaderEvidenceMarkerClick = { target ->
                                                     pendingCitationReturn = target
                                                     citationNavigationFailure = null
-                                                    if (target.ownerArticleId == readerState.articleId) {
-                                                        showArticleAssistant = true
-                                                    } else {
-                                                        onLoadArticle(target.ownerArticleId, -1)
-                                                    }
                                                 },
                                                 feedName = feedName,
                                                 title =
@@ -1117,17 +1149,31 @@ fun ReadingPage(
                 citationNavigationFailure = null
                 pendingCitationNavigation = request
                 val targetIsCurrentArticle = request.articleId == readerState.articleId
-                if (
-                    !shouldKeepAssistantVisibleForReaderCitation(
+                val keepAssistantVisible =
+                    shouldKeepAssistantVisibleForReaderCitation(
                         presentation = assistantPresentation,
                         targetIsCurrentArticle = targetIsCurrentArticle,
                     )
+                if (
+                    !keepAssistantVisible &&
+                        assistantPresentation == OrigReadArticleAssistantPresentation.BottomSheet
+                ) {
+                    citationNavigationArmed = false
+                } else {
+                    citationNavigationArmed = true
+                }
+                if (
+                    !keepAssistantVisible &&
+                        assistantPresentation != OrigReadArticleAssistantPresentation.BottomSheet
                 ) {
                     hideArticleAssistantForCitation()
                 }
                 viewModel.showOriginalContentForCitation()
-                if (!targetIsCurrentArticle) {
-                    onLoadArticle(request.articleId, -1)
+            },
+            onCitationExitAnimationComplete = {
+                if (pendingCitationNavigation != null) {
+                    hideArticleAssistantForCitation()
+                    citationNavigationArmed = true
                 }
             },
             citationReturnTarget = pendingCitationReturn,

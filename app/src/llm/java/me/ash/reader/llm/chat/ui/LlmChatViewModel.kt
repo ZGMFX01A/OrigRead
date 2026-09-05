@@ -393,9 +393,13 @@ class LlmChatViewModel @Inject constructor(
         ownerArticleId: String,
         conversationId: String,
         assistantMessageId: String,
+        citationId: String? = null,
     ): Boolean {
         val conversation = repository.getConversation(conversationId) ?: return false
         if (conversation.articleId != ownerArticleId) return false
+        if (citationId != null && repository.getCitationRefsForAssistant(assistantMessageId).none {
+                it.id == citationId && it.conversationId == conversationId
+            }) return false
         return repository.getMessages(conversationId).any { message ->
             message.id == assistantMessageId &&
                 message.role == LlmChatRole.ASSISTANT &&
@@ -1060,6 +1064,19 @@ class LlmChatViewModel @Inject constructor(
             return
         }
         startGenerationJob {
+            if (requestTask == LlmExecutionTask.CHAT) {
+                val refreshedAttachments =
+                    refreshAdditionalArticleAttachmentsForRequest(currentArticle.articleId)
+                if (refreshedAttachments == null) {
+                    _uiState.update {
+                        it.copy(transientError = "相关文章正文读取失败，请移除该文章后重试")
+                    }
+                    return@startGenerationJob
+                }
+                if (refreshedAttachments != _uiState.value.additionalArticleAttachments) {
+                    _uiState.update { it.copy(additionalArticleAttachments = refreshedAttachments) }
+                }
+            }
             val selection = runtimeSelection.value
             val conversationId =
                 selectedConversationId.value
@@ -1107,6 +1124,37 @@ class LlmChatViewModel @Inject constructor(
                 requestTask = requestTask,
             )
             generateAssistant(conversationId)
+        }
+    }
+
+    /**
+     * R07 multi-article citations require the frozen LLM attachment to be the exact document Reader
+     * will render. Older conversations may still contain pre-fix rawDescription snapshots, so refresh
+     * them lazily at the next CHAT request instead of doing network/cache work merely by opening Chat.
+     */
+    private suspend fun refreshAdditionalArticleAttachmentsForRequest(
+        currentArticleId: String,
+    ): List<LlmArticleAttachment>? {
+        val current =
+            normalizedAdditionalArticleAttachments(
+                currentArticleId = currentArticleId,
+                attachments = _uiState.value.additionalArticleAttachments,
+            )
+        if (current.isEmpty()) return emptyList()
+        return buildList(current.size) {
+            current.forEach { attachment ->
+                val snapshot =
+                    articleCandidateRepository.loadArticleSnapshot(attachment.articleId)
+                        ?: return null
+                add(
+                    LlmArticleAttachment(
+                        articleId = snapshot.articleId,
+                        title = snapshot.title,
+                        link = snapshot.link,
+                        originalContent = snapshot.originalContent,
+                    )
+                )
+            }
         }
     }
 

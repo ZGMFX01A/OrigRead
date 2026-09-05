@@ -13,6 +13,46 @@ import org.junit.Test
 
 class LlmCitationUiProjectionTest {
     @Test
+    fun `multi article projection round trip keeps UI number owner and paragraph together`() {
+        val refs = listOf("article-a", "article-b", "article-c").mapIndexed { index, article ->
+            citationRef(id = article, protocolId = "E${index + 1}", displayOrder = index + 1,
+                articleId = article, stableLocatorKey = "shared-key")
+        }
+        // Persisted numbering differs from appearance order; never navigate by stored order alone.
+        val content = "Article C [[E3]].\n\nArticle A [[E1]].\n\nArticle B [[E2]]."
+        val display = projectLlmAssistantCitationDisplay("assistant-1", content, refs)
+        val layer = buildLlmReaderMarkerSnapshot("article-owner", "conversation-1", "assistant-1", refs, content)!!
+        listOf("article-c", "article-a", "article-b").forEachIndexed { index, article ->
+            val target = layer.navigationTargetFor(article, index + 1)!!
+            assertEquals("article-owner", target.ownerArticleId)
+            assertEquals("conversation-1", target.conversationId)
+            assertEquals(article, target.citationId)
+            assertEquals(listOf(index + 1), layer.displayOrdersFor(article, "shared-key"))
+            val group = display.groupsByDisplayOrder.values.single { group -> group.refs.any { it.id == target.citationId } }
+            val targetRef = group.refs.single { it.id == target.citationId }
+            assertEquals(index, citationProtocolBlockIndex(content, targetRef.protocolId))
+            assertEquals(article, group.directNavigationRefOrNull()?.locatorSnapshot?.articleId)
+        }
+    }
+
+    @Test
+    fun `return block mapping follows stable protocol token rather than visible bracket text`() {
+        val ref = citationRef(id = "citation-2", protocolId = "E2", displayOrder = 2)
+        val content =
+            "```\n[[E2]]\n```\n\n`[1]` and [1](https://example.com).\n\n- Actual finding [[E2]].\n\nAgain [1]."
+        assertEquals(2, citationProtocolBlockIndex(content, ref.protocolId))
+
+        val tableRef = citationRef(id = "citation-3", protocolId = "E3", displayOrder = 3)
+        assertEquals(
+            0,
+            citationProtocolBlockIndex(
+                "| Source | Finding |\n|---|---|\n| B | Fact [[E3]] |",
+                tableRef.protocolId,
+            ),
+        )
+    }
+
+    @Test
     fun `completed ui numbering follows visible groups instead of raw E number`() {
         val refs =
             listOf(

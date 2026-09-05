@@ -350,6 +350,8 @@ internal fun AiMarkdown(
     inlineTokenLinkResolver: ((String) -> String?)? = null,
     /** 可选 Debug 性能回调；只上报输入字符数与 parse 耗时，不暴露 Markdown 正文。 */
     onParseMeasured: ((markdownChars: Int, durationNanos: Long) -> Unit)? = null,
+    /** Optional block placement/decoration for navigation within a long answer. */
+    blockModifier: ((Int, AiMarkdownBlock) -> Modifier)? = null,
 ) {
     val parseResult =
         remember(markdown, hideLeadingSummaryHeading) {
@@ -364,89 +366,94 @@ internal fun AiMarkdown(
     }
     val blocks = parseResult.first
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        blocks.forEach { block ->
-            // LLM edition 可只接管 Math/Mermaid 等重型块；普通摘要继续走轻量原生渲染。
-            if (specialBlockRenderer?.invoke(block) == true) return@forEach
-            when (block) {
-                is AiMarkdownBlock.Heading -> {
-                    Text(
-                        text = markdownInline(block.text, inlineTokenLinkResolver),
-                        style =
-                            when (block.level) {
-                                1 -> MaterialTheme.typography.titleLarge
-                                2 -> MaterialTheme.typography.titleMedium
-                                else -> MaterialTheme.typography.titleSmall
-                            },
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(top = if (block.level <= 2) 6.dp else 2.dp),
-                    )
-                }
-                is AiMarkdownBlock.Paragraph ->
-                    Text(
-                        text = markdownInline(block.text, inlineTokenLinkResolver),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                is AiMarkdownBlock.Bullet ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.Top,
-                    ) {
-                        Text(
-                            text = block.orderedIndex?.let { "$it." } ?: "•",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.width(28.dp),
-                        )
-                        val leadingBold = splitLeadingBoldBullet(block.text)
-                        if (leadingBold != null) {
-                            // AI 常用“**结论标题。** 解释”格式；标题独立成段后再换行说明，
-                            // 阅读层级更接近结构化摘要而不是一整行连续正文。
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
-                            ) {
-                                Text(
-                                    text = markdownInline(leadingBold.first, inlineTokenLinkResolver),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
-                                if (leadingBold.second.isNotBlank()) {
-                                    Text(
-                                        text = markdownInline(leadingBold.second, inlineTokenLinkResolver),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                    )
-                                }
-                            }
-                        } else {
+        blocks.forEachIndexed { index, block ->
+            val content: @Composable () -> Unit = {
+                // LLM edition 可只接管 Math/Mermaid 等重型块；普通摘要继续走轻量原生渲染。
+                if (specialBlockRenderer?.invoke(block) != true) {
+                    when (block) {
+                        is AiMarkdownBlock.Heading -> {
+                            Text(
+                                text = markdownInline(block.text, inlineTokenLinkResolver),
+                                style =
+                                    when (block.level) {
+                                        1 -> MaterialTheme.typography.titleLarge
+                                        2 -> MaterialTheme.typography.titleMedium
+                                        else -> MaterialTheme.typography.titleSmall
+                                    },
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(top = if (block.level <= 2) 6.dp else 2.dp),
+                            )
+                        }
+                        is AiMarkdownBlock.Paragraph ->
                             Text(
                                 text = markdownInline(block.text, inlineTokenLinkResolver),
                                 style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.weight(1f),
                             )
-                        }
+                        is AiMarkdownBlock.Bullet ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.Top,
+                            ) {
+                                Text(
+                                    text = block.orderedIndex?.let { "$it." } ?: "•",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.width(28.dp),
+                                )
+                                val leadingBold = splitLeadingBoldBullet(block.text)
+                                if (leadingBold != null) {
+                                    // AI 常用“**结论标题。** 解释”格式；标题独立成段后再换行说明，
+                                    // 阅读层级更接近结构化摘要而不是一整行连续正文。
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                                    ) {
+                                        Text(
+                                            text = markdownInline(leadingBold.first, inlineTokenLinkResolver),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                        if (leadingBold.second.isNotBlank()) {
+                                            Text(
+                                                text = markdownInline(leadingBold.second, inlineTokenLinkResolver),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    Text(
+                                        text = markdownInline(block.text, inlineTokenLinkResolver),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                            }
+                        is AiMarkdownBlock.Quote ->
+                            Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+                                Box(
+                                    modifier =
+                                        Modifier.width(3.dp)
+                                            .fillMaxHeight()
+                                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.55f))
+                                )
+                                Text(
+                                    text = markdownInline(block.text, inlineTokenLinkResolver),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontStyle = FontStyle.Italic,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(start = 10.dp),
+                                )
+                            }
+                        is AiMarkdownBlock.Code -> AiMarkdownCodeBlock(block)
+                        is AiMarkdownBlock.Table -> AiMarkdownTable(block, inlineTokenLinkResolver)
+                        is AiMarkdownBlock.Math -> AiMarkdownMathFallback(block)
+                        is AiMarkdownBlock.Mermaid -> AiMarkdownMermaidFallback(block)
+                        AiMarkdownBlock.Divider -> HorizontalDivider()
                     }
-                is AiMarkdownBlock.Quote ->
-                    Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
-                        Box(
-                            modifier =
-                                Modifier.width(3.dp)
-                                    .fillMaxHeight()
-                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.55f))
-                        )
-                        Text(
-                            text = markdownInline(block.text, inlineTokenLinkResolver),
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontStyle = FontStyle.Italic,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(start = 10.dp),
-                        )
-                    }
-                is AiMarkdownBlock.Code -> AiMarkdownCodeBlock(block)
-                is AiMarkdownBlock.Table -> AiMarkdownTable(block, inlineTokenLinkResolver)
-                is AiMarkdownBlock.Math -> AiMarkdownMathFallback(block)
-                is AiMarkdownBlock.Mermaid -> AiMarkdownMermaidFallback(block)
-                AiMarkdownBlock.Divider -> HorizontalDivider()
+                }
             }
+            if (blockModifier == null) content()
+            else Box(modifier = blockModifier(index, block)) { content() }
         }
     }
 }

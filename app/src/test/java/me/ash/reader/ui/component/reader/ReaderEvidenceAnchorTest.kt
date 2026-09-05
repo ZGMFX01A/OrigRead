@@ -244,13 +244,6 @@ class ReaderEvidenceAnchorTest {
     }
 
     @Test
-    fun `far navigation approaches target while nearby navigation stays smooth`() {
-        assertNull(nativeReaderApproachIndex(currentIndex = 10, targetIndex = 20, visibleItemCount = 5))
-        assertEquals(90, nativeReaderApproachIndex(currentIndex = 0, targetIndex = 100, visibleItemCount = 5))
-        assertEquals(20, nativeReaderApproachIndex(currentIndex = 100, targetIndex = 10, visibleItemCount = 5))
-    }
-
-    @Test
     fun `native citation placement centers target inside readable viewport`() {
         assertEquals(
             -550,

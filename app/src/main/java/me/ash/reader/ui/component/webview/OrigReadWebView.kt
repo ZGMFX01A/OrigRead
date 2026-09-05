@@ -2,8 +2,6 @@ package me.ash.reader.ui.component.webview
 
 import android.util.Log
 import android.webkit.WebView
-import androidx.compose.animation.core.AnimationVector1D
-import androidx.compose.animation.core.VectorConverter
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -90,19 +88,7 @@ fun OrigReadWebView(
         MaterialTheme.colorScheme.onSecondaryContainer.toArgb().toWebCssColor()
     val citationMarkerBackgroundCss =
         MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f).toArgb().toWebCssColor()
-    val citationHighlightSpec = MaterialTheme.motionScheme.slowEffectsSpec<Float>()
-    val citationHighlightDurationMillis =
-        remember(citationHighlightSpec) {
-            citationHighlightSpec
-                .vectorize(Float.VectorConverter)
-                .getDurationNanos(
-                    AnimationVector1D(0f),
-                    AnimationVector1D(1f),
-                    AnimationVector1D(0f),
-                )
-                .div(1_000_000L)
-                .coerceAtLeast(1L)
-        }
+    val citationHighlightDurationMillis = me.ash.reader.ui.component.reader.CitationMotion.HighlightMillis
 
     val fontPath =
         if (readingFonts is ReadingFontsPreference.External)

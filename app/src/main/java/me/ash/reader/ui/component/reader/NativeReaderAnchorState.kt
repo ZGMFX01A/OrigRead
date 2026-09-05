@@ -5,7 +5,6 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import kotlin.math.abs
 
 data class ReaderTextAnchorRange(
     val stableLocatorKey: String,
@@ -202,36 +201,25 @@ class NativeReaderAnchorState {
                 NativeReaderAnchorUnavailableReason.RENDER_ITEM_NOT_FOUND
             )
 
-        val visibleItemCount = current.listState.layoutInfo.visibleItemsInfo.size.coerceAtLeast(1)
-        nativeReaderApproachIndex(
-            currentIndex = current.listState.firstVisibleItemIndex,
-            targetIndex = placement.itemIndex,
-            visibleItemCount = visibleItemCount,
-        )?.let { approachIndex ->
-            current.listState.scrollToItem(approachIndex)
+        current.listState.animateCitationScrollToItem(placement.itemIndex) { layoutInfo ->
+            val estimatedTargetSize =
+                layoutInfo.visibleItemsInfo
+                    .firstOrNull { it.index == placement.itemIndex }
+                    ?.size
+                    ?: layoutInfo.visibleItemsInfo
+                        .map { it.size }
+                        .filter { it > 0 }
+                        .average()
+                        .takeIf { !it.isNaN() }
+                        ?.toInt()
+                    ?: 0
+            nativeReaderCenteredScrollOffset(
+                viewportStartOffset = layoutInfo.viewportStartOffset,
+                viewportEndOffset = layoutInfo.viewportEndOffset,
+                topInsetPx = current.topInsetPx,
+                estimatedItemSizePx = estimatedTargetSize,
+            )
         }
-        val layoutInfo = current.listState.layoutInfo
-        val estimatedTargetSize =
-            layoutInfo.visibleItemsInfo
-                .firstOrNull { it.index == placement.itemIndex }
-                ?.size
-                ?: layoutInfo.visibleItemsInfo
-                    .map { it.size }
-                    .filter { it > 0 }
-                    .average()
-                    .takeIf { !it.isNaN() }
-                    ?.toInt()
-                ?: 0
-        current.listState.animateScrollToItem(
-            index = placement.itemIndex,
-            scrollOffset =
-                nativeReaderCenteredScrollOffset(
-                    viewportStartOffset = layoutInfo.viewportStartOffset,
-                    viewportEndOffset = layoutInfo.viewportEndOffset,
-                    topInsetPx = current.topInsetPx,
-                    estimatedItemSizePx = estimatedTargetSize,
-                ),
-        )
         highlightRevision += 1
         highlight =
             NativeReaderAnchorHighlight(
@@ -258,20 +246,4 @@ internal fun nativeReaderCenteredScrollOffset(
     val itemSize = estimatedItemSizePx.coerceIn(0, readableHeight)
     val distanceFromViewportStart = safeTopInset + ((readableHeight - itemSize) / 2)
     return -distanceFromViewportStart
-}
-
-internal fun nativeReaderApproachIndex(
-    currentIndex: Int,
-    targetIndex: Int,
-    visibleItemCount: Int,
-): Int? {
-    val viewportItems = visibleItemCount.coerceAtLeast(1)
-    val distance = targetIndex - currentIndex
-    if (abs(distance) <= viewportItems * 3) return null
-    val approachDistance = viewportItems * 2
-    return if (distance > 0) {
-        (targetIndex - approachDistance).coerceAtLeast(0)
-    } else {
-        targetIndex + approachDistance
-    }
 }

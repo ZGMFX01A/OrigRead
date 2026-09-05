@@ -898,12 +898,12 @@ private fun AnnotatedString.withReaderEvidenceHighlight(
     if (matchingRanges.isEmpty()) return this
 
     val intensity = remember(targetKey) { Animatable(0f) }
-    val highlightInSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
-    val highlightOutSpec = MaterialTheme.motionScheme.slowEffectsSpec<Float>()
+    val highlightInSpec = androidx.compose.animation.core.tween<Float>(CitationMotion.FadeInMillis)
+    val highlightOutSpec = androidx.compose.animation.core.tween<Float>(CitationMotion.FadeOutMillis)
     LaunchedEffect(highlight.revision, matchingRanges) {
         intensity.snapTo(0f)
         intensity.animateTo(1f, animationSpec = highlightInSpec)
-        delay(180)
+        delay(CitationMotion.HoldMillis)
         intensity.animateTo(0f, animationSpec = highlightOutSpec)
     }
 

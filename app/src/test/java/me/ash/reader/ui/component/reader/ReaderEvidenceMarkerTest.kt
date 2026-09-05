@@ -5,6 +5,34 @@ import org.junit.Test
 
 class ReaderEvidenceMarkerTest {
     @Test
+    fun `recreation preserves cross article owner and all physical targets`() {
+        val state = ReaderEvidenceMarkerState().apply {
+            show(ReaderEvidenceMarkerSnapshot(
+                ownerArticleId = "article-a", conversationId = "conversation-a", assistantMessageId = "answer-a",
+                markers = listOf(
+                    ReaderEvidenceMarker("a", "same-key", 1, "article-a"),
+                    ReaderEvidenceMarker("b", "same-key", 2, "article-b"),
+                    ReaderEvidenceMarker("c", "same-key", 3, "article-c"),
+                ),
+            ))
+        }
+        val saved = with(ReaderEvidenceMarkerState.Saver) {
+            androidx.compose.runtime.saveable.SaverScope { true }.save(state)
+        }
+        val restored = requireNotNull(ReaderEvidenceMarkerState.Saver.restore(requireNotNull(saved))).snapshot!!
+        assertEquals(state.snapshot, restored)
+        assertEquals(ReaderEvidenceMarkerLayerOrigin.INTERACTION, restored.origin)
+        for ((index, articleId) in listOf("article-a", "article-b", "article-c").withIndex()) {
+            assertEquals(listOf(index + 1), restored.displayOrdersFor(articleId, "same-key"))
+            val target = restored.navigationTargetFor(articleId, index + 1)!!
+            assertEquals("article-a", target.ownerArticleId)
+            assertEquals("conversation-a", target.conversationId)
+            assertEquals("answer-a", target.assistantMessageId)
+            assertEquals(articleId, target.originArticleId)
+        }
+    }
+
+    @Test
     fun `merged lazy item inserts markers at each evidence block end`() {
         val snapshot =
             ReaderEvidenceMarkerSnapshot(
@@ -86,9 +114,14 @@ class ReaderEvidenceMarkerTest {
                 assistantMessageId = "assistant-100",
                 citationId = "citation-b",
                 displayOrder = 2,
+                originArticleId = "article-b",
             ),
             snapshot.navigationTargetFor("article-b", 2),
         )
+        val target = requireNotNull(snapshot.navigationTargetFor("article-b", 2))
+        assertEquals(false, target.shouldInvalidateForArticle("article-b"))
+        assertEquals(false, target.shouldInvalidateForArticle("article-a"))
+        assertEquals(true, target.shouldInvalidateForArticle("article-c"))
         assertEquals(null, snapshot.navigationTargetFor("article-a", 2))
     }
 

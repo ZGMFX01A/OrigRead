@@ -10,6 +10,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import me.ash.reader.ui.component.reader.CitationMotion
 
 class WebViewReaderAnchorTest {
     @Test
@@ -125,11 +126,17 @@ class WebViewReaderAnchorTest {
             )
 
         assertTrue(script.contains("CSS.escape(key)"))
-        assertTrue(script.contains("scrollIntoView"))
-        assertTrue(script.contains("waitForScrollSettle"))
-        assertTrue(script.contains("settledFrames >= 2"))
-        assertTrue(script.contains("elapsed >= 1200"))
-        assertTrue(script.indexOf("scrollIntoView") < script.indexOf("requestAnimationFrame(waitForScrollSettle)"))
+        assertTrue(script.contains("window.scrollTo"))
+        assertTrue(script.contains("requestAnimationFrame(scrollFrame)"))
+        assertTrue(
+            script.contains(
+                "scrollDuration = reducedMotion ? 0 : ${CitationMotion.ScrollMillis}"
+            )
+        )
+        assertTrue(script.contains("if (progress >= 1)"))
+        assertTrue(script.contains("requestAnimationFrame(settleAndPulse)"))
+        assertTrue(script.contains("Math.abs(correction) > 2"))
+        assertTrue(script.contains("document.__origreadCitationNavigation !== pulseId"))
         assertTrue(script.contains("node.animate"))
         assertTrue(script.contains("duration: 420"))
         assertTrue(script.contains("key\\\"\\\\\\n</script>"))

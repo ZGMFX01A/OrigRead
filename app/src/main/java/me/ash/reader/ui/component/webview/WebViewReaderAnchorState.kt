@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import java.util.concurrent.atomic.AtomicLong
 import me.ash.reader.ui.component.reader.ReaderEvidenceAnchorTarget
+import me.ash.reader.ui.component.reader.CitationMotion
 import me.ash.reader.ui.component.reader.ReaderEvidenceDocument
 import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerSnapshot
 import me.ash.reader.ui.component.reader.READER_EVIDENCE_MARKER_SELECTION_SENTINEL
@@ -281,43 +282,52 @@ internal fun buildWebViewReaderAnchorScript(
           const node = document.querySelector('[data-origread-block-id="' + CSS.escape(key) + '"]');
           if (!node) return '$WEBVIEW_ANCHOR_JS_MISSING';
           const pulseId = $pulseId;
-          node.__origreadCitationPulse = pulseId;
-          let started = false;
+          document.__origreadCitationNavigation = pulseId;
+          if (document.__origreadCitationAnimation) document.__origreadCitationAnimation.cancel();
           const pulse = function() {
-            if (started || node.__origreadCitationPulse !== pulseId) return;
-            started = true;
-            if (node.__origreadCitationAnimation) node.__origreadCitationAnimation.cancel();
-            node.__origreadCitationAnimation = node.animate(
+            if (document.__origreadCitationNavigation !== pulseId) return;
+            document.__origreadCitationAnimation = node.animate(
               [
                 { backgroundColor: 'transparent' },
-                { backgroundColor: $color, offset: 0.28 },
+                { backgroundColor: $color, offset: ${CitationMotion.FadeInMillis.toDouble() / CitationMotion.HighlightMillis} },
+                { backgroundColor: $color, offset: ${(CitationMotion.FadeInMillis + CitationMotion.HoldMillis).toDouble() / CitationMotion.HighlightMillis} },
                 { backgroundColor: 'transparent' }
               ],
-              { duration: $duration, easing: 'ease-out' }
+              { duration: $duration, easing: 'linear' }
             );
           };
-          node.scrollIntoView({behavior: 'smooth', block: 'center', inline: 'nearest'});
-          const startedAt = Date.now();
-          let lastTop = null;
-          let settledFrames = 0;
-          const waitForScrollSettle = function(now) {
-            if (started || node.__origreadCitationPulse !== pulseId) return;
+          const startY = window.scrollY;
+          const startedAt = performance.now();
+          const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+          const scrollDuration = reducedMotion ? 0 : ${CitationMotion.ScrollMillis};
+          const settleAndPulse = function() {
+            if (document.__origreadCitationNavigation !== pulseId) return;
             const rect = node.getBoundingClientRect();
-            const center = (rect.top + rect.bottom) / 2;
-            const viewportCenter = window.innerHeight / 2;
-            const centerTolerance = Math.max(36, window.innerHeight * 0.12);
-            const centered = Math.abs(center - viewportCenter) <= centerTolerance;
-            const stable = lastTop !== null && Math.abs(rect.top - lastTop) < 1.5;
-            settledFrames = centered && stable ? settledFrames + 1 : 0;
-            lastTop = rect.top;
-            const elapsed = Date.now() - startedAt;
-            if (settledFrames >= 2 || elapsed >= 1200) {
-              pulse();
+            const readableSize = Math.min(rect.height, window.innerHeight);
+            const desiredTop = (window.innerHeight - readableSize) / 2;
+            const correction = rect.top - desiredTop;
+            if (Math.abs(correction) > 2) {
+              const maxY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+              window.scrollTo({top: Math.max(0, Math.min(maxY, window.scrollY + correction)), behavior: 'instant'});
+            }
+            requestAnimationFrame(pulse);
+          };
+          const scrollFrame = function(now) {
+            if (document.__origreadCitationNavigation !== pulseId) return;
+            const rect = node.getBoundingClientRect();
+            const readableSize = Math.min(rect.height, window.innerHeight);
+            const maxY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+            const targetY = Math.max(0, Math.min(maxY, window.scrollY + rect.top - (window.innerHeight - readableSize) / 2));
+            const progress = scrollDuration === 0 ? 1 : Math.min(1, (now - startedAt) / scrollDuration);
+            const eased = progress * progress * (3 - 2 * progress);
+            window.scrollTo({top: startY + (targetY - startY) * eased, behavior: 'instant'});
+            if (progress >= 1) {
+              requestAnimationFrame(settleAndPulse);
               return;
             }
-            requestAnimationFrame(waitForScrollSettle);
+            requestAnimationFrame(scrollFrame);
           };
-          requestAnimationFrame(waitForScrollSettle);
+          requestAnimationFrame(scrollFrame);
           return '$WEBVIEW_ANCHOR_JS_LOCATED';
         })()
     """.trimIndent()

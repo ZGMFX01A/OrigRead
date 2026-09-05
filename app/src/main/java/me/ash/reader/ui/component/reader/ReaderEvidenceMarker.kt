@@ -4,6 +4,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.listSaver
 
 data class ReaderEvidenceMarker(
     val citationId: String,
@@ -24,6 +25,7 @@ data class ReaderEvidenceMarkerNavigationTarget(
     val assistantMessageId: String,
     val citationId: String,
     val displayOrder: Int,
+    val originArticleId: String? = null,
 ) {
     init {
         require(ownerArticleId.isNotBlank()) { "Reader marker owner article id must not be blank" }
@@ -31,6 +33,16 @@ data class ReaderEvidenceMarkerNavigationTarget(
         require(assistantMessageId.isNotBlank()) { "Reader marker assistant message id must not be blank" }
         require(citationId.isNotBlank()) { "Reader marker citation id must not be blank" }
         require(displayOrder > 0) { "Reader marker display order must be positive" }
+    }
+
+    fun isOwnerArticle(currentArticleId: String?): Boolean =
+        currentArticleId?.trim()?.ifBlank { null } == ownerArticleId.trim()
+
+    fun shouldInvalidateForArticle(currentArticleId: String?): Boolean {
+        val current = currentArticleId?.trim()?.ifBlank { null } ?: return false
+        val owner = ownerArticleId.trim()
+        val origin = originArticleId?.trim()?.ifBlank { null }
+        return current != owner && current != origin
     }
 }
 
@@ -85,12 +97,42 @@ data class ReaderEvidenceMarkerSnapshot(
             assistantMessageId = assistantMessageId,
             citationId = marker.citationId,
             displayOrder = marker.displayOrder,
+            originArticleId = normalizedArticleId,
         )
     }
 }
 
 @Stable
 class ReaderEvidenceMarkerState {
+    companion object {
+        /** Preserve the owner and targets across recreation, including a completed A -> B jump. */
+        val Saver = listSaver<ReaderEvidenceMarkerState, String>(
+            save = { state ->
+                state.snapshot?.let { layer ->
+                    listOf(layer.ownerArticleId, layer.conversationId, layer.assistantMessageId, layer.origin.name) +
+                        layer.markers.flatMap { marker ->
+                            listOf(marker.citationId, marker.stableLocatorKey, marker.displayOrder.toString(), marker.articleId.orEmpty())
+                        }
+                }.orEmpty()
+            },
+            restore = { saved ->
+                ReaderEvidenceMarkerState().apply {
+                    if (saved.size >= 4 && (saved.size - 4) % 4 == 0) {
+                        show(runCatching {
+                            ReaderEvidenceMarkerSnapshot(
+                                ownerArticleId = saved[0], conversationId = saved[1], assistantMessageId = saved[2],
+                                origin = ReaderEvidenceMarkerLayerOrigin.valueOf(saved[3]),
+                                markers = saved.drop(4).chunked(4).map {
+                                    ReaderEvidenceMarker(it[0], it[1], it[2].toInt(), it[3].ifBlank { null })
+                                },
+                            )
+                        }.getOrNull())
+                    }
+                }
+            },
+        )
+    }
+
     var snapshot: ReaderEvidenceMarkerSnapshot? by mutableStateOf(null)
         private set
 

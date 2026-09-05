@@ -6,7 +6,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
@@ -27,6 +37,8 @@ import me.ash.reader.llm.chat.data.LLM_EVIDENCE_CITATION_ENABLED
 import me.ash.reader.ui.page.home.reading.AiMarkdown
 import me.ash.reader.ui.page.home.reading.AiMarkdownBlock
 import me.ash.reader.ui.page.home.reading.AiMarkdownSpecialBlockCard
+import me.ash.reader.ui.component.reader.CitationMotion
+import kotlinx.coroutines.delay
 
 /**
  * LLM 对话专用富 Markdown 入口。
@@ -42,7 +54,21 @@ internal fun LlmRichMarkdown(
     onCitationClick: (Int) -> Unit = {},
     citationFeatureEnabled: Boolean = LLM_EVIDENCE_CITATION_ENABLED,
     perfMessageId: String? = null,
+    citationReturnDisplayOrder: Int? = null,
+    citationReturnBlockIndex: Int? = null,
+    citationReturnHighlighted: Boolean = false,
+    onCitationParagraphPositioned: ((Rect) -> Unit)? = null,
 ) {
+    val intensity = remember(citationReturnDisplayOrder) { Animatable(0f) }
+    LaunchedEffect(citationReturnDisplayOrder, citationReturnHighlighted) {
+        intensity.snapTo(0f)
+        if (citationReturnHighlighted) {
+            intensity.animateTo(1f, tween(CitationMotion.FadeInMillis))
+            delay(CitationMotion.HoldMillis)
+            intensity.animateTo(0f, tween(CitationMotion.FadeOutMillis))
+        }
+    }
+    val highlightColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.64f * intensity.value)
     val parentUriHandler = LocalUriHandler.current
     val citationUriHandler =
         object : UriHandler {
@@ -63,6 +89,17 @@ internal fun LlmRichMarkdown(
         AiMarkdown(
             markdown = markdown,
             modifier = modifier,
+            blockModifier = if (citationReturnBlockIndex == null) null else { index, _ ->
+                if (index != citationReturnBlockIndex) Modifier
+                else Modifier.fillMaxWidth()
+                    .background(highlightColor, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                    .onGloballyPositioned { coordinates ->
+                        onCitationParagraphPositioned?.invoke(
+                            Rect(coordinates.positionInWindow(), coordinates.size.toSize())
+                        )
+                    }
+            },
             inlineTokenLinkResolver = { token ->
                 buildLlmCitationLink(
                     token = token,

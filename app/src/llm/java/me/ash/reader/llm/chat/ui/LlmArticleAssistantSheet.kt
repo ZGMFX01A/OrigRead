@@ -102,6 +102,10 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
@@ -149,6 +153,7 @@ import me.ash.reader.ui.motion.origReadFadeThroughTransform
 import me.ash.reader.ui.motion.origReadVisibilityEnter
 import me.ash.reader.ui.motion.origReadVisibilityExit
 import me.ash.reader.ui.component.reader.PendingCitationNavigation
+import me.ash.reader.ui.component.reader.CitationMotion
 import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerState
 import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerNavigationTarget
 import me.ash.reader.ui.page.adaptive.OrigReadArticleAssistantPresentation
@@ -169,6 +174,12 @@ private enum class AssistantMessageBodyMode {
     Empty,
 }
 
+private data class CitationReturnHighlightState(
+    val assistantMessageId: String,
+    val displayOrder: Int,
+    val blockIndex: Int,
+)
+
 internal fun shouldStopGenerationWhenAssistantCloses(
     continueGenerationInBackground: Boolean,
 ): Boolean = !continueGenerationInBackground
@@ -188,6 +199,7 @@ fun LlmArticleAssistantSheet(
     onOpenArticle: (String) -> Unit = {},
     showQuickSummary: Boolean = false,
     onNavigateReaderCitation: (PendingCitationNavigation) -> Unit = {},
+    onCitationExitAnimationComplete: () -> Unit = {},
     citationReturnTarget: ReaderEvidenceMarkerNavigationTarget? = null,
     onCitationReturnConsumed: () -> Unit = {},
     readerEvidenceMarkerState: ReaderEvidenceMarkerState? = null,
@@ -210,13 +222,62 @@ fun LlmArticleAssistantSheet(
     var contextSourcesAssistantId by remember { mutableStateOf<String?>(null) }
     var webSearchResultsAssistantId by remember { mutableStateOf<String?>(null) }
     var citationInteractionAssistantId by remember { mutableStateOf<String?>(null) }
-    var citationReturnHighlightAssistantId by remember { mutableStateOf<String?>(null) }
+    var citationSheetExitInFlight by remember { mutableStateOf(false) }
+    var citationReturnHighlight by remember { mutableStateOf<CitationReturnHighlightState?>(null) }
+    val citationReturnPlacement = remember(citationReturnTarget) { LlmCitationReturnPlacement() }
+    val citationReturnDisplay = remember(citationReturnTarget, uiState.messages, uiState.citationRefs) {
+        citationReturnTarget?.let { target ->
+            uiState.messages.firstOrNull { it.id == target.assistantMessageId }?.let { message ->
+                projectLlmAssistantCitationDisplay(message.id, message.content, uiState.citationRefs)
+            }
+        }
+    }
+    val citationReturnGroup = citationReturnTarget?.let { target ->
+        citationReturnDisplay?.groupsByDisplayOrder?.values
+            ?.firstOrNull { group -> group.refs.any { it.id == target.citationId } }
+    }
+    val citationReturnDisplayOrder = citationReturnGroup?.displayOrder
+    val citationReturnBlockIndex =
+        remember(citationReturnTarget, citationReturnGroup, uiState.messages) {
+            val target = citationReturnTarget ?: return@remember null
+            val protocolId =
+                citationReturnGroup?.refs?.firstOrNull { it.id == target.citationId }?.protocolId
+                    ?: return@remember null
+            val content =
+                uiState.messages.firstOrNull { it.id == target.assistantMessageId }?.content
+                    ?: return@remember null
+            citationProtocolBlockIndex(content, protocolId)
+        }
     var renameTarget by remember { mutableStateOf<LlmConversationEntity?>(null) }
     var deleteTarget by remember { mutableStateOf<LlmConversationEntity?>(null) }
     var previewMode by rememberSaveable { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
     val canScrollUp by remember { derivedStateOf { listState.canScrollBackward } }
     val canScrollDown by remember { derivedStateOf { listState.canScrollForward } }
+    val dispatchReaderCitation: (PendingCitationNavigation) -> Unit = { request ->
+        if (presentation == OrigReadArticleAssistantPresentation.BottomSheet) {
+            if (sheetState.isVisible) {
+                if (!citationSheetExitInFlight) {
+                    citationSheetExitInFlight = true
+                    onNavigateReaderCitation(request)
+                    coroutineScope.launch {
+                        try {
+                            sheetState.hide()
+                        } finally {
+                            onCitationExitAnimationComplete()
+                        }
+                    }
+                }
+            } else {
+                // There is no visible surface left to animate. ReadingPage still persists/disarms
+                // the request first, so explicitly complete the exit in the same turn.
+                onNavigateReaderCitation(request)
+                onCitationExitAnimationComplete()
+            }
+        } else {
+            onNavigateReaderCitation(request)
+        }
+    }
     val uriHandler = LocalUriHandler.current
     val articleAnalysisPrompt = stringResource(R.string.llm_article_analysis_request)
     val quickSummaryBriefPrompt =
@@ -284,9 +345,11 @@ fun LlmArticleAssistantSheet(
         uiState.currentConversationId,
         uiState.conversations,
         uiState.messages,
+        uiState.citationRefs,
     ) {
         val target = citationReturnTarget ?: return@LaunchedEffect
         if (target.ownerArticleId != articleContext.articleId) return@LaunchedEffect
+        previewMode = false
         if (uiState.currentConversationId != target.conversationId) {
             if (uiState.conversations.any { it.id == target.conversationId }) {
                 viewModel.selectConversation(target.conversationId)
@@ -314,15 +377,33 @@ fun LlmArticleAssistantSheet(
             }
             return@LaunchedEffect
         }
-        listState.animateScrollToItem(messageIndex)
+        // Room refs can arrive after messages. Resolve the current UI number from the stable
+        // citation identity; a stored displayOrder alone can point at a different source.
+        val displayOrder = citationReturnDisplayOrder
+        val blockIndex = citationReturnBlockIndex
+        if (displayOrder == null || blockIndex == null) {
+            if (uiState.citationRefs.any { it.id == target.citationId } ||
+                !viewModel.citationReturnTargetExists(
+                    target.ownerArticleId, target.conversationId, target.assistantMessageId, target.citationId,
+                )
+            ) onCitationReturnConsumed()
+            return@LaunchedEffect
+        }
+        citationReturnHighlight = null
+        listState.scrollToCitationParagraph(messageIndex, target.assistantMessageId, citationReturnPlacement)
         citationInteractionAssistantId = target.assistantMessageId
-        citationReturnHighlightAssistantId = target.assistantMessageId
+        citationReturnHighlight =
+            CitationReturnHighlightState(
+                assistantMessageId = target.assistantMessageId,
+                displayOrder = displayOrder,
+                blockIndex = blockIndex,
+            )
         onCitationReturnConsumed()
-        coroutineScope.launch {
-            delay(1100L)
-            if (citationReturnHighlightAssistantId == target.assistantMessageId) {
-                citationReturnHighlightAssistantId = null
-            }
+    }
+    LaunchedEffect(citationReturnHighlight) {
+        if (citationReturnHighlight != null) {
+            delay(CitationMotion.HighlightMillis)
+            citationReturnHighlight = null
         }
     }
     LaunchedEffect(articleContext.articleId, articleContext.selectedText) {
@@ -342,13 +423,14 @@ fun LlmArticleAssistantSheet(
             viewModel.analyzeArticle(articleAnalysisPrompt)
         }
     }
-    LaunchedEffect(listState, uiState.currentConversationId, uiState.isGenerating) {
+    LaunchedEffect(listState, uiState.currentConversationId, uiState.isGenerating, citationReturnTarget, citationReturnHighlight) {
         // 直接采用 RikkaHub ChatList 的自动跟随模型：
         // 只有“当前本来就在底部 + 列表没有滚动 + 正在生成”时，才在下一次 remeasure 继续锚定到底部。
         snapshotFlow { listState.layoutInfo.visibleItemsInfo }
             .collect { visibleItemsInfo ->
                 if (
                     !listState.isScrollInProgress &&
+                        citationReturnTarget == null && citationReturnHighlight == null &&
                         uiState.isGenerating &&
                         visibleItemsInfo.isAtChatBottom(listState)
                 ) {
@@ -464,7 +546,10 @@ fun LlmArticleAssistantSheet(
                             }
                         Box(modifier = Modifier.fillMaxSize()) {
                             LazyColumn(
-                                modifier = Modifier.fillMaxSize(),
+                                modifier = Modifier.fillMaxSize().onGloballyPositioned { coordinates ->
+                                    citationReturnPlacement.viewportBounds =
+                                        Rect(coordinates.positionInWindow(), coordinates.size.toSize())
+                                },
                                 state = listState,
                                 contentPadding =
                                     PaddingValues(horizontal = 18.dp, vertical = 16.dp),
@@ -478,8 +563,17 @@ fun LlmArticleAssistantSheet(
                                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                         AssistantMessage(
                                             message = message,
-                                            citationReturnHighlighted =
-                                                citationReturnHighlightAssistantId == message.id,
+                                            citationReturnDisplayOrder =
+                                                if (citationReturnTarget?.assistantMessageId == message.id) citationReturnDisplayOrder
+                                                else citationReturnHighlight?.takeIf { it.assistantMessageId == message.id }?.displayOrder,
+                                            citationReturnBlockIndex =
+                                                if (citationReturnTarget?.assistantMessageId == message.id) citationReturnBlockIndex
+                                                else citationReturnHighlight?.takeIf { it.assistantMessageId == message.id }?.blockIndex,
+                                            citationReturnHighlighted = citationReturnHighlight?.assistantMessageId == message.id,
+                                            onCitationParagraphPositioned =
+                                                if (citationReturnTarget?.assistantMessageId == message.id) {
+                                                    { bounds -> citationReturnPlacement.paragraphBounds = bounds }
+                                                } else null,
                                             showReasoning = uiState.showReasoning,
                                             contextRefs = messageContextRefs,
                                             citationRefs = messageCitationRefs,
@@ -506,7 +600,7 @@ fun LlmArticleAssistantSheet(
                                                             contextSourcesAssistantId = message.id
                                                         } else {
                                                             uiState.currentConversationId?.let { conversationId ->
-                                                                onNavigateReaderCitation(
+                                                                dispatchReaderCitation(
                                                                     PendingCitationNavigation(
                                                                         conversationId = conversationId,
                                                                         assistantMessageId = message.id,
@@ -1273,6 +1367,9 @@ private fun ScrollJumpButton(
 private fun AssistantMessage(
     message: LlmMessageEntity,
     citationReturnHighlighted: Boolean = false,
+    citationReturnDisplayOrder: Int? = null,
+    citationReturnBlockIndex: Int? = null,
+    onCitationParagraphPositioned: ((Rect) -> Unit)? = null,
     showReasoning: Boolean,
     contextRefs: List<LlmContextRefEntity>,
     citationRefs: List<LlmCitationRefEntity>,
@@ -1345,20 +1442,8 @@ private fun AssistantMessage(
         ) {
             projectWebSearchMessage(message, contextRefs)
         }
-    val citationReturnColor by
-        animateColorAsState(
-            targetValue =
-                if (citationReturnHighlighted) {
-                    MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.52f)
-                } else {
-                    Color.Transparent
-                },
-            label = "citation_return_message_highlight",
-        )
     Column(
-        modifier =
-            Modifier.fillMaxWidth()
-                .background(citationReturnColor, RoundedCornerShape(12.dp))
+        modifier = Modifier.fillMaxWidth()
     ) {
         Text(
             text = stringResource(R.string.llm_assistant_name),
@@ -1405,6 +1490,10 @@ private fun AssistantMessage(
                             citationDisplay.groupsByDisplayOrder[displayOrder]?.let(onCitationClick)
                         },
                         perfMessageId = message.id,
+                        citationReturnDisplayOrder = citationReturnDisplayOrder,
+                        citationReturnBlockIndex = citationReturnBlockIndex,
+                        citationReturnHighlighted = citationReturnHighlighted,
+                        onCitationParagraphPositioned = onCitationParagraphPositioned,
                     )
                 AssistantMessageBodyMode.Generating ->
                     Row(verticalAlignment = Alignment.CenterVertically) {

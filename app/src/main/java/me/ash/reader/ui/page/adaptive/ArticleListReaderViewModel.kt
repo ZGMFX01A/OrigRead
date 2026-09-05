@@ -31,7 +31,6 @@ import me.ash.reader.domain.data.ArticlePagingListUseCase
 import me.ash.reader.domain.data.DiffMapHolder
 import me.ash.reader.domain.data.FilterState
 import me.ash.reader.domain.data.FilterStateUseCase
-import me.ash.reader.domain.model.feed.SourceType
 import me.ash.reader.domain.data.GroupWithFeedsListUseCase
 import me.ash.reader.domain.data.PagerData
 import me.ash.reader.domain.model.article.Article
@@ -60,7 +59,7 @@ import me.ash.reader.infrastructure.di.ApplicationScope
 import me.ash.reader.infrastructure.di.IODispatcher
 import me.ash.reader.infrastructure.preference.PullToLoadNextFeedPreference
 import me.ash.reader.infrastructure.preference.SettingsProvider
-import me.ash.reader.infrastructure.rss.EmbeddedRssContentPolicy
+import me.ash.reader.infrastructure.rss.ReaderContentPolicy
 import me.ash.reader.infrastructure.rss.ReaderCacheHelper
 import me.ash.reader.infrastructure.content.FullContentFailureClassifier
 import me.ash.reader.infrastructure.content.FullContentFailureReason
@@ -412,23 +411,14 @@ constructor(
 
     suspend fun ReaderState.renderContent(articleWithFeed: ArticleWithFeed): ReaderState {
         val embeddedFullContent =
-            articleWithFeed.article.rawDescription.takeIf {
-                articleWithFeed.feed.sourceType == SourceType.RSS &&
-                    EmbeddedRssContentPolicy.shouldUseAsFullContent(
-                        link = articleWithFeed.article.link,
-                        html = it,
-                    )
-            }
+            ReaderContentPolicy.embeddedFullContent(articleWithFeed.article, articleWithFeed.feed)
         val contentState =
             // WEBSITE 来源的列表只保存标题和链接，必须始终读取网页正文，不能切回空摘要。
             if (embeddedFullContent != null) {
                 // Wechat2RSS 等来源已经在 content:encoded 中给出完整公众号正文。
                 // 直接进入 FullContent，避免无意义访问微信原网页并触发安全验证。
                 ReaderState.FullContent(embeddedFullContent)
-            } else if (
-                articleWithFeed.feed.sourceType == SourceType.WEBSITE ||
-                    articleWithFeed.feed.isFullContent
-            ) {
+            } else if (ReaderContentPolicy.requiresFetchedFullContent(articleWithFeed.feed)) {
                 val fullContent =
                     readerCacheHelper.readFullContent(articleWithFeed.article.id).getOrNull()
                 if (fullContent != null) ReaderState.FullContent(fullContent)
@@ -455,12 +445,8 @@ constructor(
         resetTranslation()
         resetAiSummary()
         val article = currentArticle ?: return
-        if (
-            EmbeddedRssContentPolicy.shouldUseAsFullContent(
-                link = article.link,
-                html = article.rawDescription,
-            )
-        ) {
+        val feed = currentFeed
+        if (feed != null && ReaderContentPolicy.embeddedFullContent(article, feed) != null) {
             // 用户手动切换到“全文”时同样优先使用 RSS 已携带的公众号全文，
             // 不再因为按钮操作重新访问 mp.weixin.qq.com。
             _readerState.update {

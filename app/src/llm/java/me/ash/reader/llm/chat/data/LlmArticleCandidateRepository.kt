@@ -5,9 +5,13 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
+import me.ash.reader.domain.model.article.ArticleWithFeed
 import me.ash.reader.domain.service.AccountService
+import me.ash.reader.domain.service.RssService
 import me.ash.reader.infrastructure.db.AndroidDatabase
 import me.ash.reader.infrastructure.di.IODispatcher
+import me.ash.reader.infrastructure.rss.ReaderContentPolicy
+import me.ash.reader.infrastructure.rss.ReaderCacheHelper
 
 /** 多文章选择器中的一条本地文章候选；正文只在用户明确附加后进入 LLM Context。 */
 data class LlmArticleCandidate(
@@ -37,6 +41,8 @@ data class LlmArticleCandidateSnapshot(
 class LlmArticleCandidateRepository @Inject constructor(
     private val readerDatabase: AndroidDatabase,
     private val accountService: AccountService,
+    private val rssService: RssService,
+    private val readerCacheHelper: ReaderCacheHelper,
     @IODispatcher private val ioDispatcher: CoroutineDispatcher,
 ) {
     /** 最近文章用于打开选择器时快速给出候选；当前主文章会在 SQL 层排除。 */
@@ -68,25 +74,21 @@ class LlmArticleCandidateRepository @Inject constructor(
             val accountId = accountService.getCurrentAccountId()
             val normalizedId = articleId.trim()
             if (normalizedId.isBlank()) return@withContext null
-            val query =
-                SimpleSQLiteQuery(
-                    "SELECT id AS article_id, title AS article_title, link AS article_link, " +
-                        "rawDescription AS original_content FROM article " +
-                        "WHERE accountId = ? AND id = ? AND TRIM(rawDescription) != '' LIMIT 1",
-                    arrayOf<Any?>(accountId, normalizedId),
-                )
-            readerDatabase.openHelper.readableDatabase.query(query).use { cursor ->
-                if (!cursor.moveToFirst()) return@withContext null
-                val linkColumn = cursor.getColumnIndexOrThrow("article_link")
-                LlmArticleCandidateSnapshot(
-                    articleId = cursor.getString(cursor.getColumnIndexOrThrow("article_id")),
-                    title = cursor.getString(cursor.getColumnIndexOrThrow("article_title")).orEmpty(),
-                    link =
-                        if (cursor.isNull(linkColumn)) null
-                        else cursor.getString(linkColumn)?.trim()?.takeIf(String::isNotBlank),
-                    originalContent = cursor.getString(cursor.getColumnIndexOrThrow("original_content")).orEmpty(),
-                )
-            }
+
+            val articleWithFeed = rssService.get().findArticleById(normalizedId) ?: return@withContext null
+            val article = articleWithFeed.article
+            if (article.accountId != accountId) return@withContext null
+
+            val readerContent =
+                resolveRelatedArticleReaderContent(articleWithFeed, readerCacheHelper)
+                    ?: return@withContext null
+
+            LlmArticleCandidateSnapshot(
+                articleId = article.id,
+                title = article.title,
+                link = article.link.trim().takeIf(String::isNotBlank),
+                originalContent = readerContent,
+            )
         }
 
     private suspend fun queryArticles(
@@ -105,7 +107,7 @@ class LlmArticleCandidateRepository @Inject constructor(
                             "f.name AS feed_name, a.date AS published_at " +
                             "FROM article AS a INNER JOIN feed AS f ON f.id = a.feedId " +
                             "WHERE a.accountId = ? AND a.id != ? " +
-                            "AND TRIM(a.rawDescription) != '' "
+                            "AND (TRIM(a.rawDescription) != '' OR f.sourceType = 'WEBSITE' OR f.isFullContent = 1) "
                     )
                     if (search != null) append("AND a.title LIKE ? ESCAPE '\\' COLLATE NOCASE ")
                     append("ORDER BY a.date DESC LIMIT ?")
@@ -149,4 +151,22 @@ class LlmArticleCandidateRepository @Inject constructor(
         const val DEFAULT_SEARCH_LIMIT = 40
         const val MAX_RESULT_LIMIT = 80
     }
+}
+
+internal suspend fun resolveRelatedArticleReaderContent(
+    articleWithFeed: ArticleWithFeed,
+    readerCacheHelper: ReaderCacheHelper,
+): String? {
+    val article = articleWithFeed.article
+    val feed = articleWithFeed.feed
+    // Citation evidence must be frozen from the same content version that Reader will show.
+    // For full-content / WEBSITE sources rawDescription is often only a list/RSS snapshot.
+    val content =
+        ReaderContentPolicy.embeddedFullContent(article, feed)
+            ?: if (ReaderContentPolicy.requiresFetchedFullContent(feed)) {
+                readerCacheHelper.readOrFetchFullContent(article).getOrNull()
+            } else {
+                article.rawDescription
+            }
+    return content?.trim()?.takeIf(String::isNotBlank)
 }
