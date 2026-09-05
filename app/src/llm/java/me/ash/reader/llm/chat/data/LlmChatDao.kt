@@ -27,6 +27,19 @@ interface LlmChatDao {
     )
     fun observeMessages(conversationId: String): Flow<List<LlmMessageEntity>>
 
+    /**
+     * Message + CitationRef + canonical Annotation 必须在同一个 Room transaction snapshot 中读取。
+     * 这样 terminal finalize 后 UI 不会先看到 canonical message、下一帧才看到 refs/annotations。
+     */
+    @Transaction
+    @Query(
+        "SELECT * FROM llm_messages WHERE conversation_id = :conversationId " +
+            "ORDER BY created_at ASC, id ASC"
+    )
+    fun observeMessageCitationPresentation(
+        conversationId: String,
+    ): Flow<List<LlmMessageCitationPresentation>>
+
     /** 观察当前会话 Tool Call，用于 Pending 审批卡片与历史恢复。 */
     @Query(
         "SELECT * FROM llm_tool_calls WHERE conversation_id = :conversationId " +
@@ -48,6 +61,16 @@ interface LlmChatDao {
             "CASE WHEN display_order IS NULL THEN 2147483647 ELSE display_order END ASC, id ASC"
     )
     fun observeCitationRefs(conversationId: String): Flow<List<LlmCitationRefEntity>>
+
+    /** 观察会话内全部 canonical Citation occurrence；Room relation 会同时恢复来源 refs。 */
+    @Transaction
+    @Query(
+        "SELECT * FROM llm_citation_annotations WHERE conversation_id = :conversationId " +
+            "ORDER BY assistant_message_id ASC, occurrence_ordinal ASC, id ASC"
+    )
+    fun observeCitationAnnotations(
+        conversationId: String,
+    ): Flow<List<LlmCitationAnnotationWithRefs>>
 
     /**
      * 恢复文章自己的默认 Citation Layer：先锁定最近活动 Conversation，再只在该会话中选择
@@ -108,6 +131,16 @@ interface LlmChatDao {
             "protocol_id ASC, id ASC"
     )
     suspend fun getCitationRefsForAssistant(assistantMessageId: String): List<LlmCitationRefEntity>
+
+    /** 读取 canonical occurrence 及其来源；UI 编号按 occurrenceOrdinal 现算。 */
+    @Transaction
+    @Query(
+        "SELECT * FROM llm_citation_annotations WHERE assistant_message_id = :assistantMessageId " +
+            "ORDER BY occurrence_ordinal ASC, id ASC"
+    )
+    suspend fun getCitationAnnotationsForAssistant(
+        assistantMessageId: String,
+    ): List<LlmCitationAnnotationWithRefs>
 
     /** 按用户附加顺序恢复当前会话仍处于活动状态的相关文章。 */
     @Query(
@@ -179,6 +212,12 @@ interface LlmChatDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertCitationRefs(citationRefs: List<LlmCitationRefEntity>)
 
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertCitationAnnotations(annotations: List<LlmCitationAnnotationEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertCitationAnnotationRefs(refs: List<LlmCitationAnnotationRefEntity>)
+
     /** 同一会话每篇文章只保留一个活动快照；replace 前会由事务统一删除旧集合。 */
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertConversationArticles(articles: List<LlmConversationArticleEntity>)
@@ -208,6 +247,7 @@ interface LlmChatDao {
         contextRefs: List<LlmContextRefEntity>,
     ) {
         deleteContextRefsForAssistant(assistantMessageId)
+        deleteOrphanCitationAnnotationsForAssistant(assistantMessageId)
         if (contextRefs.isNotEmpty()) insertContextRefs(contextRefs)
     }
 
@@ -218,6 +258,7 @@ interface LlmChatDao {
         evidenceBlocks: List<LlmEvidenceBlockEntity>,
     ) {
         deleteContextRefsForAssistant(assistantMessageId)
+        deleteOrphanCitationAnnotationsForAssistant(assistantMessageId)
         if (contextRefs.isNotEmpty()) insertContextRefs(contextRefs)
         if (evidenceBlocks.isNotEmpty()) insertEvidenceBlocks(evidenceBlocks)
     }
@@ -230,12 +271,36 @@ interface LlmChatDao {
         contextRefId: String,
         evidenceBlocks: List<LlmEvidenceBlockEntity>,
     ) {
+        val assistantMessageId = getAssistantMessageIdForContextRef(contextRefId)
         deleteEvidenceBlocksForContextRef(contextRefId)
+        if (assistantMessageId != null) {
+            deleteOrphanCitationAnnotationsForAssistant(assistantMessageId)
+        }
         if (evidenceBlocks.isNotEmpty()) insertEvidenceBlocks(evidenceBlocks)
     }
 
+    @Query("SELECT assistant_message_id FROM llm_context_refs WHERE id = :contextRefId LIMIT 1")
+    suspend fun getAssistantMessageIdForContextRef(contextRefId: String): String?
+
+    /**
+     * CitationRef 删除会级联清掉 junction row，但 Annotation 本身属于 Assistant message，
+     * 因此不会随 Evidence/ContextRef 自动删除。只清理已经没有任何来源的 occurrence；多来源
+     * occurrence 若仍有其他有效 CitationRef 则必须保留。
+     */
+    @Query(
+        "DELETE FROM llm_citation_annotations " +
+            "WHERE assistant_message_id = :assistantMessageId " +
+            "AND NOT EXISTS (" +
+            "SELECT 1 FROM llm_citation_annotation_refs ar " +
+            "WHERE ar.annotation_id = llm_citation_annotations.id)"
+    )
+    suspend fun deleteOrphanCitationAnnotationsForAssistant(assistantMessageId: String)
+
     @Query("DELETE FROM llm_citation_refs WHERE assistant_message_id = :assistantMessageId")
     suspend fun deleteCitationRefsForAssistant(assistantMessageId: String)
+
+    @Query("DELETE FROM llm_citation_annotations WHERE assistant_message_id = :assistantMessageId")
+    suspend fun deleteCitationAnnotationsForAssistant(assistantMessageId: String)
 
     @Transaction
     suspend fun replaceCitationRefsForAssistant(
@@ -244,6 +309,27 @@ interface LlmChatDao {
     ) {
         deleteCitationRefsForAssistant(assistantMessageId)
         if (citationRefs.isNotEmpty()) insertCitationRefs(citationRefs)
+    }
+
+    /**
+     * 原子提交 Assistant 终态与 Citation canonical layer。
+     *
+     * 删除 annotation 在前可避免旧 occurrence 短暂引用即将替换的 CitationRef；所有写入仍处于同一
+     * Room transaction，观察者只会看到完整新状态。
+     */
+    @Transaction
+    suspend fun finalizeAssistantCitationState(
+        message: LlmMessageEntity,
+        citationRefs: List<LlmCitationRefEntity>,
+        annotations: List<LlmCitationAnnotationEntity>,
+        annotationRefs: List<LlmCitationAnnotationRefEntity>,
+    ) {
+        updateMessage(message)
+        deleteCitationAnnotationsForAssistant(message.id)
+        deleteCitationRefsForAssistant(message.id)
+        if (citationRefs.isNotEmpty()) insertCitationRefs(citationRefs)
+        if (annotations.isNotEmpty()) insertCitationAnnotations(annotations)
+        if (annotationRefs.isNotEmpty()) insertCitationAnnotationRefs(annotationRefs)
     }
 
     /** 更新单个 Tool Call 的审批/执行结果。 */

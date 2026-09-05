@@ -16,6 +16,7 @@ import java.io.InputStream
 import java.net.URI
 import java.util.*
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -156,14 +157,18 @@ constructor(
                 }
         }
 
-    /** 直接解析指定 Feed，不执行网页发现；可传入短超时客户端。 */
+    /** 直接解析指定 Feed，不执行网页发现；可传入自定义图标来源与短超时客户端。 */
     suspend fun parseFeedDirect(
         feedUrl: String,
-        iconSourceUrl: String = feedUrl,
+        iconSourceUrl: String,
         client: OkHttpClient = okHttpClient,
     ): SyndFeed = withContext(ioDispatcher) {
         parseFeedUrlWithValidators(feedUrl, iconSourceUrl, client).feed
     }
+
+    /** 直接解析指定 Feed，默认以自身地址为图标来源并使用默认网络客户端。 */
+    suspend fun parseFeedDirect(feedUrl: String): SyndFeed =
+        parseFeedDirect(feedUrl, feedUrl, okHttpClient)
 
     /** 请求并解析单个 Feed 地址，站点图标优先按原始网页地址查找。 */
     private suspend fun parseFeedUrlWithValidators(
@@ -182,9 +187,20 @@ constructor(
                         require(it.title?.isNotBlank() == true || it.entries.isNotEmpty()) {
                             "Feed 内容为空或格式无效：$feedUrl"
                         }
-                        it.icon = SyndImageImpl()
-                        it.icon.link = queryRssIconLink(iconSourceUrl)
-                        it.icon.url = it.icon.link
+                        val iconLink =
+                            try {
+                                queryRssIconLink(iconSourceUrl)
+                            } catch (error: CancellationException) {
+                                throw error
+                            } catch (_: Exception) {
+                                null
+                            }
+                        if (!iconLink.isNullOrBlank()) {
+                            it.icon = SyndImageImpl().apply {
+                                link = iconLink
+                                url = iconLink
+                            }
+                        }
                     }
             return ParsedFeedResponse(
                 feed = feed,

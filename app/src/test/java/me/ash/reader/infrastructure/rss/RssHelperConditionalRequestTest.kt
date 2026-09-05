@@ -12,15 +12,87 @@ import me.ash.reader.infrastructure.content.ArticleWebSessionManager
 import me.ash.reader.infrastructure.content.ContentExtractionService
 import me.ash.reader.infrastructure.content.DynamicArticleContentService
 import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import okio.Buffer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.mockito.kotlin.doReturn
 import org.mockito.kotlin.mock
 
 class RssHelperConditionalRequestTest {
+    @Test
+    fun `rss shaped html url still performs standard alternate autodiscovery`() = runBlocking {
+        val server = MockWebServer()
+        server.dispatcher =
+            object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse =
+                    when (request.requestUrl?.encodedPath) {
+                        "/feed" ->
+                            MockResponse()
+                                .setHeader("Content-Type", "text/html; charset=utf-8")
+                                .setBody(
+                                    """
+                                    <html><head>
+                                    <title>Feed landing page</title>
+                                    <link rel="alternate" type="application/rss+xml" href="/actual.xml">
+                                    </head><body>Not an RSS document</body></html>
+                                    """.trimIndent()
+                                )
+
+                        "/actual.xml" ->
+                            MockResponse()
+                                .setHeader("Content-Type", "application/rss+xml")
+                                .setBody(
+                                    """
+                                    <?xml version="1.0" encoding="UTF-8"?>
+                                    <rss version="2.0"><channel>
+                                    <title>Discovered Feed</title><link>https://example.com</link>
+                                    <item><title>Article</title><link>https://example.com/article</link></item>
+                                    </channel></rss>
+                                    """.trimIndent()
+                                )
+
+                        else -> MockResponse().setResponseCode(404)
+                    }
+            }
+        server.start()
+        try {
+            val inputUrl = server.url("/feed").toString()
+            val expectedFeedUrl = server.url("/actual.xml").toString()
+            val helper = helper()
+
+            // Sanity-check the fixture itself before exercising page autodiscovery.
+            assertEquals(
+                "Discovered Feed",
+                helper.parseFeedDirect(expectedFeedUrl, iconSourceUrl = inputUrl).title,
+            )
+
+            val result = runCatching { helper.discoverFeed(inputUrl) }
+            val requestedPaths =
+                buildList {
+                    repeat(server.requestCount) {
+                        add(server.takeRequest().requestUrl?.encodedPath.orEmpty())
+                    }
+                }
+            assertTrue(
+                "Expected alternate autodiscovery to succeed; requests=$requestedPaths error=${result.exceptionOrNull()}",
+                result.isSuccess,
+            )
+            val discovered = result.getOrThrow()
+
+            assertTrue(discovered.discoveredFromPage)
+            assertEquals(expectedFeedUrl, discovered.feedUrl)
+            assertTrue("Expected alternate feed request, requests=$requestedPaths", "/actual.xml" in requestedPaths)
+            assertEquals("Discovered Feed", discovered.feed.title)
+        } finally {
+            server.shutdown()
+        }
+    }
+
     @Test
     fun `GBK RSS without HTTP charset follows XML declaration for discovery and refresh`() = runBlocking {
         val server = MockWebServer()
@@ -106,7 +178,10 @@ class RssHelperConditionalRequestTest {
             okHttpClient = OkHttpClient(),
             contentExtractionService = mock<ContentExtractionService>(),
             dynamicArticleContentService = mock<DynamicArticleContentService>(),
-            articleWebSessionManager = mock<ArticleWebSessionManager>(),
+            articleWebSessionManager =
+                mock<ArticleWebSessionManager> {
+                    on { desktopHttpUserAgent } doReturn "Mozilla/5.0 OrigRead-Test"
+                },
         )
 
     private fun rssFeed(url: String) =

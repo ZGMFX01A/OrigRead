@@ -9,15 +9,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import kotlin.math.roundToInt
@@ -61,6 +64,10 @@ fun OrigReadWebView(
     outerScrollState: ScrollState? = null,
     markerSnapshot: ReaderEvidenceMarkerSnapshot? = null,
     onEvidenceMarkerClick: ((ReaderEvidenceMarkerNavigationTarget) -> Unit)? = null,
+    viewportScrollState: WebViewReaderScrollState? = null,
+    headerHeightPx: Int = 0,
+    footerHeightPx: Int = 0,
+    readableTopInsetPx: Int = 0,
 ) {
     val context = LocalContext.current
     val maxWidth = LocalConfiguration.current.screenWidthDp.dp.value
@@ -140,10 +147,15 @@ fun OrigReadWebView(
     val currentEvidenceMarkerClick by rememberUpdatedState(onEvidenceMarkerClick)
     val citationScrollScope = rememberCoroutineScope()
     val webViewTopInScrollContentPx = remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current.density
+    val viewportInsets = Triple(headerHeightPx, footerHeightPx, readableTopInsetPx)
+    val currentViewportInsets by rememberUpdatedState(viewportInsets)
+    val currentViewportScrollState by rememberUpdatedState(viewportScrollState)
+    val appliedViewportInsets = remember { mutableStateOf<Triple<Int, Int, Int>?>(null) }
 
     AndroidView(
         modifier =
-            modifier.onGloballyPositioned { coordinates ->
+            modifier.clipToBounds().onGloballyPositioned { coordinates ->
                 webViewTopInScrollContentPx.intValue =
                     webViewScrollContentCoordinate(
                         positionInParentPx = coordinates.positionInParent().y.roundToInt(),
@@ -172,6 +184,7 @@ fun OrigReadWebView(
                         },
                         onPageFinishedReady = { view, pageUrl ->
                             renderGuard.acceptedReaderGeneration(pageUrl)?.let { generation ->
+                                view.applyReaderViewportInsets(currentViewportInsets)
                                 view.postVisualStateCallback(
                                     generation,
                                     object : WebView.VisualStateCallback() {
@@ -180,6 +193,9 @@ fun OrigReadWebView(
                                                 requestId == generation &&
                                                     renderGuard.isCurrentGeneration(generation)
                                             ) {
+                                                (view as? ArticleSelectionWebView)?.let {
+                                                    currentViewportScrollState?.markDocumentReady(it)
+                                                }
                                                 readerAnchorState?.markRenderReady(view, generation)
                                             }
                                         }
@@ -189,7 +205,11 @@ fun OrigReadWebView(
                         },
                     ),
                 onImageClick = onImageClick,
-            )
+            ).also { view ->
+                viewportScrollState?.bind(view)
+                view.onReaderScrollChanged = { currentViewportScrollState?.update(view) }
+                view.onReaderUserDrag = { currentViewportScrollState?.beginUserScroll() }
+            }
         },
         update = {
             it.apply {
@@ -197,7 +217,13 @@ fun OrigReadWebView(
                 configureSelectionAction(selectionActionLabel, onSelectedTextAction)
                 readerAnchorState?.setMarkerSnapshot(markerSnapshot)
                 settings.defaultFontSize = fontSize
+                viewportScrollState?.bind(this)
+                if (appliedViewportInsets.value != viewportInsets) {
+                    appliedViewportInsets.value = viewportInsets
+                    applyReaderViewportInsets(viewportInsets)
+                }
                 renderGuard.beginReload(renderSpec)?.let { renderGeneration ->
+                    viewportScrollState?.prepareReload()
                     Log.i("RLog", "maxWidth: ${maxWidth}")
                     Log.i("RLog", "readingFont: ${context.filesDir.absolutePath}")
                     readerAnchorState?.bindRender(
@@ -220,6 +246,12 @@ fun OrigReadWebView(
                                     coroutineScope = citationScrollScope,
                                 )
                             },
+                        viewportScrollHost = viewportScrollState?.let {
+                            WebViewReaderViewportScrollHost(
+                                coroutineScope = citationScrollScope,
+                                readableTopInsetPx = { currentViewportInsets.third },
+                            )
+                        },
                     )
                     loadDataWithBaseURL(
                         webViewReaderBaseUrl(sourceUrl, renderGeneration),
@@ -244,7 +276,7 @@ fun OrigReadWebView(
                                 tableMargin = textMargin,
                                 selectionTextColor = selectionTextColor,
                                 selectionBgColor = selectionBgColor,
-                            ),
+                            ) + readerViewportStyle(viewportInsets, density),
                             webViewHtmlAttributeEscape(sourceUrl.orEmpty()),
                             preparedContent.html,
                             WebViewScript.get(boldCharacters.value),
@@ -257,6 +289,10 @@ fun OrigReadWebView(
             }
         },
         onRelease = { view ->
+            currentViewportScrollState?.unbind(view)
+            view.onReaderScrollChanged = null
+            view.onReaderUserDrag = null
+            view.stopReaderFling()
             renderGuard.reset()
             readerAnchorState?.unbind(view)
             view.stopLoading()
@@ -267,6 +303,33 @@ fun OrigReadWebView(
             view.removeAllViews()
             view.destroy()
         },
+    )
+}
+
+private fun readerViewportStyle(insets: Triple<Int, Int, Int>, density: Float): String = """
+    :root {
+        --origread-header-height: ${insets.first / density}px;
+        --origread-footer-height: ${insets.second / density}px;
+        --origread-readable-top: ${insets.third / density};
+    }
+    body { padding: 0; display: flex; flex-direction: column; min-height: 100vh; }
+    body > main { display: flow-root; flex: 1 0 auto; }
+    #origread-reader-header { flex: none; height: var(--origread-header-height); }
+    #origread-reader-footer { flex: none; height: var(--origread-footer-height); }
+""".trimIndent()
+
+private fun WebView.applyReaderViewportInsets(insets: Triple<Int, Int, Int>) {
+    evaluateJavascript(
+        """
+        (function() {
+          const style = document.documentElement.style;
+          const scale = window.devicePixelRatio || 1;
+          style.setProperty('--origread-header-height', (${insets.first} / scale) + 'px');
+          style.setProperty('--origread-footer-height', (${insets.second} / scale) + 'px');
+          style.setProperty('--origread-readable-top', ${insets.third} / scale);
+        })()
+        """.trimIndent(),
+        null,
     )
 }
 

@@ -17,12 +17,14 @@ class PendingCitationNavigationTest {
     }
 
     @Test
-    fun `same citation click is request scoped rather than citation id scoped`() {
+    fun `same citation click is requestId scoped even within the same millisecond`() {
         val first = pending(requestedAt = 10L)
-        val same = pending(requestedAt = 10L)
+        val same = first.copy()
+        val sameMillisecondSecondClick = pending(requestedAt = 10L)
         val secondClick = pending(requestedAt = 11L)
 
         assertTrue(first.sameRequest(same))
+        assertFalse(first.sameRequest(sameMillisecondSecondClick))
         assertFalse(first.sameRequest(secondClick))
     }
 

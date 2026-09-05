@@ -16,7 +16,7 @@ import org.json.JSONTokener
  * Android WebView 没有公开 `setCustomSelectionActionModeCallback`；但 View 的 `startActionMode` 是公开扩展点。
  * 这里不替换 Chromium 的默认菜单逻辑，只在 ActionMode 创建时包装其 callback。
  */
-internal class ArticleSelectionWebView(context: Context) : WebView(context) {
+internal class ArticleSelectionWebView(context: Context) : ReaderScrollWebView(context) {
     private var selectionActionLabel: String? = null
     private var onSelectedTextAction: ((String) -> Unit)? = null
 
@@ -30,14 +30,24 @@ internal class ArticleSelectionWebView(context: Context) : WebView(context) {
     }
 
     override fun startActionMode(callback: ActionMode.Callback?): ActionMode? =
-        super.startActionMode(wrapSelectionCallback(callback))
+        super.startActionMode(trackSelection(wrapSelectionCallback(callback))).also {
+            readerSelectionActive = it != null
+        }
 
     override fun startActionMode(callback: ActionMode.Callback?, type: Int): ActionMode? =
-        super.startActionMode(wrapSelectionCallback(callback), type)
+        super.startActionMode(trackSelection(wrapSelectionCallback(callback)), type).also {
+            readerSelectionActive = it != null
+        }
+
+    private fun trackSelection(callback: ActionMode.Callback?): ActionMode.Callback? {
+        if (callback == null || callback is ReaderSelectionTrackingCallback) return callback
+        return ReaderSelectionTrackingCallback(callback) { readerSelectionActive = false }
+    }
 
     /** 避免 WebView 的两个 startActionMode 重载互相转发时重复包装同一个 callback。 */
     private fun wrapSelectionCallback(callback: ActionMode.Callback?): ActionMode.Callback? {
-        if (callback == null || callback is ArticleSelectionActionModeCallback) return callback
+        if (callback == null || callback is ArticleSelectionActionModeCallback ||
+            callback is ReaderSelectionTrackingCallback) return callback
         val label = selectionActionLabel ?: return callback
         val onSelectedText = onSelectedTextAction ?: return callback
         return ArticleSelectionActionModeCallback(
@@ -46,6 +56,23 @@ internal class ArticleSelectionWebView(context: Context) : WebView(context) {
             onSelectedText = onSelectedText,
             delegate = callback,
         )
+    }
+}
+
+private class ReaderSelectionTrackingCallback(
+    private val delegate: ActionMode.Callback,
+    private val onFinished: () -> Unit,
+) : ActionMode.Callback2() {
+    override fun onCreateActionMode(mode: ActionMode, menu: Menu) = delegate.onCreateActionMode(mode, menu)
+    override fun onPrepareActionMode(mode: ActionMode, menu: Menu) = delegate.onPrepareActionMode(mode, menu)
+    override fun onActionItemClicked(mode: ActionMode, item: MenuItem) = delegate.onActionItemClicked(mode, item)
+    override fun onDestroyActionMode(mode: ActionMode) {
+        onFinished()
+        delegate.onDestroyActionMode(mode)
+    }
+    override fun onGetContentRect(mode: ActionMode, view: View, outRect: Rect) {
+        if (delegate is ActionMode.Callback2) delegate.onGetContentRect(mode, view, outRect)
+        else super.onGetContentRect(mode, view, outRect)
     }
 }
 

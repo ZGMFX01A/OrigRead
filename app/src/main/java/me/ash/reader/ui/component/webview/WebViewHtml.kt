@@ -14,11 +14,13 @@ object WebViewHtml {
     <base href="%s" />
 </head>
 <body>
+<div id="origread-reader-header" aria-hidden="true"></div>
 <main>
     <article>
         %s
     </article>
 </main>
+<div id="origread-reader-footer" aria-hidden="true"></div>
 <script>
 %s
 </script>

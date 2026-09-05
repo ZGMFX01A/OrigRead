@@ -9,6 +9,8 @@ import kotlinx.serialization.Serializable
 
 internal const val LLM_EVIDENCE_SCHEMA_VERSION = 1
 internal const val LLM_CITATION_SCHEMA_VERSION = 1
+/** Citation occurrence 持久化协议版本；与 Evidence locator 版本独立演进。 */
+internal const val LLM_CITATION_ANNOTATION_SCHEMA_VERSION = 1
 
 @Serializable
 enum class LlmEvidenceSourceKind {
@@ -138,3 +140,118 @@ data class LlmCitationRefEntity(
         ) { "Citation target kind and evidence block must agree" }
     }
 }
+
+@Entity(
+    tableName = "llm_citation_annotations",
+    foreignKeys = [
+        ForeignKey(
+            entity = LlmMessageEntity::class,
+            parentColumns = ["id", "conversation_id"],
+            childColumns = ["assistant_message_id", "conversation_id"],
+            onDelete = ForeignKey.CASCADE,
+        )
+    ],
+    indices = [
+        Index(value = ["assistant_message_id", "occurrence_ordinal"], unique = true),
+        Index(value = ["assistant_message_id", "canonical_insertion_offset"]),
+        Index(value = ["assistant_message_id", "conversation_id"]),
+    ],
+)
+data class LlmCitationAnnotationEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "conversation_id") val conversationId: String,
+    @ColumnInfo(name = "assistant_message_id") val assistantMessageId: String,
+    /** Citation marker 在已净化 canonical Markdown 中的插入位置，采用 Kotlin UTF-16 offset。 */
+    @ColumnInfo(name = "canonical_insertion_offset") val canonicalInsertionOffset: Int,
+    /** 同一 Assistant 消息内稳定的 occurrence 顺序；UI 编号由此投影，不持久化 displayOrder。 */
+    @ColumnInfo(name = "occurrence_ordinal") val occurrenceOrdinal: Int,
+    @ColumnInfo(name = "schema_version")
+    val schemaVersion: Int = LLM_CITATION_ANNOTATION_SCHEMA_VERSION,
+    @ColumnInfo(name = "created_at") val createdAt: Long,
+) {
+    init {
+        require(canonicalInsertionOffset >= 0) { "Citation annotation offset must be non-negative" }
+        require(occurrenceOrdinal >= 0) { "Citation annotation ordinal must be non-negative" }
+    }
+}
+
+@Entity(
+    tableName = "llm_citation_annotation_refs",
+    primaryKeys = ["annotation_id", "citation_ref_id"],
+    foreignKeys = [
+        ForeignKey(
+            entity = LlmCitationAnnotationEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["annotation_id"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+        ForeignKey(
+            entity = LlmCitationRefEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["citation_ref_id"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [
+        Index(value = ["annotation_id", "ref_ordinal"], unique = true),
+        Index(value = ["citation_ref_id"]),
+    ],
+)
+data class LlmCitationAnnotationRefEntity(
+    @ColumnInfo(name = "annotation_id") val annotationId: String,
+    @ColumnInfo(name = "citation_ref_id") val citationRefId: String,
+    /** 一个多来源 Citation occurrence 内的稳定来源顺序。 */
+    @ColumnInfo(name = "ref_ordinal") val refOrdinal: Int,
+) {
+    init {
+        require(refOrdinal >= 0) { "Citation annotation ref ordinal must be non-negative" }
+    }
+}
+
+/** UI/History 一次性读取的结构化 Citation occurrence。 */
+data class LlmCitationAnnotationWithRefs(
+    @androidx.room.Embedded val annotation: LlmCitationAnnotationEntity,
+    @androidx.room.Relation(
+        parentColumn = "id",
+        entityColumn = "id",
+        associateBy = androidx.room.Junction(
+            value = LlmCitationAnnotationRefEntity::class,
+            parentColumn = "annotation_id",
+            entityColumn = "citation_ref_id",
+        ),
+    )
+    private val unorderedRefs: List<LlmCitationRefEntity>,
+    @androidx.room.Relation(
+        parentColumn = "id",
+        entityColumn = "annotation_id",
+    )
+    private val junctionRows: List<LlmCitationAnnotationRefEntity>,
+) {
+    /** Room 的 Junction relation 不保证顺序，按 join row 的 refOrdinal 恢复 canonical 来源顺序。 */
+    val refs: List<LlmCitationRefEntity>
+        get() {
+            val orderById = junctionRows.associate { it.citationRefId to it.refOrdinal }
+            return unorderedRefs.sortedBy { orderById[it.id] ?: Int.MAX_VALUE }
+        }
+}
+
+/**
+ * Room -> UI 的原子 Citation presentation 单元。
+ *
+ * `finalizeAssistantCitationState()` 在一个 transaction 里写 message/refs/annotations；对应读取也必须由
+ * 一个 @Transaction relation snapshot 完成，避免三个独立 Flow 把新正文和旧 Citation 图拼成瞬态 UI。
+ */
+data class LlmMessageCitationPresentation(
+    @androidx.room.Embedded val message: LlmMessageEntity,
+    @androidx.room.Relation(
+        parentColumn = "id",
+        entityColumn = "assistant_message_id",
+    )
+    val citationRefs: List<LlmCitationRefEntity>,
+    @androidx.room.Relation(
+        entity = LlmCitationAnnotationEntity::class,
+        parentColumn = "id",
+        entityColumn = "assistant_message_id",
+    )
+    val citationAnnotations: List<LlmCitationAnnotationWithRefs>,
+)

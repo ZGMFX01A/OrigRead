@@ -38,10 +38,22 @@ internal data class LlmCitationReadyContext(
 internal data class LlmResolvedAssistantCitations(
     val validProtocolIds: List<String>,
     val invalidProtocolIds: List<String>,
+    val canonicalText: String,
+    val annotations: List<CitationTransportAnnotation>,
 )
 
 internal data class LlmBuiltCitationRefs(
     val refs: List<LlmCitationRefEntity>,
+    val invalidProtocolIds: List<String>,
+    val canonicalText: String,
+    val annotations: List<CitationTransportAnnotation>,
+)
+
+internal data class LlmBuiltCitationPersistence(
+    val refs: List<LlmCitationRefEntity>,
+    val annotations: List<LlmCitationAnnotationEntity>,
+    val annotationRefs: List<LlmCitationAnnotationRefEntity>,
+    val canonicalText: String,
     val invalidProtocolIds: List<String>,
 )
 
@@ -282,6 +294,7 @@ internal fun prepareCitationProtocol(
                 "Evidence citation protocol:",
                 "- Cite only evidence IDs present in ORIGREAD_EVIDENCE blocks.",
                 "- Use the exact token [[E1]], [[E2]], etc. after an important supported claim or closely related claim group; avoid redundant citations.",
+                "- For multiple evidence IDs, repeat complete tokens such as [[E1]][[E2]]; never merge them into [[E1][E2]].",
                 "- When comparing sources, preserve coverage of the sources materially used in the answer.",
                 "- Never invent an evidence ID and never cite context that was not included.",
             ).joinToString("\n")
@@ -297,20 +310,24 @@ internal fun resolveAssistantCitationTokens(
     assistantText: String,
     allowedEntries: List<LlmCitationProtocolEntry>,
 ): LlmResolvedAssistantCitations {
-    val allowed = allowedEntries.mapTo(mutableSetOf(), LlmCitationProtocolEntry::protocolId)
-    val valid = mutableListOf<String>()
-    val invalid = mutableListOf<String>()
-    val seenValid = mutableSetOf<String>()
-    val seenInvalid = mutableSetOf<String>()
-    CITATION_TOKEN_REGEX.findAll(assistantText).forEach { match ->
-        val protocolId = match.groupValues[1]
-        if (protocolId in allowed) {
-            if (seenValid.add(protocolId)) valid += protocolId
-        } else if (seenInvalid.add(protocolId)) {
-            invalid += protocolId
-        }
-    }
-    return LlmResolvedAssistantCitations(valid, invalid)
+    val parsed =
+        CitationTransportParser.parse(
+            transportText = assistantText,
+            allowedProtocolIds = allowedEntries.mapTo(linkedSetOf(), LlmCitationProtocolEntry::protocolId),
+            final = true,
+        )
+    val valid =
+        parsed.annotations
+            .asSequence()
+            .flatMap { it.protocolIds.asSequence() }
+            .distinct()
+            .toList()
+    return LlmResolvedAssistantCitations(
+        validProtocolIds = valid,
+        invalidProtocolIds = parsed.invalidProtocolIds,
+        canonicalText = parsed.canonicalText,
+        annotations = parsed.annotations,
+    )
 }
 
 internal fun buildCitationRefsFromAssistantOutput(
@@ -342,14 +359,87 @@ internal fun buildCitationRefsFromAssistantOutput(
                 createdAt = createdAt,
             )
         }
-    return LlmBuiltCitationRefs(refs, resolved.invalidProtocolIds)
+    return LlmBuiltCitationRefs(
+        refs = refs,
+        invalidProtocolIds = resolved.invalidProtocolIds,
+        canonicalText = resolved.canonicalText,
+        annotations = resolved.annotations,
+    )
 }
 
-/** Historical E IDs are request-local transport tokens and must never enter a later Provider request. */
-internal fun stripHistoricalCitationProtocolTokens(content: String): String =
-    content
-        .replace(HISTORICAL_CITATION_TOKEN_REGEX, "")
-        .replace(PUNCTUATION_SPACE_REGEX, "$1")
+/** 把 Parser occurrence 与冻结 CitationRef 组装成 Room 可原子提交的 canonical 图。 */
+internal fun buildCitationPersistenceFromAssistantOutput(
+    assistantText: String,
+    allowedEntries: List<LlmCitationProtocolEntry>,
+    conversationId: String,
+    assistantMessageId: String,
+    createdAt: Long = System.currentTimeMillis(),
+    refIdFactory: () -> String = { UUID.randomUUID().toString() },
+    annotationIdFactory: () -> String = { UUID.randomUUID().toString() },
+): LlmBuiltCitationPersistence {
+    val built =
+        buildCitationRefsFromAssistantOutput(
+            assistantText = assistantText,
+            allowedEntries = allowedEntries,
+            conversationId = conversationId,
+            assistantMessageId = assistantMessageId,
+            createdAt = createdAt,
+            idFactory = refIdFactory,
+        )
+    val refsByProtocolId = built.refs.associateBy(LlmCitationRefEntity::protocolId)
+    val annotations = mutableListOf<LlmCitationAnnotationEntity>()
+    val annotationRefs = mutableListOf<LlmCitationAnnotationRefEntity>()
+    built.annotations.forEach { parsed ->
+        val refs = parsed.protocolIds.mapNotNull(refsByProtocolId::get)
+        if (refs.isEmpty()) return@forEach
+        val annotation =
+            LlmCitationAnnotationEntity(
+                id = annotationIdFactory(),
+                conversationId = conversationId,
+                assistantMessageId = assistantMessageId,
+                canonicalInsertionOffset = parsed.canonicalInsertionOffset,
+                occurrenceOrdinal = parsed.occurrenceOrdinal,
+                createdAt = createdAt,
+            )
+        annotations += annotation
+        refs.forEachIndexed { index, ref ->
+            annotationRefs +=
+                LlmCitationAnnotationRefEntity(
+                    annotationId = annotation.id,
+                    citationRefId = ref.id,
+                    refOrdinal = index,
+                )
+        }
+    }
+    return LlmBuiltCitationPersistence(
+        refs = built.refs,
+        annotations = annotations,
+        annotationRefs = annotationRefs,
+        canonicalText = built.canonicalText,
+        invalidProtocolIds = built.invalidProtocolIds,
+    )
+}
+
+/**
+ * Historical E IDs are request-local transport tokens and must never enter a later Provider request.
+ *
+ * 这里必须复用唯一 Citation parser，而不能再维护一套只认识 `[[E1]]` 的 Regex。这样旧历史里的
+ * `[[E1][E2]]`、malformed `[[E1...` 与 code-context 边界都和 terminal canonicalization 保持一致。
+ */
+internal fun stripHistoricalCitationProtocolTokens(content: String): String {
+    if (!content.contains("[[E")) return content
+    val parsed =
+        CitationTransportParser.parse(
+            transportText = content,
+            allowedProtocolIds = emptySet(),
+            final = true,
+        )
+    val parserDidNotOwnAnyTransport =
+        parsed.annotations.isEmpty() &&
+            parsed.invalidProtocolIds.isEmpty() &&
+            parsed.invalidFragmentCount == 0
+    return if (parserDidNotOwnAnyTransport) content else parsed.canonicalText
+}
 
 internal fun wrapCitationEvidenceContent(
     content: String,
@@ -362,7 +452,4 @@ internal fun wrapCitationEvidenceContent(
 private fun quoteAttribute(value: String): String =
     "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
-private val CITATION_TOKEN_REGEX = Regex("""\[\[(E\d+)]]""")
 private val CITATION_PROTOCOL_ID_REGEX = Regex("^E\\d+$")
-private val HISTORICAL_CITATION_TOKEN_REGEX = Regex("""\s*\[\[E\d+]]""")
-private val PUNCTUATION_SPACE_REGEX = Regex("""[ \t]+([,.;:!?，。；：！？])""")

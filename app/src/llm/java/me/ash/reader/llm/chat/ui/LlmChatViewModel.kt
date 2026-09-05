@@ -30,10 +30,12 @@ import me.ash.reader.llm.chat.data.LlmArticleCandidateRepository
 import me.ash.reader.llm.chat.data.LlmChatRepository
 import me.ash.reader.llm.chat.data.LlmChatRole
 import me.ash.reader.llm.chat.data.LlmCitationRefEntity
+import me.ash.reader.llm.chat.data.LlmCitationAnnotationWithRefs
 import me.ash.reader.llm.chat.data.LlmContextRefEntity
 import me.ash.reader.llm.chat.data.LlmConversationEntity
 import me.ash.reader.llm.chat.data.LlmEvidenceSourceKind
 import me.ash.reader.llm.chat.data.LlmMessageEntity
+import me.ash.reader.llm.chat.data.LlmMessageCitationPresentation
 import me.ash.reader.llm.chat.data.LlmMessageStatus
 import me.ash.reader.llm.chat.data.LlmToolCallEntity
 import me.ash.reader.llm.chat.data.LlmToolCallStatus
@@ -43,6 +45,8 @@ import me.ash.reader.llm.chat.data.LlmArticleEvidenceSource
 import me.ash.reader.llm.chat.data.buildArticleEvidenceBlocks
 import me.ash.reader.llm.chat.data.buildEvidencePersistence
 import me.ash.reader.llm.chat.data.buildCitationRefsFromAssistantOutput
+import me.ash.reader.llm.chat.data.buildCitationPersistenceFromAssistantOutput
+import me.ash.reader.llm.chat.data.CitationTransportAccumulator
 import me.ash.reader.llm.chat.data.buildRequestContextRefEntities
 import me.ash.reader.llm.chat.data.buildUnconsumedContextRefEntities
 import me.ash.reader.llm.chat.data.prepareCitationProtocol
@@ -106,6 +110,7 @@ data class LlmChatUiState(
     val toolCalls: List<LlmToolCallEntity> = emptyList(),
     val contextRefs: List<LlmContextRefEntity> = emptyList(),
     val citationRefs: List<LlmCitationRefEntity> = emptyList(),
+    val citationAnnotations: List<LlmCitationAnnotationWithRefs> = emptyList(),
     val providers: List<AiProviderProfile> = emptyList(),
     val selectedProviderId: String? = null,
     val selectedModel: String? = null,
@@ -322,11 +327,29 @@ private data class RuntimeSelection(
     val model: String? = null,
 )
 
+/**
+ * UI 的单条瞬态 presentation 覆盖。
+ *
+ * Streaming 只有 message；terminal Citation finalize 同时携带完整 refs/annotations。null 表示“不覆盖
+ * Citation graph”，emptyList 表示“明确覆盖为空”，两者语义不同。
+ */
+internal data class TransientChatPresentationOverride(
+    val message: LlmMessageEntity,
+    val citationRefs: List<LlmCitationRefEntity>? = null,
+    val citationAnnotations: List<LlmCitationAnnotationWithRefs>? = null,
+) {
+    init {
+        require((citationRefs == null) == (citationAnnotations == null)) {
+            "Transient Citation refs and annotations must be supplied together"
+        }
+    }
+}
+
 /** Room 持久化消息与当前内存流式覆盖的组合快照。 */
 private data class ChatMessagePresentationSnapshot(
     val conversationId: String?,
-    val persistedMessages: List<LlmMessageEntity>,
-    val transientOverrides: Map<String, LlmMessageEntity>,
+    val persistedPresentation: List<LlmMessageCitationPresentation>,
+    val transientOverrides: Map<String, TransientChatPresentationOverride>,
 )
 
 @HiltViewModel
@@ -363,7 +386,7 @@ class LlmChatViewModel @Inject constructor(
      * 完全相同的实体后才移除，避免较旧的数据库 emission 把新内容短暂覆盖回去。
      */
     private val transientMessageOverrides =
-        MutableStateFlow<Map<String, LlmMessageEntity>>(emptyMap())
+        MutableStateFlow<Map<String, TransientChatPresentationOverride>>(emptyMap())
     private var forceWebSearchNextRequest = false
     private var generationJob: Job? = null
     private var manualToolJob: Job? = null
@@ -394,11 +417,15 @@ class LlmChatViewModel @Inject constructor(
         conversationId: String,
         assistantMessageId: String,
         citationId: String? = null,
+        annotationId: String? = null,
     ): Boolean {
         val conversation = repository.getConversation(conversationId) ?: return false
         if (conversation.articleId != ownerArticleId) return false
         if (citationId != null && repository.getCitationRefsForAssistant(assistantMessageId).none {
                 it.id == citationId && it.conversationId == conversationId
+            }) return false
+        if (annotationId != null && repository.getCitationAnnotationsForAssistant(assistantMessageId).none {
+                it.annotation.id == annotationId
             }) return false
         return repository.getMessages(conversationId).any { message ->
             message.id == assistantMessageId &&
@@ -419,7 +446,6 @@ class LlmChatViewModel @Inject constructor(
         observeMessages()
         observeToolCalls()
         observeContextRefs()
-        observeCitationRefs()
     }
 
     /** 进程被系统杀死时无法执行 finally；重进 Chat 后把遗留 STREAMING 状态收口为 STOPPED。 */
@@ -563,35 +589,64 @@ class LlmChatViewModel @Inject constructor(
         viewModelScope.launch {
             selectedConversationId
                 .flatMapLatest { conversationId ->
-                    val persistedMessages =
+                    val persistedPresentation =
                         if (conversationId == null) flowOf(emptyList())
-                        else repository.observeMessages(conversationId)
-                    persistedMessages.combine(transientMessageOverrides) { messages, overrides ->
+                        else repository.observeMessageCitationPresentation(conversationId)
+                    persistedPresentation.combine(transientMessageOverrides) { presentation, overrides ->
                         ChatMessagePresentationSnapshot(
                             conversationId = conversationId,
-                            persistedMessages = messages,
+                            persistedPresentation = presentation,
                             transientOverrides = overrides,
                         )
                     }
                 }
                 .collect { snapshot ->
+                    val persistedMessages = snapshot.persistedPresentation.map(LlmMessageCitationPresentation::message)
+                    val messageOverrides = snapshot.transientOverrides.mapValues { it.value.message }
+                    val citationOverrideIds =
+                        snapshot.transientOverrides.values
+                            .filter { it.citationRefs != null }
+                            .mapTo(mutableSetOf()) { it.message.id }
+                    val citationRefs =
+                        (snapshot.persistedPresentation
+                            .filterNot { it.message.id in citationOverrideIds }
+                            .flatMap(LlmMessageCitationPresentation::citationRefs) +
+                            snapshot.transientOverrides.values.flatMap { it.citationRefs.orEmpty() })
+                            .sortedWith(
+                                compareBy<LlmCitationRefEntity> { it.createdAt }
+                                    .thenBy { it.assistantMessageId }
+                                    .thenBy { it.displayOrder ?: Int.MAX_VALUE }
+                                    .thenBy { it.id }
+                            )
+                    val citationAnnotations =
+                        (snapshot.persistedPresentation
+                            .filterNot { it.message.id in citationOverrideIds }
+                            .flatMap(LlmMessageCitationPresentation::citationAnnotations) +
+                            snapshot.transientOverrides.values.flatMap { it.citationAnnotations.orEmpty() })
+                            .sortedWith(
+                                compareBy<LlmCitationAnnotationWithRefs> { it.annotation.assistantMessageId }
+                                    .thenBy { it.annotation.occurrenceOrdinal }
+                                    .thenBy { it.annotation.id }
+                            )
                     _uiState.update {
                         it.copy(
                             messages =
                                 visibleChatPresentationMessages(
                                     mergeChatMessagesWithTransientOverrides(
-                                        persistedMessages = snapshot.persistedMessages,
-                                        transientOverrides = snapshot.transientOverrides,
+                                        persistedMessages = persistedMessages,
+                                        transientOverrides = messageOverrides,
                                         conversationId = snapshot.conversationId,
                                     )
-                                )
+                                ),
+                            citationRefs = citationRefs,
+                            citationAnnotations = citationAnnotations,
                         )
                     }
 
                     // 终态覆盖只有在 Room 已回读到完全相同实体后才释放，防止旧 emission 回闪。
                     val acknowledgedIds =
-                        acknowledgedChatTransientMessageIds(
-                            persistedMessages = snapshot.persistedMessages,
+                        acknowledgedChatTransientPresentationIds(
+                            persistedPresentation = snapshot.persistedPresentation,
                             transientOverrides = snapshot.transientOverrides,
                             conversationId = snapshot.conversationId,
                         )
@@ -630,21 +685,6 @@ class LlmChatViewModel @Inject constructor(
                 }
                 .collect { contextRefs ->
                     _uiState.update { it.copy(contextRefs = contextRefs) }
-                }
-        }
-    }
-
-    @OptIn(ExperimentalCoroutinesApi::class)
-    /** CitationRef 与具体 Assistant Message 绑定；UI 禁止把不同回答的 displayOrder 合并。 */
-    private fun observeCitationRefs() {
-        viewModelScope.launch {
-            selectedConversationId
-                .flatMapLatest { conversationId ->
-                    if (conversationId == null) flowOf(emptyList())
-                    else repository.observeCitationRefs(conversationId)
-                }
-                .collect { citationRefs ->
-                    _uiState.update { it.copy(citationRefs = citationRefs) }
                 }
         }
     }
@@ -1483,18 +1523,28 @@ class LlmChatViewModel @Inject constructor(
         fun tokenUsageEstimated(): Boolean =
             providerPromptTokens == null || providerCompletionTokens == null
 
-        suspend fun persistCitationRefs() {
-            if (!LLM_EVIDENCE_CITATION_ENABLED) return
+        suspend fun finalizeCitationMessage(
+            message: LlmMessageEntity,
+            transportContent: String,
+        ): TransientChatPresentationOverride {
+            if (!LLM_EVIDENCE_CITATION_ENABLED) {
+                return TransientChatPresentationOverride(
+                    message = repository.updateMessage(message = message)
+                )
+            }
             val built =
-                buildCitationRefsFromAssistantOutput(
-                    assistantText = content,
+                buildCitationPersistenceFromAssistantOutput(
+                    assistantText = transportContent,
                     allowedEntries = requestCitationEntries,
                     conversationId = conversationId,
                     assistantMessageId = assistant.id,
                 )
-            repository.replaceCitationRefsForAssistant(
-                assistantMessageId = assistant.id,
+            val canonicalMessage = message.copy(content = built.canonicalText)
+            repository.finalizeAssistantCitationState(
+                message = canonicalMessage,
                 citationRefs = built.refs,
+                annotations = built.annotations,
+                annotationRefs = built.annotationRefs,
             )
             if (built.invalidProtocolIds.isNotEmpty()) {
                 LlmChatPerfTracker.mark(
@@ -1503,6 +1553,21 @@ class LlmChatViewModel @Inject constructor(
                     "ids" to built.invalidProtocolIds.joinToString(","),
                 )
             }
+            val refsById = built.refs.associateBy(LlmCitationRefEntity::id)
+            val presentationAnnotations =
+                built.annotations.map { annotation ->
+                    val junctionRows = built.annotationRefs.filter { it.annotationId == annotation.id }
+                    LlmCitationAnnotationWithRefs(
+                        annotation,
+                        junctionRows.mapNotNull { refsById[it.citationRefId] },
+                        junctionRows,
+                    )
+                }
+            return TransientChatPresentationOverride(
+                message = canonicalMessage,
+                citationRefs = built.refs,
+                citationAnnotations = presentationAnnotations,
+            )
         }
 
         try {
@@ -1756,6 +1821,14 @@ class LlmChatViewModel @Inject constructor(
                     )
                 }
             requestCitationEntries = citationReady?.protocolEntries.orEmpty()
+            val citationAccumulator =
+                if (LLM_EVIDENCE_CITATION_ENABLED) {
+                    CitationTransportAccumulator(
+                        requestCitationEntries.mapTo(linkedSetOf()) { it.protocolId }
+                    )
+                } else {
+                    null
+                }
             val requestPlan =
                 if (citationReady == null) {
                     plan
@@ -1788,6 +1861,7 @@ class LlmChatViewModel @Inject constructor(
 
             transport.stream(requestPlan, requestHistory, perfTrace = perfTrace).collect { delta ->
                 content += delta.content
+                citationAccumulator?.append(delta.content)
                 reasoning += delta.reasoning
                 mergeToolCallDeltas(toolCallParts, delta.toolCalls)
                 LlmChatPerfTracker.recordTransportDelta(
@@ -1800,11 +1874,26 @@ class LlmChatViewModel @Inject constructor(
                 delta.completionTokens?.let { providerCompletionTokens = it }
                 delta.finishReason?.let { finishReason = it }
                 val now = System.currentTimeMillis()
-                val hasVisibleText = content.isNotEmpty() || reasoning.isNotEmpty()
-                if (hasVisibleText && now - lastUiPublishAt >= STREAM_UI_UPDATE_INTERVAL_MS) {
+                val shouldPublishUi = now - lastUiPublishAt >= STREAM_UI_UPDATE_INTERVAL_MS
+                val shouldPersist = now - lastPersistAt >= STREAM_PERSIST_INTERVAL_MS
+                val streamingCanonicalContent =
+                    if (shouldPublishUi || shouldPersist) {
+                        citationAccumulator?.snapshot()?.canonicalText ?: content
+                    } else {
+                        ""
+                    }
+                val hasVisibleText =
+                    if (shouldPublishUi || shouldPersist) {
+                        streamingCanonicalContent.isNotEmpty() || reasoning.isNotEmpty()
+                    } else {
+                        content.isNotEmpty() || reasoning.isNotEmpty()
+                    }
+                if (hasVisibleText && shouldPublishUi) {
                     publishTransientStreamingMessage(
                         assistant.copy(
-                            content = content,
+                            // raw provider transport 只存在内存瞬态层；UI projection 会经唯一 parser
+                            // 转成 provisional [n]，Room 仍只写 streamingCanonicalContent。
+                            content = if (LLM_EVIDENCE_CITATION_ENABLED) content else streamingCanonicalContent,
                             reasoning = reasoning.ifBlank { null },
                             status = LlmMessageStatus.STREAMING,
                             errorMessage = null,
@@ -1818,11 +1907,11 @@ class LlmChatViewModel @Inject constructor(
                     )
                     lastUiPublishAt = now
                 }
-                if (hasVisibleText && now - lastPersistAt >= STREAM_PERSIST_INTERVAL_MS) {
+                if (hasVisibleText && shouldPersist) {
                     assistant =
                         repository.updateMessage(
                             message = assistant,
-                            content = content,
+                            content = streamingCanonicalContent,
                             reasoning = reasoning.ifBlank { null },
                             status = LlmMessageStatus.STREAMING,
                             errorMessage = null,
@@ -1869,8 +1958,8 @@ class LlmChatViewModel @Inject constructor(
                     reasoningChars = reasoning.length,
                 )
             }
-            assistant = repository.updateMessage(
-                message = assistant,
+            val completedPresentation = finalizeCitationMessage(
+                assistant.copy(
                 content = content,
                 reasoning = reasoning.ifBlank { null },
                 status = LlmMessageStatus.COMPLETE,
@@ -1879,9 +1968,9 @@ class LlmChatViewModel @Inject constructor(
                 completionTokens = completionTokens(),
                 durationMs = durationMs(),
                 tokenUsageEstimated = tokenUsageEstimated(),
-            )
-            persistCitationRefs()
-            publishTransientStreamingMessage(assistant)
+            ), content)
+            assistant = completedPresentation.message
+            publishTransientPresentation(completedPresentation)
             LlmChatPerfTracker.finish(
                 assistantMessageId = assistant.id,
                 status = LlmMessageStatus.COMPLETE.name,
@@ -1941,9 +2030,8 @@ class LlmChatViewModel @Inject constructor(
         } catch (error: CancellationException) {
             // 取消发生时当前协程已经不可挂起，使用 NonCancellable 确保部分结果和 STOPPED 状态落库。
             withContext(NonCancellable) {
-                assistant =
-                    repository.updateMessage(
-                        message = assistant,
+                val stoppedPresentation = finalizeCitationMessage(
+                    assistant.copy(
                         content = content,
                         reasoning = reasoning.ifBlank { null },
                         status = LlmMessageStatus.STOPPED,
@@ -1954,9 +2042,9 @@ class LlmChatViewModel @Inject constructor(
                         completionTokens = completionTokens(),
                         durationMs = durationMs(),
                         tokenUsageEstimated = tokenUsageEstimated(),
-                    )
-                persistCitationRefs()
-                publishTransientStreamingMessage(assistant)
+                    ), content)
+                assistant = stoppedPresentation.message
+                publishTransientPresentation(stoppedPresentation)
                 LlmChatPerfTracker.finish(
                     assistantMessageId = assistant.id,
                     status = LlmMessageStatus.STOPPED.name,
@@ -1969,9 +2057,8 @@ class LlmChatViewModel @Inject constructor(
         } catch (error: Throwable) {
             // 错误信息既持久化到消息，又作为一次性 Snackbar 暴露，便于历史恢复后仍能看见失败原因。
             val message = error.message?.takeIf(String::isNotBlank) ?: "AI 请求失败"
-            assistant =
-                repository.updateMessage(
-                    message = assistant,
+            val errorPresentation = finalizeCitationMessage(
+                assistant.copy(
                     content = content,
                     reasoning = reasoning.ifBlank { null },
                     status = LlmMessageStatus.ERROR,
@@ -1980,9 +2067,9 @@ class LlmChatViewModel @Inject constructor(
                     completionTokens = completionTokens(),
                     durationMs = durationMs(),
                     tokenUsageEstimated = tokenUsageEstimated(),
-                )
-            persistCitationRefs()
-            publishTransientStreamingMessage(assistant)
+                ), content)
+            assistant = errorPresentation.message
+            publishTransientPresentation(errorPresentation)
             LlmChatPerfTracker.finish(
                 assistantMessageId = assistant.id,
                 status = LlmMessageStatus.ERROR.name,
@@ -2093,7 +2180,13 @@ class LlmChatViewModel @Inject constructor(
 
     /** 更新当前流式消息的内存覆盖；历史真值仍由 Room 终态负责。 */
     private fun publishTransientStreamingMessage(message: LlmMessageEntity) {
-        transientMessageOverrides.update { current -> current + (message.id to message) }
+        publishTransientPresentation(TransientChatPresentationOverride(message = message))
+    }
+
+    private fun publishTransientPresentation(presentation: TransientChatPresentationOverride) {
+        transientMessageOverrides.update { current ->
+            current + (presentation.message.id to presentation)
+        }
     }
 
     /** 切文章、切会话或重新生成时移除旧 UI 覆盖，禁止已删除消息继续残留在列表。 */
@@ -2102,7 +2195,7 @@ class LlmChatViewModel @Inject constructor(
             if (conversationId == null) {
                 emptyMap()
             } else {
-                current.filterValues { it.conversationId != conversationId }
+                current.filterValues { it.message.conversationId != conversationId }
             }
         }
     }
@@ -2153,6 +2246,48 @@ internal fun acknowledgedChatTransientMessageIds(
         .map(LlmMessageEntity::id)
         .toSet()
 }
+
+/**
+ * Terminal transient presentation 只有在 Room 回读到 message 和 Citation graph 全部一致后才能释放。
+ * 这样旧的 streaming Room emission 永远不能和新的 terminal message 拼成半状态。
+ */
+internal fun acknowledgedChatTransientPresentationIds(
+    persistedPresentation: List<LlmMessageCitationPresentation>,
+    transientOverrides: Map<String, TransientChatPresentationOverride>,
+    conversationId: String?,
+): Set<String> {
+    if (conversationId == null || transientOverrides.isEmpty()) return emptySet()
+    val persistedById = persistedPresentation.associateBy { it.message.id }
+    return transientOverrides.values
+        .asSequence()
+        .filter { it.message.conversationId == conversationId }
+        .filter { it.message.status != LlmMessageStatus.STREAMING }
+        .filter { transient ->
+            val persisted = persistedById[transient.message.id] ?: return@filter false
+            if (persisted.message != transient.message) return@filter false
+            val expectedRefs = transient.citationRefs ?: return@filter true
+            val expectedAnnotations = transient.citationAnnotations.orEmpty()
+            persisted.citationRefs.sortedBy(LlmCitationRefEntity::id) ==
+                expectedRefs.sortedBy(LlmCitationRefEntity::id) &&
+                persisted.citationAnnotations.citationAnnotationAckKeys() ==
+                expectedAnnotations.citationAnnotationAckKeys()
+        }
+        .map { it.message.id }
+        .toSet()
+}
+
+private data class CitationAnnotationAckKey(
+    val annotation: me.ash.reader.llm.chat.data.LlmCitationAnnotationEntity,
+    val citationRefIds: List<String>,
+)
+
+private fun List<LlmCitationAnnotationWithRefs>.citationAnnotationAckKeys(): List<CitationAnnotationAckKey> =
+    map { occurrence ->
+        CitationAnnotationAckKey(
+            annotation = occurrence.annotation,
+            citationRefIds = occurrence.refs.map(LlmCitationRefEntity::id),
+        )
+    }.sortedWith(compareBy({ it.annotation.occurrenceOrdinal }, { it.annotation.id }))
 
 /** 保持原有约 90ms 的屏幕流式刷新节奏；首个可见 delta 仍会立即发布。 */
 private const val STREAM_UI_UPDATE_INTERVAL_MS = 90L

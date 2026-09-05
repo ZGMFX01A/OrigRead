@@ -2,7 +2,9 @@ package me.ash.reader.ui.component.reader
 
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.view.MotionEvent
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -15,7 +17,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
@@ -24,9 +28,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.test.platform.app.InstrumentationRegistry
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
@@ -34,12 +44,15 @@ import kotlin.math.roundToInt
 import me.ash.reader.ui.component.webview.WebViewReaderAnchorNavigationResult
 import me.ash.reader.ui.component.webview.WebViewReaderAnchorState
 import me.ash.reader.ui.component.webview.WebViewReaderOuterScrollHost
+import me.ash.reader.ui.component.webview.ArticleSelectionWebView
+import me.ash.reader.ui.component.webview.WebViewReaderViewportScrollHost
 import me.ash.reader.ui.component.webview.buildWebViewReaderAnchorScript
 import me.ash.reader.ui.component.webview.prepareWebViewReaderContent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import org.jsoup.Jsoup
 
 class CitationMotionDeviceTest {
     @get:Rule val compose = createComposeRule()
@@ -140,6 +153,166 @@ class CitationMotionDeviceTest {
                 list.layoutInfo.visibleItemsInfo.any { it.index == 11 },
             )
             assertTrue("Navigation should be allowed to settle at the physical list end", !list.canScrollForward)
+        }
+    }
+
+    @Test
+    fun nativeReader_realRendererTargetsRangeInsideSharedTextItemAndCodeBlock() {
+        lateinit var list: LazyListState
+        val anchorState = NativeReaderAnchorState()
+        val body =
+            Jsoup.parse(
+                buildString {
+                    (1..28).forEach { index ->
+                        append("<p>Production evidence paragraph $index with enough text to occupy a real rendered line.</p>")
+                    }
+                    append("<pre><code>first code line\nsecond code evidence line\nthird code line</code></pre>")
+                    (29..36).forEach { index ->
+                        append("<p>Production evidence paragraph $index after code.</p>")
+                    }
+                }
+            ).body()
+        val evidenceDocument = buildReaderEvidenceDocument(body)
+        val paragraphs = evidenceDocument.blocks.filter { it.kind == ReaderEvidenceBlockKind.PARAGRAPH }
+        val paragraphTargets = listOf(paragraphs[1], paragraphs[13], paragraphs[24])
+        val codeTargetBlock = evidenceDocument.blocks.single { it.kind == ReaderEvidenceBlockKind.CODE }
+        val anchorMap = NativeReaderAnchorMap.Builder()
+        var requestedTarget by mutableStateOf<ReaderEvidenceAnchorTarget?>(null)
+        var result by mutableStateOf<NativeReaderAnchorNavigationResult?>(null)
+
+        compose.setContent {
+            val context = LocalContext.current
+            list = rememberLazyListState()
+            DisposableEffect(list) {
+                anchorState.bind(
+                    articleId = "article-real-renderer",
+                    originalContent = true,
+                    evidenceDocument = evidenceDocument,
+                    anchorMapBuilder = anchorMap,
+                    listState = list,
+                    topInsetPx = 0,
+                )
+                onDispose { anchorState.unbind() }
+            }
+            Box(Modifier.width(384.dp).height(420.dp)) {
+                LazyColumn(
+                    state = list,
+                    modifier =
+                        Modifier.onGloballyPositioned { coordinates ->
+                            anchorState.updateViewportCoordinates(coordinates)
+                        },
+                ) {
+                    anchorMap.beginPass()
+                    Reader(
+                        context = context,
+                        link = "https://example.com/article",
+                        content = body.html(),
+                        parsedBody = body,
+                        onLinkClick = {},
+                        anchorMapBuilder = anchorMap,
+                        nativeReaderAnchorState = anchorState,
+                        anchorHighlight = anchorState.highlight,
+                    )
+                    anchorMap.commitPass()
+                }
+            }
+            SideEffect {
+                anchorState.markRenderReady()
+            }
+            LaunchedEffect(requestedTarget) {
+                requestedTarget?.let { target -> result = anchorState.navigateTo(target) }
+            }
+        }
+        compose.waitForIdle()
+
+        compose.waitUntil(5_000) {
+            paragraphTargets.all { block ->
+                anchorMap.snapshot().placements(block.stableLocatorKey).isNotEmpty()
+            } && anchorMap.snapshot().placements(codeTargetBlock.stableLocatorKey).isNotEmpty()
+        }
+
+        val firstPlacement = anchorMap.snapshot().placements(paragraphs.first().stableLocatorKey).single()
+        paragraphTargets.forEach { paragraphTargetBlock ->
+            val targetPlacement = anchorMap.snapshot().placements(paragraphTargetBlock.stableLocatorKey).single()
+            assertEquals(
+                "Production paragraphs should share the same rendered Text item in this regression fixture",
+                firstPlacement.itemIndex,
+                targetPlacement.itemIndex,
+            )
+        }
+
+        fun target(block: ReaderEvidenceBlock) =
+            ReaderEvidenceAnchorTarget(
+                articleId = "article-real-renderer",
+                stableLocatorKey = block.stableLocatorKey,
+                normalizedHash = block.normalizedSha256,
+                headingPath = block.headingPath,
+                quote = block.content,
+            )
+
+        paragraphTargets.forEachIndexed { index, paragraphTargetBlock ->
+            compose.runOnIdle {
+                result = null
+                requestedTarget = target(paragraphTargetBlock)
+            }
+            compose.waitUntil(10_000) { result != null }
+            compose.runOnIdle {
+                assertTrue(
+                    "Shared-item paragraph Citation #$index must locate its own rendered text range, got $result",
+                    result is NativeReaderAnchorNavigationResult.Located,
+                )
+            }
+        }
+
+        compose.runOnIdle {
+            result = null
+            requestedTarget = target(codeTargetBlock)
+        }
+        compose.waitUntil(10_000) { result != null }
+        compose.runOnIdle {
+            assertTrue(
+                "CODE Citation must register TextLayoutResult/coordinates and locate, got $result",
+                result is NativeReaderAnchorNavigationResult.Located,
+            )
+        }
+    }
+
+    @Test
+    fun nativeReader_userDragEmitsCancellationSignalBeforeProgrammaticNavigationCanReplay() {
+        lateinit var list: LazyListState
+        var dragStarts = 0
+        compose.setContent {
+            list = rememberLazyListState()
+            LaunchedEffect(list) {
+                list.interactionSource.interactions.collect { interaction ->
+                    if (interaction is DragInteraction.Start) dragStarts += 1
+                }
+            }
+            Box(Modifier.width(384.dp).height(420.dp)) {
+                LazyColumn(
+                    state = list,
+                    modifier = Modifier.testTag("native-reader-drag"),
+                ) {
+                    items(80) { index ->
+                        Text("Native drag paragraph $index", Modifier.height(84.dp))
+                    }
+                }
+            }
+        }
+        compose.waitForIdle()
+
+        compose.onNodeWithTag("native-reader-drag").performTouchInput { swipeUp() }
+        compose.waitUntil(5_000) { dragStarts > 0 }
+        compose.runOnIdle {
+            assertEquals(
+                "One physical gesture must expose DragInteraction.Start to ReadingPage cancellation wiring",
+                1,
+                dragStarts,
+            )
+            assertTrue(
+                "The physical gesture must actually move the Reader",
+                list.firstVisibleItemIndex > 0 || list.firstVisibleItemScrollOffset > 0,
+            )
         }
     }
 
@@ -351,6 +524,126 @@ class CitationMotionDeviceTest {
                 "Citation DOM target must actually enter the reader viewport: " +
                     "target=$targetTopInWindow viewport=$viewportTop..$viewportBottom",
                 targetTopInWindow in viewportTop..viewportBottom,
+            )
+        }
+    }
+
+    @Test
+    fun webViewReaderAnchor_userCancellationCompletesAwaitAsCancelledWithoutLateReplay() {
+        lateinit var web: ArticleSelectionWebView
+        val anchorState = WebViewReaderAnchorState()
+        val navigationResult = AtomicReference<WebViewReaderAnchorNavigationResult?>()
+        val webScroll = AtomicInteger(0)
+        var ready = false
+        val generation = 17L
+        val prepared =
+            prepareWebViewReaderContent(
+                (1..45).joinToString("") {
+                    "<p style='height:120px;margin:0'>Cancelable WebView evidence $it.</p>"
+                },
+                "https://example.com/article",
+                true,
+            )
+        val block = prepared.evidenceDocument.blocks[38]
+        val target =
+            ReaderEvidenceAnchorTarget(
+                articleId = "article-1",
+                stableLocatorKey = block.stableLocatorKey,
+                normalizedHash = block.normalizedSha256,
+                headingPath = block.headingPath,
+                quote = block.content,
+            )
+        var startNavigation by mutableStateOf(false)
+
+        compose.setContent {
+            val scope = rememberCoroutineScope()
+            LaunchedEffect(startNavigation) {
+                if (startNavigation) {
+                    navigationResult.set(anchorState.navigateToAwait(target))
+                }
+            }
+            AndroidView(
+                modifier = Modifier.width(384.dp).height(420.dp),
+                factory = { context ->
+                    ArticleSelectionWebView(context).also { view ->
+                        web = view
+                        view.settings.javaScriptEnabled = true
+                        view.onReaderScrollChanged = { webScroll.set(view.scrollY) }
+                        view.onReaderUserDrag = { anchorState.cancelNavigation() }
+                        anchorState.bindRender(
+                            articleId = "article-1",
+                            originalContent = true,
+                            evidenceDocument = prepared.evidenceDocument,
+                            renderGeneration = generation,
+                            webView = view,
+                            highlightColorCss = "rgb(80, 120, 200)",
+                            markerForegroundCss = "#333333",
+                            markerBackgroundCss = "#DDDDDD",
+                            highlightDurationMillis = CitationMotion.HighlightMillis,
+                            viewportScrollHost =
+                                WebViewReaderViewportScrollHost(
+                                    coroutineScope = scope,
+                                    readableTopInsetPx = { 0 },
+                                ),
+                        )
+                        view.webViewClient =
+                            object : WebViewClient() {
+                                override fun onPageFinished(view: WebView?, url: String?) {
+                                    ready = true
+                                }
+                            }
+                        view.loadDataWithBaseURL(
+                            "https://example.com/",
+                            "<html><meta name='viewport' content='width=device-width,initial-scale=1'><body style='margin:0'>${prepared.html}</body></html>",
+                            "text/html",
+                            "UTF-8",
+                            null,
+                        )
+                    }
+                },
+                onRelease = {
+                    it.onReaderScrollChanged = null
+                    it.onReaderUserDrag = null
+                    anchorState.unbind(it)
+                    it.destroy()
+                },
+            )
+        }
+        compose.waitUntil(10_000) { ready }
+        compose.runOnIdle {
+            assertTrue(anchorState.markRenderReady(web, generation))
+            startNavigation = true
+        }
+        compose.waitUntil(5_000) { webScroll.get() > 20 && navigationResult.get() == null }
+
+        // Inject the takeover directly on the Android UI thread. compose.runOnIdle() cannot be used
+        // here: it deliberately waits for the ongoing Citation animation to become idle first,
+        // which would turn this into a late cancel rather than a real user interruption.
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val downTime = android.os.SystemClock.uptimeMillis()
+            fun dispatch(action: Int, y: Float, eventTime: Long) {
+                MotionEvent.obtain(downTime, eventTime, action, 180f, y, 0).also { event ->
+                    web.dispatchTouchEvent(event)
+                    event.recycle()
+                }
+            }
+            dispatch(MotionEvent.ACTION_DOWN, 320f, downTime)
+            dispatch(MotionEvent.ACTION_MOVE, 100f, downTime + 32)
+            dispatch(MotionEvent.ACTION_CANCEL, 100f, downTime + 48)
+        }
+        compose.waitUntil(5_000) {
+            navigationResult.get() is WebViewReaderAnchorNavigationResult.Cancelled
+        }
+        val cancelledScroll = webScroll.get()
+        Thread.sleep((CitationMotion.ScrollMillis + CitationMotion.SettleScrollMillis + 250).toLong())
+        compose.runOnIdle {
+            assertTrue(
+                "Cancelled Citation must never publish a late Located result: ${navigationResult.get()}",
+                navigationResult.get() is WebViewReaderAnchorNavigationResult.Cancelled,
+            )
+            assertTrue(
+                "Cancelled Citation must not resume the old auto-scroll after user takeover",
+                abs(webScroll.get() - cancelledScroll) < 3,
             )
         }
     }

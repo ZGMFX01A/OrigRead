@@ -7,6 +7,22 @@ import org.junit.Test
 
 class ReaderWorkspacePaneTest {
     @Test
+    fun `two pane article list navigate up stays inside workspace and opens sources`() {
+        assertEquals(
+            ArticleListNavigateUpTarget.SourceList,
+            articleListNavigateUpTarget(isTwoPane = true),
+        )
+    }
+
+    @Test
+    fun `single pane article list navigate up keeps existing parent navigation`() {
+        assertEquals(
+            ArticleListNavigateUpTarget.Parent,
+            articleListNavigateUpTarget(isTwoPane = false),
+        )
+    }
+
+    @Test
     fun `two pane workspace shows list by default`() {
         assertEquals(
             NavigationAction.HideList,

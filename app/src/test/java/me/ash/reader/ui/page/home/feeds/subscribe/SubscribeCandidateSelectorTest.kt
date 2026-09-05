@@ -8,6 +8,8 @@ import me.ash.reader.infrastructure.rsshub.RssHubProbeResult
 import me.ash.reader.infrastructure.rsshub.RssHubRouteDefinition
 import me.ash.reader.infrastructure.rsshub.RssHubRouteMatch
 import me.ash.reader.infrastructure.source.SourceCandidateKind
+import me.ash.reader.infrastructure.source.SourceInputHint
+import me.ash.reader.infrastructure.source.sourceInputHint
 import me.ash.reader.infrastructure.website.CandidateState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -168,6 +170,34 @@ class SubscribeCandidateSelectorTest {
         assertEquals(1, merged.size)
         assertEquals(CandidateState.AVAILABLE, merged.single().state)
         assertTrue(merged.single().available)
+    }
+
+    @Test
+    fun `url hints only reorder probes and do not prove source type`() {
+        assertEquals(SourceInputHint.RSS_LIKELY, sourceInputHint("https://example.com/feed.xml"))
+        assertEquals(SourceInputHint.RSS_LIKELY, sourceInputHint("https://example.com/atom"))
+        assertEquals(SourceInputHint.JSON_LIKELY, sourceInputHint("https://example.com/wp-json/wp/v2/posts"))
+        assertEquals(SourceInputHint.JSON_LIKELY, sourceInputHint("https://example.com/api/news"))
+        assertEquals(SourceInputHint.JSON_LIKELY, sourceInputHint("https://example.com/api/v1/feed"))
+        assertEquals(SourceInputHint.GENERIC, sourceInputHint("https://example.com/blog"))
+    }
+
+    @Test
+    fun `structured candidates always rank higher than website candidates`() {
+        val candidates =
+            listOf(
+                probe(SourceCandidateKind.WEBSITE, SourceType.WEBSITE, "https://example.com", 15),
+                probe(SourceCandidateKind.RSSHUB, SourceType.RSS, "https://rsshub.app/example", 15),
+                probe(SourceCandidateKind.JSON, SourceType.JSON, "https://example.com/api", 15),
+                probe(SourceCandidateKind.RSS_DIRECT, SourceType.RSS, "https://example.com/feed.xml", 15),
+            )
+
+        val ranked = SubscribeCandidateSelector.rank(candidates)
+
+        assertEquals(SourceCandidateKind.RSS_DIRECT, ranked[0].kind)
+        assertEquals(SourceCandidateKind.JSON, ranked[1].kind)
+        assertEquals(SourceCandidateKind.RSSHUB, ranked[2].kind)
+        assertEquals(SourceCandidateKind.WEBSITE, ranked[3].kind)
     }
 
     private fun probe(

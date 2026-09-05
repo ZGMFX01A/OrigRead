@@ -90,6 +90,34 @@ class LlmCitationProtocolTest {
     }
 
     @Test
+    fun compactMultiEvidenceBuildsOneOccurrenceAndTwoOrderedRefs() {
+        val entries =
+            listOf(
+                entry("E1", "p:first", "block-1"),
+                entry("E2", "p:second", "block-2"),
+            )
+        var refIndex = 0
+        var annotationIndex = 0
+
+        val built =
+            buildCitationPersistenceFromAssistantOutput(
+                assistantText = "Supported claim [[E1][E2]].",
+                allowedEntries = entries,
+                conversationId = "conversation-1",
+                assistantMessageId = "assistant-1",
+                refIdFactory = { "ref-${++refIndex}" },
+                annotationIdFactory = { "annotation-${++annotationIndex}" },
+            )
+
+        assertEquals("Supported claim.", built.canonicalText)
+        assertEquals(listOf("E1", "E2"), built.refs.map { it.protocolId })
+        assertEquals(1, built.annotations.size)
+        assertEquals(15, built.annotations.single().canonicalInsertionOffset)
+        assertEquals(listOf(0, 1), built.annotationRefs.map { it.refOrdinal })
+        assertEquals(listOf("ref-1", "ref-2"), built.annotationRefs.map { it.citationRefId })
+    }
+
+    @Test
     fun displayOrderFollowsFirstActualAppearanceInsteadOfProtocolNumber() {
         val entries =
             listOf(
@@ -155,7 +183,12 @@ class LlmCitationProtocolTest {
         val messages =
             listOf(
                 message("user-1", LlmChatRole.USER, "question", 1L),
-                message("assistant-old", LlmChatRole.ASSISTANT, "First claim [[E1]], second [[E12]].", 2L),
+                message(
+                    "assistant-old",
+                    LlmChatRole.ASSISTANT,
+                    "First claim [[E1][E12]], malformed [[E99oops]], code `[[E7]]`.",
+                    2L,
+                ),
                 message("user-2", LlmChatRole.USER, "follow up", 3L),
             )
         val snapshot =
@@ -167,8 +200,10 @@ class LlmCitationProtocolTest {
             )
 
         val historicalAssistant = snapshot.messages.single { it.role == LlmChatRole.ASSISTANT }
-        assertEquals("First claim, second.", historicalAssistant.content)
-        assertFalse(snapshot.messages.any { it.content.contains("[[E") })
+        assertEquals("First claim, malformed, code `[[E7]]`.", historicalAssistant.content)
+        assertTrue(historicalAssistant.content.contains("`[[E7]]`"))
+        assertFalse(historicalAssistant.content.contains("[[E1"))
+        assertFalse(historicalAssistant.content.contains("[[E99"))
     }
 
     @Test

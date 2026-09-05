@@ -339,6 +339,50 @@ object LlmChatDatabaseModule {
             }
         }
 
+    /** v16 将回答中的 Citation occurrence 与 Evidence identity 分离为 canonical N:M 结构。 */
+    internal val MIGRATION_15_16 =
+        object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS llm_citation_annotations (" +
+                        "id TEXT NOT NULL, conversation_id TEXT NOT NULL, assistant_message_id TEXT NOT NULL, " +
+                        "canonical_insertion_offset INTEGER NOT NULL, occurrence_ordinal INTEGER NOT NULL, " +
+                        "schema_version INTEGER NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY(id), " +
+                        "FOREIGN KEY(assistant_message_id, conversation_id) " +
+                        "REFERENCES llm_messages(id, conversation_id) ON UPDATE NO ACTION ON DELETE CASCADE)"
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_llm_citation_annotations_assistant_message_id_occurrence_ordinal " +
+                        "ON llm_citation_annotations(assistant_message_id, occurrence_ordinal)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_llm_citation_annotations_assistant_message_id_canonical_insertion_offset " +
+                        "ON llm_citation_annotations(assistant_message_id, canonical_insertion_offset)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_llm_citation_annotations_assistant_message_id_conversation_id " +
+                        "ON llm_citation_annotations(assistant_message_id, conversation_id)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS llm_citation_annotation_refs (" +
+                        "annotation_id TEXT NOT NULL, citation_ref_id TEXT NOT NULL, ref_ordinal INTEGER NOT NULL, " +
+                        "PRIMARY KEY(annotation_id, citation_ref_id), " +
+                        "FOREIGN KEY(annotation_id) REFERENCES llm_citation_annotations(id) " +
+                        "ON UPDATE NO ACTION ON DELETE CASCADE, " +
+                        "FOREIGN KEY(citation_ref_id) REFERENCES llm_citation_refs(id) " +
+                        "ON UPDATE NO ACTION ON DELETE CASCADE)"
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_llm_citation_annotation_refs_annotation_id_ref_ordinal " +
+                        "ON llm_citation_annotation_refs(annotation_id, ref_ordinal)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_llm_citation_annotation_refs_citation_ref_id " +
+                        "ON llm_citation_annotation_refs(citation_ref_id)"
+                )
+            }
+        }
+
     /** 创建 LLM Chat Room 数据库单例。 */
     @Provides
     @Singleton
@@ -362,6 +406,7 @@ object LlmChatDatabaseModule {
             MIGRATION_12_13,
             MIGRATION_13_14,
             MIGRATION_14_15,
+            MIGRATION_15_16,
         ).build()
 
     /** 向业务层提供 Chat DAO 单例。 */

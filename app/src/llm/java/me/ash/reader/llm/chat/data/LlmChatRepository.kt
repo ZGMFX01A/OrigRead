@@ -20,6 +20,11 @@ class LlmChatRepository @Inject constructor(
     fun observeMessages(conversationId: String): Flow<List<LlmMessageEntity>> =
         dao.observeMessages(conversationId)
 
+    /** UI 原子观察 message + CitationRef + Annotation，避免多个 Flow 拼接出半状态。 */
+    fun observeMessageCitationPresentation(
+        conversationId: String,
+    ): Flow<List<LlmMessageCitationPresentation>> = dao.observeMessageCitationPresentation(conversationId)
+
     /** 观察指定会话 Tool Call 状态。 */
     fun observeToolCalls(conversationId: String): Flow<List<LlmToolCallEntity>> =
         dao.observeToolCalls(conversationId)
@@ -31,6 +36,10 @@ class LlmChatRepository @Inject constructor(
     /** 观察指定会话全部 CitationRef；显示编号仍严格属于各自 Assistant Message。 */
     fun observeCitationRefs(conversationId: String): Flow<List<LlmCitationRefEntity>> =
         dao.observeCitationRefs(conversationId)
+
+    fun observeCitationAnnotations(
+        conversationId: String,
+    ): Flow<List<LlmCitationAnnotationWithRefs>> = dao.observeCitationAnnotations(conversationId)
 
     fun observeLatestRestorableCitationAssistant(articleId: String): Flow<LlmMessageEntity?> =
         dao.observeLatestRestorableCitationAssistant(articleId)
@@ -273,6 +282,22 @@ class LlmChatRepository @Inject constructor(
         citationRefs: List<LlmCitationRefEntity>,
     ) {
         dao.replaceCitationRefsForAssistant(assistantMessageId, citationRefs)
+    }
+
+    suspend fun getCitationAnnotationsForAssistant(
+        assistantMessageId: String,
+    ): List<LlmCitationAnnotationWithRefs> = dao.getCitationAnnotationsForAssistant(assistantMessageId)
+
+    /** 原子持久化 canonical Assistant 正文与完整 Citation occurrence 图。 */
+    suspend fun finalizeAssistantCitationState(
+        message: LlmMessageEntity,
+        citationRefs: List<LlmCitationRefEntity>,
+        annotations: List<LlmCitationAnnotationEntity>,
+        annotationRefs: List<LlmCitationAnnotationRefEntity>,
+    ): LlmMessageEntity {
+        dao.finalizeAssistantCitationState(message, citationRefs, annotations, annotationRefs)
+        touchConversation(message.conversationId)
+        return message
     }
 
     /** 更新单个 Tool Call 的审批或执行结果。 */

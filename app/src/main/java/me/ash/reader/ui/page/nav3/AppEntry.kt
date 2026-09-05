@@ -224,6 +224,7 @@ fun AppEntry(backStack: NavBackStack<NavKey>) {
                     is Route.Reading -> {
                         NavEntry(key) {
                             val key = rememberSaveable(saver = Route.Reading.Saver) { key }
+                            val viewModel = hiltViewModel<ArticleListReaderViewModel>()
 
                             LaunchedEffect(key) {
                                 if (key.articleId != null) {
@@ -232,10 +233,14 @@ fun AppEntry(backStack: NavBackStack<NavKey>) {
                                         ListDetailPaneScaffoldRole.Detail,
                                         ArticleData(key.articleId),
                                     )
+                                } else {
+                                    // Reading(null) means "show this collection's article list",
+                                    // not "reuse whichever detail article the adaptive navigator
+                                    // happened to retain from the previous collection".
+                                    viewModel.clearReadingData()
+                                    navigator.navigateTo(ListDetailPaneScaffoldRole.List)
                                 }
                             }
-
-                            val viewModel = hiltViewModel<ArticleListReaderViewModel>()
 
                             ArticleListReaderPage(
                                 scaffoldDirective = scaffoldDirective,
@@ -245,6 +250,14 @@ fun AppEntry(backStack: NavBackStack<NavKey>) {
                                 viewModel = viewModel,
                                 onBack = onBack,
                                 onNavigateToStylePage = { backStack.add(Route.ReadingPageStyle) },
+                                onNavigateToSettings = { backStack.add(Route.Settings) },
+                                onNavigateToSourceDiscovery = {
+                                    backStack.add(Route.SourceDiscovery)
+                                },
+                                onNavigateToAccountList = { backStack.add(Route.Accounts) },
+                                onNavigateToAccountDetail = {
+                                    backStack.add(Route.AccountDetails(it))
+                                },
                                 assistantPaneVisible = readingAssistantPaneVisible,
                                 onAssistantPaneVisibilityChange = { readingAssistantPaneVisible = it },
                             )

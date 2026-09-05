@@ -24,10 +24,13 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
@@ -54,6 +57,7 @@ import me.ash.reader.ui.component.reader.buildReaderEvidenceDocument
 import me.ash.reader.ui.component.scrollbar.drawVerticalScrollIndicator
 import me.ash.reader.ui.component.webview.OrigReadWebView
 import me.ash.reader.ui.component.webview.WebViewReaderAnchorState
+import me.ash.reader.ui.component.webview.WebViewReaderScrollState
 import me.ash.reader.ui.ext.extractDomain
 import me.ash.reader.ui.ext.isLlmEdition
 import me.ash.reader.ui.ext.roundClick
@@ -92,6 +96,9 @@ fun Content(
     webViewReaderAnchorState: WebViewReaderAnchorState? = null,
     readerEvidenceMarkerState: ReaderEvidenceMarkerState? = null,
     onReaderEvidenceMarkerClick: ((ReaderEvidenceMarkerNavigationTarget) -> Unit)? = null,
+    onNativeReaderUserDrag: (() -> Unit)? = null,
+    onWebViewReaderUserDrag: (() -> Unit)? = null,
+    webViewScrollState: WebViewReaderScrollState? = null,
 ) {
     val context = LocalContext.current
     val subheadUpperCase = LocalReadingSubheadUpperCase.current
@@ -116,6 +123,22 @@ fun Content(
         }
     val nativeAnchorMapBuilder =
         remember(nativeReaderContent?.body) { NativeReaderAnchorMap.Builder() }
+    LaunchedEffect(listState, onNativeReaderUserDrag) {
+        if (onNativeReaderUserDrag == null) return@LaunchedEffect
+        listState.interactionSource.interactions.collect { interaction ->
+            if (interaction is androidx.compose.foundation.interaction.DragInteraction.Start) {
+                onNativeReaderUserDrag()
+            }
+        }
+    }
+    LaunchedEffect(scrollState, onWebViewReaderUserDrag) {
+        if (onWebViewReaderUserDrag == null) return@LaunchedEffect
+        scrollState.interactionSource.interactions.collect { interaction ->
+            if (interaction is androidx.compose.foundation.interaction.DragInteraction.Start) {
+                onWebViewReaderUserDrag()
+            }
+        }
+    }
     val nativeAnchorTopInsetPx =
         with(LocalDensity.current) { (topBarSpacerHeight + topContentPadding).roundToPx() }
 
@@ -194,43 +217,30 @@ fun Content(
 
         when (renderer) {
             ReadingRendererPreference.WebView -> {
-                Column(
+                val browserScrollState = webViewScrollState ?: rememberSaveable(
+                    articleId, saver = WebViewReaderScrollState.Saver,
+                ) { WebViewReaderScrollState() }
+                SideEffect {
+                    browserScrollState.onUserDrag = {
+                        webViewReaderAnchorState?.cancelNavigation()
+                        onWebViewReaderUserDrag?.invoke()
+                    }
+                }
+                val readableTopInsetPx = with(LocalDensity.current) { topBarSpacerHeight.roundToPx() }
+                WebViewReadingLayout(
                     modifier =
                         modifier
                             .padding(top = topContentPadding)
-                            .fillMaxSize()
-                            .drawVerticalScrollIndicator(scrollState)
-                ) {
-                    Column(
-                        modifier = Modifier.fillMaxSize().verticalScroll(scrollState),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
+                            .fillMaxSize(),
+                    scrollState = browserScrollState,
+                    header = {
                         Column(modifier = Modifier.then(maxWidthModifier)) {
-                            // Top bar height
                             Spacer(modifier = Modifier.height(topBarSpacerHeight))
-                            // padding
                             headline()
-
-                            OrigReadWebView(
-                                modifier = Modifier.fillMaxSize(),
-                                articleId = articleId,
-                                sourceUrl = link,
-                                isOriginalContent = isOriginalContent,
-                                content = content,
-                                refererDomain = link.extractDomain(),
-                                onImageClick = onImageClick,
-                                selectionActionLabel =
-                                    selectedTextActionLabel.takeIf {
-                                        onSelectedTextAction != null
-                                    },
-                                onSelectedTextAction =
-                                    onSelectedTextAction,
-                                readerAnchorState = webViewReaderAnchorState,
-                                outerScrollState = scrollState,
-                                markerSnapshot =
-                                    readerEvidenceMarkerState?.snapshot.takeIf { isOriginalContent },
-                                onEvidenceMarkerClick = onReaderEvidenceMarkerClick,
-                            )
+                        }
+                    },
+                    footer = {
+                        Column(modifier = Modifier.then(maxWidthModifier)) {
                             releaseLinks?.let {
                                 OrigReadReleaseActions(
                                     links = it,
@@ -242,22 +252,56 @@ fun Content(
                                 modifier = Modifier.height(contentPadding.calculateBottomPadding())
                             )
                         }
+                    },
+                ) { headerHeightPx, footerHeightPx ->
+                    // Constrain the Android View to this viewport, even for very long documents.
+                    androidx.compose.foundation.layout.Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.TopCenter,
+                    ) {
+                        OrigReadWebView(
+                            modifier = Modifier.then(maxWidthModifier).fillMaxSize(),
+                            articleId = articleId,
+                            sourceUrl = link,
+                            isOriginalContent = isOriginalContent,
+                            content = content,
+                            refererDomain = link.extractDomain(),
+                            onImageClick = onImageClick,
+                            selectionActionLabel = selectedTextActionLabel.takeIf { onSelectedTextAction != null },
+                            onSelectedTextAction = onSelectedTextAction,
+                            readerAnchorState = webViewReaderAnchorState,
+                            viewportScrollState = browserScrollState,
+                            headerHeightPx = headerHeightPx,
+                            footerHeightPx = footerHeightPx,
+                            readableTopInsetPx = readableTopInsetPx,
+                            markerSnapshot = readerEvidenceMarkerState?.snapshot.takeIf { isOriginalContent },
+                            onEvidenceMarkerClick = onReaderEvidenceMarkerClick,
+                        )
                     }
                 }
             }
 
             ReadingRendererPreference.NativeComponent -> {
-                nativeAnchorMapBuilder.beginPass()
                 PrioritizedProcessTextContextMenu(
                     enabled = onSelectedTextAction != null,
                     targetLabel = selectedTextActionLabel,
                 ) {
                     SelectionContainer {
                         LazyColumn(
-                            modifier = modifier.fillMaxSize().drawVerticalScrollIndicator(listState),
+                            modifier =
+                                modifier.fillMaxSize()
+                                    .drawVerticalScrollIndicator(listState)
+                                    .onGloballyPositioned { coordinates ->
+                                        nativeReaderAnchorState?.updateViewportCoordinates(coordinates)
+                                    },
                             state = listState,
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
+                            // Keep the anchor-map transaction inside the LazyListScope item-provider
+                            // build. Compose is allowed to skip an unchanged LazyColumn while its
+                            // parent recomposes; beginning the pass outside and committing it in a
+                            // parent SideEffect could therefore publish an empty map.
+                            nativeAnchorMapBuilder.beginPass()
                             nativeAnchorMapBuilder.recordItem()
                             item {
                                 // Top bar height
@@ -285,6 +329,7 @@ fun Content(
                                     }
                                 },
                                 anchorMapBuilder = nativeAnchorMapBuilder,
+                                nativeReaderAnchorState = nativeReaderAnchorState,
                                 anchorHighlight = nativeReaderAnchorState?.highlight,
                                 markerSnapshot =
                                     readerEvidenceMarkerState?.snapshot.takeIf { isOriginalContent },
@@ -308,9 +353,9 @@ fun Content(
                                     modifier = Modifier.height(contentPadding.calculateBottomPadding())
                                 )
                             }
+                            nativeAnchorMapBuilder.commitPass()
                         }
                         SideEffect {
-                            nativeAnchorMapBuilder.commitPass()
                             nativeReaderAnchorState?.markRenderReady()
                         }
                     }

@@ -3,6 +3,8 @@ package me.ash.reader.llm.chat.ui
 import me.ash.reader.llm.chat.data.LLM_EVIDENCE_CITATION_ENABLED
 import me.ash.reader.llm.chat.data.LlmCitationNavigationAction
 import me.ash.reader.llm.chat.data.LlmCitationRefEntity
+import me.ash.reader.llm.chat.data.LlmCitationAnnotationWithRefs
+import me.ash.reader.llm.chat.data.CitationTransportParser
 import me.ash.reader.llm.chat.data.LlmEvidenceSourceKind
 import me.ash.reader.llm.chat.data.resolveCitationNavigationAction
 import me.ash.reader.llm.chat.data.stripDisabledLlmCitationTokens
@@ -41,15 +43,18 @@ internal fun shouldReplaceWithHistoricalCitationLayer(
 internal fun LlmAssistantCitationGroup.directNavigationRefOrNull(): LlmCitationRefEntity? {
     val actions = refs.map(LlmCitationRefEntity::resolveCitationNavigationAction)
     if (actions.all { it is LlmCitationNavigationAction.Reader }) {
-        val articleIds =
-            actions.mapNotNull { action ->
-                (action as? LlmCitationNavigationAction.Reader)
-                    ?.target
-                    ?.articleId
-                    ?.trim()
-                    ?.ifBlank { null }
+        val destinations =
+            actions.map { action ->
+                val target = (action as LlmCitationNavigationAction.Reader).target
+                listOf(
+                    target.articleId?.trim().orEmpty(),
+                    target.stableLocatorKey?.trim().orEmpty(),
+                    target.normalizedHash?.trim().orEmpty(),
+                    target.headingPath.joinToString("\u001F"),
+                ).joinToString("\u001E")
             }.toSet()
-        return representativeRef.takeIf { articleIds.size == 1 }
+        // 多来源 occurrence 只有在全部 ref 收敛到同一精确 Reader destination 时才允许直达。
+        return representativeRef.takeIf { destinations.size == 1 }
     }
     if (actions.all { it is LlmCitationNavigationAction.ExternalUrl }) {
         val urls = actions.map { (it as LlmCitationNavigationAction.ExternalUrl).url }.toSet()
@@ -57,28 +62,6 @@ internal fun LlmAssistantCitationGroup.directNavigationRefOrNull(): LlmCitationR
     }
     return null
 }
-
-private data class LlmCitationOccurrence(
-    val start: Int,
-    val endExclusive: Int,
-    val ref: LlmCitationRefEntity,
-)
-
-private data class LlmCitationOccurrenceGroup(
-    val occurrences: List<LlmCitationOccurrence>,
-) {
-    val refs: List<LlmCitationRefEntity> =
-        occurrences.map(LlmCitationOccurrence::ref).distinctBy(LlmCitationRefEntity::id)
-    val signature: String = refs.map(LlmCitationRefEntity::id).sorted().joinToString("|")
-    val sourceKeys: Set<String> = refs.mapTo(linkedSetOf(), ::citationSourceKey)
-    val firstStart: Int = occurrences.first().start
-}
-
-private data class LlmCitationReplacement(
-    val start: Int,
-    val endExclusive: Int,
-    val text: String,
-)
 
 internal const val MAX_INLINE_CITATION_GROUPS = 20
 
@@ -91,6 +74,7 @@ internal fun projectLlmAssistantCitationDisplay(
     assistantMessageId: String,
     content: String,
     citationRefs: List<LlmCitationRefEntity>,
+    citationAnnotations: List<LlmCitationAnnotationWithRefs> = emptyList(),
     citationFeatureEnabled: Boolean = LLM_EVIDENCE_CITATION_ENABLED,
     preserveStreamingCitationLayout: Boolean = false,
 ): LlmAssistantCitationDisplay {
@@ -101,172 +85,154 @@ internal fun projectLlmAssistantCitationDisplay(
         )
     }
 
-    val scoped = citationRefs.filter { it.assistantMessageId == assistantMessageId }
-    val protocolGroups = scoped.groupBy { it.protocolId }
-    val displayGroups = scoped.filter { (it.displayOrder ?: 0) > 0 }.groupBy { it.displayOrder!! }
-    val validRefs =
-        scoped.filter { ref ->
-            val displayOrder = ref.displayOrder ?: return@filter false
-            displayOrder > 0 &&
-                NEW_CITATION_PROTOCOL_ID_REGEX.matches(ref.protocolId) &&
-                protocolGroups[ref.protocolId]?.size == 1 &&
-                displayGroups[displayOrder]?.size == 1
-        }
-    val byProtocolId = validRefs.associateBy(LlmCitationRefEntity::protocolId)
-    val provisionalDisplayOrders =
-        if (preserveStreamingCitationLayout) {
-            linkedMapOf<String, Int>().apply {
-                NEW_CITATION_PROTOCOL_TOKEN_REGEX.findAll(content).forEach { match ->
-                    val protocolId = match.groupValues[1]
-                    if (protocolId !in this) this[protocolId] = size + 1
-                }
-            }
+    val structured =
+        citationAnnotations
+            .filter { it.annotation.assistantMessageId == assistantMessageId }
+            .sortedWith(compareBy({ it.annotation.occurrenceOrdinal }, { it.annotation.id }))
+    if (structured.isNotEmpty()) {
+        return projectStructuredCitationDisplay(content, structured)
+    }
+
+    // v15 及更早历史没有持久化 occurrence；也必须复用唯一 Parser 临时恢复 canonical 投影，
+    // 禁止旧严格 Regex 让 malformed/半截 transport 在历史消息中重新泄漏。
+    val legacyRefs =
+        citationRefs
+            .filter { it.assistantMessageId == assistantMessageId }
+            .distinctBy(LlmCitationRefEntity::protocolId)
+    val duplicateDisplayOrders =
+        legacyRefs
+            .filter { (it.displayOrder ?: 0) > 0 }
+            .groupBy { it.displayOrder }
+            .filterValues { it.size > 1 }
+            .keys
+    val validLegacyRefs = legacyRefs.filter { it.displayOrder !in duplicateDisplayOrders }
+    val legacyByProtocolId = validLegacyRefs.associateBy(LlmCitationRefEntity::protocolId)
+    val parserAllowedIds =
+        if (preserveStreamingCitationLayout && legacyRefs.isEmpty()) {
+            extractStreamingCitationProtocolIds(content)
         } else {
-            emptyMap()
+            legacyByProtocolId.keys
         }
-
-    if (preserveStreamingCitationLayout) {
-        val projected =
-            content
-                .replace(NEW_CITATION_PROTOCOL_TOKEN_REGEX) { match ->
-                    val protocolId = match.groupValues[1]
-                    val displayOrder =
-                        byProtocolId[protocolId]?.displayOrder ?: provisionalDisplayOrders[protocolId]
-                    displayOrder?.let { "[$it]" }.orEmpty()
-                }
-                .replace(LEGACY_CITATION_TOKEN_REGEX, "")
-                .replace(MULTI_INLINE_SPACE_REGEX, " ")
-                .replace(PUNCTUATION_SPACE_REGEX, "$1")
-        val persistedGroups =
-            validRefs
-                .sortedBy { it.displayOrder }
-                .associate { ref ->
-                    val order = requireNotNull(ref.displayOrder)
-                    order to LlmAssistantCitationGroup(order, listOf(ref))
-                }
-        return LlmAssistantCitationDisplay(projected, persistedGroups)
-    }
-
-    val occurrenceGroups = buildCitationOccurrenceGroups(content, byProtocolId)
-    val logicalGroups =
-        occurrenceGroups
-            .distinctBy(LlmCitationOccurrenceGroup::signature)
-            .sortedBy(LlmCitationOccurrenceGroup::firstStart)
-    val visibleSignatures = selectVisibleCitationGroupSignatures(logicalGroups)
-    val visibleLogicalGroups = logicalGroups.filter { it.signature in visibleSignatures }
-    val groupsBySignature =
-        visibleLogicalGroups.mapIndexed { index, group ->
-            group.signature to
-                LlmAssistantCitationGroup(
-                    displayOrder = index + 1,
-                    refs = group.refs,
-                )
-        }.toMap()
-    val groupsByDisplayOrder =
-        groupsBySignature.values.associateBy(LlmAssistantCitationGroup::displayOrder).toSortedMap()
-
-    val replacements = mutableListOf<LlmCitationReplacement>()
-    val groupedTokenStarts = mutableSetOf<Int>()
-    occurrenceGroups.forEach { occurrenceGroup ->
-        occurrenceGroup.occurrences.forEach { groupedTokenStarts += it.start }
-        val uiGroup = groupsBySignature[occurrenceGroup.signature]
-        val occurrences = occurrenceGroup.occurrences
-        if (occurrences.size > 1 && occurrenceGroup.isPureCitationCluster(content)) {
-            replacements +=
-                LlmCitationReplacement(
-                    start = occurrences.first().start,
-                    endExclusive = occurrences.last().endExclusive,
-                    text = uiGroup?.let { "[${it.displayOrder}]" }.orEmpty(),
-                )
-        } else {
-            occurrences.forEachIndexed { index, occurrence ->
-                replacements +=
-                    LlmCitationReplacement(
-                        start = occurrence.start,
-                        endExclusive = occurrence.endExclusive,
-                        text =
-                            if (index == occurrences.lastIndex) {
-                                uiGroup?.let { "[${it.displayOrder}]" }.orEmpty()
-                            } else {
-                                ""
-                            },
-                    )
-            }
-        }
-    }
-    NEW_CITATION_PROTOCOL_TOKEN_REGEX.findAll(content).forEach { match ->
-        if (match.range.first !in groupedTokenStarts) {
-            replacements +=
-                LlmCitationReplacement(
-                    start = match.range.first,
-                    endExclusive = match.range.last + 1,
-                    text = "",
-                )
-        }
-    }
-
-    val projected =
-        applyCitationReplacements(content, replacements)
-            // Legacy whole-context [R#] never becomes a precise Evidence Citation.
-            .replace(LEGACY_CITATION_TOKEN_REGEX, "")
-            .replace(MULTI_INLINE_SPACE_REGEX, " ")
-            .replace(PUNCTUATION_SPACE_REGEX, "$1")
-
-    return LlmAssistantCitationDisplay(
-        markdown = projected,
-        groupsByDisplayOrder = groupsByDisplayOrder,
-    )
-}
-
-private fun buildCitationOccurrenceGroups(
-    content: String,
-    byProtocolId: Map<String, LlmCitationRefEntity>,
-): List<LlmCitationOccurrenceGroup> {
-    val occurrences =
-        NEW_CITATION_PROTOCOL_TOKEN_REGEX.findAll(content).mapNotNull { match ->
-            val ref = byProtocolId[match.groupValues[1]] ?: return@mapNotNull null
-            LlmCitationOccurrence(
-                start = match.range.first,
-                endExclusive = match.range.last + 1,
-                ref = ref,
+    val parsedLegacy =
+        CitationTransportParser.parse(
+            transportText = content,
+            allowedProtocolIds = parserAllowedIds,
+            final = !preserveStreamingCitationLayout,
+        )
+    val legacyOccurrences =
+        parsedLegacy.annotations.map { annotation ->
+            LegacyCitationOccurrence(
+                offset = annotation.canonicalInsertionOffset,
+                protocolIds = annotation.protocolIds,
+                refs = annotation.protocolIds.mapNotNull(legacyByProtocolId::get),
             )
-        }.toList()
-    if (occurrences.isEmpty()) return emptyList()
+        }
+    return projectParsedCitationDisplay(
+        canonicalText = parsedLegacy.canonicalText,
+        occurrences = normalizeLegacyCitationOccurrences(legacyOccurrences),
+        allowProvisionalGroups = preserveStreamingCitationLayout,
+    )
 
-    val groups = mutableListOf<MutableList<LlmCitationOccurrence>>()
+
+}
+
+/** 兼容历史 transport 的临时 occurrence 投影；不重新建立第二套 Citation 解析规则。 */
+private fun projectParsedCitationDisplay(
+    canonicalText: String,
+    occurrences: List<LegacyCitationOccurrence>,
+    allowProvisionalGroups: Boolean,
+): LlmAssistantCitationDisplay {
+    val navigable = occurrences.filter { it.refs.isNotEmpty() }
+    val visibleNavigable = selectVisibleLegacyOccurrences(navigable)
+    val visible =
+        if (allowProvisionalGroups && navigable.isEmpty()) occurrences.take(MAX_INLINE_CITATION_GROUPS)
+        else visibleNavigable
+    val orderBySignature = linkedMapOf<String, Int>()
+    visible.forEach { occurrence ->
+        val signature = occurrence.protocolIds.sorted().joinToString("|")
+        if (signature !in orderBySignature) orderBySignature[signature] = orderBySignature.size + 1
+    }
+    val groups =
+        visible.mapNotNull { occurrence ->
+            val refs = occurrence.refs
+            if (refs.isEmpty()) return@mapNotNull null
+            val order = orderBySignature.getValue(occurrence.protocolIds.sorted().joinToString("|"))
+            order to LlmAssistantCitationGroup(order, refs.distinctBy(LlmCitationRefEntity::id))
+        }.distinctBy { it.first }.toMap(linkedMapOf())
+    val projected = buildString(canonicalText.length + visible.size * 4) {
+        var cursor = 0
+        visible.forEach { occurrence ->
+            val offset = occurrence.offset.coerceIn(cursor, canonicalText.length)
+            append(canonicalText, cursor, offset)
+            val anotherMarkerAtSameOffset = cursor == offset && lastOrNull() == ']'
+            if (!anotherMarkerAtSameOffset && lastOrNull()?.isWhitespace() != true) append(' ')
+            val order = orderBySignature.getValue(occurrence.protocolIds.sorted().joinToString("|"))
+            append("[$order]")
+            cursor = offset
+        }
+        append(canonicalText, cursor, canonicalText.length)
+    }.replace(MULTI_INLINE_SPACE_REGEX, " ")
+    return LlmAssistantCitationDisplay(projected, groups)
+}
+
+private data class LegacyCitationOccurrence(
+    val offset: Int,
+    val protocolIds: List<String>,
+    val refs: List<LlmCitationRefEntity>,
+)
+
+/** 相邻 token 只在精确 destination 相同时合并；不同来源/段落保持独立 occurrence。 */
+private fun normalizeLegacyCitationOccurrences(
+    occurrences: List<LegacyCitationOccurrence>,
+): List<LegacyCitationOccurrence> {
+    val normalized = mutableListOf<LegacyCitationOccurrence>()
     occurrences.forEach { occurrence ->
-        val current = groups.lastOrNull()
+        val previous = normalized.lastOrNull()
+        val sameOffset = previous?.offset == occurrence.offset
+        val previousTargets = previous?.refs?.mapNotNull(::citationUiMergeTargetKey)?.toSet().orEmpty()
+        val currentTargets = occurrence.refs.mapNotNull(::citationUiMergeTargetKey).toSet()
         if (
-            current != null &&
-                canMergeCitationOccurrence(
-                    content = content,
-                    group = current,
-                    next = occurrence,
-                )
+            sameOffset &&
+                previousTargets.size == 1 &&
+                currentTargets.size == 1 &&
+                previousTargets == currentTargets
         ) {
-            current += occurrence
+            normalized[normalized.lastIndex] =
+                previous!!.copy(
+                    protocolIds = (previous.protocolIds + occurrence.protocolIds).distinct(),
+                    refs = (previous.refs + occurrence.refs).distinctBy(LlmCitationRefEntity::id),
+                )
         } else {
-            groups += mutableListOf(occurrence)
+            normalized += occurrence
         }
     }
-    return groups.map { LlmCitationOccurrenceGroup(it.toList()) }
+    return normalized
 }
 
-private fun canMergeCitationOccurrence(
-    content: String,
-    group: List<LlmCitationOccurrence>,
-    next: LlmCitationOccurrence,
-): Boolean {
-    val previous = group.last()
-    val gap = content.substring(previous.endExclusive, next.start)
-    if (gap.contains('\n')) return false
-    // UI grouping must never guess that two natural-language statements form one semantic claim.
-    // Only collapse a pure citation cluster when every ref points at the exact same navigation
-    // target. This still removes duplicate adjacent markers without sacrificing evidence precision.
-    if (gap.any(Char::isLetterOrDigit)) return false
-    val previousTarget = citationUiMergeTargetKey(previous.ref) ?: return false
-    return previousTarget == citationUiMergeTargetKey(next.ref)
+private fun selectVisibleLegacyOccurrences(
+    occurrences: List<LegacyCitationOccurrence>,
+): List<LegacyCitationOccurrence> {
+    if (occurrences.size <= MAX_INLINE_CITATION_GROUPS) return occurrences
+    val selected = linkedSetOf<LegacyCitationOccurrence>()
+    val coveredSources = mutableSetOf<String>()
+    occurrences.forEach { occurrence ->
+        if (selected.size >= MAX_INLINE_CITATION_GROUPS) return@forEach
+        val sources = occurrence.refs.map(::citationSourceKey).toSet()
+        if (sources.any { it !in coveredSources }) {
+            selected += occurrence
+            coveredSources += sources
+        }
+    }
+    occurrences.forEach { if (selected.size < MAX_INLINE_CITATION_GROUPS) selected += it }
+    return occurrences.filter(selected::contains)
 }
+
+/** Streaming 尚未持久化 allowed refs 时，仅提取形状合法的 provisional IDs 供占位编号。 */
+private fun extractStreamingCitationProtocolIds(content: String): Set<String> =
+    Regex("""E\d+""").findAll(content).mapTo(linkedSetOf()) { it.value }
+
+/** Parser 删除 transport 后保留既有可读分隔；Citation 前原有空格不能被 canonical trim 吞掉。 */
+private val MULTI_INLINE_SPACE_REGEX = Regex("[ \\t]{2,}")
 
 private fun citationUiMergeTargetKey(ref: LlmCitationRefEntity): String? =
     when (val action = ref.resolveCitationNavigationAction()) {
@@ -303,49 +269,64 @@ private fun citationSourceKey(ref: LlmCitationRefEntity): String {
 private fun normalizedCitationUrl(value: String?): String? =
     value?.trim()?.ifBlank { null }?.substringBefore('#')?.trimEnd('/')
 
-private fun selectVisibleCitationGroupSignatures(
-    groups: List<LlmCitationOccurrenceGroup>,
-    maxGroups: Int = MAX_INLINE_CITATION_GROUPS,
-): Set<String> {
-    if (groups.size <= maxGroups) return groups.mapTo(linkedSetOf(), LlmCitationOccurrenceGroup::signature)
-    val selected = linkedSetOf<String>()
-    val coveredSources = mutableSetOf<String>()
-    groups.forEach { group ->
-        if (selected.size >= maxGroups) return@forEach
-        if (group.sourceKeys.any { it !in coveredSources }) {
-            selected += group.signature
-            coveredSources += group.sourceKeys
+/** 从 canonical occurrence 投影 UI marker；正文不再包含任何 transport token。 */
+private fun projectStructuredCitationDisplay(
+    content: String,
+    annotations: List<LlmCitationAnnotationWithRefs>,
+): LlmAssistantCitationDisplay {
+    val logical =
+        annotations
+            .mapNotNull { occurrence ->
+                occurrence.refs
+                    .takeIf(List<LlmCitationRefEntity>::isNotEmpty)
+                    ?.distinctBy(LlmCitationRefEntity::id)
+                    ?.let { refs -> occurrence to refs }
+            }
+    val visible = selectVisibleStructuredOccurrences(logical)
+    val groups =
+        visible.mapIndexed { index, (_, refs) ->
+            val order = index + 1
+            order to LlmAssistantCitationGroup(displayOrder = order, refs = refs)
+        }.toMap(linkedMapOf())
+    val markerByAnnotationId =
+        visible.mapIndexed { index, (occurrence, _) -> occurrence.annotation.id to "[${index + 1}]" }.toMap()
+    val projected = buildString(content.length + markerByAnnotationId.size * 4) {
+        var cursor = 0
+        annotations.forEach { occurrence ->
+            val offset = occurrence.annotation.canonicalInsertionOffset.coerceIn(cursor, content.length)
+            append(content, cursor, offset)
+            markerByAnnotationId[occurrence.annotation.id]?.let(::append)
+            cursor = offset
         }
+        append(content, cursor, content.length)
     }
-    groups.forEach { group ->
-        if (selected.size >= maxGroups) return@forEach
-        selected += group.signature
-    }
-    return selected
+    return LlmAssistantCitationDisplay(markdown = projected, groupsByDisplayOrder = groups)
 }
 
-private fun LlmCitationOccurrenceGroup.isPureCitationCluster(content: String): Boolean =
-    occurrences.zipWithNext().all { (first, second) ->
-        val gap = content.substring(first.endExclusive, second.start)
-        !gap.contains('\n') && gap.none(Char::isLetterOrDigit)
-    }
-
-private fun applyCitationReplacements(
-    content: String,
-    replacements: List<LlmCitationReplacement>,
-): String {
-    if (replacements.isEmpty()) return content
-    val ordered = replacements.sortedBy(LlmCitationReplacement::start)
-    return buildString(content.length) {
-        var cursor = 0
-        ordered.forEach { replacement ->
-            if (replacement.start < cursor) return@forEach
-            append(content, cursor, replacement.start)
-            append(replacement.text)
-            cursor = replacement.endExclusive
+/**
+ * 大量 Citation 时优先保住不同来源，再按 canonical occurrence 顺序补满剩余名额。
+ * UI 编号仍由最终可见 occurrence 的 canonical 顺序生成，不持久化 displayOrder。
+ */
+private fun selectVisibleStructuredOccurrences(
+    occurrences: List<Pair<LlmCitationAnnotationWithRefs, List<LlmCitationRefEntity>>>,
+): List<Pair<LlmCitationAnnotationWithRefs, List<LlmCitationRefEntity>>> {
+    if (occurrences.size <= MAX_INLINE_CITATION_GROUPS) return occurrences
+    val selectedAnnotationIds = linkedSetOf<String>()
+    val coveredSources = mutableSetOf<String>()
+    occurrences.forEach { (occurrence, refs) ->
+        if (selectedAnnotationIds.size >= MAX_INLINE_CITATION_GROUPS) return@forEach
+        val sources = refs.map(::citationSourceKey).toSet()
+        if (sources.any { it !in coveredSources }) {
+            selectedAnnotationIds += occurrence.annotation.id
+            coveredSources += sources
         }
-        if (cursor < content.length) append(content, cursor, content.length)
     }
+    occurrences.forEach { (occurrence, _) ->
+        if (selectedAnnotationIds.size < MAX_INLINE_CITATION_GROUPS) {
+            selectedAnnotationIds += occurrence.annotation.id
+        }
+    }
+    return occurrences.filter { (occurrence, _) -> occurrence.annotation.id in selectedAnnotationIds }
 }
 
 internal fun buildLlmReaderMarkerSnapshot(
@@ -353,6 +334,7 @@ internal fun buildLlmReaderMarkerSnapshot(
     conversationId: String,
     assistantMessageId: String,
     citationRefs: List<LlmCitationRefEntity>,
+    citationAnnotations: List<LlmCitationAnnotationWithRefs> = emptyList(),
     assistantContent: String? = null,
     origin: ReaderEvidenceMarkerLayerOrigin = ReaderEvidenceMarkerLayerOrigin.INTERACTION,
     citationFeatureEnabled: Boolean = LLM_EVIDENCE_CITATION_ENABLED,
@@ -375,10 +357,25 @@ internal fun buildLlmReaderMarkerSnapshot(
                         .sortedBy { it.displayOrder }
                         .joinToString(" ") { "[[${it.protocolId}]]" },
             citationRefs = citationRefs,
+            citationAnnotations = citationAnnotations,
             citationFeatureEnabled = true,
         )
+    val structuredVisibleAnnotationIdsByDisplayOrder =
+        citationAnnotations
+            .filter { it.annotation.assistantMessageId == assistantMessageId }
+            .sortedWith(compareBy({ it.annotation.occurrenceOrdinal }, { it.annotation.id }))
+            .mapNotNull { occurrence ->
+                occurrence.refs
+                    .takeIf(List<LlmCitationRefEntity>::isNotEmpty)
+                    ?.distinctBy(LlmCitationRefEntity::id)
+                    ?.let { refs -> occurrence to refs }
+            }
+            .let(::selectVisibleStructuredOccurrences)
+            .mapIndexed { index, (occurrence, _) -> index + 1 to occurrence.annotation.id }
+            .toMap()
     val markers =
         display.groupsByDisplayOrder.flatMap { (displayOrder, group) ->
+            val annotationId = structuredVisibleAnnotationIdsByDisplayOrder[displayOrder]
             group.refs
                 .asSequence()
                 .mapNotNull { ref ->
@@ -398,6 +395,7 @@ internal fun buildLlmReaderMarkerSnapshot(
                     val (articleId, stableKey, ref) = refsForLocator.last()
                     ReaderEvidenceMarker(
                         citationId = ref.id,
+                        annotationId = annotationId,
                         stableLocatorKey = stableKey,
                         displayOrder = displayOrder,
                         articleId = articleId,
@@ -414,9 +412,3 @@ internal fun buildLlmReaderMarkerSnapshot(
         )
     }
 }
-
-private val NEW_CITATION_PROTOCOL_ID_REGEX = Regex("^E\\d+$")
-private val NEW_CITATION_PROTOCOL_TOKEN_REGEX = Regex("""\[\[(E\d+)]]""")
-private val LEGACY_CITATION_TOKEN_REGEX = Regex("[ \\t]*\\[R\\d+]", RegexOption.IGNORE_CASE)
-private val MULTI_INLINE_SPACE_REGEX = Regex("[ \\t]{2,}")
-private val PUNCTUATION_SPACE_REGEX = Regex("""[ \t]+([,.;:!?，。；：！？])""")

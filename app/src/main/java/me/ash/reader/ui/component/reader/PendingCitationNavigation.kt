@@ -1,5 +1,7 @@
 package me.ash.reader.ui.component.reader
 
+import java.util.UUID
+
 /**
  * One Citation navigation request that may outlive the article switch which it triggers.
  *
@@ -7,6 +9,7 @@ package me.ash.reader.ui.component.reader
  * converted to [ReaderEvidenceAnchorTarget] before entering the Reader lifecycle.
  */
 data class PendingCitationNavigation(
+    val requestId: String = UUID.randomUUID().toString(),
     val conversationId: String,
     val assistantMessageId: String,
     val citationId: String,
@@ -16,6 +19,7 @@ data class PendingCitationNavigation(
     val originArticleId: String? = null,
 ) {
     init {
+        require(requestId.isNotBlank()) { "Pending Citation request id must not be blank" }
         require(conversationId.isNotBlank()) { "Pending Citation conversation id must not be blank" }
         require(assistantMessageId.isNotBlank()) { "Pending Citation assistant message id must not be blank" }
         require(citationId.isNotBlank()) { "Pending Citation id must not be blank" }
@@ -26,11 +30,7 @@ data class PendingCitationNavigation(
     }
 
     fun sameRequest(other: PendingCitationNavigation?): Boolean =
-        other != null &&
-            conversationId == other.conversationId &&
-            assistantMessageId == other.assistantMessageId &&
-            citationId == other.citationId &&
-            requestedAt == other.requestedAt
+        other != null && requestId == other.requestId
 
     fun isTargetArticle(currentArticleId: String?): Boolean =
         currentArticleId?.trim()?.ifBlank { null } == articleId.trim()

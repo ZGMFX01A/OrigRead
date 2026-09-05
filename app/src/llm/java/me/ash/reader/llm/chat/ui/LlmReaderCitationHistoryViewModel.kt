@@ -7,14 +7,16 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import me.ash.reader.llm.chat.data.LlmChatRepository
+import me.ash.reader.llm.chat.data.LlmCitationAnnotationWithRefs
 import me.ash.reader.llm.chat.data.LlmCitationRefEntity
 import me.ash.reader.llm.chat.data.LlmMessageEntity
 
 internal data class LlmHistoricalCitationLayer(
     val assistantMessage: LlmMessageEntity,
     val citationRefs: List<LlmCitationRefEntity>,
+    val citationAnnotations: List<LlmCitationAnnotationWithRefs>,
 )
 
 /**
@@ -37,15 +39,19 @@ internal class LlmReaderCitationHistoryViewModel @Inject constructor(
                 if (assistant == null) {
                     flowOf(null)
                 } else {
-                    repository.observeCitationRefs(assistant.conversationId).map { refs ->
-                        val scoped = refs.filter { it.assistantMessageId == assistant.id }
-                        scoped.takeIf(List<LlmCitationRefEntity>::isNotEmpty)?.let {
-                            LlmHistoricalCitationLayer(
-                                assistantMessage = assistant,
-                                citationRefs = it,
-                            )
+                    repository.observeCitationRefs(assistant.conversationId)
+                        .combine(repository.observeCitationAnnotations(assistant.conversationId)) { refs, annotations ->
+                            val scoped = refs.filter { it.assistantMessageId == assistant.id }
+                            val scopedAnnotations =
+                                annotations.filter { it.annotation.assistantMessageId == assistant.id }
+                            scoped.takeIf(List<LlmCitationRefEntity>::isNotEmpty)?.let {
+                                LlmHistoricalCitationLayer(
+                                    assistantMessage = assistant,
+                                    citationRefs = it,
+                                    citationAnnotations = scopedAnnotations,
+                                )
+                            }
                         }
-                    }
                 }
             }
     }

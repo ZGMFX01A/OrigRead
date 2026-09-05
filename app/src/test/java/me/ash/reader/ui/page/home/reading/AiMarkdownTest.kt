@@ -6,6 +6,53 @@ import org.junit.Test
 
 class AiMarkdownTest {
     @Test
+    fun `source ranges locate canonical citation insertion without protocol token`() {
+        val markdown = "## Summary\n\nFirst paragraph.\n\nSecond paragraph."
+        val blocks = parseAiMarkdownWithSourceRanges(markdown)
+        val secondOffset = markdown.indexOf("Second") + "Second".length
+
+        assertEquals(2, blocks.indexOfFirst { secondOffset >= it.sourceStart && secondOffset < it.sourceEndExclusive })
+        assertTrue(blocks[2].sourceStart >= markdown.indexOf("Second"))
+    }
+
+    @Test
+    fun `multi line paragraph end offset stays with previous block`() {
+        val markdown = "First line\nsecond line\n\nNext block"
+        val blocks = parseAiMarkdownWithSourceRanges(markdown)
+        val paragraphEnd = markdown.indexOf("\n\n")
+
+        assertTrue(blocks.first().sourceEndExclusive >= paragraphEnd)
+        assertTrue(blocks[1].sourceStart > paragraphEnd)
+    }
+
+    @Test
+    fun `table source range covers all body rows for citation return`() {
+        val markdown =
+            "| Source | Finding |\n" +
+                "|---|---|\n" +
+                "| A | First |\n" +
+                "| B | Citation target |\n\n" +
+                "After table"
+        val blocks = parseAiMarkdownWithSourceRanges(markdown)
+        val targetOffset = markdown.indexOf("Citation target") + "Citation".length
+
+        assertTrue(blocks.first().block is AiMarkdownBlock.Table)
+        assertTrue(targetOffset >= blocks.first().sourceStart)
+        assertTrue(targetOffset < blocks.first().sourceEndExclusive)
+        assertTrue(blocks[1].sourceStart > targetOffset)
+    }
+
+    @Test
+    fun `normalized multiline text never binds to identical later paragraph`() {
+        val markdown = "First line\nsecond line\n\nFirst line second line"
+        val blocks = parseAiMarkdownWithSourceRanges(markdown)
+
+        assertEquals(0, blocks.first().sourceStart)
+        assertTrue(blocks.first().sourceEndExclusive <= markdown.indexOf("\n\n") + 1)
+        assertTrue(blocks[1].sourceStart >= markdown.lastIndexOf("First line second line"))
+    }
+
+    @Test
     fun `parses common ai summary markdown blocks`() {
         val blocks =
             parseAiMarkdown(

@@ -56,6 +56,8 @@ import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.unit.sp
 import kotlin.math.abs
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.combine
 import me.ash.reader.R
 import me.ash.reader.domain.model.feed.SourceType
 import me.ash.reader.infrastructure.android.TextToSpeechManager
@@ -95,6 +97,7 @@ import me.ash.reader.ui.component.reader.ReaderEvidenceAnchorTarget
 import me.ash.reader.ui.component.reader.stripReaderEvidenceMarkersFromSelectedText
 import me.ash.reader.ui.component.webview.WebViewReaderAnchorNavigationResult
 import me.ash.reader.ui.component.webview.WebViewReaderAnchorState
+import me.ash.reader.ui.component.webview.WebViewReaderScrollState
 import me.ash.reader.ui.page.adaptive.ArticleListReaderViewModel
 import me.ash.reader.ui.page.adaptive.LocalOrigReadAdaptiveLayoutProfile
 import me.ash.reader.ui.page.adaptive.NavigationAction
@@ -130,7 +133,10 @@ private val PendingCitationNavigationStateSaver =
                     request.requestedAt.toString(),
                     request.originArticleId.orEmpty(),
                     request.target.headingPath.size.toString(),
-                ).apply { addAll(request.target.headingPath) }
+                ).apply {
+                    addAll(request.target.headingPath)
+                    add(request.requestId)
+                }
             }
         },
         restore = { values ->
@@ -140,7 +146,11 @@ private val PendingCitationNavigationStateSaver =
                 val headingCount = values[9].toIntOrNull()?.coerceAtLeast(0) ?: return@Saver null
                 if (values.size < 10 + headingCount) return@Saver null
                 val articleId = values[3]
+                val requestId =
+                    values.getOrNull(10 + headingCount)?.ifBlank { null }
+                        ?: "legacy:${values[0]}:${values[1]}:${values[2]}:${values[7]}"
                 PendingCitationNavigation(
+                    requestId = requestId,
                     conversationId = values[0],
                     assistantMessageId = values[1],
                     citationId = values[2],
@@ -171,13 +181,14 @@ internal val CitationReturnTargetStateSaver =
                     target.conversationId,
                     target.assistantMessageId,
                     target.citationId,
+                    target.annotationId.orEmpty(),
                     target.displayOrder.toString(),
                     target.originArticleId.orEmpty(),
                 )
             }
         },
         restore = { values ->
-            if (values.size !in 5..6) {
+            if (values.size !in 5..7) {
                 null
             } else {
                 ReaderEvidenceMarkerNavigationTarget(
@@ -185,8 +196,9 @@ internal val CitationReturnTargetStateSaver =
                     conversationId = values[1],
                     assistantMessageId = values[2],
                     citationId = values[3],
-                    displayOrder = values[4].toIntOrNull() ?: return@Saver null,
-                    originArticleId = values.getOrNull(5)?.ifBlank { null },
+                    annotationId = if (values.size >= 7) values[4].ifBlank { null } else null,
+                    displayOrder = values[if (values.size >= 7) 5 else 4].toIntOrNull() ?: return@Saver null,
+                    originArticleId = values.getOrNull(if (values.size >= 7) 6 else 5)?.ifBlank { null },
                 )
             }
         },
@@ -319,21 +331,6 @@ fun ReadingPage(
         }
     }
 
-    // Cross-article loading belongs to the persisted pending request rather than the original click
-    // callback. This makes the same request resume after Activity/process recreation without issuing
-    // duplicate loads when unrelated Reader state changes while the target article is still loading.
-    LaunchedEffect(pendingCitationNavigation, readerState.articleId, citationNavigationArmed) {
-        val pending = pendingCitationNavigation ?: return@LaunchedEffect
-        if (!citationNavigationArmed) return@LaunchedEffect
-        val currentArticleId = readerState.articleId?.trim()?.ifBlank { null } ?: return@LaunchedEffect
-        if (pending.isTargetArticle(currentArticleId)) return@LaunchedEffect
-        if (pending.shouldInvalidateForArticle(currentArticleId)) {
-            pendingCitationNavigation = null
-            return@LaunchedEffect
-        }
-        onLoadArticle(pending.articleId, -1)
-    }
-
     LaunchedEffect(pendingCitationReturn, readerState.articleId) {
         val target = pendingCitationReturn ?: return@LaunchedEffect
         val currentArticleId = readerState.articleId?.trim()?.ifBlank { null } ?: return@LaunchedEffect
@@ -349,39 +346,56 @@ fun ReadingPage(
     }
 
     LaunchedEffect(
-        pendingCitationNavigation,
+        pendingCitationNavigation?.requestId,
         citationNavigationArmed,
-        readerState.articleId,
-        readerState.content,
-        translationState.showTranslation,
-        readingRenderer,
-        nativeReaderAnchorState.readyRevision,
-        webViewReaderAnchorState.readyRevision,
     ) {
         val pending = pendingCitationNavigation ?: return@LaunchedEffect
         if (!citationNavigationArmed) return@LaunchedEffect
-        val currentArticleId = readerState.articleId?.trim()?.ifBlank { null } ?: return@LaunchedEffect
         val targetArticleId = pending.articleId.trim()
-
+        val articleAtStart = readerState.articleId?.trim()?.ifBlank { null }
+        if (pending.shouldInvalidateForArticle(articleAtStart)) {
+            if (pending.sameRequest(pendingCitationNavigation)) pendingCitationNavigation = null
+            return@LaunchedEffect
+        }
+        if (!pending.isTargetArticle(articleAtStart)) {
+            // Cross-article loading is part of this request transaction. The effect is keyed only by
+            // request identity/armed state, so unrelated Reader state emissions cannot replay loads.
+            onLoadArticle(pending.articleId, -1)
+        }
+        snapshotFlow { readerState.articleId?.trim()?.ifBlank { null } }
+            .first { articleId -> pending.isTargetArticle(articleId) || pending.shouldInvalidateForArticle(articleId) }
+        val currentArticleId = readerState.articleId?.trim()?.ifBlank { null }
         if (!pending.isTargetArticle(currentArticleId)) {
-            if (pending.shouldInvalidateForArticle(currentArticleId)) {
+            if (pending.sameRequest(pendingCitationNavigation)) pendingCitationNavigation = null
+            return@LaunchedEffect
+        }
+        snapshotFlow { readerState.content }
+            .first { contentState -> contentState !is ReaderState.Loading }
+        if (readerState.content is ReaderState.Error) {
+            if (pending.sameRequest(pendingCitationNavigation)) {
+                citationNavigationFailure = pending
                 pendingCitationNavigation = null
             }
             return@LaunchedEffect
         }
-        if (readerState.content is ReaderState.Error) {
-            citationNavigationFailure = pending
-            pendingCitationNavigation = null
-            return@LaunchedEffect
-        }
-        if (translationState.showTranslation) {
-            viewModel.showOriginalContentForCitation()
-            return@LaunchedEffect
-        }
+        if (translationState.showTranslation) viewModel.showOriginalContentForCitation()
+        snapshotFlow { translationState.showTranslation }.first { showing -> !showing }
+        val renderer =
+            snapshotFlow { readingRenderer }
+                .combine(
+                    snapshotFlow {
+                        nativeReaderAnchorState.readyArticleId to webViewReaderAnchorState.readyArticleId
+                    }
+                ) { candidate, ready -> candidate to ready }
+                .first { (candidate, ready) ->
+                    when (candidate) {
+                        ReadingRendererPreference.NativeComponent -> ready.first == targetArticleId
+                        ReadingRendererPreference.WebView -> ready.second == targetArticleId
+                    }
+                }.first
 
-        when (readingRenderer) {
+        when (renderer) {
             ReadingRendererPreference.NativeComponent -> {
-                if (nativeReaderAnchorState.readyArticleId != targetArticleId) return@LaunchedEffect
                 when (nativeReaderAnchorState.navigateTo(pending.target)) {
                     is NativeReaderAnchorNavigationResult.Located -> {
                         if (pending.sameRequest(pendingCitationNavigation)) {
@@ -397,15 +411,16 @@ fun ReadingPage(
                 }
             }
             ReadingRendererPreference.WebView -> {
-                if (webViewReaderAnchorState.readyArticleId != targetArticleId) return@LaunchedEffect
-                webViewReaderAnchorState.navigateTo(pending.target) { result ->
-                    if (!pending.sameRequest(pendingCitationNavigation)) return@navigateTo
-                    when (result) {
-                        is WebViewReaderAnchorNavigationResult.Located -> {
-                            pendingCitationNavigation = null
-                        }
-                        WebViewReaderAnchorNavigationResult.Pending -> Unit
-                        is WebViewReaderAnchorNavigationResult.Unavailable -> {
+                when (webViewReaderAnchorState.navigateToAwait(pending.target)) {
+                    is WebViewReaderAnchorNavigationResult.Located -> {
+                        if (pending.sameRequest(pendingCitationNavigation)) pendingCitationNavigation = null
+                    }
+                    WebViewReaderAnchorNavigationResult.Pending -> Unit
+                    WebViewReaderAnchorNavigationResult.Cancelled -> {
+                        if (pending.sameRequest(pendingCitationNavigation)) pendingCitationNavigation = null
+                    }
+                    is WebViewReaderAnchorNavigationResult.Unavailable -> {
+                        if (pending.sameRequest(pendingCitationNavigation)) {
                             citationNavigationFailure = pending
                             pendingCitationNavigation = null
                         }
@@ -882,6 +897,9 @@ fun ReadingPage(
                                     }
 
                                 val scrollState = rememberScrollState()
+                                val webViewScrollState = rememberSaveable(
+                                    readerState.articleId, saver = WebViewReaderScrollState.Saver,
+                                ) { WebViewReaderScrollState() }
 
                                 val scope = rememberCoroutineScope()
 
@@ -889,7 +907,11 @@ fun ReadingPage(
                                     if (bringToTop) {
                                         scope
                                             .launch {
-                                                if (scrollState.value != 0) {
+                                                if (readingRenderer == ReadingRendererPreference.WebView &&
+                                                    content !is ReaderState.Error &&
+                                                    webViewScrollState.scrollOffset != 0) {
+                                                    webViewScrollState.scrollToTop()
+                                                } else if (scrollState.value != 0) {
                                                     scrollState.animateScrollTo(0)
                                                 } else if (listState.firstVisibleItemIndex != 0) {
                                                     listState.animateScrollToItem(0)
@@ -901,8 +923,12 @@ fun ReadingPage(
 
                                 showTopDivider =
                                     snapshotFlow {
-                                            scrollState.value >= 120 ||
+                                            if (readingRenderer == ReadingRendererPreference.WebView) {
+                                                if (content is ReaderState.Error) scrollState.value >= 120
+                                                else webViewScrollState.scrollOffset >= 120
+                                            } else {
                                                 listState.firstVisibleItemIndex != 0
+                                            }
                                         }
                                         .collectAsStateValue(initial = false)
 
@@ -999,6 +1025,14 @@ fun ReadingPage(
                                                 nativeReaderAnchorState = nativeReaderAnchorState,
                                                 webViewReaderAnchorState = webViewReaderAnchorState,
                                                 readerEvidenceMarkerState = readerEvidenceMarkerState,
+                                                onNativeReaderUserDrag = {
+                                                    // 手指拖动拥有最高优先级；取消后任何 ready/reflow 都不得重放旧 request。
+                                                    pendingCitationNavigation = null
+                                                },
+                                                onWebViewReaderUserDrag = {
+                                                    // WebView 内部滚动和原生标题区域的拖动都取消旧引用请求。
+                                                    pendingCitationNavigation = null
+                                                },
                                                 onReaderEvidenceMarkerClick = { target ->
                                                     pendingCitationReturn = target
                                                     citationNavigationFailure = null
@@ -1024,6 +1058,7 @@ fun ReadingPage(
                                                 failureReason =
                                                     (content as? ReaderState.Error)?.reason,
                                                 scrollState = scrollState,
+                                                webViewScrollState = webViewScrollState,
                                                 listState = listState,
                                                 onReadOriginal = {
                                                     context.openURL(

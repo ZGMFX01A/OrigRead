@@ -39,10 +39,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -76,6 +79,7 @@ fun LazyListScope.htmlFormattedText(
     onImageClick: ((imgUrl: String, altText: String) -> Unit)? = null,
     onLinkClick: (String) -> Unit,
     anchorMapBuilder: NativeReaderAnchorMap.Builder? = null,
+    nativeReaderAnchorState: NativeReaderAnchorState? = null,
     anchorHighlight: NativeReaderAnchorHighlight? = null,
     markerSnapshot: ReaderEvidenceMarkerSnapshot? = null,
     markerArticleId: String? = null,
@@ -88,6 +92,7 @@ fun LazyListScope.htmlFormattedText(
         onLinkClick = onLinkClick,
         baseUrl = baseUrl,
         anchorMapBuilder = anchorMapBuilder,
+        nativeReaderAnchorState = nativeReaderAnchorState,
         anchorHighlight = anchorHighlight,
         markerSnapshot = markerSnapshot,
         markerArticleId = markerArticleId,
@@ -102,6 +107,7 @@ fun LazyListScope.htmlFormattedText(
     onImageClick: ((imgUrl: String, altText: String) -> Unit)? = null,
     onLinkClick: (String) -> Unit,
     anchorMapBuilder: NativeReaderAnchorMap.Builder? = null,
+    nativeReaderAnchorState: NativeReaderAnchorState? = null,
     anchorHighlight: NativeReaderAnchorHighlight? = null,
     markerSnapshot: ReaderEvidenceMarkerSnapshot? = null,
     markerArticleId: String? = null,
@@ -115,6 +121,7 @@ fun LazyListScope.htmlFormattedText(
             onLinkClick = onLinkClick,
             baseUrl = baseUrl,
             anchorMapBuilder = anchorMapBuilder,
+            nativeReaderAnchorState = nativeReaderAnchorState,
             anchorHighlight = anchorHighlight,
             markerSnapshot = markerSnapshot,
             markerArticleId = markerArticleId,
@@ -131,17 +138,19 @@ private fun LazyListScope.formatBody(
     onLinkClick: (String) -> Unit,
     baseUrl: String,
     anchorMapBuilder: NativeReaderAnchorMap.Builder?,
+    nativeReaderAnchorState: NativeReaderAnchorState?,
     anchorHighlight: NativeReaderAnchorHighlight?,
     markerSnapshot: ReaderEvidenceMarkerSnapshot?,
     markerArticleId: String?,
 ) {
     val composer = TextComposer(
         anchorMapBuilder = anchorMapBuilder,
+        nativeReaderAnchorState = nativeReaderAnchorState,
         anchorHighlight = anchorHighlight,
         markerSnapshot = markerSnapshot,
         markerArticleId = markerArticleId,
     ) { paragraphBuilder, anchorRanges ->
-        readerTrackedItem(anchorMapBuilder, anchorRanges) {
+        readerTrackedTextItem(anchorMapBuilder, anchorRanges) { trackedItem ->
             val textLinkStyles = textLinkStyles()
             val decoratedParagraph =
                 paragraphBuilder.toAnnotatedString().withReaderEvidenceDecorations(
@@ -151,7 +160,7 @@ private fun LazyListScope.formatBody(
                     markerArticleId = markerArticleId,
                 )
             val paragraph =
-                decoratedParagraph.mapAnnotations {
+                decoratedParagraph.text.mapAnnotations {
                     when (it.item) {
                         is LinkAnnotation.Url -> {
                             val link = (it.item as LinkAnnotation.Url)
@@ -170,12 +179,38 @@ private fun LazyListScope.formatBody(
             val requiresBidi = paragraph.toString().requiresBidi()
             val textStyle = bodyStyle().applyTextDirection(requiresBidi = requiresBidi)
             val contentWidth = LocalTextContentWidth.current
+            val textIdentity = paragraph.hashCode()
+            val layoutHolder = remember(trackedItem.itemIndex, textIdentity) { NativeReaderTextLayoutHolder() }
+            RegisterNativeReaderTextDisposal(
+                state = nativeReaderAnchorState,
+                trackedItem = trackedItem,
+                textIdentity = textIdentity,
+                holder = layoutHolder,
+            )
 
             Text(
                 text = paragraph,
                 style = textStyle,
                 modifier =
-                    Modifier.width(contentWidth).padding(horizontal = textHorizontalPadding().dp),
+                    Modifier.width(contentWidth)
+                        .padding(horizontal = textHorizontalPadding().dp)
+                        .trackNativeReaderText(
+                            state = nativeReaderAnchorState,
+                            trackedItem = trackedItem,
+                            renderedRanges = decoratedParagraph.renderedRanges,
+                            textIdentity = textIdentity,
+                            holder = layoutHolder,
+                        ),
+                onTextLayout = { result ->
+                    layoutHolder.textLayoutResult = result
+                    registerNativeReaderTextIfReady(
+                        nativeReaderAnchorState,
+                        trackedItem,
+                        decoratedParagraph.renderedRanges,
+                        textIdentity,
+                        layoutHolder,
+                    )
+                },
             )
         }
     }
@@ -203,19 +238,36 @@ private fun LazyListScope.formatCodeBlock(
     onLinkClick: (String) -> Unit,
     baseUrl: String,
     anchorMapBuilder: NativeReaderAnchorMap.Builder?,
+    nativeReaderAnchorState: NativeReaderAnchorState?,
     anchorHighlight: NativeReaderAnchorHighlight?,
     markerSnapshot: ReaderEvidenceMarkerSnapshot?,
     markerArticleId: String?,
 ) {
     val composer = TextComposer(
         anchorMapBuilder = anchorMapBuilder,
+        nativeReaderAnchorState = nativeReaderAnchorState,
         anchorHighlight = anchorHighlight,
         markerSnapshot = markerSnapshot,
         markerArticleId = markerArticleId,
     ) { paragraphBuilder, anchorRanges ->
-        readerTrackedItem(anchorMapBuilder, anchorRanges) {
+        readerTrackedTextItem(anchorMapBuilder, anchorRanges) { trackedItem ->
             val contentWidth = LocalTextContentWidth.current
             val scrollState = rememberScrollState()
+            val decoratedCode =
+                paragraphBuilder.toAnnotatedString().withReaderEvidenceDecorations(
+                    anchorRanges = anchorRanges,
+                    highlight = anchorHighlight,
+                    markerSnapshot = markerSnapshot,
+                    markerArticleId = markerArticleId,
+                )
+            val textIdentity = decoratedCode.text.hashCode()
+            val layoutHolder = remember(trackedItem.itemIndex, textIdentity) { NativeReaderTextLayoutHolder() }
+            RegisterNativeReaderTextDisposal(
+                state = nativeReaderAnchorState,
+                trackedItem = trackedItem,
+                textIdentity = textIdentity,
+                holder = layoutHolder,
+            )
             Spacer(modifier = Modifier.height(8.dp))
             Surface(
                 color = codeBlockBackground(),
@@ -229,16 +281,27 @@ private fun LazyListScope.formatCodeBlock(
                             .horizontalScroll(state = scrollState)
                 ) {
                     Text(
-                        text =
-                            paragraphBuilder.toAnnotatedString()
-                                .withReaderEvidenceDecorations(
-                                    anchorRanges = anchorRanges,
-                                    highlight = anchorHighlight,
-                                    markerSnapshot = markerSnapshot,
-                                    markerArticleId = markerArticleId,
-                                ),
+                        text = decoratedCode.text,
                         style = codeBlockStyle(),
                         softWrap = false,
+                        modifier =
+                            Modifier.trackNativeReaderText(
+                                state = nativeReaderAnchorState,
+                                trackedItem = trackedItem,
+                                renderedRanges = decoratedCode.renderedRanges,
+                                textIdentity = textIdentity,
+                                holder = layoutHolder,
+                            ),
+                        onTextLayout = { result ->
+                            layoutHolder.textLayoutResult = result
+                            registerNativeReaderTextIfReady(
+                                nativeReaderAnchorState,
+                                trackedItem,
+                                decoratedCode.renderedRanges,
+                                textIdentity,
+                                layoutHolder,
+                            )
+                        },
                     )
                 }
             }
@@ -509,6 +572,7 @@ private fun TextComposer.appendTextChildren(
                             onLinkClick = onLinkClick,
                             baseUrl = baseUrl,
                             anchorMapBuilder = anchorMapBuilder,
+                            nativeReaderAnchorState = nativeReaderAnchorState,
                             anchorHighlight = anchorHighlight,
                             markerSnapshot = markerSnapshot,
                             markerArticleId = markerArticleId,
@@ -526,6 +590,7 @@ private fun TextComposer.appendTextChildren(
                                 onLinkClick = onLinkClick,
                                 baseUrl = baseUrl,
                                 anchorMapBuilder = anchorMapBuilder,
+                                nativeReaderAnchorState = nativeReaderAnchorState,
                                 anchorHighlight = anchorHighlight,
                                 markerSnapshot = markerSnapshot,
                                 markerArticleId = markerArticleId,
@@ -820,6 +885,87 @@ private fun LazyListScope.readerTrackedItem(
     item(key = trackedItem?.lazyItemKey) { content() }
 }
 
+private fun LazyListScope.readerTrackedTextItem(
+    anchorMapBuilder: NativeReaderAnchorMap.Builder?,
+    anchorRanges: List<ReaderTextAnchorRange>,
+    content: @Composable (NativeReaderTrackedItem) -> Unit,
+) {
+    val trackedItem =
+        anchorMapBuilder?.recordItem(anchorRanges)
+            ?: NativeReaderTrackedItem(itemIndex = -1, lazyItemKey = null)
+    item(key = trackedItem.lazyItemKey) { content(trackedItem) }
+}
+
+private data class ReaderEvidenceDecoratedText(
+    val text: AnnotatedString,
+    val renderedRanges: List<ReaderTextAnchorRange>,
+)
+
+private class NativeReaderTextLayoutHolder {
+    var textLayoutResult: androidx.compose.ui.text.TextLayoutResult? = null
+    var coordinates: LayoutCoordinates? = null
+    var registeredGeneration: Long? = null
+}
+
+private fun Modifier.trackNativeReaderText(
+    state: NativeReaderAnchorState?,
+    trackedItem: NativeReaderTrackedItem,
+    renderedRanges: List<ReaderTextAnchorRange>,
+    textIdentity: Int,
+    holder: NativeReaderTextLayoutHolder,
+): Modifier =
+    if (state == null || trackedItem.itemIndex < 0) {
+        this
+    } else {
+        onGloballyPositioned { coordinates ->
+            holder.coordinates = coordinates
+            registerNativeReaderTextIfReady(state, trackedItem, renderedRanges, textIdentity, holder)
+        }
+    }
+
+@Composable
+private fun RegisterNativeReaderTextDisposal(
+    state: NativeReaderAnchorState?,
+    trackedItem: NativeReaderTrackedItem,
+    textIdentity: Int,
+    holder: NativeReaderTextLayoutHolder,
+) {
+    DisposableEffect(state, trackedItem.itemIndex, textIdentity, holder) {
+        onDispose {
+            holder.registeredGeneration?.let { generation ->
+                state?.unregisterRenderedTextItem(trackedItem.itemIndex, generation, textIdentity)
+            }
+        }
+    }
+}
+
+/** TextLayoutResult 与坐标可能以任意顺序到达，仅在二者都属于当前 generation 时注册。 */
+private fun registerNativeReaderTextIfReady(
+    state: NativeReaderAnchorState?,
+    trackedItem: NativeReaderTrackedItem,
+    renderedRanges: List<ReaderTextAnchorRange>,
+    textIdentity: Int,
+    holder: NativeReaderTextLayoutHolder,
+) {
+    if (state == null || trackedItem.itemIndex < 0) return
+    val layout = holder.textLayoutResult ?: return
+    val coordinates = holder.coordinates?.takeIf(LayoutCoordinates::isAttached) ?: return
+    val generation = state.currentRenderGeneration() ?: return
+    holder.registeredGeneration = generation
+    state.registerRenderedTextItem(
+        NativeReaderRenderedTextItem(
+            articleId = state.currentArticleId(),
+            renderGeneration = generation,
+            itemIndex = trackedItem.itemIndex,
+            lazyItemKey = trackedItem.lazyItemKey,
+            textIdentity = textIdentity,
+            renderedRanges = renderedRanges,
+            textLayoutResult = layout,
+            coordinates = coordinates,
+        )
+    )
+}
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun AnnotatedString.withReaderEvidenceDecorations(
@@ -827,7 +973,7 @@ private fun AnnotatedString.withReaderEvidenceDecorations(
     highlight: NativeReaderAnchorHighlight?,
     markerSnapshot: ReaderEvidenceMarkerSnapshot?,
     markerArticleId: String?,
-): AnnotatedString {
+): ReaderEvidenceDecoratedText {
     val highlighted = withReaderEvidenceHighlight(anchorRanges, highlight)
     val insertions =
         remember(anchorRanges, markerSnapshot, markerArticleId, highlighted.length) {
@@ -838,11 +984,11 @@ private fun AnnotatedString.withReaderEvidenceDecorations(
                 textLength = highlighted.length,
             )
         }
-    if (insertions.isEmpty()) return highlighted
+    if (insertions.isEmpty()) return ReaderEvidenceDecoratedText(highlighted, anchorRanges)
 
     val markerForeground = MaterialTheme.colorScheme.onSecondaryContainer
     val markerBackground = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f)
-    return buildAnnotatedString {
+    val decorated = buildAnnotatedString {
         var cursor = 0
         insertions.forEach { insertion ->
             val end = insertion.endExclusive.coerceIn(cursor, highlighted.length)
@@ -876,6 +1022,31 @@ private fun AnnotatedString.withReaderEvidenceDecorations(
         }
         if (cursor < highlighted.length) append(highlighted.subSequence(cursor, highlighted.length))
     }
+    val renderedRanges =
+        anchorRanges.map { range ->
+            range.copy(
+                start = transformedReaderOffset(range.start, insertions, includeAtOffset = true),
+                endExclusive = transformedReaderOffset(range.endExclusive, insertions, includeAtOffset = false),
+            )
+        }
+    return ReaderEvidenceDecoratedText(decorated, renderedRanges)
+}
+
+/** Marker 插入会推后后续 Evidence；当前 Evidence 自己末尾的 marker 不属于其高亮/定位范围。 */
+private fun transformedReaderOffset(
+    sourceOffset: Int,
+    insertions: List<ReaderEvidenceMarkerInsertion>,
+    includeAtOffset: Boolean,
+): Int {
+    val inserted =
+        insertions
+            .filter { it.endExclusive < sourceOffset || (includeAtOffset && it.endExclusive == sourceOffset) }
+            .sumOf { insertion ->
+                insertion.displayOrders.sumOf { order ->
+                    1 + 1 + "[$order]".length + 1
+                }
+            }
+    return sourceOffset + inserted
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)

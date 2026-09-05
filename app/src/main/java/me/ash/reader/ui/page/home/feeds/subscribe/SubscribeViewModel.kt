@@ -36,7 +36,11 @@ import me.ash.reader.infrastructure.discovery.FeedDiscoveryCatalog
 import me.ash.reader.infrastructure.json.JsonSourceHelper
 import me.ash.reader.infrastructure.rss.RssHelper
 import me.ash.reader.infrastructure.rsshub.RssHubResolver
+import me.ash.reader.infrastructure.rsshub.RssHubSettingsRepository
 import me.ash.reader.infrastructure.source.SourceCandidateKind
+import me.ash.reader.infrastructure.source.SourceInputHint
+import me.ash.reader.infrastructure.source.isKnownRssHubEndpoint
+import me.ash.reader.infrastructure.source.sourceInputHint
 import me.ash.reader.infrastructure.website.CandidateState
 import me.ash.reader.infrastructure.website.WebsiteHelper
 import me.ash.reader.ui.ext.formatUrl
@@ -49,6 +53,7 @@ constructor(
     val rssService: RssService,
     private val rssHelper: RssHelper,
     private val rssHubResolver: RssHubResolver,
+    private val rssHubSettingsRepository: RssHubSettingsRepository,
     private val websiteHelper: WebsiteHelper,
     private val jsonSourceHelper: JsonSourceHelper,
     private val feedDiscoveryCatalog: FeedDiscoveryCatalog,
@@ -159,14 +164,20 @@ constructor(
             val feedLink = currentState.linkState.text.trim().toString().formatUrl()
             currentState.linkState.edit { this.replace(0, length, feedLink) }
 
+            val knownInstances =
+                runCatching { rssHubSettingsRepository.current().instances.map { it.url } }
+                    .getOrDefault(emptyList())
+            val knownRssHubEndpoint = isKnownRssHubEndpoint(feedLink, knownInstances)
+            val inputHint = sourceInputHint(feedLink)
+
             // Catalog 是现有来源发现链之前的“可选本地知识”。目录读取/匹配失败绝不能阻断旧链。
-            // 明确 JSON/API 输入继续保持原有专用路径，不用 RSS 目录候选干扰。
+            // 已知 RSSHub route 是唯一无需目录辅助的硬分支；其余 URL 即使看起来像 RSS/JSON 也只是 Hint。
             val catalogMatch =
-                if (isExplicitJsonEndpoint(feedLink)) {
+                if (knownRssHubEndpoint) {
                     FeedCatalogUrlMatch()
                 } else {
                     runCatching { feedDiscoveryCatalog.matchUrl(feedLink) }
-                        .getOrDefault(FeedCatalogUrlMatch())
+                        .getOrNull() ?: FeedCatalogUrlMatch()
                 }
             val discoveryIdleState =
                 currentState.copy(
@@ -189,27 +200,28 @@ constructor(
             val job =
                 viewModelScope.launch(start = CoroutineStart.LAZY) {
                     try {
-                        if (
-                            accountService.getCurrentAccount().type.id == AccountType.Local.id &&
-                                isExplicitJsonEndpoint(feedLink)
-                        ) {
-                            _subscribeState.value =
-                                SubscribeState.Fetching(
-                                    linkState = discoveryIdleState.linkState,
-                                    job = coroutineContext[Job]!!,
-                                    stage = SearchStage.CHECKING_JSON,
-                                )
-                            val directJsonResult = runSuspendCatching { jsonSourceHelper.probe(feedLink) }
-                            val directJsonSource = directJsonResult.getOrNull()
-                            if (directJsonSource != null) {
+                        val isLocalAccount =
+                            accountService.getCurrentAccount().type.id == AccountType.Local.id
+                        if (knownRssHubEndpoint) {
+                            val rssHubDirectResult =
+                                runSuspendCatching { withTimeout(20_000) { rssHelper.parseFeedDirect(feedLink) } }
+                            val feed = rssHubDirectResult.getOrNull()
+                            if (feed != null) {
                                 applyBestCandidate(
                                     candidates =
                                         listOf(
                                             SubscribeCandidateProbe(
-                                                feed = directJsonSource.feed,
-                                                feedLink = directJsonSource.endpointUrl,
-                                                sourceType = SourceType.JSON,
-                                                kind = SourceCandidateKind.JSON,
+                                                feed = feed,
+                                                feedLink = feedLink,
+                                                sourceType = SourceType.RSS,
+                                                kind =
+                                                    if (isLocalAccount) {
+                                                        SourceCandidateKind.RSSHUB
+                                                    } else {
+                                                        // 远端账号不能使用 Local-only RSSHub 持久化；
+                                                        // 但实例 route 本身仍是标准 RSS URL，可作为普通 RSS 订阅。
+                                                        SourceCandidateKind.RSS_DIRECT
+                                                    },
                                             )
                                         ),
                                     idleState = discoveryIdleState,
@@ -219,89 +231,107 @@ constructor(
                                 return@launch
                             }
 
-                            // 明确输入 JSON/API 地址时只走 JSON 探测，失败后不得再交给 RSS/网页发现，
-                            // 否则会把 JSON 响应错误识别成站点首页并跳转到官方 Feed。
                             _subscribeState.value =
                                 discoveryIdleState.copy(
                                     errorMessage =
-                                        directJsonResult.exceptionOrNull()?.message
-                                            ?: "未能从该地址识别出有效的 JSON 文章列表"
+                                        rssHubDirectResult.exceptionOrNull()?.message
+                                            ?: "未能连接或解析该 RSSHub 实例地址"
                                 )
                             return@launch
                         }
 
                         val candidates = mutableListOf<SubscribeCandidateProbe>()
                         var lastError: Throwable? = null
+                        val supportsExtendedSources = isLocalAccount
 
-                        updateSearchStage(SearchStage.CHECKING_RSS)
-                        // 唯一 Site URL 命中目录时，可并行验证目录中已知 Feed；原输入 URL 的 RSS 探测
-                        // 仍按原路径执行，目录失效/超时不会增加旧链的串行等待时间。
-                        val catalogProbe =
-                            catalogMatch.preferredProbeUrl(feedLink)?.let { catalogFeedUrl ->
-                                async {
-                                    runSuspendCatching {
-                                        withTimeout(20_000) { rssHelper.discoverFeed(catalogFeedUrl) }
+                        suspend fun probeJson(): Boolean {
+                            if (!supportsExtendedSources) return false
+                            updateSearchStage(SearchStage.CHECKING_JSON)
+                            return runSuspendCatching { jsonSourceHelper.probe(feedLink) }
+                                .onFailure { lastError = it }
+                                .getOrNull()
+                                ?.let { jsonSource ->
+                                    candidates +=
+                                        SubscribeCandidateProbe(
+                                            feed = jsonSource.feed,
+                                            feedLink = jsonSource.endpointUrl,
+                                            sourceType = SourceType.JSON,
+                                            kind = SourceCandidateKind.JSON,
+                                        )
+                                    true
+                                } ?: false
+                        }
+
+                        suspend fun probeRss(): Boolean {
+                            updateSearchStage(SearchStage.CHECKING_RSS)
+                            val catalogProbe =
+                                catalogMatch.preferredProbeUrl(feedLink)?.let { catalogFeedUrl ->
+                                    async {
+                                        runSuspendCatching {
+                                            withTimeout(20_000) { rssHelper.discoverFeed(catalogFeedUrl) }
+                                        }
                                     }
                                 }
-                            }
-                        val directRssResult =
-                            runSuspendCatching { withTimeout(20_000) { rssHelper.discoverFeed(feedLink) } }
-                        directRssResult
-                            .onSuccess { discovered ->
-                                candidates +=
-                                    SubscribeCandidateProbe(
-                                        feed = discovered.feed,
-                                        feedLink = discovered.feedUrl,
-                                        sourceType = SourceType.RSS,
-                                        kind =
-                                            if (discovered.discoveredFromPage) {
-                                                SourceCandidateKind.RSS_DISCOVERED
-                                            } else {
-                                                SourceCandidateKind.RSS_DIRECT
-                                            },
-                                        etag = discovered.etag,
-                                        lastModified = discovered.lastModified,
-                                    )
-                            }.onFailure { lastError = it }
-                        catalogProbe?.let { probe ->
-                            // Catalog 只能“搭顺风车”，绝不能让已有 RSS 探测多等一毫秒：
-                            // 原输入已经得到健康 RSS 时完全沿用旧结果；仅原 RSS 无可用候选且目录探测
-                            // 已经完成时才补入目录 Feed。否则立刻取消，交由后续 fallback 决定。
-                            val directRssAccepted = SubscribeCandidateSelector.hasConfirmedRss(candidates)
-                            if (!directRssAccepted && probe.isCompleted) {
-                                probe.await().onSuccess { discovered ->
+
+                            val directRssResult =
+                                runSuspendCatching { withTimeout(20_000) { rssHelper.discoverFeed(feedLink) } }
+                            directRssResult
+                                .onSuccess { discovered ->
                                     candidates +=
                                         SubscribeCandidateProbe(
                                             feed = discovered.feed,
                                             feedLink = discovered.feedUrl,
                                             sourceType = SourceType.RSS,
-                                            kind = SourceCandidateKind.RSS_DIRECT,
+                                            kind =
+                                                if (discovered.discoveredFromPage) {
+                                                    SourceCandidateKind.RSS_DISCOVERED
+                                                } else {
+                                                    SourceCandidateKind.RSS_DIRECT
+                                                },
                                             etag = discovered.etag,
                                             lastModified = discovered.lastModified,
                                         )
+                                }.onFailure { lastError = it }
+
+                            catalogProbe?.let { probe ->
+                                val directRssAccepted = SubscribeCandidateSelector.hasConfirmedRss(candidates)
+                                if (!directRssAccepted && probe.isCompleted) {
+                                    probe.await().onSuccess { discovered ->
+                                        candidates +=
+                                            SubscribeCandidateProbe(
+                                                feed = discovered.feed,
+                                                feedLink = discovered.feedUrl,
+                                                sourceType = SourceType.RSS,
+                                                kind = SourceCandidateKind.RSS_DIRECT,
+                                                etag = discovered.etag,
+                                                lastModified = discovered.lastModified,
+                                            )
+                                    }
+                                } else {
+                                    probe.cancel()
                                 }
-                            } else {
-                                probe.cancel()
                             }
+                            return SubscribeCandidateSelector.hasConfirmedRss(candidates)
                         }
 
-                        // RSS / Atom 一旦由结构化解析器确认成功，来源类型已经确定。
-                        // 此时继续探测 RSSHub、JSON、Website 或动态 WebView 既没有意义，
-                        // 还会给一个已经可订阅的 Feed 额外制造网络等待和误导性的“流程验证”。
-                        // 这条短路对直接 RSS、网页 alternate 发现到的 RSS，以及内置目录 Feed 一视同仁。
-                        if (SubscribeCandidateSelector.hasConfirmedRss(candidates)) {
+                        // Hint 只改变 RSS / JSON 谁先尝试；只有真实解析成功后才确认类型并短路。
+                        val structuredSourceFound =
+                            if (inputHint == SourceInputHint.JSON_LIKELY && supportsExtendedSources) {
+                                probeJson() || probeRss()
+                            } else {
+                                probeRss() || probeJson()
+                            }
+                        if (structuredSourceFound) {
                             applyBestCandidate(candidates, discoveryIdleState, firstGroupId, lastError)
                             return@launch
                         }
 
-                        if (accountService.getCurrentAccount().type.id != AccountType.Local.id) {
+                        if (!supportsExtendedSources) {
                             applyBestCandidate(candidates, discoveryIdleState, firstGroupId, lastError)
                             return@launch
                         }
 
                         updateSearchStage(SearchStage.CHECKING_RSSHUB)
-                        // 本地路由发现和网络实例探测必须解耦：只要目录已经匹配到路由，
-                        // 网络超时、实例返回空或探测异常都不能再把 RSSHub 区域从 UI 中抹掉。
                         val localRssHubResults =
                             runCatching { rssHubResolver.localRouteDiagnostics(feedLink) }
                                 .getOrDefault(emptyList())
@@ -332,19 +362,17 @@ constructor(
                         }
                         val rssHubNotice = rssHubFailureNotice(rssHubResults)
 
-                        updateSearchStage(SearchStage.CHECKING_JSON)
-                        runSuspendCatching { jsonSourceHelper.probe(feedLink) }
-                            .onSuccess { jsonSource ->
-                                if (jsonSource != null) {
-                                    candidates +=
-                                        SubscribeCandidateProbe(
-                                            feed = jsonSource.feed,
-                                            feedLink = jsonSource.endpointUrl,
-                                            sourceType = SourceType.JSON,
-                                            kind = SourceCandidateKind.JSON,
-                                        )
-                                }
-                            }.onFailure { lastError = it }
+                        if (candidates.any { it.kind == SourceCandidateKind.RSSHUB }) {
+                            applyBestCandidate(
+                                candidates = candidates,
+                                idleState = discoveryIdleState,
+                                firstGroupId = firstGroupId,
+                                lastError = lastError,
+                                fallbackMessage = rssHubNotice,
+                                rssHubResults = rssHubResults,
+                            )
+                            return@launch
+                        }
 
                         updateSearchStage(SearchStage.CHECKING_WEBSITE)
                         runSuspendCatching { withTimeout(15_000) { websiteHelper.inspect(feedLink) } }
@@ -356,33 +384,39 @@ constructor(
                                         sourceType = SourceType.WEBSITE,
                                         kind = SourceCandidateKind.WEBSITE,
                                         sourceNotice = rssHubNotice,
-                                        // “没有已保存的网站规则”只描述解析能力，不代表用户希望跳出原读。
-                                        // 新来源统一默认在应用内阅读，只有用户明确选择后才改为外部浏览器。
                                         browser = false,
                                     )
                             }.onFailure { lastError = it }
 
-                        // 只有所有静态来源都未通过统一健康检查时才启动 WebView，
-                        // 避免动态渲染增加普通 RSS、JSON 和静态网站的添加耗时。
-                        if (SubscribeCandidateSelector.rank(candidates).isEmpty()) {
-                            updateSearchStage(SearchStage.CHECKING_DYNAMIC_WEBSITE)
-                            runSuspendCatching { withTimeout(20_000) { websiteHelper.inspectDynamic(feedLink) } }
-                                .onSuccess { website ->
-                                    candidates +=
-                                        SubscribeCandidateProbe(
-                                            feed = website,
-                                            feedLink = feedLink,
-                                            sourceType = SourceType.WEBSITE,
-                                            kind = SourceCandidateKind.WEBSITE_DYNAMIC,
-                                            sourceNotice =
-                                                androidStringsHelper.getString(
-                                                    R.string.dynamic_website_source_notice
-                                                ),
-                                            browser = false,
-                                            dynamicRendering = true,
-                                        )
-                                }.onFailure { lastError = it }
+                        if (SubscribeCandidateSelector.rank(candidates).isNotEmpty()) {
+                            applyBestCandidate(
+                                candidates = candidates,
+                                idleState = discoveryIdleState,
+                                firstGroupId = firstGroupId,
+                                lastError = lastError,
+                                fallbackMessage = rssHubNotice,
+                                rssHubResults = rssHubResults,
+                            )
+                            return@launch
                         }
+
+                        updateSearchStage(SearchStage.CHECKING_DYNAMIC_WEBSITE)
+                        runSuspendCatching { withTimeout(20_000) { websiteHelper.inspectDynamic(feedLink) } }
+                            .onSuccess { website ->
+                                candidates +=
+                                    SubscribeCandidateProbe(
+                                        feed = website,
+                                        feedLink = feedLink,
+                                        sourceType = SourceType.WEBSITE,
+                                        kind = SourceCandidateKind.WEBSITE_DYNAMIC,
+                                        sourceNotice =
+                                            androidStringsHelper.getString(
+                                                R.string.dynamic_website_source_notice
+                                            ),
+                                        browser = false,
+                                        dynamicRendering = true,
+                                    )
+                            }.onFailure { lastError = it }
 
                         applyBestCandidate(
                             candidates = candidates,
@@ -408,7 +442,15 @@ constructor(
                 SubscribeState.Fetching(
                     linkState = discoveryIdleState.linkState,
                     job = job,
-                    stage = SearchStage.CHECKING_RSS,
+                    stage =
+                        when {
+                            knownRssHubEndpoint -> SearchStage.CHECKING_RSSHUB
+                            inputHint == SourceInputHint.JSON_LIKELY &&
+                                accountService.getCurrentAccount().type.id == AccountType.Local.id ->
+                                SearchStage.CHECKING_JSON
+
+                            else -> SearchStage.CHECKING_RSS
+                        },
                 )
             job.start()
         }

@@ -40,6 +40,20 @@ internal fun citationProtocolBlockIndex(markdown: String, protocolId: String): I
     }.takeIf { it >= 0 }
 }
 
+/** canonical occurrence 直接按 source offset 定位 block，不再从正文搜索 request-local token。 */
+internal fun citationAnnotationBlockIndex(markdown: String, canonicalInsertionOffset: Int): Int? {
+    if (markdown.isBlank()) return null
+    val offset = canonicalInsertionOffset.coerceIn(0, markdown.length)
+    val blocks = me.ash.reader.ui.page.home.reading.parseAiMarkdownWithSourceRanges(markdown)
+    val contained =
+        blocks.indexOfFirst { parsed ->
+            offset >= parsed.sourceStart && offset < parsed.sourceEndExclusive
+        }
+    if (contained >= 0) return contained
+    // Citation insertion 位于正文末端时，offset 等于 exclusive end；应归属前一个 block，而不是后一个。
+    return blocks.indexOfLast { parsed -> offset == parsed.sourceEndExclusive }.takeIf { it >= 0 }
+}
+
 @Stable
 internal class LlmCitationReturnPlacement {
     var paragraphBounds: Rect? by mutableStateOf(null)

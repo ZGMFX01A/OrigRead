@@ -132,6 +132,7 @@ import me.ash.reader.llm.chat.data.LlmArticleCandidate
 import me.ash.reader.llm.chat.data.LlmChatRole
 import me.ash.reader.llm.chat.data.LlmCitationNavigationAction
 import me.ash.reader.llm.chat.data.LlmCitationRefEntity
+import me.ash.reader.llm.chat.data.LlmCitationAnnotationWithRefs
 import me.ash.reader.llm.chat.data.LlmContextRefEntity
 import me.ash.reader.llm.chat.data.LlmConversationEntity
 import me.ash.reader.llm.chat.data.LlmMessageEntity
@@ -225,28 +226,55 @@ fun LlmArticleAssistantSheet(
     var citationSheetExitInFlight by remember { mutableStateOf(false) }
     var citationReturnHighlight by remember { mutableStateOf<CitationReturnHighlightState?>(null) }
     val citationReturnPlacement = remember(citationReturnTarget) { LlmCitationReturnPlacement() }
-    val citationReturnDisplay = remember(citationReturnTarget, uiState.messages, uiState.citationRefs) {
+    val citationReturnDisplay = remember(citationReturnTarget, uiState.messages, uiState.citationRefs, uiState.citationAnnotations) {
         citationReturnTarget?.let { target ->
             uiState.messages.firstOrNull { it.id == target.assistantMessageId }?.let { message ->
-                projectLlmAssistantCitationDisplay(message.id, message.content, uiState.citationRefs)
+                projectLlmAssistantCitationDisplay(
+                    message.id,
+                    message.content,
+                    uiState.citationRefs,
+                    uiState.citationAnnotations,
+                )
             }
         }
     }
     val citationReturnGroup = citationReturnTarget?.let { target ->
-        citationReturnDisplay?.groupsByDisplayOrder?.values
-            ?.firstOrNull { group -> group.refs.any { it.id == target.citationId } }
+        if (target.annotationId != null) {
+            val annotationOrder =
+                uiState.citationAnnotations
+                    .filter { it.annotation.assistantMessageId == target.assistantMessageId }
+                    .sortedBy { it.annotation.occurrenceOrdinal }
+                    .indexOfFirst { it.annotation.id == target.annotationId }
+            citationReturnDisplay?.groupsByDisplayOrder?.get(annotationOrder + 1)
+        } else {
+            citationReturnDisplay?.groupsByDisplayOrder?.values
+                ?.firstOrNull { group -> group.refs.any { it.id == target.citationId } }
+        }
     }
     val citationReturnDisplayOrder = citationReturnGroup?.displayOrder
     val citationReturnBlockIndex =
-        remember(citationReturnTarget, citationReturnGroup, uiState.messages) {
+        remember(citationReturnTarget, citationReturnGroup, uiState.messages, uiState.citationAnnotations) {
             val target = citationReturnTarget ?: return@remember null
-            val protocolId =
-                citationReturnGroup?.refs?.firstOrNull { it.id == target.citationId }?.protocolId
-                    ?: return@remember null
             val content =
                 uiState.messages.firstOrNull { it.id == target.assistantMessageId }?.content
                     ?: return@remember null
-            citationProtocolBlockIndex(content, protocolId)
+            val annotation =
+                target.annotationId?.let { annotationId ->
+                    uiState.citationAnnotations.firstOrNull { it.annotation.id == annotationId }?.annotation
+                } ?: uiState.citationAnnotations
+                    .filter { it.annotation.assistantMessageId == target.assistantMessageId }
+                    .firstOrNull { occurrence -> occurrence.refs.any { it.id == target.citationId } }
+                    ?.annotation
+            if (annotation != null) {
+                citationAnnotationBlockIndex(content, annotation.canonicalInsertionOffset)
+            } else {
+                // v15 及更早历史没有 occurrence 表。只对“正文里仍能精确找到同一个标准 [[E#]]”
+                // 做安全兼容；compact/malformed 历史不猜 occurrence，避免返回到错误段落。
+                citationReturnGroup
+                    ?.refs
+                    ?.firstOrNull { it.id == target.citationId }
+                    ?.let { legacyRef -> citationProtocolBlockIndex(content, legacyRef.protocolId) }
+            }
         }
     var renameTarget by remember { mutableStateOf<LlmConversationEntity?>(null) }
     var deleteTarget by remember { mutableStateOf<LlmConversationEntity?>(null) }
@@ -315,7 +343,7 @@ fun LlmArticleAssistantSheet(
     val visibleCitationMarkerAssistantId =
         contextSourcesAssistantId ?: citationInteractionAssistantId ?: latestCompletedCitationAssistantId
 
-    LaunchedEffect(visibleCitationMarkerAssistantId, uiState.citationRefs, citationReturnTarget) {
+    LaunchedEffect(visibleCitationMarkerAssistantId, uiState.citationRefs, uiState.citationAnnotations, citationReturnTarget) {
         if (citationReturnTarget != null) return@LaunchedEffect
         readerEvidenceMarkerState?.show(
             visibleCitationMarkerAssistantId?.let { assistantMessageId ->
@@ -324,6 +352,7 @@ fun LlmArticleAssistantSheet(
                     conversationId = uiState.currentConversationId.orEmpty(),
                     assistantMessageId = assistantMessageId,
                     citationRefs = uiState.citationRefs,
+                    citationAnnotations = uiState.citationAnnotations,
                     assistantContent =
                         uiState.messages.firstOrNull { it.id == assistantMessageId }?.content,
                 )
@@ -346,6 +375,7 @@ fun LlmArticleAssistantSheet(
         uiState.conversations,
         uiState.messages,
         uiState.citationRefs,
+        uiState.citationAnnotations,
     ) {
         val target = citationReturnTarget ?: return@LaunchedEffect
         if (target.ownerArticleId != articleContext.articleId) return@LaunchedEffect
@@ -382,11 +412,19 @@ fun LlmArticleAssistantSheet(
         val displayOrder = citationReturnDisplayOrder
         val blockIndex = citationReturnBlockIndex
         if (displayOrder == null || blockIndex == null) {
-            if (uiState.citationRefs.any { it.id == target.citationId } ||
-                !viewModel.citationReturnTargetExists(
-                    target.ownerArticleId, target.conversationId, target.assistantMessageId, target.citationId,
+            val targetExists =
+                viewModel.citationReturnTargetExists(
+                    target.ownerArticleId,
+                    target.conversationId,
+                    target.assistantMessageId,
+                    target.citationId,
+                    target.annotationId,
                 )
-            ) onCitationReturnConsumed()
+            if (!targetExists || (target.annotationId == null && blockIndex == null)) {
+                // legacy malformed Citation 宁可失效也不猜位置；同时必须结束 pending return，
+                // 否则 Reader→Chat 会永远停在一个“目标存在但不可定位”的半完成状态。
+                onCitationReturnConsumed()
+            }
             return@LaunchedEffect
         }
         citationReturnHighlight = null
@@ -544,6 +582,10 @@ fun LlmArticleAssistantSheet(
                             remember(uiState.citationRefs) {
                                 uiState.citationRefs.groupBy(LlmCitationRefEntity::assistantMessageId)
                             }
+                        val citationAnnotationsByAssistantId =
+                            remember(uiState.citationAnnotations) {
+                                uiState.citationAnnotations.groupBy { it.annotation.assistantMessageId }
+                            }
                         Box(modifier = Modifier.fillMaxSize()) {
                             LazyColumn(
                                 modifier = Modifier.fillMaxSize().onGloballyPositioned { coordinates ->
@@ -560,6 +602,8 @@ fun LlmArticleAssistantSheet(
                                         contextRefsByAssistantId[message.id].orEmpty()
                                     val messageCitationRefs =
                                         citationRefsByAssistantId[message.id].orEmpty()
+                                    val messageCitationAnnotations =
+                                        citationAnnotationsByAssistantId[message.id].orEmpty()
                                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                         AssistantMessage(
                                             message = message,
@@ -577,6 +621,7 @@ fun LlmArticleAssistantSheet(
                                             showReasoning = uiState.showReasoning,
                                             contextRefs = messageContextRefs,
                                             citationRefs = messageCitationRefs,
+                                            citationAnnotations = messageCitationAnnotations,
                                             onCitationClick = { citationGroup ->
                                                 citationInteractionAssistantId = message.id
                                                 readerEvidenceMarkerState?.show(
@@ -585,6 +630,7 @@ fun LlmArticleAssistantSheet(
                                                         conversationId = uiState.currentConversationId.orEmpty(),
                                                         assistantMessageId = message.id,
                                                         citationRefs = uiState.citationRefs,
+                                                        citationAnnotations = uiState.citationAnnotations,
                                                         assistantContent = message.content,
                                                     )
                                                 )
@@ -1373,6 +1419,7 @@ private fun AssistantMessage(
     showReasoning: Boolean,
     contextRefs: List<LlmContextRefEntity>,
     citationRefs: List<LlmCitationRefEntity>,
+    citationAnnotations: List<LlmCitationAnnotationWithRefs>,
     onCitationClick: (LlmAssistantCitationGroup) -> Unit,
     onShowContextSources: () -> Unit,
     onShowWebSearchResults: () -> Unit,
@@ -1404,11 +1451,12 @@ private fun AssistantMessage(
 
     val clipboardManager = LocalClipboardManager.current
     val citationDisplay =
-        remember(message.id, message.content, message.status, citationRefs) {
+        remember(message.id, message.content, message.status, citationRefs, citationAnnotations) {
             projectLlmAssistantCitationDisplay(
                 assistantMessageId = message.id,
                 content = message.content,
                 citationRefs = citationRefs,
+                citationAnnotations = citationAnnotations,
                 preserveStreamingCitationLayout = message.status == LlmMessageStatus.STREAMING,
             )
         }

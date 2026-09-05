@@ -11,6 +11,7 @@ data class ReaderEvidenceMarker(
     val stableLocatorKey: String,
     val displayOrder: Int,
     val articleId: String? = null,
+    val annotationId: String? = null,
 ) {
     init {
         require(citationId.isNotBlank()) { "Reader marker citation id must not be blank" }
@@ -26,6 +27,7 @@ data class ReaderEvidenceMarkerNavigationTarget(
     val citationId: String,
     val displayOrder: Int,
     val originArticleId: String? = null,
+    val annotationId: String? = null,
 ) {
     init {
         require(ownerArticleId.isNotBlank()) { "Reader marker owner article id must not be blank" }
@@ -96,6 +98,7 @@ data class ReaderEvidenceMarkerSnapshot(
             conversationId = conversationId,
             assistantMessageId = assistantMessageId,
             citationId = marker.citationId,
+            annotationId = marker.annotationId,
             displayOrder = marker.displayOrder,
             originArticleId = normalizedArticleId,
         )
@@ -111,19 +114,31 @@ class ReaderEvidenceMarkerState {
                 state.snapshot?.let { layer ->
                     listOf(layer.ownerArticleId, layer.conversationId, layer.assistantMessageId, layer.origin.name) +
                         layer.markers.flatMap { marker ->
-                            listOf(marker.citationId, marker.stableLocatorKey, marker.displayOrder.toString(), marker.articleId.orEmpty())
+                            listOf(
+                                marker.citationId,
+                                marker.annotationId.orEmpty(),
+                                marker.stableLocatorKey,
+                                marker.displayOrder.toString(),
+                                marker.articleId.orEmpty(),
+                            )
                         }
                 }.orEmpty()
             },
             restore = { saved ->
                 ReaderEvidenceMarkerState().apply {
-                    if (saved.size >= 4 && (saved.size - 4) % 4 == 0) {
+                    if (saved.size >= 4 && (saved.size - 4) % 5 == 0) {
                         show(runCatching {
                             ReaderEvidenceMarkerSnapshot(
                                 ownerArticleId = saved[0], conversationId = saved[1], assistantMessageId = saved[2],
                                 origin = ReaderEvidenceMarkerLayerOrigin.valueOf(saved[3]),
-                                markers = saved.drop(4).chunked(4).map {
-                                    ReaderEvidenceMarker(it[0], it[1], it[2].toInt(), it[3].ifBlank { null })
+                                markers = saved.drop(4).chunked(5).map {
+                                    ReaderEvidenceMarker(
+                                        citationId = it[0],
+                                        annotationId = it[1].ifBlank { null },
+                                        stableLocatorKey = it[2],
+                                        displayOrder = it[3].toInt(),
+                                        articleId = it[4].ifBlank { null },
+                                    )
                                 },
                             )
                         }.getOrNull())

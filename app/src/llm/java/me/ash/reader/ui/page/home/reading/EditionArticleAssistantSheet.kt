@@ -97,6 +97,7 @@ private fun EditionReaderHistoricalCitationHost(
                     conversationId = historical.assistantMessage.conversationId,
                     assistantMessageId = historical.assistantMessage.id,
                     citationRefs = historical.citationRefs,
+                    citationAnnotations = historical.citationAnnotations,
                     assistantContent = historical.assistantMessage.content,
                     origin = ReaderEvidenceMarkerLayerOrigin.HISTORICAL,
                 )

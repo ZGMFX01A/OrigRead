@@ -29,6 +29,7 @@ import androidx.compose.ui.util.fastLastOrNull
 
 class TextComposer(
     val anchorMapBuilder: NativeReaderAnchorMap.Builder? = null,
+    val nativeReaderAnchorState: NativeReaderAnchorState? = null,
     val anchorHighlight: NativeReaderAnchorHighlight? = null,
     val markerSnapshot: ReaderEvidenceMarkerSnapshot? = null,
     val markerArticleId: String? = null,

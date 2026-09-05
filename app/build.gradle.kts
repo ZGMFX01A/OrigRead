@@ -278,6 +278,7 @@ dependencies {
     testImplementation(libs.mockito.kotlin)
     testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.json.jvm)
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
 }
 
 /**

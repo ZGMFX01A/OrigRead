@@ -232,6 +232,52 @@ class LlmChatDatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun migration15To16_addsCanonicalCitationOccurrenceTablesWithoutChangingHistory() {
+        helper.createDatabase(TEST_DATABASE_NAME, 15).apply {
+            execSQL(
+                """
+                INSERT INTO llm_conversations (
+                    id, title, created_at, updated_at
+                ) VALUES ('conversation-1', 'Citation v16 migration', 1, 1)
+                """.trimIndent()
+            )
+            execSQL(
+                """
+                INSERT INTO llm_messages (
+                    id, conversation_id, role, content, status,
+                    history_active, token_usage_estimated, created_at, updated_at
+                ) VALUES (
+                    'assistant-1', 'conversation-1', 'ASSISTANT', 'old [[E1]] answer', 'COMPLETE',
+                    1, 0, 2, 2
+                )
+                """.trimIndent()
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(
+            TEST_DATABASE_NAME,
+            16,
+            true,
+            LlmChatDatabaseModule.MIGRATION_15_16,
+        ).apply {
+            query("SELECT content FROM llm_messages WHERE id = 'assistant-1'").use { cursor ->
+                check(cursor.moveToFirst())
+                assertEquals("old [[E1]] answer", cursor.getString(0))
+            }
+            query("SELECT COUNT(*) FROM llm_citation_annotations").use { cursor ->
+                check(cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+            }
+            query("SELECT COUNT(*) FROM llm_citation_annotation_refs").use { cursor ->
+                check(cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+            }
+            close()
+        }
+    }
+
     private companion object {
         const val TEST_DATABASE_NAME = "ux2-chat-migration-test"
     }

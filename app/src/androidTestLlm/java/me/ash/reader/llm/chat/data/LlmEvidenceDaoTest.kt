@@ -102,10 +102,8 @@ class LlmEvidenceDaoTest {
                     createdAt = 4,
                 )
             dao.replaceEvidenceBlocksForContextRef("context-ref-1", listOf(evidence))
-            dao.replaceCitationRefsForAssistant(
-                "assistant-1",
-                listOf(
-                    LlmCitationRefEntity(
+            val citation =
+                LlmCitationRefEntity(
                         id = "citation-1",
                         conversationId = "conversation-1",
                         assistantMessageId = "assistant-1",
@@ -119,7 +117,36 @@ class LlmEvidenceDaoTest {
                         locatorSnapshot = locator,
                         createdAt = 5,
                     )
-                ),
+            dao.finalizeAssistantCitationState(
+                message =
+                    LlmMessageEntity(
+                        id = "assistant-1",
+                        conversationId = "conversation-1",
+                        role = LlmChatRole.ASSISTANT,
+                        content = "answer",
+                        createdAt = 2,
+                        updatedAt = 5,
+                    ),
+                citationRefs = listOf(citation),
+                annotations =
+                    listOf(
+                        LlmCitationAnnotationEntity(
+                            id = "annotation-1",
+                            conversationId = "conversation-1",
+                            assistantMessageId = "assistant-1",
+                            canonicalInsertionOffset = 6,
+                            occurrenceOrdinal = 0,
+                            createdAt = 5,
+                        )
+                    ),
+                annotationRefs =
+                    listOf(
+                        LlmCitationAnnotationRefEntity(
+                            annotationId = "annotation-1",
+                            citationRefId = "citation-1",
+                            refOrdinal = 0,
+                        )
+                    ),
             )
 
             val restoredEvidence = dao.getEvidenceBlocksForContextRef("context-ref-1").single()
@@ -130,6 +157,20 @@ class LlmEvidenceDaoTest {
             assertEquals("E1", restoredCitation.protocolId)
             assertEquals(1, restoredCitation.displayOrder)
             assertEquals(locator, restoredCitation.locatorSnapshot)
+            val restoredAnnotation = dao.getCitationAnnotationsForAssistant("assistant-1").single()
+            assertEquals(6, restoredAnnotation.annotation.canonicalInsertionOffset)
+            assertEquals(listOf("citation-1"), restoredAnnotation.refs.map { it.id })
+            val presentation =
+                dao.observeMessageCitationPresentation("conversation-1")
+                    .first()
+                    .single { it.message.id == "assistant-1" }
+            assertEquals("answer", presentation.message.content)
+            assertEquals(listOf("citation-1"), presentation.citationRefs.map { it.id })
+            assertEquals(listOf("annotation-1"), presentation.citationAnnotations.map { it.annotation.id })
+            assertEquals(
+                listOf("citation-1"),
+                presentation.citationAnnotations.single().refs.map { it.id },
+            )
             assertEquals(
                 listOf("citation-1"),
                 dao.observeCitationRefs("conversation-1").first().map { it.id },
@@ -192,6 +233,7 @@ class LlmEvidenceDaoTest {
 
             assertEquals(listOf("evidence-2"), dao.getEvidenceBlocksForContextRef("context-ref-1").map { it.id })
             assertTrue(dao.getCitationRefsForAssistant("assistant-1").isEmpty())
+            assertTrue(dao.getCitationAnnotationsForAssistant("assistant-1").isEmpty())
         }
 
     @Test

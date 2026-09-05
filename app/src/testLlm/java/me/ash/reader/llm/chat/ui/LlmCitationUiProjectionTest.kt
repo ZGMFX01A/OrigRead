@@ -1,6 +1,9 @@
 package me.ash.reader.llm.chat.ui
 
 import me.ash.reader.llm.chat.data.LlmCitationRefEntity
+import me.ash.reader.llm.chat.data.LlmCitationAnnotationEntity
+import me.ash.reader.llm.chat.data.LlmCitationAnnotationRefEntity
+import me.ash.reader.llm.chat.data.LlmCitationAnnotationWithRefs
 import me.ash.reader.llm.chat.data.LlmCitationTargetKind
 import me.ash.reader.llm.chat.data.LlmEvidenceLocatorV1
 import me.ash.reader.llm.chat.data.LlmEvidenceSourceKind
@@ -13,6 +16,27 @@ import org.junit.Test
 
 class LlmCitationUiProjectionTest {
     @Test
+    fun `canonical insertion at multiline paragraph end belongs to previous block`() {
+        val markdown = "First line\nsecond line\n\nNext block"
+        val insertion = markdown.indexOf("\n\n")
+
+        assertEquals(0, citationAnnotationBlockIndex(markdown, insertion))
+    }
+
+    @Test
+    fun `canonical insertion inside later table row maps to the table block`() {
+        val markdown =
+            "| Source | Finding |\n" +
+                "|---|---|\n" +
+                "| A | First |\n" +
+                "| B | Citation target |\n\n" +
+                "After table"
+        val insertion = markdown.indexOf("Citation target") + "Citation".length
+
+        assertEquals(0, citationAnnotationBlockIndex(markdown, insertion))
+    }
+
+    @Test
     fun `multi article projection round trip keeps UI number owner and paragraph together`() {
         val refs = listOf("article-a", "article-b", "article-c").mapIndexed { index, article ->
             citationRef(id = article, protocolId = "E${index + 1}", displayOrder = index + 1,
@@ -21,7 +45,14 @@ class LlmCitationUiProjectionTest {
         // Persisted numbering differs from appearance order; never navigate by stored order alone.
         val content = "Article C [[E3]].\n\nArticle A [[E1]].\n\nArticle B [[E2]]."
         val display = projectLlmAssistantCitationDisplay("assistant-1", content, refs)
-        val layer = buildLlmReaderMarkerSnapshot("article-owner", "conversation-1", "assistant-1", refs, content)!!
+        val layer =
+            buildLlmReaderMarkerSnapshot(
+                ownerArticleId = "article-owner",
+                conversationId = "conversation-1",
+                assistantMessageId = "assistant-1",
+                citationRefs = refs,
+                assistantContent = content,
+            )!!
         listOf("article-c", "article-a", "article-b").forEachIndexed { index, article ->
             val target = layer.navigationTargetFor(article, index + 1)!!
             assertEquals("article-owner", target.ownerArticleId)
@@ -416,6 +447,85 @@ class LlmCitationUiProjectionTest {
                 .mapNotNull { it.locatorSnapshot?.articleId }
                 .toSet()
         assertTrue(coveredArticles.containsAll(listOf("article-a", "article-b", "article-c", "article-d", "article-e")))
+    }
+
+    @Test
+    fun `structured inline protection valve also preserves independent article coverage`() {
+        val refs = mutableListOf<LlmCitationRefEntity>()
+        val annotations = mutableListOf<LlmCitationAnnotationWithRefs>()
+        val content = buildString {
+            val articles = List(21) { "article-a" } + listOf("article-b", "article-c", "article-d", "article-e")
+            articles.forEachIndexed { index, articleId ->
+                append("Claim ${index + 1}")
+                val ref =
+                    citationRef(
+                        id = "structured-${index + 1}",
+                        protocolId = "E${index + 1}",
+                        displayOrder = index + 1,
+                        articleId = articleId,
+                        blockIndex = index,
+                    )
+                refs += ref
+                val annotationId = "annotation-${index + 1}"
+                annotations +=
+                    LlmCitationAnnotationWithRefs(
+                        LlmCitationAnnotationEntity(
+                            id = annotationId,
+                            conversationId = "conversation",
+                            assistantMessageId = "assistant-1",
+                            canonicalInsertionOffset = length,
+                            occurrenceOrdinal = index,
+                            createdAt = 1L,
+                        ),
+                        listOf(ref),
+                        listOf(
+                            LlmCitationAnnotationRefEntity(
+                                annotationId = annotationId,
+                                citationRefId = ref.id,
+                                refOrdinal = 0,
+                            )
+                        ),
+                    )
+                append(".\n")
+            }
+        }
+
+        val projected =
+            projectLlmAssistantCitationDisplay(
+                assistantMessageId = "assistant-1",
+                content = content,
+                citationRefs = refs,
+                citationAnnotations = annotations,
+            )
+
+        assertEquals(MAX_INLINE_CITATION_GROUPS, projected.groupsByDisplayOrder.size)
+        val coveredArticles =
+            projected.groupsByDisplayOrder.values
+                .flatMap(LlmAssistantCitationGroup::refs)
+                .mapNotNull { it.locatorSnapshot?.articleId }
+                .toSet()
+        assertTrue(coveredArticles.containsAll(listOf("article-a", "article-b", "article-c", "article-d", "article-e")))
+
+        val markerSnapshot =
+            buildLlmReaderMarkerSnapshot(
+                ownerArticleId = "article-owner",
+                conversationId = "conversation",
+                assistantMessageId = "assistant-1",
+                citationRefs = refs,
+                citationAnnotations = annotations,
+                assistantContent = content,
+            )!!
+        markerSnapshot.markers.forEach { marker ->
+            val projectedRef = projected.groupsByDisplayOrder.getValue(marker.displayOrder).representativeRef
+            assertEquals(projectedRef.id, marker.citationId)
+            val expectedAnnotationId =
+                annotations.single { occurrence -> occurrence.refs.any { it.id == marker.citationId } }.annotation.id
+            assertEquals(
+                "Visible display order must carry the same canonical occurrence into Reader return navigation",
+                expectedAnnotationId,
+                marker.annotationId,
+            )
+        }
     }
 
     @Test

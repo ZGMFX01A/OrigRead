@@ -6,6 +6,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.lazy.LazyLayoutScrollScope
 import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.layout.LazyLayoutScrollScope as LazyLayoutScrollScopeContract
 
 /** Citation feedback leaves time to read the destination, after scrolling has completed. */
 internal object CitationMotion {
@@ -60,6 +61,33 @@ internal suspend fun LazyListState.animateCitationScrollToItem(
                 settled = value
             }
         }
+    }
+}
+
+/**
+ * 在单个 LazyList scroll mutation 内持续重算目标距离。
+ *
+ * Native Citation 可先返回未测量 item 的近似距离；当 Text 进入布局后，同一个 provider 立即改用
+ * rendered range 的真实距离，因此不会再启动第二个 settle 或 BringIntoView 滚动所有者。
+ */
+internal suspend fun LazyListState.animateCitationScroll(
+    targetDistancePx: (LazyLayoutScrollScopeContract) -> Float,
+) {
+    scroll {
+        val scope = LazyLayoutScrollScope(this@animateCitationScroll, this)
+        var previous = 0f
+        animate(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = tween(CitationMotion.ScrollMillis, easing = FastOutSlowInEasing),
+        ) { fraction, _ ->
+            val remaining = targetDistancePx(scope)
+            val step = (fraction - previous) / (1f - previous).coerceAtLeast(0.0001f)
+            scope.scrollBy(remaining * step)
+            previous = fraction
+        }
+        val remaining = targetDistancePx(scope)
+        if (kotlin.math.abs(remaining) > 1f) scope.scrollBy(remaining)
     }
 }
 

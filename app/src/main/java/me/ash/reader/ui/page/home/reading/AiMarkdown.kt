@@ -76,6 +76,13 @@ internal sealed interface AiMarkdownBlock {
     data object Divider : AiMarkdownBlock
 }
 
+/** Markdown block 在 canonical source 中的 UTF-16 范围，用于 Citation 反向定位。 */
+internal data class ParsedAiMarkdownBlock(
+    val block: AiMarkdownBlock,
+    val sourceStart: Int,
+    val sourceEndExclusive: Int,
+)
+
 /** 将列表项开头的 Markdown 粗体结论与后续解释分离，供摘要要点做两段式排版。 */
 internal fun splitLeadingBoldBullet(value: String): Pair<String, String>? {
     val match = Regex("^\\*\\*(.+?)\\*\\*\\s*(.*)$", RegexOption.DOT_MATCHES_ALL).matchEntire(value.trim())
@@ -272,6 +279,105 @@ internal fun parseAiMarkdown(markdown: String): List<AiMarkdownBlock> {
     if (code.isNotEmpty()) flushCodeBlock()
     return blocks
 }
+
+/**
+ * 为现有轻量 Markdown parser 补充 source ranges。
+ *
+ * 这里不重写 block grammar；先用同一 parser 得到 block，再按各 block 的可见 source 特征从前向后匹配。
+ * 若格式化使精确片段不可恢复，则退化到包含当前位置的最小行范围，保证 occurrence 不会跳到更早 block。
+ */
+internal fun parseAiMarkdownWithSourceRanges(markdown: String): List<ParsedAiMarkdownBlock> {
+    val blocks = parseAiMarkdown(markdown)
+    val lines = markdown.lineRanges()
+    var cursor = 0
+    return blocks.map { block ->
+        val fallback = markdownBlockFallbackRange(block, markdown, lines, cursor)
+        // Block text 会去掉 Markdown 标记、trim 行首尾并把多行 paragraph 合并为空格，不能再拿
+        // 归一化后的可见文本向后搜索 source；后文重复文本会把当前 block 错绑到更晚位置。
+        // source range 必须只由 parser 的顺序消费位置决定。
+        val start = fallback.first
+        val end = fallback.last + 1
+        cursor = end.coerceAtLeast(cursor)
+        ParsedAiMarkdownBlock(block, start, end)
+    }
+}
+
+private fun String.lineRanges(): List<IntRange> {
+    val ranges = mutableListOf<IntRange>()
+    var start = 0
+    for (index in indices) {
+        if (this[index] == '\n') {
+            ranges += start..index
+            start = index + 1
+        }
+    }
+    ranges += start..length
+    return ranges
+}
+
+/** 多行 paragraph 搜索失败时覆盖整个连续非空行段，而不是只覆盖第一行。 */
+private fun markdownBlockFallbackRange(
+    block: AiMarkdownBlock,
+    markdown: String,
+    lineRanges: List<IntRange>,
+    cursor: Int,
+): IntRange {
+    val textLength = markdown.length
+    val startLine =
+        lineRanges.indexOfFirst { range -> range.last >= cursor && range.first < textLength }
+            .coerceAtLeast(0)
+    var line = startLine
+    while (line < lineRanges.size && lineRanges[line].first < textLength) {
+        val range = lineRanges[line]
+        if (markdown.substring(range.first, range.last.coerceAtMost(textLength)).isNotBlank()) break
+        line += 1
+    }
+    val start = lineRanges.getOrNull(line)?.first?.coerceAtMost(textLength) ?: cursor.coerceAtMost(textLength)
+    if (block is AiMarkdownBlock.Table) {
+        var endLine = line
+        val header = lineRanges.getOrNull(line)?.sourceLine(markdown)
+        val separator = lineRanges.getOrNull(line + 1)?.sourceLine(markdown)
+        if (
+            header != null &&
+                separator != null &&
+                parseAiMarkdownTableRow(header) != null &&
+                parseAiMarkdownTableRow(separator)?.let(::isAiMarkdownTableSeparator) == true
+        ) {
+            endLine = line + 1
+            var rowLine = line + 2
+            while (rowLine < lineRanges.size) {
+                val row = lineRanges[rowLine].sourceLine(markdown)
+                if (row.isBlank() || parseAiMarkdownTableRow(row) == null) break
+                endLine = rowLine
+                rowLine += 1
+            }
+        }
+        val end = lineRanges.getOrNull(endLine)?.last?.coerceAtMost(textLength) ?: textLength
+        return start..end
+    }
+    if (block !is AiMarkdownBlock.Paragraph) {
+        val end = lineRanges.getOrNull(line)?.last?.coerceAtMost(textLength) ?: textLength
+        return start..end
+    }
+    var end = lineRanges.getOrNull(line)?.last?.coerceAtMost(textLength) ?: textLength
+    var next = line + 1
+    while (next < lineRanges.size) {
+        val range = lineRanges[next]
+        val lineTextEnd = range.last.coerceAtMost(textLength)
+        val lineText = markdown.substring(range.first.coerceAtMost(textLength), lineTextEnd)
+        if (lineText.isBlank()) break
+        end = lineTextEnd
+        next += 1
+    }
+    return start..end
+}
+
+private fun IntRange.sourceLine(markdown: String): String {
+    val start = first.coerceIn(0, markdown.length)
+    val end = last.coerceIn(start, markdown.length)
+    return markdown.substring(start, end).trimEnd('\r', '\n')
+}
+
 
 /** 只把“表头 + 分隔线”的 GFM 结构识别为表格，避免普通正文中的竖线被误判。 */
 internal fun parseAiMarkdownTableRow(line: String): List<String>? {
