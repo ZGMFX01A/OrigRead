@@ -306,7 +306,7 @@ fun OrigReadWebView(
     )
 }
 
-private fun readerViewportStyle(insets: Triple<Int, Int, Int>, density: Float): String = """
+internal fun readerViewportStyle(insets: Triple<Int, Int, Int>, density: Float): String = """
     :root {
         --origread-header-height: ${insets.first / density}px;
         --origread-footer-height: ${insets.second / density}px;
@@ -314,8 +314,27 @@ private fun readerViewportStyle(insets: Triple<Int, Int, Int>, density: Float): 
     }
     body { padding: 0; display: flex; flex-direction: column; min-height: 100vh; }
     body > main { display: flow-root; flex: 1 0 auto; }
-    #origread-reader-header { flex: none; height: var(--origread-header-height); }
-    #origread-reader-footer { flex: none; height: var(--origread-footer-height); }
+    #origread-reader-header,
+    #origread-reader-footer {
+        display: block !important;
+        position: static !important;
+        box-sizing: border-box !important;
+        flex: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        border: 0 !important;
+        overflow: hidden !important;
+    }
+    #origread-reader-header {
+        height: var(--origread-header-height) !important;
+        min-height: var(--origread-header-height) !important;
+        max-height: var(--origread-header-height) !important;
+    }
+    #origread-reader-footer {
+        height: var(--origread-footer-height) !important;
+        min-height: var(--origread-footer-height) !important;
+        max-height: var(--origread-footer-height) !important;
+    }
 """.trimIndent()
 
 private fun WebView.applyReaderViewportInsets(insets: Triple<Int, Int, Int>) {
