@@ -40,9 +40,17 @@ object CacheHolderModule {
         @IODispatcher ioDispatcher: CoroutineDispatcher,
         rssHelper: RssHelper,
         accountService: AccountService,
+        syncMutations: me.ash.reader.infrastructure.sync.core.LibrarySyncMutationCapture,
+        database: me.ash.reader.infrastructure.db.AndroidDatabase,
+        syncBlobStore: me.ash.reader.infrastructure.sync.core.SyncLocalBlobStore,
+        localEviction: me.ash.reader.infrastructure.sync.core.SyncLocalEvictionService,
     ): ReaderCacheHelper = ReaderCacheHelper(
         context = context, ioDispatcher = ioDispatcher,
         rssHelper = rssHelper,
         accountService = accountService,
+        syncMutations = syncMutations,
+        database = database,
+        syncBlobStore = syncBlobStore,
+        localEviction = localEviction,
     )
 }

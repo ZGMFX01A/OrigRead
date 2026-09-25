@@ -7,6 +7,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import me.ash.reader.infrastructure.util.AtomicUtf8File
 
 /** 保存并读取用户导入的 JSON/API 来源规则。 */
 @Singleton
@@ -35,6 +36,17 @@ class JsonRuleRepository @Inject constructor(
         get() = context.filesDir.resolve("json-source-rules.json")
 
     fun listRules(): List<JsonRule> = loadRules().sortedBy(JsonRule::name)
+
+    /** Sync 真源：JSON/API 规则全部属于用户配置。 */
+    fun listSyncRules(): List<JsonRule> = loadRules().sortedBy(JsonRule::id)
+
+    /** Remote Snapshot/Operation materialization path. Bypasses mutation capture. */
+    fun replaceSyncRules(rules: List<JsonRule>): Int {
+        rules.forEach(::validateRule)
+        val normalized = rules.associateBy(JsonRule::id).values.sortedBy(JsonRule::id)
+        writeRules(normalized)
+        return normalized.size
+    }
 
     fun findRules(url: String): List<JsonRule> {
         return findConfiguredRules(url).filter(JsonRule::enabled)
@@ -157,13 +169,15 @@ class JsonRuleRepository @Inject constructor(
     }
 
     private fun loadRules(): List<JsonRule> =
-        runCatching {
-            if (!ruleFile.exists()) emptyList()
-            else json.decodeFromString<JsonRuleBundle>(ruleFile.readText()).rules
-        }.getOrDefault(emptyList())
+        AtomicUtf8File.readOrNull(ruleFile)
+            ?.let { json.decodeFromString<JsonRuleBundle>(it).rules }
+            ?: emptyList()
 
     private fun writeRules(rules: List<JsonRule>) {
-        ruleFile.writeText(json.encodeToString(JsonRuleBundle(rules = rules)))
+        AtomicUtf8File.write(
+            ruleFile,
+            json.encodeToString(JsonRuleBundle(rules = rules)),
+        )
     }
 
     private fun hostsOverlap(left: List<String>, right: List<String>): Boolean =

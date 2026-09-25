@@ -15,10 +15,13 @@ import me.ash.reader.domain.repository.GroupDao
 import me.ash.reader.domain.repository.LocalSubscriptionDao
 import me.ash.reader.infrastructure.android.NotificationHelper
 import me.ash.reader.infrastructure.filter.ArticleFilterEngine
+import me.ash.reader.infrastructure.filter.ArticleFilterRepository
 import me.ash.reader.infrastructure.rss.RssHelper
 import me.ash.reader.infrastructure.rss.RssHttpCacheDao
 import me.ash.reader.infrastructure.rsshub.RssHubSubscriptionRepository
+import me.ash.reader.infrastructure.sync.core.LibrarySyncMutationCapture
 import me.ash.reader.infrastructure.website.WebsiteHelper
+import me.ash.reader.infrastructure.website.WebsiteParsePreferenceRepository
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.mockito.kotlin.any
@@ -51,6 +54,7 @@ class LocalRssServiceWebsiteSubscriptionTest {
         val accountService = mock<AccountService>()
         val articleFilterEngine = mock<ArticleFilterEngine>()
         val localSubscriptionDao = mock<LocalSubscriptionDao>()
+        val syncMutations = mock<LibrarySyncMutationCapture>()
 
         whenever(accountService.getCurrentAccountId()).thenReturn(accountId)
         whenever(feedDao.queryByLink(eq(accountId), any())).thenReturn(emptyList())
@@ -80,6 +84,11 @@ class LocalRssServiceWebsiteSubscriptionTest {
                 )
             )
         }
+        whenever(syncMutations.captureLibraryMutation<Unit>(eq(accountId), any())).thenAnswer { invocation ->
+            runBlocking {
+                invocation.getArgument<suspend () -> Unit>(1).invoke()
+            }
+        }
 
         val service =
             LocalRssService(
@@ -90,6 +99,7 @@ class LocalRssServiceWebsiteSubscriptionTest {
                 localSourceService = mock<LocalSourceService>(),
                 websiteHelper = mock<WebsiteHelper>(),
                 articleFilterEngine = articleFilterEngine,
+                articleFilterRepository = mock<ArticleFilterRepository>(),
                 notificationHelper = mock<NotificationHelper>(),
                 groupDao = mock<GroupDao>(),
                 ioDispatcher = Dispatchers.Unconfined,
@@ -98,8 +108,10 @@ class LocalRssServiceWebsiteSubscriptionTest {
                 accountService = accountService,
                 syncLogger = mock<SyncLogger>(),
                 rssHubSubscriptionRepository = mock<RssHubSubscriptionRepository>(),
+                websiteParsePreferenceRepository = mock<WebsiteParsePreferenceRepository>(),
                 localSubscriptionDao = localSubscriptionDao,
                 rssHttpCacheDao = mock<RssHttpCacheDao>(),
+                syncMutations = syncMutations,
             )
 
         val feedId =

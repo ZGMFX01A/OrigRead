@@ -19,6 +19,7 @@ import me.ash.reader.domain.data.SyncLogger
 import me.ash.reader.domain.model.account.AccountType
 import me.ash.reader.domain.model.feed.Feed
 import me.ash.reader.domain.model.feed.SourceType
+import me.ash.reader.domain.model.group.Group
 import me.ash.reader.domain.repository.ArticleDao
 import me.ash.reader.domain.repository.FeedDao
 import me.ash.reader.domain.repository.GroupDao
@@ -27,11 +28,14 @@ import me.ash.reader.infrastructure.android.NotificationHelper
 import me.ash.reader.infrastructure.di.DefaultDispatcher
 import me.ash.reader.infrastructure.di.IODispatcher
 import me.ash.reader.infrastructure.filter.ArticleFilterEngine
+import me.ash.reader.infrastructure.filter.ArticleFilterRepository
 import me.ash.reader.infrastructure.rss.RssHelper
 import me.ash.reader.infrastructure.rss.RssHttpCache
 import me.ash.reader.infrastructure.rss.RssHttpCacheDao
 import me.ash.reader.infrastructure.rsshub.RssHubSubscriptionRepository
+import me.ash.reader.infrastructure.sync.core.LibrarySyncMutationCapture
 import me.ash.reader.infrastructure.website.WebsiteHelper
+import me.ash.reader.infrastructure.website.WebsiteParsePreferenceRepository
 import me.ash.reader.ui.ext.decodeHTML
 import me.ash.reader.ui.ext.spacerDollar
 import timber.log.Timber
@@ -53,6 +57,7 @@ constructor(
     private val localSourceService: LocalSourceService,
     private val websiteHelper: WebsiteHelper,
     private val articleFilterEngine: ArticleFilterEngine,
+    private val articleFilterRepository: ArticleFilterRepository,
     private val notificationHelper: NotificationHelper,
     private val groupDao: GroupDao,
     @IODispatcher private val ioDispatcher: CoroutineDispatcher,
@@ -61,8 +66,10 @@ constructor(
     private val accountService: AccountService,
     private val syncLogger: SyncLogger,
     private val rssHubSubscriptionRepository: RssHubSubscriptionRepository,
+    private val websiteParsePreferenceRepository: WebsiteParsePreferenceRepository,
     private val localSubscriptionDao: LocalSubscriptionDao,
     private val rssHttpCacheDao: RssHttpCacheDao,
+    private val syncMutations: LibrarySyncMutationCapture,
 ) :
     AbstractRssRepository(
         articleDao,
@@ -75,6 +82,99 @@ constructor(
         defaultDispatcher,
         accountService,
     ) {
+
+    override suspend fun <T> withLibraryMutation(accountId: Int, block: suspend () -> T): T =
+        syncMutations.captureLibraryMutation(accountId, block)
+
+    override suspend fun markAsRead(
+        groupId: String?,
+        feedId: String?,
+        articleId: String?,
+        before: Date?,
+        isUnread: Boolean,
+    ) {
+        val accountId = accountService.getCurrentAccountId()
+        val cutoff = before ?: Date(Long.MAX_VALUE)
+        when {
+            groupId != null ->
+                syncMutations.captureArticleField(
+                    accountId = accountId,
+                    changedArticleIds = {
+                        articleDao.queryIdsForReadChangeByGroupId(accountId, groupId, isUnread, cutoff)
+                    },
+                    field = "isUnread",
+                    value = isUnread,
+                    mutate = { articleDao.markAllAsReadByGroupId(accountId, groupId, isUnread, cutoff) },
+                )
+
+            feedId != null ->
+                syncMutations.captureArticleField(
+                    accountId = accountId,
+                    changedArticleIds = {
+                        articleDao.queryIdsForReadChangeByFeedId(accountId, feedId, isUnread, cutoff)
+                    },
+                    field = "isUnread",
+                    value = isUnread,
+                    mutate = { articleDao.markAllAsReadByFeedId(accountId, feedId, isUnread, cutoff) },
+                )
+
+            articleId != null ->
+                syncMutations.captureArticleField(
+                    accountId = accountId,
+                    changedArticleIds = {
+                        articleDao.queryIdsForReadChangeByIds(accountId, listOf(articleId), isUnread)
+                    },
+                    field = "isUnread",
+                    value = isUnread,
+                    mutate = { articleDao.markAsReadByArticleId(accountId, articleId, isUnread) },
+                )
+
+            else ->
+                syncMutations.captureArticleField(
+                    accountId = accountId,
+                    changedArticleIds = { articleDao.queryIdsForReadChange(accountId, isUnread, cutoff) },
+                    field = "isUnread",
+                    value = isUnread,
+                    mutate = { articleDao.markAllAsRead(accountId, isUnread, cutoff) },
+                )
+        }
+    }
+
+    override suspend fun batchMarkAsRead(
+        articleIds: Set<String>,
+        isUnread: Boolean,
+        accountId: Int,
+    ) {
+        val chunks = articleIds.chunked(500)
+        syncMutations.captureArticleField(
+            accountId = accountId,
+            changedArticleIds = {
+                chunks.flatMap { chunk ->
+                    articleDao.queryIdsForReadChangeByIds(accountId, chunk, isUnread)
+                }
+            },
+            field = "isUnread",
+            value = isUnread,
+            mutate = {
+                chunks.forEach { chunk ->
+                    articleDao.markAsReadByIdSet(accountId, chunk.toSet(), isUnread)
+                }
+            },
+        )
+    }
+
+    override suspend fun markAsStarred(articleId: String, isStarred: Boolean) {
+        val accountId = accountService.getCurrentAccountId()
+        syncMutations.captureArticleField(
+            accountId = accountId,
+            changedArticleIds = {
+                articleDao.queryIdsForStarredChangeByIds(accountId, listOf(articleId), isStarred)
+            },
+            field = "isStarred",
+            value = isStarred,
+            mutate = { articleDao.markAsStarredByArticleId(accountId, articleId, isStarred) },
+        )
+    }
 
     override suspend fun subscribe(
         feedLink: String,
@@ -227,7 +327,14 @@ constructor(
                 feed = feed,
                 articles = filteredArticles.map { article -> article.copy(feedId = feedId) },
             )
-            rssHubSubscriptionRepository.record(feedId, sourcePageUrl)
+            syncMutations.captureRssHubSubscriptionSourceMutation(
+                accountId = accountId,
+                feedId = feedId,
+                readState = { rssHubSubscriptionRepository.sourceUrl(feedId) },
+                replaceState = { rssHubSubscriptionRepository.replaceSyncSource(feedId, it) },
+            ) {
+                rssHubSubscriptionRepository.record(feedId, sourcePageUrl)
+            }
             feedId
         }
     }
@@ -235,7 +342,71 @@ constructor(
     override suspend fun deleteFeed(feed: Feed, onlyDeleteNoStarred: Boolean?) {
         super.deleteFeed(feed, onlyDeleteNoStarred)
         if (feedDao.queryById(feed.id) == null) {
-            rssHubSubscriptionRepository.remove(feed.id)
+            cleanupDeletedFeedSidecars(
+                accountId = feed.accountId,
+                feedIds = setOf(feed.id),
+            )
+        }
+    }
+
+    override suspend fun deleteGroup(group: Group, onlyDeleteNoStarred: Boolean?) {
+        val feeds = feedDao.queryByGroupId(group.accountId, group.id)
+        super.deleteGroup(group, onlyDeleteNoStarred)
+        if (groupDao.queryById(group.id) != null || feeds.isEmpty()) return
+
+        cleanupDeletedFeedSidecars(
+            accountId = group.accountId,
+            feedIds = feeds.mapTo(linkedSetOf(), Feed::id),
+        )
+    }
+
+    private suspend fun cleanupDeletedFeedSidecars(
+        accountId: Int,
+        feedIds: Set<String>,
+    ) {
+        if (feedIds.isEmpty()) return
+
+        syncMutations.captureFilterRulesMutation(
+            accountId = accountId,
+            readRules = articleFilterRepository::getAll,
+            replaceRules = articleFilterRepository::replaceRules,
+        ) {
+            feedIds.forEach(articleFilterRepository::deleteByFeed)
+        }
+
+        syncMutations.captureWebsiteParsePreferencesMutation(
+            accountId = accountId,
+            feedIds = feedIds,
+            readStates = {
+                feedIds.associateWith(websiteParsePreferenceRepository::getUserSyncState)
+            },
+            replaceStates = { states ->
+                states.forEach { (feedId, state) ->
+                    websiteParsePreferenceRepository.applyUserSyncState(feedId, state)
+                }
+            },
+        ) {
+            feedIds.forEach { feedId ->
+                websiteParsePreferenceRepository.applyUserSyncState(feedId, null)
+            }
+        }
+        // Feed lifetime has ended locally. Tombstone the syncable user fields first, then
+        // remove the device-local automatic detector cache that must never be synchronized.
+        feedIds.forEach(websiteParsePreferenceRepository::delete)
+
+        syncMutations.captureRssHubSubscriptionSourcesMutation(
+            accountId = accountId,
+            feedIds = feedIds,
+            readStates = {
+                feedIds.associateWith(rssHubSubscriptionRepository::sourceUrl)
+            },
+            replaceStates = { states ->
+                states.forEach { (feedId, sourceUrl) ->
+                    rssHubSubscriptionRepository.replaceSyncSource(feedId, sourceUrl)
+                }
+            },
+        ) {
+            feedIds.forEach(rssHubSubscriptionRepository::remove)
         }
     }
 
@@ -286,7 +457,9 @@ constructor(
         feed: Feed,
         articles: List<me.ash.reader.domain.model.article.Article>,
     ) {
-        localSubscriptionDao.insertFeedWithArticles(feed, articles)
+        withLibraryMutation(feed.accountId) {
+            localSubscriptionDao.insertFeedWithArticles(feed, articles)
+        }
     }
 
     override suspend fun sync(
@@ -350,21 +523,34 @@ constructor(
                                 )
 
                             val newArticles =
-                                if (effectiveFeed.sourceType == SourceType.JSON) {
-                                    updateJsonArticlesAndInsertNew(
-                                        feed = effectiveFeed,
-                                        fetchedArticles = fetchedArticles,
-                                    )
-                                } else if (effectiveFeed.sourceType == SourceType.WEBSITE) {
-                                    updateWebsiteArticlesAndInsertNew(
-                                        feed = effectiveFeed,
-                                        fetchedArticles = fetchedArticles,
-                                    )
-                                } else {
-                                    articleDao.insertListIfNotExist(
-                                        articles = fetchedArticles,
-                                        feed = effectiveFeed,
-                                    )
+                                withLibraryMutation(accountId) {
+                                    feedDao.queryById(currentFeed.id)?.let { latestFeed ->
+                                        val mergedFeed =
+                                            mergeDetectedFeedChanges(
+                                                fetchedFrom = currentFeed,
+                                                detected = effectiveFeed,
+                                                latest = latestFeed,
+                                            )
+                                        if (mergedFeed != latestFeed) {
+                                            feedDao.update(mergedFeed)
+                                        }
+                                    }
+                                    if (effectiveFeed.sourceType == SourceType.JSON) {
+                                        updateJsonArticlesAndInsertNew(
+                                            feed = effectiveFeed,
+                                            fetchedArticles = fetchedArticles,
+                                        )
+                                    } else if (effectiveFeed.sourceType == SourceType.WEBSITE) {
+                                        updateWebsiteArticlesAndInsertNew(
+                                            feed = effectiveFeed,
+                                            fetchedArticles = fetchedArticles,
+                                        )
+                                    } else {
+                                        articleDao.insertListIfNotExist(
+                                            articles = fetchedArticles,
+                                            feed = effectiveFeed,
+                                        )
+                                    }
                                 }
                             if (effectiveFeed.isNotification && newArticles.isNotEmpty()) {
                                 notificationHelper.notify(
@@ -394,7 +580,9 @@ constructor(
             .queryAllByFeedId(feed.accountId, feed.id)
             .mapTo(hashSetOf(), me.ash.reader.domain.model.article.Article::link)
         val matchedArticles = fetchedArticles.filter { it.link in existingLinks }
-        updateWebsiteArticlesAndInsertNew(feed = feed, fetchedArticles = matchedArticles)
+        withLibraryMutation(feed.accountId) {
+            updateWebsiteArticlesAndInsertNew(feed = feed, fetchedArticles = matchedArticles)
+        }
         return WebsiteReparseResult(
             fetchedCount = fetchedArticles.size,
             updatedCount = matchedArticles.size,
@@ -473,6 +661,43 @@ constructor(
             articleDao.insertList(newArticles)
         }
         return newArticles
+    }
+
+    private fun mergeDetectedFeedChanges(
+        fetchedFrom: Feed,
+        detected: Feed,
+        latest: Feed,
+    ): Feed {
+        var merged = latest
+        if (latest.url == fetchedFrom.url && detected.url != fetchedFrom.url) {
+            merged = merged.copy(url = detected.url)
+        }
+        if (latest.icon == fetchedFrom.icon && detected.icon != fetchedFrom.icon) {
+            merged = merged.copy(icon = detected.icon)
+        }
+        if (
+            latest.sourceType == fetchedFrom.sourceType &&
+                detected.sourceType != fetchedFrom.sourceType
+        ) {
+            merged =
+                merged.copy(
+                    sourceType = detected.sourceType,
+                    name = if (latest.name == fetchedFrom.name) detected.name else latest.name,
+                    isFullContent =
+                        if (latest.isFullContent == fetchedFrom.isFullContent) {
+                            detected.isFullContent
+                        } else {
+                            latest.isFullContent
+                        },
+                    isBrowser =
+                        if (latest.isBrowser == fetchedFrom.isBrowser) {
+                            detected.isBrowser
+                        } else {
+                            latest.isBrowser
+                        },
+                )
+        }
+        return merged
     }
 
 }

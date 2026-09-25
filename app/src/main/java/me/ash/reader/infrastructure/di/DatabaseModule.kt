@@ -13,6 +13,8 @@ import me.ash.reader.domain.repository.GroupDao
 import me.ash.reader.domain.repository.LocalSubscriptionDao
 import me.ash.reader.infrastructure.db.AndroidDatabase
 import me.ash.reader.infrastructure.rss.RssHttpCacheDao
+import me.ash.reader.infrastructure.sync.core.AndroidSyncRollbackWitnessStore
+import me.ash.reader.infrastructure.sync.core.SyncRollbackWitnessStore
 import javax.inject.Singleton
 
 /**
@@ -56,6 +58,12 @@ object DatabaseModule {
     @Singleton
     fun provideRssHttpCacheDao(androidDatabase: AndroidDatabase): RssHttpCacheDao =
         androidDatabase.rssHttpCacheDao()
+
+    @Provides
+    @Singleton
+    fun provideSyncRollbackWitnessStore(
+        store: AndroidSyncRollbackWitnessStore,
+    ): SyncRollbackWitnessStore = store
 
     @Provides
     @Singleton

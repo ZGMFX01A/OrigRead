@@ -345,6 +345,21 @@ interface ArticleDao {
         before: Date,
     )
 
+    @Query(
+        """
+        SELECT id FROM article
+        WHERE accountId = :accountId
+        AND date < :before
+        AND isUnread != :isUnread
+        ORDER BY id ASC
+        """
+    )
+    suspend fun queryIdsForReadChange(
+        accountId: Int,
+        isUnread: Boolean,
+        before: Date,
+    ): List<String>
+
     @Transaction
     @Query(
         """
@@ -365,6 +380,23 @@ interface ArticleDao {
         before: Date,
     )
 
+    @Query(
+        """
+        SELECT id FROM article
+        WHERE feedId IN (SELECT id FROM feed WHERE groupId = :groupId)
+        AND accountId = :accountId
+        AND isUnread != :isUnread
+        AND date < :before
+        ORDER BY id ASC
+        """
+    )
+    suspend fun queryIdsForReadChangeByGroupId(
+        accountId: Int,
+        groupId: String,
+        isUnread: Boolean,
+        before: Date,
+    ): List<String>
+
     @Transaction
     @Query(
         """
@@ -382,6 +414,23 @@ interface ArticleDao {
         before: Date,
     )
 
+    @Query(
+        """
+        SELECT id FROM article
+        WHERE feedId = :feedId
+        AND accountId = :accountId
+        AND isUnread != :isUnread
+        AND date < :before
+        ORDER BY id ASC
+        """
+    )
+    suspend fun queryIdsForReadChangeByFeedId(
+        accountId: Int,
+        feedId: String,
+        isUnread: Boolean,
+        before: Date,
+    ): List<String>
+
     @Transaction
     @Query(
         """
@@ -398,6 +447,21 @@ interface ArticleDao {
 
     @Query(
         """
+        SELECT id FROM article
+        WHERE accountId = :accountId
+        AND id IN (:articleIds)
+        AND isUnread != :isUnread
+        ORDER BY id ASC
+        """
+    )
+    suspend fun queryIdsForReadChangeByIds(
+        accountId: Int,
+        articleIds: List<String>,
+        isUnread: Boolean,
+    ): List<String>
+
+    @Query(
+        """
         UPDATE article SET isStarred = :isStarred 
         WHERE id = :articleId
         AND accountId = :accountId
@@ -408,6 +472,21 @@ interface ArticleDao {
         articleId: String,
         isStarred: Boolean,
     )
+
+    @Query(
+        """
+        SELECT id FROM article
+        WHERE accountId = :accountId
+        AND id IN (:articleIds)
+        AND isStarred != :isStarred
+        ORDER BY id ASC
+        """
+    )
+    suspend fun queryIdsForStarredChangeByIds(
+        accountId: Int,
+        articleIds: List<String>,
+        isStarred: Boolean,
+    ): List<String>
 
     @Query(
         """

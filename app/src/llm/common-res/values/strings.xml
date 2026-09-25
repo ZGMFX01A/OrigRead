@@ -209,6 +209,9 @@
   <string name="llm_context_source">Source: %1$s</string>
   <string name="llm_context_open_source">Open source</string>
   <string name="llm_context_open_article">Open in OrigRead</string>
+  <string name="llm_sync_attachment_missing">Source text is waiting to be restored</string>
+  <string name="llm_sync_attachment_fetching">Restoring source text…</string>
+  <string name="llm_sync_attachment_failed">Source text could not be restored yet</string>
   <string name="llm_context_type_article">Current article</string>
   <string name="llm_context_type_related_article">Related article</string>
   <string name="llm_context_type_summary">AI summary</string>

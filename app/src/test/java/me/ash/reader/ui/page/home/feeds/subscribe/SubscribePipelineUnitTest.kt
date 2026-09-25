@@ -31,6 +31,8 @@ import me.ash.reader.infrastructure.rsshub.RssHubResolver
 import me.ash.reader.infrastructure.rsshub.RssHubSettings
 import me.ash.reader.infrastructure.rsshub.RssHubSettingsRepository
 import me.ash.reader.infrastructure.source.SourceCandidateKind
+import me.ash.reader.infrastructure.sync.core.LibrarySyncMutationCapture
+import me.ash.reader.infrastructure.website.WebsiteParsePreferenceRepository
 import me.ash.reader.infrastructure.website.WebsiteHelper
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -56,6 +58,8 @@ class SubscribePipelineUnitTest {
     private lateinit var rssHelper: RssHelper
     private lateinit var rssHubResolver: RssHubResolver
     private lateinit var websiteHelper: WebsiteHelper
+    private lateinit var websiteParsePreferenceRepository: WebsiteParsePreferenceRepository
+    private lateinit var syncMutations: LibrarySyncMutationCapture
     private lateinit var jsonSourceHelper: JsonSourceHelper
     private lateinit var feedDiscoveryCatalog: FeedDiscoveryCatalog
     private lateinit var androidStringsHelper: AndroidStringsHelper
@@ -85,6 +89,8 @@ class SubscribePipelineUnitTest {
         rssHelper = mock()
         rssHubResolver = mock()
         websiteHelper = mock()
+        websiteParsePreferenceRepository = mock()
+        syncMutations = mock()
         jsonSourceHelper = mock()
         feedDiscoveryCatalog = mock()
         whenever(feedDiscoveryCatalog.matchUrl(any())).thenReturn(me.ash.reader.infrastructure.discovery.FeedCatalogUrlMatch())
@@ -108,6 +114,8 @@ class SubscribePipelineUnitTest {
                 rssHubResolver = rssHubResolver,
                 rssHubSettingsRepository = rssHubSettingsRepository,
                 websiteHelper = websiteHelper,
+                websiteParsePreferenceRepository = websiteParsePreferenceRepository,
+                syncMutations = syncMutations,
                 jsonSourceHelper = jsonSourceHelper,
                 feedDiscoveryCatalog = feedDiscoveryCatalog,
                 androidStringsHelper = androidStringsHelper,

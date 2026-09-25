@@ -35,6 +35,15 @@ set APP_HOME=%DIRNAME%
 @rem Resolve any "." and ".." in APP_HOME to make it shorter.
 for %%i in ("%APP_HOME%") do set APP_HOME=%%~fi
 
+@rem OrigRead local build JDK override. The config file is git-ignored so every developer can
+@rem point at a machine-local JDK without committing an absolute path. This intentionally wins
+@rem over a system JAVA_HOME (for example JDK 25) for this project only.
+if exist "%APP_HOME%\.gradle\config.properties" (
+    for /f "usebackq tokens=1,* delims==" %%A in ("%APP_HOME%\.gradle\config.properties") do (
+        if /I "%%A"=="java.home" set "JAVA_HOME=%%B"
+    )
+)
+
 @rem Add default JVM options here. You can also use JAVA_OPTS and GRADLE_OPTS to pass JVM options to this script.
 set DEFAULT_JVM_OPTS="-Xmx64m" "-Xms64m"
 

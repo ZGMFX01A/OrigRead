@@ -112,6 +112,18 @@ interface LlmChatDao {
     )
     suspend fun getToolCalls(conversationId: String): List<LlmToolCallEntity>
 
+    @Query("SELECT * FROM llm_messages WHERE id = :messageId LIMIT 1")
+    suspend fun getMessageById(messageId: String): LlmMessageEntity?
+
+    @Query("SELECT * FROM llm_tool_calls WHERE id = :toolCallId LIMIT 1")
+    suspend fun getToolCallById(toolCallId: String): LlmToolCallEntity?
+
+    @Query("SELECT * FROM llm_messages WHERE status = :status ORDER BY created_at ASC, id ASC")
+    suspend fun getMessagesByStatus(status: LlmMessageStatus): List<LlmMessageEntity>
+
+    @Query("SELECT * FROM llm_tool_calls WHERE status = :status ORDER BY created_at ASC, id ASC")
+    suspend fun getToolCallsByStatus(status: LlmToolCallStatus): List<LlmToolCallEntity>
+
     /** 读取某一次 Assistant 请求保存的精确 Context 快照。 */
     @Query(
         "SELECT * FROM llm_context_refs WHERE assistant_message_id = :assistantMessageId " +
@@ -125,12 +137,36 @@ interface LlmChatDao {
     )
     suspend fun getEvidenceBlocksForContextRef(contextRefId: String): List<LlmEvidenceBlockEntity>
 
+    @Query("SELECT * FROM llm_context_refs WHERE id = :contextRefId LIMIT 1")
+    suspend fun getContextRefById(contextRefId: String): LlmContextRefEntity?
+
+    @Query("SELECT * FROM llm_evidence_blocks WHERE id = :evidenceBlockId LIMIT 1")
+    suspend fun getEvidenceBlockById(evidenceBlockId: String): LlmEvidenceBlockEntity?
+
     @Query(
         "SELECT * FROM llm_citation_refs WHERE assistant_message_id = :assistantMessageId " +
             "ORDER BY CASE WHEN display_order IS NULL THEN 2147483647 ELSE display_order END ASC, " +
             "protocol_id ASC, id ASC"
     )
     suspend fun getCitationRefsForAssistant(assistantMessageId: String): List<LlmCitationRefEntity>
+
+    @Query("SELECT * FROM llm_citation_refs WHERE id = :citationRefId LIMIT 1")
+    suspend fun getCitationRefById(citationRefId: String): LlmCitationRefEntity?
+
+    @Query("SELECT * FROM llm_citation_refs WHERE context_ref_id=:contextRefId")
+    suspend fun getCitationRefsForContext(contextRefId: String): List<LlmCitationRefEntity>
+
+    @Query("SELECT * FROM llm_citation_refs WHERE evidence_block_id=:evidenceBlockId")
+    suspend fun getCitationRefsForEvidence(evidenceBlockId: String): List<LlmCitationRefEntity>
+
+    @Query("SELECT * FROM llm_citation_annotations WHERE id = :annotationId LIMIT 1")
+    suspend fun getCitationAnnotationById(annotationId: String): LlmCitationAnnotationEntity?
+
+    @Query("SELECT * FROM llm_conversation_articles ORDER BY conversation_id, article_id")
+    suspend fun getAllConversationArticles(): List<LlmConversationArticleEntity>
+
+    @Query("SELECT * FROM llm_citation_annotation_refs ORDER BY annotation_id, ref_ordinal, citation_ref_id")
+    suspend fun getAllCitationAnnotationRefs(): List<LlmCitationAnnotationRefEntity>
 
     /** 读取 canonical occurrence 及其来源；UI 编号按 occurrenceOrdinal 现算。 */
     @Transaction
@@ -168,6 +204,18 @@ interface LlmChatDao {
     /** 更新消息正文、reasoning、状态或错误信息。 */
     @Update
     suspend fun updateMessage(message: LlmMessageEntity)
+
+    @Update
+    suspend fun updateContextRef(contextRef: LlmContextRefEntity)
+
+    @Update
+    suspend fun updateEvidenceBlock(evidenceBlock: LlmEvidenceBlockEntity)
+
+    @Update
+    suspend fun updateCitationRef(citationRef: LlmCitationRefEntity)
+
+    @Update
+    suspend fun updateCitationAnnotation(annotation: LlmCitationAnnotationEntity)
 
     /**
      * Search 终态与当次已取得的 Search ContextRef 必须原子提交。
@@ -218,6 +266,9 @@ interface LlmChatDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertCitationAnnotationRefs(refs: List<LlmCitationAnnotationRefEntity>)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertCitationAnnotationRefReplace(ref: LlmCitationAnnotationRefEntity)
+
     /** 同一会话每篇文章只保留一个活动快照；replace 前会由事务统一删除旧集合。 */
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertConversationArticles(articles: List<LlmConversationArticleEntity>)
@@ -237,6 +288,31 @@ interface LlmChatDao {
 
     @Query("DELETE FROM llm_context_refs WHERE assistant_message_id = :assistantMessageId")
     suspend fun deleteContextRefsForAssistant(assistantMessageId: String)
+
+    @Query("DELETE FROM llm_context_refs WHERE id = :contextRefId")
+    suspend fun deleteContextRefById(contextRefId: String)
+
+    @Query("DELETE FROM llm_evidence_blocks WHERE id = :evidenceBlockId")
+    suspend fun deleteEvidenceBlockById(evidenceBlockId: String)
+
+    @Query("DELETE FROM llm_citation_refs WHERE id = :citationRefId")
+    suspend fun deleteCitationRefById(citationRefId: String)
+
+    @Query("DELETE FROM llm_citation_annotations WHERE id = :annotationId")
+    suspend fun deleteCitationAnnotationById(annotationId: String)
+
+    @Query("DELETE FROM llm_tool_calls WHERE id = :toolCallId")
+    suspend fun deleteToolCallById(toolCallId: String)
+
+    @Query(
+        "DELETE FROM llm_conversation_articles WHERE conversation_id = :conversationId AND article_id = :articleId"
+    )
+    suspend fun deleteConversationArticle(conversationId: String, articleId: String)
+
+    @Query(
+        "DELETE FROM llm_citation_annotation_refs WHERE annotation_id = :annotationId AND citation_ref_id = :citationRefId"
+    )
+    suspend fun deleteCitationAnnotationRef(annotationId: String, citationRefId: String)
 
     /**
      * 同一 Assistant placeholder 在真正发请求前可能重新 prepare；ContextRef 必须原子替换，避免崩溃后留下半套来源。

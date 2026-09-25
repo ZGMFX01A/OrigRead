@@ -34,12 +34,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import kotlinx.coroutines.launch
 import me.ash.reader.R
 import me.ash.reader.infrastructure.filter.ArticleFilterRuleType
 import me.ash.reader.ui.component.base.DisplayText
@@ -57,6 +59,7 @@ fun ArticleFilterSettingsPage(
     viewModel: ArticleFilterSettingsViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val uiState = viewModel.uiState.collectAsStateValue()
     var showAddDialog by remember { mutableStateOf(false) }
     var showFilteredArticles by remember { mutableStateOf(false) }
@@ -67,12 +70,15 @@ fun ArticleFilterSettingsPage(
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
         context.contentResolver.openInputStream(uri)?.use { input ->
-            viewModel.importRules(input.readBytes()).fold(
-                onSuccess = {
-                    Toast.makeText(context, context.getString(R.string.filter_rules_imported, it), Toast.LENGTH_LONG).show()
-                },
-                onFailure = { error = it.message },
-            )
+            val bytes = input.readBytes()
+            scope.launch {
+                viewModel.importRules(bytes).fold(
+                    onSuccess = {
+                        Toast.makeText(context, context.getString(R.string.filter_rules_imported, it), Toast.LENGTH_LONG).show()
+                    },
+                    onFailure = { error = it.message },
+                )
+            }
         }
     }
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(MimeType.JSON)) { uri ->
@@ -146,7 +152,7 @@ fun ArticleFilterSettingsPage(
                 }
 
                 items(uiState.rules, key = { it.id }) { rule ->
-                    val scope = if (rule.feedId == null) {
+                    val scopeLabel = if (rule.feedId == null) {
                         stringResource(R.string.global_filter_rule)
                     } else {
                         rule.feedName ?: stringResource(R.string.source_filter_rule)
@@ -158,18 +164,20 @@ fun ArticleFilterSettingsPage(
                     }
                     SettingItem(
                         title = rule.keyword,
-                        desc = "$scope · $typeName",
+                        desc = "$scopeLabel · $typeName",
                         separatedActions = true,
-                        onClick = { viewModel.setEnabled(rule, !rule.enabled) },
+                        onClick = { scope.launch { viewModel.setEnabled(rule, !rule.enabled) } },
                         action = {
                             Row {
-                                OrigReadSwitch(activated = rule.enabled) { viewModel.setEnabled(rule, !rule.enabled) }
+                                OrigReadSwitch(activated = rule.enabled) {
+                                    scope.launch { viewModel.setEnabled(rule, !rule.enabled) }
+                                }
                                 Spacer(Modifier.width(8.dp))
                                 FeedbackIconButton(
                                     imageVector = Icons.Outlined.Delete,
                                     contentDescription = stringResource(R.string.delete),
                                     tint = MaterialTheme.colorScheme.error,
-                                    onClick = { viewModel.delete(rule) },
+                                    onClick = { scope.launch { viewModel.delete(rule) } },
                                 )
                             }
                         },
@@ -208,10 +216,12 @@ fun ArticleFilterSettingsPage(
                 TextButton(
                     enabled = pattern.isNotBlank(),
                     onClick = {
-                        viewModel.addGlobalRule(pattern, type).fold(
-                            onSuccess = { pattern = ""; showAddDialog = false },
-                            onFailure = { error = it.message },
-                        )
+                        scope.launch {
+                            viewModel.addGlobalRule(pattern, type).fold(
+                                onSuccess = { pattern = ""; showAddDialog = false },
+                                onFailure = { error = it.message },
+                            )
+                        }
                     },
                 ) { Text(stringResource(R.string.add)) }
             },

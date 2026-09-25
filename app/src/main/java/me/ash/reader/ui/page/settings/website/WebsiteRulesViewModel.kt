@@ -22,8 +22,10 @@ import me.ash.reader.infrastructure.ai.AiWebsiteDynamicRetryException
 import me.ash.reader.infrastructure.ai.AiWebsiteGenerationMode
 import me.ash.reader.infrastructure.ai.aiRuleGenerationUserMessage
 import me.ash.reader.infrastructure.ai.resolvedDefaultModel
+import me.ash.reader.domain.service.AccountService
 import me.ash.reader.infrastructure.di.IODispatcher
 import me.ash.reader.infrastructure.di.MainDispatcher
+import me.ash.reader.infrastructure.sync.core.LibrarySyncMutationCapture
 import me.ash.reader.infrastructure.website.WebsiteHelper
 import me.ash.reader.infrastructure.website.WebsiteRule
 import me.ash.reader.infrastructure.website.WebsiteRuleRepository
@@ -49,6 +51,8 @@ class WebsiteRulesViewModel @Inject constructor(
     private val websiteHelper: WebsiteHelper,
     private val aiRuleGenerationService: AiRuleGenerationService,
     private val aiSettingsRepository: AiSettingsRepository,
+    private val accountService: AccountService,
+    private val syncMutations: LibrarySyncMutationCapture,
     @IODispatcher private val ioDispatcher: CoroutineDispatcher,
     @MainDispatcher private val mainDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
@@ -156,21 +160,29 @@ class WebsiteRulesViewModel @Inject constructor(
     /** 用户确认后才把已经通过本地验证的 AI 候选写入规则文件。 */
     fun saveAiPreview() {
         val preview = _uiState.value.aiPreview ?: return
-        runCatching { aiRuleGenerationService.save(preview) }
-            .onSuccess {
-                _uiState.update {
-                    it.copy(
-                        aiPreview = null,
-                        aiError = null,
-                        aiCanRetryWithDynamicRendering = false,
-                        aiNotice = "规则已保存：${preview.name}",
-                    )
+        viewModelScope.launch(ioDispatcher) {
+            val result =
+                runCatching {
+                    captureRulesMutation { aiRuleGenerationService.save(preview) }
                 }
-                reload()
+            withContext(mainDispatcher) {
+                result
+                    .onSuccess {
+                        _uiState.update {
+                            it.copy(
+                                aiPreview = null,
+                                aiError = null,
+                                aiCanRetryWithDynamicRendering = false,
+                                aiNotice = "规则已保存：" + preview.name,
+                            )
+                        }
+                        reload()
+                    }
+                    .onFailure { error ->
+                        _uiState.update { it.copy(aiError = error.message ?: "AI 规则保存失败") }
+                    }
             }
-            .onFailure { error ->
-                _uiState.update { it.copy(aiError = error.message ?: "AI 规则保存失败") }
-            }
+        }
     }
 
     fun dismissAiPreview() {
@@ -201,7 +213,12 @@ class WebsiteRulesViewModel @Inject constructor(
 
     fun importRules(bytes: ByteArray, callback: (Result<Int>) -> Unit) {
         viewModelScope.launch(ioDispatcher) {
-            val result = runCatching { repository.importRules(String(bytes, Charsets.UTF_8)) }
+            val result =
+                runCatching {
+                    captureRulesMutation {
+                        repository.importRules(String(bytes, Charsets.UTF_8))
+                    }
+                }
             withContext(mainDispatcher) {
                 reload()
                 callback(result)
@@ -214,13 +231,31 @@ class WebsiteRulesViewModel @Inject constructor(
     fun exportTemplate(callback: (String) -> Unit) = callback(repository.exportTemplate())
 
     fun setEnabled(rule: WebsiteRule, enabled: Boolean) {
-        repository.setEnabled(rule.id, enabled)
-        reload()
+        viewModelScope.launch(ioDispatcher) {
+            runCatching {
+                captureRulesMutation { repository.setEnabled(rule.id, enabled) }
+            }.onSuccess {
+                withContext(mainDispatcher) { reload() }
+            }.onFailure { error ->
+                withContext(mainDispatcher) {
+                    _uiState.update { it.copy(aiError = error.message ?: "规则更新失败") }
+                }
+            }
+        }
     }
 
     fun delete(rule: WebsiteRule) {
-        repository.deleteRule(rule.id)
-        reload()
+        viewModelScope.launch(ioDispatcher) {
+            runCatching {
+                captureRulesMutation { repository.deleteRule(rule.id) }
+            }.onSuccess {
+                withContext(mainDispatcher) { reload() }
+            }.onFailure { error ->
+                withContext(mainDispatcher) {
+                    _uiState.update { it.copy(aiError = error.message ?: "规则删除失败") }
+                }
+            }
+        }
     }
 
     fun test(url: String, callback: (Result<Int>) -> Unit) {
@@ -233,6 +268,14 @@ class WebsiteRulesViewModel @Inject constructor(
             }
         }
     }
+
+    private suspend fun <T> captureRulesMutation(mutate: () -> T): T =
+        syncMutations.captureWebsiteRulesMutation(
+            accountId = accountService.getCurrentAccountId(),
+            readRules = repository::listSyncRules,
+            replaceRules = repository::replaceSyncRules,
+            mutate = mutate,
+        )
 
     private companion object {
         const val INTERNAL_ITHOME_RULE_ID = "ithome-home"

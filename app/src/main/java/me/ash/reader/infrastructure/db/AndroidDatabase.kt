@@ -19,6 +19,63 @@ import me.ash.reader.domain.repository.LocalSubscriptionDao
 import me.ash.reader.infrastructure.preference.*
 import me.ash.reader.infrastructure.rss.RssHttpCache
 import me.ash.reader.infrastructure.rss.RssHttpCacheDao
+import me.ash.reader.infrastructure.sync.core.MIGRATION_13_14
+import me.ash.reader.infrastructure.sync.core.MIGRATION_14_15
+import me.ash.reader.infrastructure.sync.core.MIGRATION_15_16
+import me.ash.reader.infrastructure.sync.core.SyncActorIncarnationEntity
+import me.ash.reader.infrastructure.sync.core.SyncAppliedFrontierEntity
+import me.ash.reader.infrastructure.sync.core.SyncDeviceIdentityEntity
+import me.ash.reader.infrastructure.sync.core.SyncGenesisDao
+import me.ash.reader.infrastructure.sync.core.SyncGenesisOperationCoverageEntity
+import me.ash.reader.infrastructure.sync.core.SyncRecoveryCapsuleEntity
+import me.ash.reader.infrastructure.sync.core.SyncGenesisSessionEntity
+import me.ash.reader.infrastructure.sync.core.SyncLaneWriterStateEntity
+import me.ash.reader.infrastructure.sync.core.SyncLocalSpaceBindingEntity
+import me.ash.reader.infrastructure.sync.core.SyncOutboxDao
+import me.ash.reader.infrastructure.sync.core.SyncOutboxEntity
+import me.ash.reader.infrastructure.sync.core.SyncOperationDao
+import me.ash.reader.infrastructure.sync.core.SyncOperationEntity
+import me.ash.reader.infrastructure.sync.core.SyncRuntimeDao
+import me.ash.reader.infrastructure.sync.core.SyncEndpointDao
+import me.ash.reader.infrastructure.sync.core.SyncEndpointEntity
+import me.ash.reader.infrastructure.sync.core.SyncAuthLedgerDao
+import me.ash.reader.infrastructure.sync.core.SyncAuthLedgerEntity
+import me.ash.reader.infrastructure.sync.core.SyncSnapshotBundleEntity
+import me.ash.reader.infrastructure.sync.core.SyncSnapshotShardEntity
+import me.ash.reader.infrastructure.sync.core.SyncInboxDao
+import me.ash.reader.infrastructure.sync.core.SyncInboxOperationEntity
+import me.ash.reader.infrastructure.sync.core.SyncCoverageEntity
+import me.ash.reader.infrastructure.sync.core.SyncApplyJournalEntity
+import me.ash.reader.infrastructure.sync.core.SyncFieldVersionEntity
+import me.ash.reader.infrastructure.sync.core.SyncFieldCandidateEntity
+import me.ash.reader.infrastructure.sync.core.MIGRATION_27_28
+import me.ash.reader.infrastructure.sync.core.SyncFieldRollbackBaselineEntity
+import me.ash.reader.infrastructure.sync.core.SyncTombstoneEntity
+import me.ash.reader.infrastructure.sync.core.MIGRATION_16_17
+import me.ash.reader.infrastructure.sync.core.MIGRATION_17_18
+import me.ash.reader.infrastructure.sync.core.MIGRATION_18_19
+import me.ash.reader.infrastructure.sync.core.MIGRATION_19_20
+import me.ash.reader.infrastructure.sync.core.MIGRATION_20_21
+import me.ash.reader.infrastructure.sync.core.MIGRATION_21_22
+import me.ash.reader.infrastructure.sync.core.MIGRATION_22_23
+import me.ash.reader.infrastructure.sync.core.MIGRATION_23_24
+import me.ash.reader.infrastructure.sync.core.MIGRATION_24_25
+import me.ash.reader.infrastructure.sync.core.MIGRATION_26_27
+import me.ash.reader.infrastructure.sync.core.SyncActorAuthorEntity
+import me.ash.reader.infrastructure.sync.core.SyncAliasDao
+import me.ash.reader.infrastructure.sync.core.SyncAliasEdgeEntity
+import me.ash.reader.infrastructure.sync.core.SyncEntityAliasEntity
+import me.ash.reader.infrastructure.sync.core.SyncLocalEvictionEntity
+import me.ash.reader.infrastructure.sync.core.SyncBlobDao
+import me.ash.reader.infrastructure.sync.core.SyncBlobManifestEntity
+import me.ash.reader.infrastructure.sync.core.SyncBlobReferenceEntity
+import me.ash.reader.infrastructure.sync.core.SyncBlobPersistedAckEntity
+import me.ash.reader.infrastructure.sync.core.SyncPeerCursorDao
+import me.ash.reader.infrastructure.sync.core.SyncPeerCursorEntity
+import me.ash.reader.infrastructure.sync.identity.SyncIdentityMappingDao
+import me.ash.reader.infrastructure.sync.identity.SyncIdentityMappingEntity
+import me.ash.reader.infrastructure.sync.identity.SyncSpaceDao
+import me.ash.reader.infrastructure.sync.identity.SyncSpaceEntity
 import me.ash.reader.ui.ext.toInt
 import java.util.*
 
@@ -30,8 +87,40 @@ import java.util.*
         Group::class,
         ArchivedArticle::class,
         RssHttpCache::class,
+        SyncSpaceEntity::class,
+        SyncIdentityMappingEntity::class,
+        SyncLocalSpaceBindingEntity::class,
+        SyncDeviceIdentityEntity::class,
+        SyncActorIncarnationEntity::class,
+        SyncLaneWriterStateEntity::class,
+        SyncAppliedFrontierEntity::class,
+        SyncOutboxEntity::class,
+        SyncOperationEntity::class,
+        SyncActorAuthorEntity::class,
+        LocalConfigStateEntity::class,
+        SyncGenesisSessionEntity::class,
+        SyncSnapshotBundleEntity::class,
+        SyncSnapshotShardEntity::class,
+        SyncGenesisOperationCoverageEntity::class,
+        SyncRecoveryCapsuleEntity::class,
+        SyncInboxOperationEntity::class,
+        SyncCoverageEntity::class,
+        SyncApplyJournalEntity::class,
+        SyncFieldVersionEntity::class,
+        SyncFieldCandidateEntity::class,
+        SyncFieldRollbackBaselineEntity::class,
+        SyncTombstoneEntity::class,
+        SyncEndpointEntity::class,
+        SyncAuthLedgerEntity::class,
+        SyncPeerCursorEntity::class,
+        SyncAliasEdgeEntity::class,
+        SyncEntityAliasEntity::class,
+        SyncLocalEvictionEntity::class,
+        SyncBlobManifestEntity::class,
+        SyncBlobReferenceEntity::class,
+        SyncBlobPersistedAckEntity::class,
     ],
-    version = 12,
+    version = 28,
     autoMigrations = [
         AutoMigration(from = 5, to = 6),
         AutoMigration(from = 5, to = 7),
@@ -52,6 +141,7 @@ import java.util.*
     SourceTypeConverters::class,
 )
 abstract class AndroidDatabase : RoomDatabase() {
+    abstract fun localConfigStateDao(): LocalConfigStateDao
 
     abstract fun accountDao(): AccountDao
     abstract fun feedDao(): FeedDao
@@ -59,6 +149,18 @@ abstract class AndroidDatabase : RoomDatabase() {
     abstract fun groupDao(): GroupDao
     abstract fun localSubscriptionDao(): LocalSubscriptionDao
     abstract fun rssHttpCacheDao(): RssHttpCacheDao
+    abstract fun syncSpaceDao(): SyncSpaceDao
+    abstract fun syncIdentityMappingDao(): SyncIdentityMappingDao
+    abstract fun syncRuntimeDao(): SyncRuntimeDao
+    abstract fun syncOutboxDao(): SyncOutboxDao
+    abstract fun syncOperationDao(): SyncOperationDao
+    abstract fun syncGenesisDao(): SyncGenesisDao
+    abstract fun syncInboxDao(): SyncInboxDao
+    abstract fun syncEndpointDao(): SyncEndpointDao
+    abstract fun syncAuthLedgerDao(): SyncAuthLedgerDao
+    abstract fun syncPeerCursorDao(): SyncPeerCursorDao
+    abstract fun syncAliasDao(): SyncAliasDao
+    abstract fun syncBlobDao(): SyncBlobDao
 
     companion object {
 
@@ -70,7 +172,11 @@ abstract class AndroidDatabase : RoomDatabase() {
                     context.applicationContext,
                     AndroidDatabase::class.java,
                     "Reader"
-                ).addMigrations(*allMigrations).build().also {
+                ).addMigrations(*allMigrations).addCallback(object : Callback() {
+                    override fun onOpen(db: SupportSQLiteDatabase) {
+                        me.ash.reader.infrastructure.sync.core.installActorAuthorTrigger(db)
+                    }
+                }).build().also {
                     instance = it
                 }
             }
@@ -99,6 +205,22 @@ val allMigrations = arrayOf(
     MIGRATION_9_10,
     MIGRATION_10_11,
     MIGRATION_11_12,
+    MIGRATION_12_13,
+    MIGRATION_13_14,
+    MIGRATION_14_15,
+    MIGRATION_15_16,
+    MIGRATION_16_17,
+    MIGRATION_17_18,
+    MIGRATION_18_19,
+    MIGRATION_19_20,
+    MIGRATION_20_21,
+    MIGRATION_21_22,
+    MIGRATION_22_23,
+    MIGRATION_23_24,
+    MIGRATION_24_25,
+    MIGRATION_25_26,
+    MIGRATION_26_27,
+    MIGRATION_27_28,
 )
 
 @Suppress("ClassName")

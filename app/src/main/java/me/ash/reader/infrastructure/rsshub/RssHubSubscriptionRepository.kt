@@ -19,15 +19,35 @@ class RssHubSubscriptionRepository @Inject constructor(
     fun record(feedId: String, sourceUrl: String) {
         val normalized = sourceUrl.trim()
         if (feedId.isBlank() || normalized.isBlank()) return
-        preferences.edit().putString(KEY_PREFIX + feedId, normalized).apply()
+        check(
+            preferences.edit()
+                .putString(KEY_PREFIX + feedId, normalized)
+                .commit()
+        ) {
+            "Failed to persist RSSHub subscription source"
+        }
     }
 
     fun sourceUrl(feedId: String): String? =
         preferences.getString(KEY_PREFIX + feedId, null)?.takeIf(String::isNotBlank)
 
     fun remove(feedId: String) {
-        preferences.edit().remove(KEY_PREFIX + feedId).apply()
+        check(preferences.edit().remove(KEY_PREFIX + feedId).commit()) {
+            "Failed to remove RSSHub subscription source"
+        }
     }
+
+    /** Remote Sync materialization path. null means this Feed has no RSSHub provenance. */
+    fun replaceSyncSource(feedId: String, sourceUrl: String?) {
+        val normalized = sourceUrl?.trim().orEmpty()
+        if (normalized.isBlank()) remove(feedId) else record(feedId, normalized)
+    }
+
+    /** Only user/config provenance is synchronized; resolver success/cooldown state lives elsewhere. */
+    fun listSyncSources(feedIds: Set<String>): Map<String, String> =
+        feedIds.mapNotNull { feedId ->
+            sourceUrl(feedId)?.let { sourceUrl -> feedId to sourceUrl }
+        }.toMap()
 
     /** 导出指定账户订阅所对应的原始页面 URL。 */
     fun exportMappings(feedIds: Set<String>): Map<String, String> =

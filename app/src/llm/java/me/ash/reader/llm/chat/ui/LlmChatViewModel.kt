@@ -37,6 +37,8 @@ import me.ash.reader.llm.chat.data.LlmEvidenceSourceKind
 import me.ash.reader.llm.chat.data.LlmMessageEntity
 import me.ash.reader.llm.chat.data.LlmMessageCitationPresentation
 import me.ash.reader.llm.chat.data.LlmMessageStatus
+import me.ash.reader.llm.chat.data.LlmSyncAttachmentKey
+import me.ash.reader.llm.chat.data.LlmSyncAttachmentState
 import me.ash.reader.llm.chat.data.LlmToolCallEntity
 import me.ash.reader.llm.chat.data.LlmToolCallStatus
 import me.ash.reader.llm.chat.data.LLM_EVIDENCE_CITATION_ENABLED
@@ -111,6 +113,7 @@ data class LlmChatUiState(
     val contextRefs: List<LlmContextRefEntity> = emptyList(),
     val citationRefs: List<LlmCitationRefEntity> = emptyList(),
     val citationAnnotations: List<LlmCitationAnnotationWithRefs> = emptyList(),
+    val syncAttachmentStates: Map<LlmSyncAttachmentKey, LlmSyncAttachmentState> = emptyMap(),
     val providers: List<AiProviderProfile> = emptyList(),
     val selectedProviderId: String? = null,
     val selectedModel: String? = null,
@@ -446,6 +449,7 @@ class LlmChatViewModel @Inject constructor(
         observeMessages()
         observeToolCalls()
         observeContextRefs()
+        observeSyncAttachmentStates()
     }
 
     /** 进程被系统杀死时无法执行 finally；重进 Chat 后把遗留 STREAMING 状态收口为 STOPPED。 */
@@ -686,6 +690,14 @@ class LlmChatViewModel @Inject constructor(
                 .collect { contextRefs ->
                     _uiState.update { it.copy(contextRefs = contextRefs) }
                 }
+        }
+    }
+
+    private fun observeSyncAttachmentStates() {
+        viewModelScope.launch {
+            repository.observeSyncAttachmentAvailability().collect { states ->
+                _uiState.update { it.copy(syncAttachmentStates = states) }
+            }
         }
     }
 

@@ -309,6 +309,7 @@ fun AppEntry(backStack: NavBackStack<NavKey>) {
                                 },
                                 navigateToUpdateSettings = { backStack.add(Route.SoftwareUpdate) },
                                 navigateToTipsAndSupport = { backStack.add(Route.TipsAndSupport) },
+                                navigateToSyncSettings = { backStack.add(Route.SyncSettings) },
                             )
                         }
                     Route.Accounts ->
@@ -405,6 +406,10 @@ fun AppEntry(backStack: NavBackStack<NavKey>) {
                             )
                         }
                     Route.LicenseList -> NavEntry(key) { LicenseListPage(onBack = onBack) }
+                    Route.SyncSettings ->
+                        NavEntry(key) {
+                            me.ash.reader.ui.page.settings.sync.SyncSettingsPage(onBack = onBack)
+                        }
                     else -> NavEntry(key) { throw Exception("Unknown destination") }
                 }
             },

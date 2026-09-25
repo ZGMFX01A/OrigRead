@@ -231,16 +231,22 @@ constructor(
                 } else {
                     groups
                 }
-            groupDao.insertOrUpdate(groupsToPersist)
-            feedDao.insertOrUpdate(feeds)
+            withLibraryMutation(accountId) {
+                groupDao.insertOrUpdate(groupsToPersist)
+                feedDao.insertOrUpdate(feeds)
+            }
 
             // Handle empty icon for feeds
             val noIconFeeds = feedDao.queryNoIcon(accountId)
-            feedDao.update(
-                *noIconFeeds
+            val feedsWithResolvedIcon =
+                noIconFeeds
                     .map { it.copy(icon = rssHelper.queryRssIconLink(it.url)) }
                     .toTypedArray()
-            )
+            if (feedsWithResolvedIcon.isNotEmpty()) {
+                withLibraryMutation(accountId) {
+                    feedDao.update(*feedsWithResolvedIcon)
+                }
+            }
 
             // 3. Fetch the Fever articles (up to unlimited counts)
             val allArticles = mutableListOf<Article>()
@@ -288,7 +294,9 @@ constructor(
             }
 
             if (allArticles.isNotEmpty()) {
-                articleDao.insert(*allArticles.toTypedArray())
+                withLibraryMutation(accountId) {
+                    articleDao.insert(*allArticles.toTypedArray())
+                }
                 val notificationFeeds =
                     feedDao.queryNotificationEnabled(accountId).associateBy { it.id }
                 val notificationFeedIds = notificationFeeds.keys
@@ -303,19 +311,21 @@ constructor(
             val unreadArticleIds = feverAPI.getUnreadItems().unread_item_ids?.split(",")
             val starredArticleIds = feverAPI.getSavedItems().saved_item_ids?.split(",")
             val articleMeta = articleDao.queryMetadataAll(accountId)
-            for (meta: ArticleMeta in articleMeta) {
-                val articleId = meta.id.dollarLast()
-                val shouldBeUnread = unreadArticleIds?.contains(articleId)
-                val shouldBeStarred = starredArticleIds?.contains(articleId)
-                if (meta.isUnread != shouldBeUnread) {
-                    articleDao.markAsReadByArticleId(accountId, meta.id, shouldBeUnread ?: true)
-                }
-                if (meta.isStarred != shouldBeStarred) {
-                    articleDao.markAsStarredByArticleId(
-                        accountId,
-                        meta.id,
-                        shouldBeStarred ?: false,
-                    )
+            withLibraryMutation(accountId) {
+                for (meta: ArticleMeta in articleMeta) {
+                    val articleId = meta.id.dollarLast()
+                    val shouldBeUnread = unreadArticleIds?.contains(articleId)
+                    val shouldBeStarred = starredArticleIds?.contains(articleId)
+                    if (meta.isUnread != shouldBeUnread) {
+                        articleDao.markAsReadByArticleId(accountId, meta.id, shouldBeUnread ?: true)
+                    }
+                    if (meta.isStarred != shouldBeStarred) {
+                        articleDao.markAsStarredByArticleId(
+                            accountId,
+                            meta.id,
+                            shouldBeStarred ?: false,
+                        )
+                    }
                 }
             }
 

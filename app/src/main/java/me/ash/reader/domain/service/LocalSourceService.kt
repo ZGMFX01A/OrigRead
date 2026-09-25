@@ -65,7 +65,7 @@ class LocalSourceService @Inject constructor(
         }
         if (feed.icon == null) {
             rssHelper.queryRssIconLink(effectiveFeed.url)?.let { iconLink ->
-                rssHelper.saveRssIcon(feedDao, effectiveFeed, iconLink)
+                effectiveFeed = effectiveFeed.copy(icon = iconLink)
             }
         }
         return FeedWithArticle(
@@ -116,15 +116,13 @@ class LocalSourceService @Inject constructor(
 
         if (feed.icon == null) {
             rssHelper.queryRssIconLink(effectiveFeed.url)?.let { iconLink ->
-                rssHelper.saveRssIcon(feedDao, effectiveFeed, iconLink)
+                effectiveFeed = effectiveFeed.copy(icon = iconLink)
             }
         }
         return SyncFetchResult(
             feedWithArticle =
                 FeedWithArticle(
-                    feed = effectiveFeed.copy(
-                        isNotification = feed.isNotification && articles.isNotEmpty()
-                    ),
+                    feed = effectiveFeed,
                     articles = articles,
                 )
         )
@@ -142,7 +140,6 @@ class LocalSourceService @Inject constructor(
                 ?: return null
         val recoveredUrl = recovered.match.feedUrl ?: return null
         val recoveredFeed = feed.copy(url = recoveredUrl)
-        if (recoveredFeed.url != feed.url) feedDao.update(recoveredFeed)
         val articles =
             rssHelper.buildArticlesFromSyndEntries(
                 feed = recoveredFeed,
@@ -157,7 +154,7 @@ class LocalSourceService @Inject constructor(
     private suspend fun fetchWebsite(feed: Feed, preDate: Date): FeedWithArticle {
         val articles = websiteHelper.fetchArticles(feed, preDate)
         return FeedWithArticle(
-            feed = feed.copy(isNotification = feed.isNotification && articles.isNotEmpty()),
+            feed = feed,
             articles = articles,
         )
     }
@@ -204,9 +201,8 @@ class LocalSourceService @Inject constructor(
                 preDate = preDate,
             )
 
-        feedDao.update(recoveredFeed)
         return FeedWithArticle(
-            feed = recoveredFeed.copy(isNotification = feed.isNotification && articles.isNotEmpty()),
+            feed = recoveredFeed,
             articles = articles,
         )
     }

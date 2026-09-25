@@ -20,6 +20,7 @@ import me.ash.reader.infrastructure.filter.ArticleFilterRule
 import me.ash.reader.infrastructure.filter.ArticleFilterRuleType
 import me.ash.reader.infrastructure.filter.ArticleFilterStats
 import me.ash.reader.infrastructure.filter.FilteredArticleRecord
+import me.ash.reader.infrastructure.sync.core.LibrarySyncMutationCapture
 
 data class ArticleFilterSettingsUiState(
     val rules: List<ArticleFilterRule> = emptyList(),
@@ -35,6 +36,7 @@ class ArticleFilterSettingsViewModel @Inject constructor(
     private val articleDao: ArticleDao,
     private val feedDao: FeedDao,
     private val accountService: AccountService,
+    private val syncMutations: LibrarySyncMutationCapture,
     @IODispatcher private val ioDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(ArticleFilterSettingsUiState())
@@ -48,28 +50,44 @@ class ArticleFilterSettingsViewModel @Inject constructor(
         _uiState.update { it.copy(rules = repository.getAll(), stats = repository.getStats()) }
     }
 
-    fun addGlobalRule(pattern: String, type: ArticleFilterRuleType): Result<Unit> =
+    suspend fun addGlobalRule(pattern: String, type: ArticleFilterRuleType): Result<Unit> =
         runCatching {
-            repository.add(pattern, type = type)
+            captureRuleMutation {
+                repository.add(pattern, type = type)
+            }
             reload()
         }
 
-    fun setEnabled(rule: ArticleFilterRule, enabled: Boolean) {
-        repository.setEnabled(rule, enabled)
+    suspend fun setEnabled(rule: ArticleFilterRule, enabled: Boolean) {
+        captureRuleMutation {
+            repository.setEnabled(rule, enabled)
+        }
         reload()
     }
 
-    fun delete(rule: ArticleFilterRule) {
-        repository.delete(rule)
+    suspend fun delete(rule: ArticleFilterRule) {
+        captureRuleMutation {
+            repository.delete(rule)
+        }
         reload()
     }
 
-    fun importRules(bytes: ByteArray): Result<Int> =
+    suspend fun importRules(bytes: ByteArray): Result<Int> =
         runCatching {
-            repository.importRules(String(bytes, Charsets.UTF_8)).also { reload() }
+            captureRuleMutation {
+                repository.importRules(String(bytes, Charsets.UTF_8))
+            }.also { reload() }
         }
 
     fun exportRules(): String = repository.exportRules()
+
+    private suspend fun <T> captureRuleMutation(mutate: () -> T): T =
+        syncMutations.captureFilterRulesMutation(
+            accountId = accountService.getCurrentAccountId(),
+            readRules = repository::getAll,
+            replaceRules = repository::replaceRules,
+            mutate = mutate,
+        )
 
     /**
      * 合并两类结果：仍在数据库里但被当前规则隐藏的文章，以及抓取时直接被丢弃的最近记录。

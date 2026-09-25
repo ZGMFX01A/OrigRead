@@ -35,6 +35,7 @@ import me.ash.reader.infrastructure.rsshub.RssHubInstance
 import me.ash.reader.infrastructure.rsshub.RssHubSettings
 import me.ash.reader.infrastructure.rsshub.RssHubSettingsRepository
 import me.ash.reader.infrastructure.rsshub.RssHubSubscriptionRepository
+import me.ash.reader.infrastructure.sync.core.LibrarySyncMutationCapture
 import me.ash.reader.infrastructure.source.findFeedByComparisonUrl
 import me.ash.reader.infrastructure.translation.TranslationDisplayMode
 import me.ash.reader.infrastructure.translation.TranslationProviderSettings
@@ -71,6 +72,7 @@ class ConfigurationBackupService @Inject constructor(
     private val translationSettingsRepository: TranslationSettingsRepository,
     private val aiSettingsRepository: AiSettingsRepository,
     private val editionBackupExtension: EditionConfigurationBackupExtension,
+    private val syncMutations: LibrarySyncMutationCapture,
 ) {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -188,7 +190,13 @@ class ConfigurationBackupService @Inject constructor(
                 runCatching {
                     val rollbackPrepared = prepareRestore(rollback.configurationBackupJson, rollback.password)
                     applyPreparedRestore(rollbackPrepared)
-                    restoreRoomRollbackSnapshot(rollback)
+                    // applyPreparedRestore() uses merge semantics and therefore cannot remove
+                    // Group/Feed rows that were created by the failed restore. The exact cleanup
+                    // must also be captured; otherwise those now-rolled-back creations can remain
+                    // in the Sync Outbox and reappear on another peer.
+                    syncMutations.captureLibraryMutation(rollback.accountId) {
+                        restoreRoomRollbackSnapshot(rollback)
+                    }
                 }.exceptionOrNull()?.let(restoreError::addSuppressed)
             }
             throw restoreError
@@ -242,16 +250,88 @@ class ConfigurationBackupService @Inject constructor(
     private suspend fun applyPreparedRestore(prepared: PreparedConfigurationRestore): ConfigurationRestoreResult {
         val backup = prepared.backup
         val secrets = prepared.secrets
+        val accountId = accountService.getCurrentAccountId()
 
-        val feedIdMap = restoreSubscriptions(backup.subscriptions)
+        val feedIdMap =
+            syncMutations.captureLibraryMutation(accountId) {
+                restoreSubscriptions(backup.subscriptions)
+            }
         restoreAccountSettings(prepared.accountSettings)
 
-        val websiteRuleCount = websiteRuleRepository.restoreBackup(prepared.websiteRulesJson)
-        val jsonRuleCount = jsonRuleRepository.restoreBackup(prepared.jsonRulesJson)
-        val filterRuleCount = articleFilterRepository.restoreBackup(prepared.filterRulesJson, feedIdMap)
-        websiteParsePreferenceRepository.restoreBackup(prepared.websitePreferencesJson, feedIdMap)
-        rssHubSettingsRepository.restoreBackup(prepared.rssHubSettings)
-        rssHubSubscriptionRepository.restoreMappings(backup.rssHubSourceUrls, feedIdMap)
+        val websiteRuleCount =
+            syncMutations.captureWebsiteRulesMutation(
+                accountId = accountId,
+                readRules = websiteRuleRepository::listSyncRules,
+                replaceRules = websiteRuleRepository::replaceSyncRules,
+            ) {
+                websiteRuleRepository.restoreBackup(prepared.websiteRulesJson)
+            }
+        val jsonRuleCount =
+            syncMutations.captureJsonRulesMutation(
+                accountId = accountId,
+                readRules = jsonRuleRepository::listSyncRules,
+                replaceRules = jsonRuleRepository::replaceSyncRules,
+            ) {
+                jsonRuleRepository.restoreBackup(prepared.jsonRulesJson)
+            }
+        val filterRuleCount =
+            syncMutations.captureFilterRulesMutation(
+                accountId = accountId,
+                readRules = articleFilterRepository::getAll,
+                replaceRules = articleFilterRepository::replaceRules,
+            ) {
+                articleFilterRepository.restoreBackup(prepared.filterRulesJson, feedIdMap)
+            }
+        val websitePreferenceFeedIds =
+            websiteParsePreferenceRepository.mappedBackupFeedIds(
+                prepared.websitePreferencesJson,
+                feedIdMap,
+            )
+        syncMutations.captureWebsiteParsePreferencesMutation(
+            accountId = accountId,
+            feedIds = websitePreferenceFeedIds,
+            readStates = {
+                websitePreferenceFeedIds.associateWith(
+                    websiteParsePreferenceRepository::getUserSyncState
+                )
+            },
+            replaceStates = { states ->
+                websitePreferenceFeedIds.forEach { feedId ->
+                    websiteParsePreferenceRepository.applyUserSyncState(
+                        feedId,
+                        states[feedId],
+                    )
+                }
+            },
+        ) {
+            websiteParsePreferenceRepository.restoreBackup(
+                prepared.websitePreferencesJson,
+                feedIdMap,
+            )
+        }
+        syncMutations.captureRssHubSettingsMutation(
+            accountId = accountId,
+            readSettings = rssHubSettingsRepository::current,
+            replaceSettings = { rssHubSettingsRepository.replaceSyncSettings(it) },
+        ) {
+            rssHubSettingsRepository.restoreBackup(prepared.rssHubSettings)
+        }
+        val rssHubSourceFeedIds =
+            backup.rssHubSourceUrls.keys.mapNotNullTo(linkedSetOf()) { feedIdMap[it] }
+        syncMutations.captureRssHubSubscriptionSourcesMutation(
+            accountId = accountId,
+            feedIds = rssHubSourceFeedIds,
+            readStates = {
+                rssHubSourceFeedIds.associateWith(rssHubSubscriptionRepository::sourceUrl)
+            },
+            replaceStates = { states ->
+                rssHubSourceFeedIds.forEach { feedId ->
+                    rssHubSubscriptionRepository.replaceSyncSource(feedId, states[feedId])
+                }
+            },
+        ) {
+            rssHubSubscriptionRepository.restoreMappings(backup.rssHubSourceUrls, feedIdMap)
+        }
 
         val translationKeys =
             secrets?.translationApiKeys.orEmpty().mapNotNull { (name, value) ->

@@ -7,6 +7,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import me.ash.reader.infrastructure.util.AtomicUtf8File
 
 /** 保存并读取用户导入的网站解析规则。 */
 @Singleton
@@ -25,6 +26,17 @@ class WebsiteRuleRepository @Inject constructor(
             .associateBy { it.id }
             .values
             .sortedBy { it.name }
+
+    /** Sync 真源：只返回用户持久化层，包含对内置规则的本地覆盖。 */
+    fun listSyncRules(): List<WebsiteRule> = loadCustomRules().sortedBy(WebsiteRule::id)
+
+    /** Remote Snapshot/Operation materialization path. Bypasses mutation capture. */
+    fun replaceSyncRules(rules: List<WebsiteRule>): Int {
+        rules.forEach(::validateRule)
+        val normalized = rules.associateBy(WebsiteRule::id).values.sortedBy(WebsiteRule::id)
+        writeCustomRules(normalized)
+        return normalized.size
+    }
 
     /** 通过写入同 id 的用户规则覆盖内置或既有规则。 */
     fun setEnabled(ruleId: String, enabled: Boolean) {
@@ -179,14 +191,16 @@ class WebsiteRuleRepository @Inject constructor(
     }
 
     private fun writeCustomRules(rules: List<WebsiteRule>) {
-        ruleFile.writeText(json.encodeToString(WebsiteRuleBundle(rules = rules)))
+        AtomicUtf8File.write(
+            ruleFile,
+            json.encodeToString(WebsiteRuleBundle(rules = rules)),
+        )
     }
 
     private fun loadCustomRules(): List<WebsiteRule> =
-        runCatching {
-            if (!ruleFile.exists()) emptyList()
-            else json.decodeFromString<WebsiteRuleBundle>(ruleFile.readText()).rules
-        }.getOrDefault(emptyList())
+        AtomicUtf8File.readOrNull(ruleFile)
+            ?.let { json.decodeFromString<WebsiteRuleBundle>(it).rules }
+            ?: emptyList()
 
     private fun hostsOverlap(left: List<String>, right: List<String>): Boolean =
         left.any { leftHost ->

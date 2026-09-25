@@ -14,6 +14,7 @@ import me.ash.reader.domain.repository.FeedDao
 import me.ash.reader.domain.repository.GroupDao
 import me.ash.reader.infrastructure.di.IODispatcher
 import me.ash.reader.infrastructure.rss.OPMLDataSource
+import me.ash.reader.infrastructure.sync.core.LibrarySyncMutationCapture
 import me.ash.reader.ui.ext.currentAccountId
 import me.ash.reader.ui.ext.getDefaultGroupId
 import java.io.InputStream
@@ -31,6 +32,7 @@ class OpmlService @Inject constructor(
     private val accountService: AccountService,
     private val rssService: RssService,
     private val OPMLDataSource: OPMLDataSource,
+    private val syncMutations: LibrarySyncMutationCapture,
     @IODispatcher
     private val ioDispatcher: CoroutineDispatcher,
 ) {
@@ -43,21 +45,24 @@ class OpmlService @Inject constructor(
     @Throws(Exception::class)
     suspend fun saveToDatabase(inputStream: InputStream) {
         withContext(ioDispatcher) {
-            val defaultGroup = groupDao.queryById(getDefaultGroupId(context.currentAccountId))!!
+            val accountId = accountService.getCurrentAccountId()
+            val defaultGroup = groupDao.queryById(getDefaultGroupId(accountId))!!
             val groupWithFeedList =
-                OPMLDataSource.parseFileInputStream(inputStream, defaultGroup, context.currentAccountId)
-            groupWithFeedList.forEach { groupWithFeed ->
-                if (groupWithFeed.group != defaultGroup) {
-                    groupDao.insert(groupWithFeed.group)
-                }
-                val repeatList = mutableListOf<Feed>()
-                groupWithFeed.feeds.forEach {
-                    it.groupId = groupWithFeed.group.id
-                    if (rssService.get().isFeedExist(it.url)) {
-                        repeatList.add(it)
+                OPMLDataSource.parseFileInputStream(inputStream, defaultGroup, accountId)
+            syncMutations.captureLibraryMutation(accountId) {
+                groupWithFeedList.forEach { groupWithFeed ->
+                    if (groupWithFeed.group != defaultGroup) {
+                        groupDao.insert(groupWithFeed.group)
                     }
+                    val repeatList = mutableListOf<Feed>()
+                    groupWithFeed.feeds.forEach {
+                        it.groupId = groupWithFeed.group.id
+                        if (rssService.get().isFeedExist(it.url)) {
+                            repeatList.add(it)
+                        }
+                    }
+                    feedDao.insertList((groupWithFeed.feeds subtract repeatList.toSet()).toList())
                 }
-                feedDao.insertList((groupWithFeed.feeds subtract repeatList.toSet()).toList())
             }
         }
     }

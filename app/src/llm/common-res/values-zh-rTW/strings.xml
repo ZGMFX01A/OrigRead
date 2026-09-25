@@ -205,6 +205,9 @@
   <string name="llm_context_source">來源：%1$s</string>
   <string name="llm_context_open_source">開啟來源</string>
   <string name="llm_context_open_article">在原讀中開啟</string>
+  <string name="llm_sync_attachment_missing">來源正文等待恢復</string>
+  <string name="llm_sync_attachment_fetching">正在恢復來源正文…</string>
+  <string name="llm_sync_attachment_failed">來源正文暫未恢復成功</string>
   <string name="llm_context_type_article">目前文章</string>
   <string name="llm_context_type_related_article">相關文章</string>
   <string name="llm_context_type_summary">AI 摘要</string>

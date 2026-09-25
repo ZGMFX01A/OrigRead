@@ -14,6 +14,8 @@ import me.ash.reader.domain.repository.GroupDao
 import me.ash.reader.domain.service.AccountService
 import me.ash.reader.domain.service.RssService
 import me.ash.reader.infrastructure.preference.SettingsProvider
+import me.ash.reader.infrastructure.sync.core.LibrarySyncMutationCapture
+import me.ash.reader.infrastructure.sync.core.SyncRuntimeCoordinator
 import javax.inject.Singleton
 
 @Module
@@ -29,6 +31,8 @@ object AccountServiceModule {
         articleDao: ArticleDao,
         @ApplicationScope coroutineScope: CoroutineScope,
         settingsProvider: SettingsProvider,
+        syncMutations: LibrarySyncMutationCapture,
+        syncRuntimeCoordinator: SyncRuntimeCoordinator,
     ): AccountService {
         return AccountService(
             context = context,
@@ -38,6 +42,8 @@ object AccountServiceModule {
             articleDao = articleDao,
             coroutineScope = coroutineScope,
             settingsProvider = settingsProvider,
+            syncMutations = syncMutations,
+            syncRuntimeCoordinator = syncRuntimeCoordinator,
         )
     }
 }

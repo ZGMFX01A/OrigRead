@@ -128,6 +128,7 @@ import kotlin.math.roundToInt
 import me.ash.reader.R
 import me.ash.reader.infrastructure.ai.AiSummaryLength
 import me.ash.reader.infrastructure.ai.availableModels
+import me.ash.reader.infrastructure.sync.core.SyncBlobAvailabilityState
 import me.ash.reader.llm.chat.data.LlmArticleCandidate
 import me.ash.reader.llm.chat.data.LlmChatRole
 import me.ash.reader.llm.chat.data.LlmCitationNavigationAction
@@ -137,6 +138,8 @@ import me.ash.reader.llm.chat.data.LlmContextRefEntity
 import me.ash.reader.llm.chat.data.LlmConversationEntity
 import me.ash.reader.llm.chat.data.LlmMessageEntity
 import me.ash.reader.llm.chat.data.LlmMessageStatus
+import me.ash.reader.llm.chat.data.LlmSyncAttachmentKey
+import me.ash.reader.llm.chat.data.LlmSyncAttachmentState
 import me.ash.reader.llm.chat.data.LlmToolCallEntity
 import me.ash.reader.llm.chat.data.LlmToolCallStatus
 import me.ash.reader.llm.chat.data.resolveCitationNavigationAction
@@ -872,6 +875,7 @@ fun LlmArticleAssistantSheet(
         ContextSourcesSheet(
             refs = uiState.contextRefs.filter { it.assistantMessageId == assistantMessageId },
             citations = uiState.citationRefs.filter { it.assistantMessageId == assistantMessageId },
+            attachmentStates = uiState.syncAttachmentStates,
             currentArticleId = articleContext.articleId,
             onOpenArticle = onOpenArticle,
             onDismiss = {
@@ -2959,6 +2963,7 @@ internal fun LlmCitationNavigationFailureFallbackSheet(
     viewModel: LlmChatViewModel = hiltViewModel(),
 ) {
     val failure = request ?: return
+    val uiState by viewModel.uiState.collectAsState()
     var refs by remember(failure.assistantMessageId, failure.citationId) {
         mutableStateOf<List<LlmContextRefEntity>?>(null)
     }
@@ -2976,6 +2981,7 @@ internal fun LlmCitationNavigationFailureFallbackSheet(
     ContextSourcesSheet(
         refs = loadedRefs,
         citations = loadedCitations,
+        attachmentStates = uiState.syncAttachmentStates,
         currentArticleId = currentArticleId,
         onOpenArticle = onOpenArticle,
         onDismiss = onDismiss,
@@ -2991,6 +2997,7 @@ internal fun LlmCitationNavigationFailureFallbackSheet(
 private fun ContextSourcesSheet(
     refs: List<LlmContextRefEntity>,
     citations: List<LlmCitationRefEntity>,
+    attachmentStates: Map<LlmSyncAttachmentKey, LlmSyncAttachmentState>,
     currentArticleId: String,
     onOpenArticle: (String) -> Unit,
     onDismiss: () -> Unit,
@@ -3041,6 +3048,7 @@ private fun ContextSourcesSheet(
             ) {
                 items(orderedCitations, key = { "citation:${it.id}" }) { citation ->
                     val contextRef = refsById[citation.contextRefId]
+                    val attachmentState = citationAttachmentState(citation, attachmentStates)
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
@@ -3068,10 +3076,12 @@ private fun ContextSourcesSheet(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
+                            attachmentState?.let { SyncAttachmentAvailabilityLabel(it) }
                         }
                     }
                 }
                 items(orderedRefs, key = LlmContextRefEntity::id) { ref ->
+                    val attachmentState = contextAttachmentState(ref, attachmentStates)
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
@@ -3128,6 +3138,7 @@ private fun ContextSourcesSheet(
                                     style = MaterialTheme.typography.bodySmall,
                                 )
                             }
+                            attachmentState?.let { SyncAttachmentAvailabilityLabel(it) }
                             ref.articleId?.takeIf(String::isNotBlank)?.let { articleId ->
                                 TextButton(
                                     onClick = {
@@ -3152,6 +3163,88 @@ private fun ContextSourcesSheet(
             }
         }
     }
+}
+
+private fun contextAttachmentState(
+    ref: LlmContextRefEntity,
+    states: Map<LlmSyncAttachmentKey, LlmSyncAttachmentState>,
+): LlmSyncAttachmentState? =
+    mostRelevantUnavailableAttachment(
+        listOfNotNull(
+            states[
+                LlmSyncAttachmentKey(
+                    entityType = "context_ref",
+                    localId = ref.id,
+                    referenceKind = "context_snapshot",
+                )
+            ],
+            states[
+                LlmSyncAttachmentKey(
+                    entityType = "context_ref",
+                    localId = ref.id,
+                    referenceKind = "context_prompt_snapshot",
+                )
+            ],
+        )
+    )
+
+private fun citationAttachmentState(
+    citation: LlmCitationRefEntity,
+    states: Map<LlmSyncAttachmentKey, LlmSyncAttachmentState>,
+): LlmSyncAttachmentState? =
+    mostRelevantUnavailableAttachment(
+        buildList {
+            states[
+                LlmSyncAttachmentKey(
+                    entityType = "citation_ref",
+                    localId = citation.id,
+                    referenceKind = "citation_quote",
+                )
+            ]?.let(::add)
+            citation.evidenceBlockId?.let { evidenceBlockId ->
+                states[
+                    LlmSyncAttachmentKey(
+                        entityType = "evidence_block",
+                        localId = evidenceBlockId,
+                        referenceKind = "evidence_text",
+                    )
+                ]?.let(::add)
+            }
+        }
+    )
+
+private fun mostRelevantUnavailableAttachment(
+    states: List<LlmSyncAttachmentState>,
+): LlmSyncAttachmentState? =
+    states
+        .filter { it.availability != SyncBlobAvailabilityState.READY }
+        .maxByOrNull { state ->
+            when (state.availability) {
+                SyncBlobAvailabilityState.BLOB_FAILED -> 4
+                SyncBlobAvailabilityState.BLOB_FETCHING -> 3
+                SyncBlobAvailabilityState.BLOB_MISSING -> 2
+                SyncBlobAvailabilityState.METADATA_READY -> 1
+                SyncBlobAvailabilityState.READY -> 0
+            }
+        }
+
+@Composable
+private fun SyncAttachmentAvailabilityLabel(state: LlmSyncAttachmentState) {
+    Text(
+        text =
+            stringResource(
+                when (state.availability) {
+                    SyncBlobAvailabilityState.BLOB_FETCHING -> R.string.llm_sync_attachment_fetching
+                    SyncBlobAvailabilityState.BLOB_FAILED -> R.string.llm_sync_attachment_failed
+                    SyncBlobAvailabilityState.BLOB_MISSING,
+                    SyncBlobAvailabilityState.METADATA_READY,
+                    -> R.string.llm_sync_attachment_missing
+                    SyncBlobAvailabilityState.READY -> return
+                }
+            ),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 @Composable

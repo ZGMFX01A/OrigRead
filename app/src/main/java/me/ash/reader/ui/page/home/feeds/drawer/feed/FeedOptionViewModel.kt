@@ -19,6 +19,7 @@ import me.ash.reader.domain.model.feed.SourceType
 import me.ash.reader.domain.model.group.Group
 import me.ash.reader.domain.repository.ArticleDao
 import me.ash.reader.domain.repository.FeedDao
+import me.ash.reader.domain.service.AccountService
 import me.ash.reader.domain.service.LocalRssService
 import me.ash.reader.domain.service.RssService
 import me.ash.reader.R
@@ -28,6 +29,7 @@ import me.ash.reader.infrastructure.di.IODispatcher
 import me.ash.reader.infrastructure.di.MainDispatcher
 import me.ash.reader.infrastructure.rss.ReaderCacheHelper
 import me.ash.reader.infrastructure.rss.RssHelper
+import me.ash.reader.infrastructure.sync.core.LibrarySyncMutationCapture
 import me.ash.reader.infrastructure.filter.ArticleFilterRepository
 import me.ash.reader.infrastructure.filter.ArticleFilterRule
 import me.ash.reader.infrastructure.filter.ArticleFilterRuleType
@@ -36,6 +38,7 @@ import me.ash.reader.infrastructure.json.JsonRuleRepository
 import me.ash.reader.infrastructure.website.WebsiteHelper
 import me.ash.reader.infrastructure.website.WebsitePageTooComplexException
 import me.ash.reader.infrastructure.website.WebsiteParseCandidate
+import me.ash.reader.infrastructure.website.WebsiteParsePreferenceRepository
 import me.ash.reader.infrastructure.website.WebsiteRule
 
 @OptIn(ExperimentalMaterialApi::class)
@@ -53,8 +56,11 @@ constructor(
     private val readerCacheHelper: ReaderCacheHelper,
     private val feedDao: FeedDao,
     private val websiteHelper: WebsiteHelper,
+    private val websiteParsePreferenceRepository: WebsiteParsePreferenceRepository,
     private val articleFilterRepository: ArticleFilterRepository,
     private val jsonRuleRepository: JsonRuleRepository,
+    private val accountService: AccountService,
+    private val syncMutations: LibrarySyncMutationCapture,
     private val androidStringsHelper: AndroidStringsHelper,
 ) : ViewModel() {
 
@@ -86,10 +92,12 @@ constructor(
         _feedOptionUiState.update { it.copy(sourceFilterDialogVisible = false, sourceFilterError = null) }
     }
 
-    fun addSourceFilter(pattern: String, type: ArticleFilterRuleType): Boolean {
+    suspend fun addSourceFilter(pattern: String, type: ArticleFilterRuleType): Boolean {
         val feed = _feedOptionUiState.value.feed ?: return false
         return runCatching {
-            articleFilterRepository.add(pattern, feed.id, feed.name, type)
+            captureFilterMutation {
+                articleFilterRepository.add(pattern, feed.id, feed.name, type)
+            }
             _feedOptionUiState.update {
                 it.copy(
                     sourceFilterRules = articleFilterRepository.getByFeed(feed.id),
@@ -101,15 +109,41 @@ constructor(
         }.isSuccess
     }
 
-    fun setSourceFilterEnabled(rule: ArticleFilterRule, enabled: Boolean) {
-        articleFilterRepository.setEnabled(rule, enabled)
+    suspend fun setSourceFilterEnabled(rule: ArticleFilterRule, enabled: Boolean) {
+        captureFilterMutation {
+            articleFilterRepository.setEnabled(rule, enabled)
+        }
         showSourceFilterDialog()
     }
 
-    fun deleteSourceFilter(rule: ArticleFilterRule) {
-        articleFilterRepository.delete(rule)
+    suspend fun deleteSourceFilter(rule: ArticleFilterRule) {
+        captureFilterMutation {
+            articleFilterRepository.delete(rule)
+        }
         showSourceFilterDialog()
     }
+
+    private suspend fun <T> captureFilterMutation(mutate: () -> T): T =
+        syncMutations.captureFilterRulesMutation(
+            accountId = accountService.getCurrentAccountId(),
+            readRules = articleFilterRepository::getAll,
+            replaceRules = articleFilterRepository::replaceRules,
+            mutate = mutate,
+        )
+
+    private suspend fun <T> captureWebsitePreferenceMutation(
+        feedId: String,
+        mutate: () -> T,
+    ): T =
+        syncMutations.captureWebsiteParsePreferenceMutation(
+            accountId = accountService.getCurrentAccountId(),
+            feedId = feedId,
+            readState = { websiteParsePreferenceRepository.getUserSyncState(feedId) },
+            replaceState = { state ->
+                websiteParsePreferenceRepository.applyUserSyncState(feedId, state)
+            },
+            mutate = mutate,
+        )
 
     fun hideWebsiteParserDialog() {
         _feedOptionUiState.update { it.copy(websiteParserDialogVisible = false) }
@@ -204,16 +238,20 @@ constructor(
                         ?.name
                     ?: websiteHelper.getRuleName(selectedId)
             }
-        websiteHelper.setPreferredRule(feed.id, ruleId, selectedRuleName)
-        _feedOptionUiState.update {
-            it.copy(
-                preferredWebsiteRuleId = ruleId,
-                preferredWebsiteRuleName = selectedRuleName,
-                websiteConfiguredRules = websiteHelper.getConfiguredRules(feed.url),
-                websiteParserDialogVisible = false,
-            )
-        }
         applicationScope.launch(ioDispatcher) {
+            captureWebsitePreferenceMutation(feed.id) {
+                websiteHelper.setPreferredRule(feed.id, ruleId, selectedRuleName)
+            }
+            withContext(mainDispatcher) {
+                _feedOptionUiState.update {
+                    it.copy(
+                        preferredWebsiteRuleId = ruleId,
+                        preferredWebsiteRuleName = selectedRuleName,
+                        websiteConfiguredRules = websiteHelper.getConfiguredRules(feed.url),
+                        websiteParserDialogVisible = false,
+                    )
+                }
+            }
             rssService.get().doSyncOneTime()
         }
     }
@@ -231,12 +269,22 @@ constructor(
 
     /** JSON 来源允许多条规则同时存在；勾选状态直接对应规则 enabled 字段。 */
     fun setJsonRuleEnabled(rule: JsonRule, enabled: Boolean) {
-        jsonRuleRepository.setEnabled(rule.id, enabled)
         val feed = _feedOptionUiState.value.feed ?: return
-        _feedOptionUiState.update {
-            it.copy(jsonConfiguredRules = jsonRuleRepository.findConfiguredRules(feed.url))
+        viewModelScope.launch(ioDispatcher) {
+            syncMutations.captureJsonRulesMutation(
+                accountId = accountService.getCurrentAccountId(),
+                readRules = jsonRuleRepository::listSyncRules,
+                replaceRules = jsonRuleRepository::replaceSyncRules,
+            ) {
+                jsonRuleRepository.setEnabled(rule.id, enabled)
+            }
+            withContext(mainDispatcher) {
+                _feedOptionUiState.update {
+                    it.copy(jsonConfiguredRules = jsonRuleRepository.findConfiguredRules(feed.url))
+                }
+            }
+            rssService.get().doSyncOneTime()
         }
-        applicationScope.launch(ioDispatcher) { rssService.get().doSyncOneTime() }
     }
 
     /** 更新已有网站文章的列表元数据，并清除正文缓存，让下次打开文章重新抓取。 */
@@ -337,7 +385,6 @@ constructor(
     fun delete(callback: () -> Unit = {}) {
         _feedOptionUiState.value.feed?.let {
             applicationScope.launch(ioDispatcher) {
-                articleFilterRepository.deleteByFeed(it.id)
                 rssService.get().deleteFeed(it)
                 withContext(mainDispatcher) { callback() }
             }
@@ -422,7 +469,9 @@ constructor(
         _feedOptionUiState.value.feed?.let { feed ->
             viewModelScope.launch(ioDispatcher) {
                 val icon = rssHelper.queryRssIconLink(feed.url) ?: return@launch
-                feedDao.update(feed.copy(icon = icon))
+                syncMutations.captureLibraryMutation(feed.accountId) {
+                    feedDao.update(feed.copy(icon = icon))
+                }
                 fetchFeed(feed.id)
             }
         }

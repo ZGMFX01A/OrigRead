@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import androidx.room.InvalidationTracker
+import me.ash.reader.infrastructure.db.AndroidDatabase
 
 private const val ARTICLE_FILTER_HISTORY_LIMIT = 200
 
@@ -63,10 +65,11 @@ private data class ArticleFilterHistoryBundle(
     val entries: List<FilteredArticleRecord> = emptyList(),
 )
 
-/** 使用独立 JSON 文件保存文章过滤规则与轻量统计，不引入数据库迁移。 */
+/** 规则与同步 Outbox 共用阅读数据库；旧文件仅首次迁入，历史记录仍保存在本机。 */
 @Singleton
 class ArticleFilterRepository @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val database: AndroidDatabase? = null,
 ) {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -80,9 +83,13 @@ class ArticleFilterRepository @Inject constructor(
     private val historyFile
         get() = context.filesDir.resolve("article-filter-history.json")
 
-    /** 规则读取频率远高于写入频率；启动时加载一次，后续读操作只访问内存。 */
+    /** 文件模式保留内存快照；数据库模式读取事务内状态，匹配器缓存只在提交后刷新。 */
     @Volatile
-    private var cachedBundle = load()
+    private var legacyBundle = load()
+
+    private var cachedBundle: ArticleFilterRuleBundle
+        get() = if (database == null) legacyBundle else readDatabaseBundle() ?: error("Missing article filter configuration")
+        set(value) { legacyBundle = value }
 
     @Volatile
     private var cachedCompiledRules = ArticleFilterMatcher.compile(cachedBundle.rules)
@@ -99,9 +106,21 @@ class ArticleFilterRepository @Inject constructor(
     private val mutableRulesFlow = MutableStateFlow(cachedBundle.rules)
     val rulesFlow: StateFlow<List<ArticleFilterRule>> = mutableRulesFlow.asStateFlow()
 
+    private val configObserver = object : InvalidationTracker.Observer("local_config_state") {
+        override fun onInvalidated(tables: Set<String>) {
+            val rules = cachedBundle.rules
+            cachedCompiledRules = ArticleFilterMatcher.compile(rules)
+            mutableRulesFlow.value = rules
+        }
+    }
+
+    init { database?.invalidationTracker?.addObserver(configObserver) }
+
     fun getAll(): List<ArticleFilterRule> = cachedBundle.rules
 
-    internal fun getCompiledRules(): List<CompiledFilterRule> = cachedCompiledRules
+    internal fun getCompiledRules(): List<CompiledFilterRule> =
+        if (database?.openHelper?.writableDatabase?.inTransaction() == true)
+            ArticleFilterMatcher.compile(cachedBundle.rules) else cachedCompiledRules
 
     fun getByFeed(feedId: String): List<ArticleFilterRule> =
         cachedBundle.rules.filter { it.feedId == feedId }
@@ -111,13 +130,12 @@ class ArticleFilterRepository @Inject constructor(
     fun getFilteredArticles(): List<FilteredArticleRecord> = cachedHistory.entries
 
     /** 新增规则；普通关键词按忽略大小写去重，正则按原表达式去重。 */
-    @Synchronized
     fun add(
         keyword: String,
         feedId: String? = null,
         feedName: String? = null,
         type: ArticleFilterRuleType = ArticleFilterRuleType.KEYWORD,
-    ) {
+    ): Unit = withRuleTransaction {
         validatePattern(keyword, type)
         val bundle = cachedBundle.copy(
             rules = normalize(
@@ -133,8 +151,7 @@ class ArticleFilterRepository @Inject constructor(
         update(bundle)
     }
 
-    @Synchronized
-    fun setEnabled(rule: ArticleFilterRule, enabled: Boolean) {
+    fun setEnabled(rule: ArticleFilterRule, enabled: Boolean): Unit = withRuleTransaction {
         update(
             cachedBundle.copy(
                 rules = cachedBundle.rules.map {
@@ -144,14 +161,19 @@ class ArticleFilterRepository @Inject constructor(
         )
     }
 
-    @Synchronized
-    fun delete(rule: ArticleFilterRule) {
+    fun upsert(rule: ArticleFilterRule): Unit = withRuleTransaction {
+        validatePattern(rule.keyword, rule.type)
+        val remaining = cachedBundle.rules.filterNot { it.id == rule.id }
+        val merged = normalize(remaining + rule)
+        update(cachedBundle.copy(rules = merged))
+    }
+
+    fun delete(rule: ArticleFilterRule): Unit = withRuleTransaction {
         update(cachedBundle.copy(rules = cachedBundle.rules.filterNot { it.id == rule.id }))
     }
 
-    @Synchronized
-    fun recordFilteredArticles(records: List<FilteredArticleRecord>) {
-        if (records.isEmpty()) return
+    fun recordFilteredArticles(records: List<FilteredArticleRecord>): Unit = withRuleTransaction {
+        if (records.isEmpty()) return@withRuleTransaction
         update(
             cachedBundle.copy(
                 stats = cachedBundle.stats.copy(
@@ -170,27 +192,31 @@ class ArticleFilterRepository @Inject constructor(
         writeHistory(cachedHistory)
     }
 
-    @Synchronized
-    fun deleteByFeed(feedId: String) {
+    fun deleteByFeed(feedId: String): Unit = withRuleTransaction {
         update(cachedBundle.copy(rules = cachedBundle.rules.filterNot { it.feedId == feedId }))
     }
 
-    @Synchronized
     fun exportRules(): String = json.encodeToString(cachedBundle)
 
     /** 导入时校验版本、表达式与重复项，保留本机已有过滤统计。 */
-    @Synchronized
-    fun importRules(content: String): Int {
+    fun importRules(content: String): Int = withRuleTransaction {
         val incoming = json.decodeFromString<ArticleFilterRuleBundle>(content)
         require(incoming.schemaVersion == 1) { "Unsupported filter rule version: ${incoming.schemaVersion}" }
         incoming.rules.forEach { validatePattern(it.keyword, it.type) }
         val merged = normalize(cachedBundle.rules + incoming.rules)
         update(cachedBundle.copy(rules = merged))
-        return incoming.rules.size
+        incoming.rules.size
+    }
+
+    /** Sync Snapshot/Rebase uses exact replacement; local statistics remain device-local. */
+    fun replaceRules(rules: List<ArticleFilterRule>): Int = withRuleTransaction {
+        rules.forEach { validatePattern(it.keyword, it.type) }
+        val normalized = normalize(rules)
+        update(cachedBundle.copy(rules = normalized))
+        normalized.size
     }
 
     /** 仅校验完整配置备份中的过滤规则。 */
-    @Synchronized
     fun validateBackup(content: String) {
         val incoming = json.decodeFromString<ArticleFilterRuleBundle>(content)
         require(incoming.schemaVersion == 1) {
@@ -202,8 +228,7 @@ class ArticleFilterRepository @Inject constructor(
     /**
      * 恢复完整备份中的过滤规则和统计，并把旧设备的 feedId 映射到当前账户实际 feedId。
      */
-    @Synchronized
-    fun restoreBackup(content: String, feedIdMap: Map<String, String>): Int {
+    fun restoreBackup(content: String, feedIdMap: Map<String, String>): Int = withRuleTransaction {
         val incoming = json.decodeFromString<ArticleFilterRuleBundle>(content)
         require(incoming.schemaVersion == 1) {
             "Unsupported filter rule version: ${incoming.schemaVersion}"
@@ -218,7 +243,7 @@ class ArticleFilterRepository @Inject constructor(
                 }
             }
         update(incoming.copy(rules = normalize(restoredRules)))
-        return restoredRules.size
+        restoredRules.size
     }
 
     private fun validatePattern(keyword: String, type: ArticleFilterRuleType) {
@@ -242,14 +267,35 @@ class ArticleFilterRepository @Inject constructor(
         val rulesChanged = cachedBundle.rules != snapshot.rules
         write(snapshot)
         cachedBundle = snapshot
-        cachedCompiledRules = ArticleFilterMatcher.compile(snapshot.rules)
-        if (rulesChanged) {
+        if (database == null) cachedCompiledRules = ArticleFilterMatcher.compile(snapshot.rules)
+        if (rulesChanged && database == null) {
             mutableRulesFlow.value = snapshot.rules
         }
     }
 
     private fun write(bundle: ArticleFilterRuleBundle) {
-        ruleFile.writeText(json.encodeToString(bundle))
+        val content = json.encodeToString(bundle)
+        if (database == null) ruleFile.writeText(content)
+        else database.openHelper.writableDatabase.execSQL(
+            "INSERT OR REPLACE INTO local_config_state (`key`,value) VALUES('article-filter.rules',?)", arrayOf(content))
+    }
+
+    private fun readDatabaseBundle(): ArticleFilterRuleBundle? =
+        database?.openHelper?.writableDatabase?.query("SELECT value FROM local_config_state WHERE `key`='article-filter.rules'")?.use {
+            if (it.moveToFirst()) json.decodeFromString<ArticleFilterRuleBundle>(it.getString(0)) else null
+        }
+
+    private fun <T> withRuleTransaction(block: () -> T): T {
+        val store = database ?: return synchronized(this, block)
+        val connection = store.openHelper.writableDatabase
+        connection.beginTransaction()
+        return try {
+            block().also { connection.setTransactionSuccessful() }
+        } finally {
+            connection.endTransaction()
+            // Nested remote apply/Outbox transactions publish only after their outer commit.
+            store.invalidationTracker.refreshVersionsAsync()
+        }
     }
 
     private fun writeHistory(bundle: ArticleFilterHistoryBundle) {
@@ -257,13 +303,14 @@ class ArticleFilterRepository @Inject constructor(
     }
 
     /** 兼容旧版仅包含 keyword/feedId/enabled 的规则文件。 */
-    private fun load(): ArticleFilterRuleBundle =
-        runCatching {
-            if (!ruleFile.exists()) ArticleFilterRuleBundle()
+    private fun load(): ArticleFilterRuleBundle {
+        readDatabaseBundle()?.let { return it }
+        val bundle = if (!ruleFile.exists()) ArticleFilterRuleBundle()
             else json.decodeFromString<ArticleFilterRuleBundle>(ruleFile.readText())
-        }.getOrDefault(ArticleFilterRuleBundle()).let { bundle ->
-            bundle.copy(rules = immutableRules(bundle.rules))
-        }
+        val snapshot = bundle.copy(rules = immutableRules(bundle.rules))
+        if (database != null) write(snapshot)
+        return snapshot
+    }
 
     private fun loadHistory(): ArticleFilterHistoryBundle =
         runCatching {

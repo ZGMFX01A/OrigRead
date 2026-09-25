@@ -3,15 +3,107 @@ package me.ash.reader.llm.chat.data
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import me.ash.reader.domain.service.AccountService
+import me.ash.reader.infrastructure.db.AndroidDatabase
+import me.ash.reader.infrastructure.sync.core.SyncBlobAvailabilityState
+import me.ash.reader.infrastructure.sync.core.SyncLocalBlobStore
+import me.ash.reader.infrastructure.sync.core.SyncMutationType
+import me.ash.reader.infrastructure.sync.identity.SyncCanonicalIdentity
+import me.ash.reader.infrastructure.sync.identity.SyncEntityType
 import me.ash.reader.llm.runtime.LlmExecutionTask
 import me.ash.reader.llm.search.WebSearchRequestStatus
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+
+data class LlmSyncAttachmentKey(
+    val entityType: String,
+    val localId: String,
+    val referenceKind: String,
+)
+
+data class LlmSyncAttachmentState(
+    val availability: SyncBlobAvailabilityState,
+    val failureReason: String? = null,
+)
 
 @Singleton
 /** LLM Chat 数据仓储，统一封装会话/消息 Room 写入与活动时间维护。 */
 class LlmChatRepository @Inject constructor(
     private val dao: LlmChatDao,
+    private val syncMutations: LlmSyncMutationCapture,
+    private val syncBlobStore: SyncLocalBlobStore,
+    private val accountService: AccountService,
+    private val readerDatabase: AndroidDatabase,
+    private val chatDatabase: LlmChatDatabase,
 ) {
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun observeSyncAttachmentAvailability(): Flow<Map<LlmSyncAttachmentKey, LlmSyncAttachmentState>> =
+        accountService.currentAccountIdFlow
+            .filterNotNull()
+            .flatMapLatest { accountId ->
+                readerDatabase.syncRuntimeDao().observeBinding(accountId)
+            }
+            .flatMapLatest { binding ->
+                if (binding == null) {
+                    flowOf(emptyMap())
+                } else {
+                    combine(
+                        readerDatabase.syncBlobDao().observeOwnerAvailability(
+                            syncSpaceId = binding.syncSpaceId,
+                            lane = "AI_HISTORY",
+                        ),
+                        chatDatabase.syncIdentityMappingDao().observeByTypes(
+                            syncSpaceId = binding.syncSpaceId,
+                            entityTypes =
+                                listOf(
+                                    SyncEntityType.CONTEXT_REF.wireName,
+                                    SyncEntityType.EVIDENCE_BLOCK.wireName,
+                                    SyncEntityType.CITATION_REF.wireName,
+                                ),
+                        ),
+                    ) { ownerStates, mappings ->
+                        val localIds =
+                            mappings.associateBy(
+                                keySelector = {
+                                    Triple(it.entityType, it.syncId, it.generation)
+                                },
+                                valueTransform = { it.localId },
+                            )
+                        buildMap {
+                            ownerStates.forEach { owner ->
+                                val localId =
+                                    localIds[
+                                        Triple(
+                                            owner.ownerEntityType,
+                                            owner.ownerEntitySyncId,
+                                            owner.ownerEntityGeneration,
+                                        )
+                                    ] ?: return@forEach
+                                val availability =
+                                    runCatching {
+                                        SyncBlobAvailabilityState.valueOf(owner.availabilityState)
+                                    }.getOrDefault(SyncBlobAvailabilityState.METADATA_READY)
+                                put(
+                                    LlmSyncAttachmentKey(
+                                        entityType = owner.ownerEntityType,
+                                        localId = localId,
+                                        referenceKind = owner.referenceKind,
+                                    ),
+                                    LlmSyncAttachmentState(
+                                        availability = availability,
+                                        failureReason = owner.failureReason,
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
     /** 观察当前文章最近活动的会话列表。 */
     fun observeConversations(articleId: String): Flow<List<LlmConversationEntity>> =
         dao.observeConversations(articleId)
@@ -73,7 +165,54 @@ class LlmChatRepository @Inject constructor(
         conversationId: String,
         articles: List<LlmConversationArticleEntity>,
     ) {
-        dao.replaceConversationArticles(conversationId, articles)
+        val existing = dao.getConversationArticles(conversationId)
+        val incomingIds =
+            articles.mapTo(mutableSetOf()) {
+                SyncCanonicalIdentity.relationLocalId(
+                    SyncEntityType.CONVERSATION_ARTICLE,
+                    it.conversationId,
+                    it.articleId,
+                )
+            }
+        val drafts =
+            buildList {
+                existing.forEach { row ->
+                    val localId =
+                        SyncCanonicalIdentity.relationLocalId(
+                            SyncEntityType.CONVERSATION_ARTICLE,
+                            row.conversationId,
+                            row.articleId,
+                        )
+                    if (localId !in incomingIds) {
+                        add(
+                            LlmSyncMutationDraft(
+                                entityType = SyncEntityType.CONVERSATION_ARTICLE,
+                                localId = localId,
+                                mutationType = SyncMutationType.GLOBAL_DELETE,
+                                payloadJson = syncDeletePayloadJson(localId),
+                            )
+                        )
+                    }
+                }
+                articles.forEach { row ->
+                    add(
+                        LlmSyncMutationDraft(
+                            entityType = SyncEntityType.CONVERSATION_ARTICLE,
+                            localId =
+                                SyncCanonicalIdentity.relationLocalId(
+                                    SyncEntityType.CONVERSATION_ARTICLE,
+                                    row.conversationId,
+                                    row.articleId,
+                                ),
+                            mutationType = SyncMutationType.RELATION_SET,
+                            payloadJson = row.toSyncPayloadJson(syncBlobStore),
+                        )
+                    )
+                }
+            }
+        syncMutations.capture(drafts) {
+            dao.replaceConversationArticles(conversationId, articles)
+        }
     }
 
     /** 新建会话，并以首条用户文本生成本地标题。 */
@@ -100,7 +239,16 @@ class LlmChatRepository @Inject constructor(
                 createdAt = now,
                 updatedAt = now,
             )
-        dao.insertConversation(conversation)
+        syncMutations.capture(
+            listOf(
+                LlmSyncMutationDraft(
+                    entityType = SyncEntityType.CONVERSATION,
+                    localId = conversation.id,
+                    mutationType = SyncMutationType.UPSERT,
+                    payloadJson = conversation.toSyncPayloadJson(),
+                )
+            )
+        ) { dao.insertConversation(conversation) }
         return conversation
     }
 
@@ -109,9 +257,17 @@ class LlmChatRepository @Inject constructor(
         val current = dao.getConversation(conversationId) ?: return
         val normalized = title.trim().take(MAX_CONVERSATION_TITLE_LENGTH)
         if (normalized.isBlank()) return
-        dao.updateConversation(
-            current.copy(title = normalized, updatedAt = System.currentTimeMillis())
-        )
+        val updated = current.copy(title = normalized, updatedAt = System.currentTimeMillis())
+        syncMutations.capture(
+            listOf(
+                LlmSyncMutationDraft(
+                    entityType = SyncEntityType.CONVERSATION,
+                    localId = updated.id,
+                    mutationType = SyncMutationType.FIELD_SET,
+                    payloadJson = syncFieldPayloadJson("title", normalized),
+                )
+            )
+        ) { dao.updateConversation(updated) }
     }
 
     /** 保存会话绑定的 Provider/Model/Skill。 */
@@ -122,14 +278,35 @@ class LlmChatRepository @Inject constructor(
         skillId: String?,
     ) {
         val current = dao.getConversation(conversationId) ?: return
-        dao.updateConversation(
+        val updated =
             current.copy(
                 providerId = providerId,
                 model = model,
                 skillId = skillId,
                 updatedAt = System.currentTimeMillis(),
             )
-        )
+        syncMutations.capture(
+            listOf(
+                LlmSyncMutationDraft(
+                    entityType = SyncEntityType.CONVERSATION,
+                    localId = updated.id,
+                    mutationType = SyncMutationType.FIELD_SET,
+                    payloadJson = syncFieldPayloadJson("providerId", providerId),
+                ),
+                LlmSyncMutationDraft(
+                    entityType = SyncEntityType.CONVERSATION,
+                    localId = updated.id,
+                    mutationType = SyncMutationType.FIELD_SET,
+                    payloadJson = syncFieldPayloadJson("model", model),
+                ),
+                LlmSyncMutationDraft(
+                    entityType = SyncEntityType.CONVERSATION,
+                    localId = updated.id,
+                    mutationType = SyncMutationType.FIELD_SET,
+                    payloadJson = syncFieldPayloadJson("skillId", skillId),
+                ),
+            )
+        ) { dao.updateConversation(updated) }
     }
 
     /** 更新会话最近活动时间。 */
@@ -140,7 +317,18 @@ class LlmChatRepository @Inject constructor(
 
     /** 删除会话，关联消息由 Room 外键级联删除。 */
     suspend fun deleteConversation(conversationId: String) {
-        dao.getConversation(conversationId)?.let { dao.deleteConversation(it) }
+        dao.getConversation(conversationId)?.let { conversation ->
+            syncMutations.capture(
+                listOf(
+                    LlmSyncMutationDraft(
+                        entityType = SyncEntityType.CONVERSATION,
+                        localId = conversation.id,
+                        mutationType = SyncMutationType.GLOBAL_DELETE,
+                        payloadJson = syncDeletePayloadJson(conversation.id),
+                    )
+                )
+            ) { dao.deleteConversation(conversation) }
+        }
     }
 
     /** 追加消息并更新会话活动时间。 */
@@ -163,7 +351,20 @@ class LlmChatRepository @Inject constructor(
                 createdAt = now,
                 updatedAt = now,
             )
-        dao.insertMessage(message)
+        if (message.status == LlmMessageStatus.STREAMING) {
+            dao.insertMessage(message)
+        } else {
+            syncMutations.capture(
+                listOf(
+                    LlmSyncMutationDraft(
+                        entityType = SyncEntityType.MESSAGE,
+                        localId = message.id,
+                        mutationType = SyncMutationType.UPSERT,
+                        payloadJson = message.toSyncPayloadJson(),
+                    )
+                )
+            ) { dao.insertMessage(message) }
+        }
         touchConversation(conversationId)
         return message
     }
@@ -201,7 +402,20 @@ class LlmChatRepository @Inject constructor(
                 tokenUsageEstimated = tokenUsageEstimated,
                 updatedAt = System.currentTimeMillis(),
             )
-        dao.updateMessage(updated)
+        if (updated.status == LlmMessageStatus.STREAMING) {
+            dao.updateMessage(updated)
+        } else {
+            syncMutations.capture(
+                listOf(
+                    LlmSyncMutationDraft(
+                        entityType = SyncEntityType.MESSAGE,
+                        localId = updated.id,
+                        mutationType = SyncMutationType.UPSERT,
+                        payloadJson = updated.toSyncPayloadJson(),
+                    )
+                )
+            ) { dao.updateMessage(updated) }
+        }
         if (touchConversation) {
             touchConversation(message.conversationId)
         }
@@ -229,7 +443,22 @@ class LlmChatRepository @Inject constructor(
                 webSearchErrorMessage = errorMessage,
                 updatedAt = System.currentTimeMillis(),
             )
-        dao.updateMessageAndReplaceContextRefs(updated, contextRefs)
+        if (updated.status == LlmMessageStatus.STREAMING) {
+            // Search evidence belongs to the still-running request. Do not emit a half-built
+            // AI_HISTORY graph; terminal finalize will freeze message + Context/Evidence/Citation.
+            dao.updateMessageAndReplaceContextRefs(updated, contextRefs)
+        } else {
+            syncMutations.capture(
+                listOf(
+                    LlmSyncMutationDraft(
+                        entityType = SyncEntityType.MESSAGE,
+                        localId = updated.id,
+                        mutationType = SyncMutationType.UPSERT,
+                        payloadJson = updated.toSyncPayloadJson(),
+                    )
+                )
+            ) { dao.updateMessageAndReplaceContextRefs(updated, contextRefs) }
+        }
         touchConversation(message.conversationId)
         return updated
     }
@@ -243,17 +472,54 @@ class LlmChatRepository @Inject constructor(
     ): Int {
         val ids = messageIds.distinct()
         if (ids.isEmpty()) return 0
-        return dao.setMessagesHistoryActive(
-            messageIds = ids,
-            active = active,
-            updatedAt = System.currentTimeMillis(),
+        return syncMutations.capture(
+            drafts =
+                ids.map { id ->
+                    LlmSyncMutationDraft(
+                        entityType = SyncEntityType.MESSAGE,
+                        localId = id,
+                        mutationType = SyncMutationType.FIELD_SET,
+                        payloadJson = syncFieldPayloadJson("historyActive", active),
+                    )
+                },
+            mutate = {
+                dao.setMessagesHistoryActive(
+                    messageIds = ids,
+                    active = active,
+                    updatedAt = System.currentTimeMillis(),
+                )
+            },
         )
     }
 
     /** 将同一 assistant response 中的 Tool Calls 一次落库。 */
     suspend fun appendToolCalls(toolCalls: List<LlmToolCallEntity>) {
         if (toolCalls.isEmpty()) return
-        dao.insertToolCalls(toolCalls)
+        val terminal =
+            toolCalls.filter {
+                it.status in
+                    setOf(
+                        LlmToolCallStatus.COMPLETE,
+                        LlmToolCallStatus.DENIED,
+                        LlmToolCallStatus.ERROR,
+                    )
+            }
+        if (terminal.isEmpty()) {
+            dao.insertToolCalls(toolCalls)
+        } else {
+            syncMutations.capture(
+                drafts =
+                    terminal.map { toolCall ->
+                        LlmSyncMutationDraft(
+                            entityType = SyncEntityType.TOOL_CALL,
+                            localId = toolCall.id,
+                            mutationType = SyncMutationType.UPSERT,
+                            payloadJson = toolCall.toSyncPayloadJson(syncBlobStore),
+                        )
+                    },
+                mutate = { dao.insertToolCalls(toolCalls) },
+            )
+        }
         touchConversation(toolCalls.first().conversationId)
     }
 
@@ -295,7 +561,135 @@ class LlmChatRepository @Inject constructor(
         annotations: List<LlmCitationAnnotationEntity>,
         annotationRefs: List<LlmCitationAnnotationRefEntity>,
     ): LlmMessageEntity {
-        dao.finalizeAssistantCitationState(message, citationRefs, annotations, annotationRefs)
+        val contextRefs = dao.getContextRefsForAssistant(message.id)
+        val evidenceBlocks =
+            contextRefs.flatMap { contextRef ->
+                dao.getEvidenceBlocksForContextRef(contextRef.id)
+            }
+        val previousRefs = dao.getCitationRefsForAssistant(message.id)
+        val previousAnnotations = dao.getCitationAnnotationsForAssistant(message.id)
+        val incomingCitationIds = citationRefs.mapTo(mutableSetOf()) { it.id }
+        val incomingAnnotationIds = annotations.mapTo(mutableSetOf()) { it.id }
+        val incomingRelationIds =
+            annotationRefs.mapTo(mutableSetOf()) { ref ->
+                SyncCanonicalIdentity.relationLocalId(
+                    SyncEntityType.CITATION_ANNOTATION_REF,
+                    ref.annotationId,
+                    ref.citationRefId,
+                )
+            }
+        val drafts =
+            buildList {
+                previousAnnotations.forEach { occurrence ->
+                    occurrence.refs.forEach { ref ->
+                        val localId =
+                            SyncCanonicalIdentity.relationLocalId(
+                                SyncEntityType.CITATION_ANNOTATION_REF,
+                                occurrence.annotation.id,
+                                ref.id,
+                            )
+                        if (localId !in incomingRelationIds) {
+                            add(
+                                LlmSyncMutationDraft(
+                                    SyncEntityType.CITATION_ANNOTATION_REF,
+                                    localId,
+                                    SyncMutationType.GLOBAL_DELETE,
+                                    syncDeletePayloadJson(localId),
+                                )
+                            )
+                        }
+                    }
+                }
+                previousAnnotations.map { it.annotation }.forEach { old ->
+                    if (old.id !in incomingAnnotationIds) {
+                        add(
+                            LlmSyncMutationDraft(
+                                SyncEntityType.CITATION_ANNOTATION,
+                                old.id,
+                                SyncMutationType.GLOBAL_DELETE,
+                                syncDeletePayloadJson(old.id),
+                            )
+                        )
+                    }
+                }
+                previousRefs.forEach { old ->
+                    if (old.id !in incomingCitationIds) {
+                        add(
+                            LlmSyncMutationDraft(
+                                SyncEntityType.CITATION_REF,
+                                old.id,
+                                SyncMutationType.GLOBAL_DELETE,
+                                syncDeletePayloadJson(old.id),
+                            )
+                        )
+                    }
+                }
+                add(
+                    LlmSyncMutationDraft(
+                        entityType = SyncEntityType.MESSAGE,
+                        localId = message.id,
+                        mutationType = SyncMutationType.UPSERT,
+                        payloadJson = message.toSyncPayloadJson(),
+                    )
+                )
+                contextRefs.forEach { contextRef ->
+                    add(
+                        LlmSyncMutationDraft(
+                            SyncEntityType.CONTEXT_REF,
+                            contextRef.id,
+                            SyncMutationType.UPSERT,
+                            contextRef.toSyncPayloadJson(syncBlobStore),
+                        )
+                    )
+                }
+                evidenceBlocks.forEach { evidence ->
+                    add(
+                        LlmSyncMutationDraft(
+                            SyncEntityType.EVIDENCE_BLOCK,
+                            evidence.id,
+                            SyncMutationType.UPSERT,
+                            evidence.toSyncPayloadJson(syncBlobStore),
+                        )
+                    )
+                }
+                citationRefs.forEach { citation ->
+                    add(
+                        LlmSyncMutationDraft(
+                            SyncEntityType.CITATION_REF,
+                            citation.id,
+                            SyncMutationType.UPSERT,
+                            citation.toSyncPayloadJson(syncBlobStore),
+                        )
+                    )
+                }
+                annotations.forEach { annotation ->
+                    add(
+                        LlmSyncMutationDraft(
+                            SyncEntityType.CITATION_ANNOTATION,
+                            annotation.id,
+                            SyncMutationType.UPSERT,
+                            annotation.toSyncPayloadJson(),
+                        )
+                    )
+                }
+                annotationRefs.forEach { ref ->
+                    add(
+                        LlmSyncMutationDraft(
+                            SyncEntityType.CITATION_ANNOTATION_REF,
+                            SyncCanonicalIdentity.relationLocalId(
+                                SyncEntityType.CITATION_ANNOTATION_REF,
+                                ref.annotationId,
+                                ref.citationRefId,
+                            ),
+                            SyncMutationType.RELATION_SET,
+                            ref.toSyncPayloadJson(),
+                        )
+                    )
+                }
+            }
+        syncMutations.capture(
+            drafts
+        ) { dao.finalizeAssistantCitationState(message, citationRefs, annotations, annotationRefs) }
         touchConversation(message.conversationId)
         return message
     }
@@ -314,34 +708,145 @@ class LlmChatRepository @Inject constructor(
                 errorMessage = errorMessage,
                 updatedAt = System.currentTimeMillis(),
             )
-        dao.updateToolCall(updated)
+        if (updated.status in setOf(LlmToolCallStatus.COMPLETE, LlmToolCallStatus.DENIED, LlmToolCallStatus.ERROR)) {
+            syncMutations.capture(
+                listOf(
+                    LlmSyncMutationDraft(
+                        entityType = SyncEntityType.TOOL_CALL,
+                        localId = updated.id,
+                        mutationType = SyncMutationType.UPSERT,
+                        payloadJson = updated.toSyncPayloadJson(syncBlobStore),
+                    )
+                )
+            ) { dao.updateToolCall(updated) }
+        } else {
+            dao.updateToolCall(updated)
+        }
         touchConversation(toolCall.conversationId)
         return updated
     }
 
     /** 删除指定消息，主要用于重新生成前移除旧 assistant 回复。 */
     suspend fun deleteMessage(messageId: String) {
-        dao.deleteMessage(messageId)
+        syncMutations.capture(
+            listOf(
+                LlmSyncMutationDraft(
+                    entityType = SyncEntityType.MESSAGE,
+                    localId = messageId,
+                    mutationType = SyncMutationType.GLOBAL_DELETE,
+                    payloadJson = syncDeletePayloadJson(messageId),
+                )
+            )
+        ) { dao.deleteMessage(messageId) }
     }
 
     /** 将上次进程退出时遗留的流式消息恢复为已停止状态。 */
     suspend fun recoverInterruptedGenerations(): Int {
         val now = System.currentTimeMillis()
-        val messages =
-            dao.recoverInterruptedMessages(
-                streamingStatus = LlmMessageStatus.STREAMING,
-                stoppedStatus = LlmMessageStatus.STOPPED,
-                triggeredWebSearchStatus = WebSearchRequestStatus.TRIGGERED,
-                cancelledWebSearchStatus = WebSearchRequestStatus.CANCELLED,
-                updatedAt = now,
-            )
-        dao.recoverInterruptedToolCalls(
-            runningStatus = LlmToolCallStatus.RUNNING,
-            errorStatus = LlmToolCallStatus.ERROR,
-            message = "Tool execution was interrupted before its result could be confirmed.",
-            updatedAt = now,
-        )
-        return messages
+        val recoveredMessages =
+            dao.getMessagesByStatus(LlmMessageStatus.STREAMING).map { message ->
+                message.copy(
+                    status = LlmMessageStatus.STOPPED,
+                    webSearchStatus =
+                        if (message.webSearchStatus == WebSearchRequestStatus.TRIGGERED) {
+                            WebSearchRequestStatus.CANCELLED
+                        } else {
+                            message.webSearchStatus
+                        },
+                    updatedAt = now,
+                )
+            }
+        val interruptedToolMessage =
+            "Tool execution was interrupted before its result could be confirmed."
+        val recoveredToolCalls =
+            dao.getToolCallsByStatus(LlmToolCallStatus.RUNNING).map { toolCall ->
+                toolCall.copy(
+                    status = LlmToolCallStatus.ERROR,
+                    errorMessage = interruptedToolMessage,
+                    updatedAt = now,
+                )
+            }
+        val drafts = mutableListOf<LlmSyncMutationDraft>()
+        recoveredMessages.forEach { message ->
+            drafts +=
+                LlmSyncMutationDraft(
+                    entityType = SyncEntityType.MESSAGE,
+                    localId = message.id,
+                    mutationType = SyncMutationType.UPSERT,
+                    payloadJson = message.toSyncPayloadJson(),
+                )
+            val contextRefs = dao.getContextRefsForAssistant(message.id)
+            contextRefs.forEach { contextRef ->
+                drafts +=
+                    LlmSyncMutationDraft(
+                        entityType = SyncEntityType.CONTEXT_REF,
+                        localId = contextRef.id,
+                        mutationType = SyncMutationType.UPSERT,
+                        payloadJson = contextRef.toSyncPayloadJson(syncBlobStore),
+                    )
+                dao.getEvidenceBlocksForContextRef(contextRef.id).forEach { evidence ->
+                    drafts +=
+                        LlmSyncMutationDraft(
+                            entityType = SyncEntityType.EVIDENCE_BLOCK,
+                            localId = evidence.id,
+                            mutationType = SyncMutationType.UPSERT,
+                            payloadJson = evidence.toSyncPayloadJson(syncBlobStore),
+                        )
+                }
+            }
+            dao.getCitationRefsForAssistant(message.id).forEach { citation ->
+                drafts +=
+                    LlmSyncMutationDraft(
+                        entityType = SyncEntityType.CITATION_REF,
+                        localId = citation.id,
+                        mutationType = SyncMutationType.UPSERT,
+                        payloadJson = citation.toSyncPayloadJson(syncBlobStore),
+                    )
+            }
+            val annotations = dao.getCitationAnnotationsForAssistant(message.id)
+            annotations.forEach { occurrence ->
+                drafts +=
+                    LlmSyncMutationDraft(
+                        entityType = SyncEntityType.CITATION_ANNOTATION,
+                        localId = occurrence.annotation.id,
+                        mutationType = SyncMutationType.UPSERT,
+                        payloadJson = occurrence.annotation.toSyncPayloadJson(),
+                    )
+            }
+            val annotationIds = annotations.mapTo(mutableSetOf()) { it.annotation.id }
+            if (annotationIds.isNotEmpty()) {
+                dao.getAllCitationAnnotationRefs()
+                    .filter { it.annotationId in annotationIds }
+                    .forEach { ref ->
+                        drafts +=
+                            LlmSyncMutationDraft(
+                                entityType = SyncEntityType.CITATION_ANNOTATION_REF,
+                                localId =
+                                    SyncCanonicalIdentity.relationLocalId(
+                                        SyncEntityType.CITATION_ANNOTATION_REF,
+                                        ref.annotationId,
+                                        ref.citationRefId,
+                                    ),
+                                mutationType = SyncMutationType.RELATION_SET,
+                                payloadJson = ref.toSyncPayloadJson(),
+                            )
+                    }
+            }
+        }
+        recoveredToolCalls.forEach { toolCall ->
+            drafts +=
+                LlmSyncMutationDraft(
+                    entityType = SyncEntityType.TOOL_CALL,
+                    localId = toolCall.id,
+                    mutationType = SyncMutationType.UPSERT,
+                    payloadJson = toolCall.toSyncPayloadJson(syncBlobStore),
+                )
+        }
+        syncMutations.capture(drafts) {
+            recoveredMessages.forEach { dao.updateMessage(it) }
+            recoveredToolCalls.forEach { dao.updateToolCall(it) }
+        }
+        return recoveredMessages.size
     }
 }
 

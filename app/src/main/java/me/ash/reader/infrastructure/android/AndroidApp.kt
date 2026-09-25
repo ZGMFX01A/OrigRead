@@ -29,6 +29,8 @@ import me.ash.reader.infrastructure.preference.AutoCheckUpdatesPreference
 import me.ash.reader.infrastructure.preference.SettingsProvider
 import me.ash.reader.infrastructure.rss.OPMLDataSource
 import me.ash.reader.infrastructure.rss.RssHelper
+import me.ash.reader.infrastructure.sync.core.AndroidSyncEndpointRegistry
+import me.ash.reader.infrastructure.sync.core.SyncBackgroundScheduler
 import me.ash.reader.ui.ext.del
 import me.ash.reader.ui.ext.getLatestApk
 import me.ash.reader.ui.ext.isGitHub
@@ -89,6 +91,8 @@ class AndroidApp : Application(), Configuration.Provider {
 
     @Inject lateinit var diffMapHolder: DiffMapHolder
 
+    @Inject lateinit var syncEndpointRegistry: AndroidSyncEndpointRegistry
+
     /**
      * When the application startup.
      * 1. Set the uncaught exception handler
@@ -103,8 +107,11 @@ class AndroidApp : Application(), Configuration.Provider {
             Timber.plant(Timber.DebugTree())
         }
         applicationScope.launch {
+            SyncBackgroundScheduler.runner = { syncEndpointRegistry.syncAll().completed }
             accountInit()
             workerInit()
+            SyncBackgroundScheduler.scheduleCompensation(applicationContext)
+            SyncBackgroundScheduler.enqueueImmediate(applicationContext)
             checkUpdate()
         }
         Coil.setImageLoader(imageLoader)

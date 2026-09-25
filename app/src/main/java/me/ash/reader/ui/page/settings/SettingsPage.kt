@@ -27,6 +27,7 @@ import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.SettingsBackupRestore
 import androidx.compose.material.icons.outlined.SystemUpdate
+import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -76,6 +77,7 @@ fun SettingsPage(
     navigateToConfigurationBackup: () -> Unit,
     navigateToUpdateSettings: () -> Unit,
     navigateToTipsAndSupport: () -> Unit,
+    navigateToSyncSettings: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val newVersion = LocalNewVersionNumber.current
@@ -147,6 +149,14 @@ fun SettingsPage(
                     desc = stringResource(R.string.configuration_backup_desc),
                     icon = Icons.Outlined.SettingsBackupRestore,
                     onClick = navigateToConfigurationBackup,
+                )
+            )
+            add(
+                SettingsDestination(
+                    title = stringResource(R.string.origread_sync),
+                    desc = stringResource(R.string.origread_sync_desc),
+                    icon = Icons.Outlined.Sync,
+                    onClick = navigateToSyncSettings,
                 )
             )
             if (isGitHub) {

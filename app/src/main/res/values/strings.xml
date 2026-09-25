@@ -44,6 +44,7 @@
   unsupported.</string>
     <string name="full_content_failure_network">The article could not be loaded
   because of a network error.</string>
+    <string name="full_content_failure_sync_pending">The full article has not finished syncing yet. It will be restored when the synced content becomes available.</string>
     <string name="full_content_failure_unknown">The article could
   not be parsed for an unknown reason.</string>
     <string name="add_filter_rule">Add filter rule</string>
@@ -1472,7 +1473,13 @@
     <string
     name="ai_markdown_table">Table</string>
     <string name="ai_markdown_latex">LaTeX</string>
-    <string
-    name="ai_markdown_copy_block">Copy %1$s</string>
+    <string name="ai_markdown_copy_block">Copy %1$s</string>
     <string name="selected_text_ai">AI</string>
+    <string name="origread_sync">Multi-device Sync</string>
+    <string name="origread_sync_desc">LAN peer discovery &amp; durable cloud sync</string>
+    <string name="origread_sync_lan_listener">LAN Sync Listener</string>
+    <string name="origread_sync_lan_listener_desc">Allow other OrigRead devices on the LAN to discover and sync</string>
+    <string name="origread_sync_discover">Scan LAN Devices</string>
+    <string name="origread_sync_cloud_endpoint">Cloud Sync Server</string>
+    <string name="origread_sync_now">Sync Now</string>
 </resources>

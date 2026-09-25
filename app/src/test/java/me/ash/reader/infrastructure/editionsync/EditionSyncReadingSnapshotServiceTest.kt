@@ -13,6 +13,7 @@ import me.ash.reader.domain.repository.FeedDao
 import me.ash.reader.domain.repository.GroupDao
 import me.ash.reader.domain.service.AccountService
 import me.ash.reader.infrastructure.db.AndroidDatabase
+import me.ash.reader.infrastructure.sync.core.LibrarySyncMutationCapture
 import me.ash.reader.ui.ext.getDefaultGroupId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -64,6 +65,7 @@ class EditionSyncReadingSnapshotServiceTest {
             val groupDao = mock<GroupDao>()
             val feedDao = mock<FeedDao>()
             val articleDao = mock<ArticleDao>()
+            val syncMutations = passthroughSyncMutations(accountId)
             val service =
                 EditionSyncReadingSnapshotService(
                     database = database,
@@ -72,6 +74,7 @@ class EditionSyncReadingSnapshotServiceTest {
                     groupDao = groupDao,
                     feedDao = feedDao,
                     articleDao = articleDao,
+                    syncMutations = syncMutations,
                 )
             val defaultGroup = Group(defaultGroupId, "Default", accountId)
             val orphanFeed =
@@ -133,8 +136,17 @@ class EditionSyncReadingSnapshotServiceTest {
             val groupDao = mock<GroupDao>()
             val feedDao = mock<FeedDao>()
             val articleDao = mock<ArticleDao>()
+            val syncMutations = passthroughSyncMutations(accountId)
             val service =
-                EditionSyncReadingSnapshotService(database, accountService, accountDao, groupDao, feedDao, articleDao)
+                EditionSyncReadingSnapshotService(
+                    database,
+                    accountService,
+                    accountDao,
+                    groupDao,
+                    feedDao,
+                    articleDao,
+                    syncMutations,
+                )
 
             whenever(accountService.getCurrentAccountId()).thenReturn(accountId)
             whenever(accountService.getDefaultGroup()).thenReturn(defaultGroup)
@@ -160,6 +172,7 @@ class EditionSyncReadingSnapshotServiceTest {
                 groupDao = mock(),
                 feedDao = mock(),
                 articleDao = mock(),
+                syncMutations = mock(),
             )
         val snapshot =
             EditionSyncReadingSnapshot(
@@ -185,5 +198,21 @@ class EditionSyncReadingSnapshotServiceTest {
             )
 
         assertThrows(IllegalArgumentException::class.java) { service.validate(snapshot) }
+    }
+
+    private fun passthroughSyncMutations(accountId: Int): LibrarySyncMutationCapture {
+        val syncMutations = mock<LibrarySyncMutationCapture>()
+        runBlocking {
+            whenever(
+                syncMutations.captureLibraryMutation<Unit>(
+                    eq(accountId),
+                    any(),
+                )
+            ).thenAnswer { invocation ->
+                val mutate = invocation.getArgument<suspend () -> Unit>(1)
+                runBlocking { mutate() }
+            }
+        }
+        return syncMutations
     }
 }

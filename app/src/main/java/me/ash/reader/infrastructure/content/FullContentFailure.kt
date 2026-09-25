@@ -12,6 +12,7 @@ enum class FullContentFailureReason {
     PAGE_UNAVAILABLE,
     INVALID_URL,
     NETWORK,
+    SYNC_PENDING,
     UNKNOWN,
 }
 

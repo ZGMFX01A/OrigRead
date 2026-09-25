@@ -139,7 +139,7 @@ class LocalSourceServiceRssHubFallbackTest {
             assertEquals(recoveredUrl, result.feed.url)
             assertEquals(1, result.articles.size)
             assertSame(article, result.articles.single())
-            verify(feedDao).update(feed.copy(url = recoveredUrl))
+            verify(feedDao, never()).update(any())
         }
     }
 
@@ -210,7 +210,7 @@ class LocalSourceServiceRssHubFallbackTest {
             assertFalse(result.feed.isFullContent)
             assertFalse(result.feed.isBrowser)
             assertSame(article, result.articles.single())
-            verify(feedDao).update(recoveredFeed)
+            verify(feedDao, never()).update(any())
         }
     }
 
@@ -234,7 +234,7 @@ class LocalSourceServiceRssHubFallbackTest {
             assertEquals(SourceType.RSS, result.feed.sourceType)
             assertEquals("真实 RSS", result.feed.name)
             assertEquals(emptyList<Article>(), result.articles)
-            verify(feedDao).update(result.feed)
+            verify(feedDao, never()).update(any())
         }
     }
 

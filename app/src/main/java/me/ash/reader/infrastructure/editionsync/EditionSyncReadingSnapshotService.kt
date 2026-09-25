@@ -16,6 +16,7 @@ import me.ash.reader.domain.repository.GroupDao
 import me.ash.reader.domain.service.AccountService
 import me.ash.reader.infrastructure.db.AndroidDatabase
 import me.ash.reader.infrastructure.source.findFeedByComparisonUrl
+import me.ash.reader.infrastructure.sync.core.LibrarySyncMutationCapture
 import me.ash.reader.ui.ext.dollarLast
 import me.ash.reader.ui.ext.getDefaultGroupId
 import me.ash.reader.ui.ext.spacerDollar
@@ -35,6 +36,7 @@ class EditionSyncReadingSnapshotService @Inject constructor(
     private val groupDao: GroupDao,
     private val feedDao: FeedDao,
     private val articleDao: ArticleDao,
+    private val syncMutations: LibrarySyncMutationCapture,
 ) {
     /** 在任何目标数据写入前完成可静态验证的引用完整性与枚举校验。 */
     fun validate(snapshot: EditionSyncReadingSnapshot) {
@@ -76,7 +78,9 @@ class EditionSyncReadingSnapshotService @Inject constructor(
             // 极少数旧开发版数据可能缺失默认组。同步发送端先修复本机完整性，
             // 接收端 validate() 仍保持严格校验，不接受真正破损的外部 Bundle。
             accountService.getDefaultGroup().also { defaultGroup ->
-                groupDao.insert(defaultGroup)
+                syncMutations.captureLibraryMutation(accountId) {
+                    groupDao.insert(defaultGroup)
+                }
                 groups += defaultGroup
             }
         }
@@ -85,12 +89,14 @@ class EditionSyncReadingSnapshotService @Inject constructor(
         val groupById = groups.associateBy(Group::id)
         val normalizedFeeds = normalizeLegacyFeedGroups(originalFeeds, groupById, defaultGroupId)
         if (normalizedFeeds.repairedGroupIds.isNotEmpty()) {
-            normalizedFeeds.repairedGroupIds.forEach { orphanGroupId ->
-                feedDao.updateTargetGroupIdByGroupId(
-                    accountId = accountId,
-                    groupId = orphanGroupId,
-                    targetGroupId = defaultGroupId,
-                )
+            syncMutations.captureLibraryMutation(accountId) {
+                normalizedFeeds.repairedGroupIds.forEach { orphanGroupId ->
+                    feedDao.updateTargetGroupIdByGroupId(
+                        accountId = accountId,
+                        groupId = orphanGroupId,
+                        targetGroupId = defaultGroupId,
+                    )
+                }
             }
             // 只记录修复数量，不记录 Feed 名称、URL 或其他用户内容。
             Timber.tag("EditionSync").i(
@@ -199,7 +205,7 @@ class EditionSyncReadingSnapshotService @Inject constructor(
         var restoredArticles = 0
         var restoredArchivedArticles = 0
 
-        database.withTransaction {
+        val applyRestore: suspend () -> Unit = {
             if (replaceExisting) {
                 // 按外键依赖从叶子向上删除；ArchivedArticle 会随 Feed CASCADE 删除。
                 articleDao.deleteByAccountId(targetAccountId)
@@ -328,6 +334,15 @@ class EditionSyncReadingSnapshotService @Inject constructor(
                     lastArticleId = snapshot.sourceAccount.lastArticleKey?.let { key -> restoredArticleIdByKey[key] },
                 )
             )
+        }
+        if (replaceExisting) {
+            // Edition Sync 失败补偿必须只恢复本机原状态，不能把瞬时失败状态/回滚动作
+            // 再编码成新的全局 Operation。
+            database.withTransaction { applyRestore() }
+        } else {
+            // 用户确认的跨 Edition 正常 merge 是真实本地业务变更，必须与 Library Outbox
+            // 在同一 Room 事务提交，避免已启用多端同步时这批导入数据只停留在当前设备。
+            syncMutations.captureLibraryMutation(targetAccountId) { applyRestore() }
         }
 
         return EditionSyncReadingRestoreResult(

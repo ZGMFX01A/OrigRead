@@ -77,6 +77,8 @@ abstract class AbstractRssRepository(
 
     open suspend fun clearAuthorization() {}
 
+    protected open suspend fun <T> withLibraryMutation(accountId: Int, block: suspend () -> T): T = block()
+
     open suspend fun subscribe(
         feedLink: String,
         searchedFeed: SyndFeed,
@@ -103,15 +105,17 @@ abstract class AbstractRssRepository(
                 )
             val articles =
                 searchedFeed.entries.map { rssHelper.buildArticleFromSyndEntry(feed, accountId, it) }
-            feedDao.insert(feed)
-            articleDao.insertList(articles.map { it.copy(feedId = feed.id) })
+            withLibraryMutation(accountId) {
+                feedDao.insert(feed)
+                articleDao.insertList(articles.map { it.copy(feedId = feed.id) })
+            }
         }
     }
 
     open suspend fun addGroup(destFeed: Feed?, newGroupName: String): String {
         accountService.getCurrentAccountId().let { accountId ->
             return accountId.spacerDollar(UUID.randomUUID().toString()).also {
-                groupDao.insert(Group(id = it, name = newGroupName, accountId = accountId))
+                withLibraryMutation(accountId) { groupDao.insert(Group(id = it, name = newGroupName, accountId = accountId)) }
             }
         }
     }
@@ -167,7 +171,7 @@ abstract class AbstractRssRepository(
         articleIds
             .takeIf { it.isNotEmpty() }
             ?.chunked(500)
-            ?.forEachIndexed { index, it ->
+            ?.forEachIndexed { _, it ->
                 articleDao.markAsReadByIdSet(accountId, it.toSet(), isUnread)
             }
     }
@@ -191,6 +195,8 @@ abstract class AbstractRssRepository(
         val currentAccount = accountService.getCurrentAccount()
         val keepArchived = currentAccount.keepArchived
         if (keepArchived != KeepArchivedPreference.Always) {
+            // R10 LOCAL_EVICT / index retention: expired local Article rows are cache/index cleanup,
+            // not an explicit cross-device entity deletion, so this path must not emit Tombstones.
             val archivedArticles =
                 articleDao.queryArchivedArticleBefore(
                     accountId,
@@ -347,7 +353,7 @@ abstract class AbstractRssRepository(
         groupDao.queryAllGroupWithFeed(accountService.getCurrentAccountId())
 
     open suspend fun renameGroup(group: Group) {
-        groupDao.update(group)
+        withLibraryMutation(group.accountId) { groupDao.update(group) }
     }
 
     open suspend fun renameFeed(feed: Feed) {
@@ -363,7 +369,7 @@ abstract class AbstractRssRepository(
     }
 
     internal suspend fun updateFeed(feed: Feed) {
-        feedDao.update(feed)
+        withLibraryMutation(feed.accountId) { feedDao.update(feed) }
     }
 
     open suspend fun deleteGroup(group: Group, onlyDeleteNoStarred: Boolean? = false) {
@@ -374,9 +380,11 @@ abstract class AbstractRssRepository(
         ) {
             return
         }
-        deleteArticles(group = group, includeStarred = true)
-        feedDao.deleteByGroupId(accountId, group.id)
-        groupDao.delete(group)
+        withLibraryMutation(accountId) {
+            deleteArticles(group = group, includeStarred = true)
+            feedDao.deleteByGroupId(accountId, group.id)
+            groupDao.delete(group)
+        }
     }
 
     open suspend fun deleteFeed(feed: Feed, onlyDeleteNoStarred: Boolean? = false) {
@@ -390,8 +398,10 @@ abstract class AbstractRssRepository(
         ) {
             return
         }
-        deleteArticles(feed = feed, includeStarred = true)
-        feedDao.delete(feed)
+        withLibraryMutation(feed.accountId) {
+            deleteArticles(feed = feed, includeStarred = true)
+            feedDao.delete(feed)
+        }
     }
 
     suspend fun deleteArticles(
@@ -399,6 +409,11 @@ abstract class AbstractRssRepository(
         feed: Feed? = null,
         includeStarred: Boolean = false,
     ) {
+        // R10: clearing retained article rows is LOCAL_EVICT / index-retention only.
+        // Do not wrap this method itself in LibrarySyncMutationCapture: a physical cache/index
+        // cleanup must not become ARTICLE GLOBAL_DELETE/Tombstone. Feed/Group deletion callers
+        // already wrap their wider domain command in withLibraryMutation when the entity lifetime
+        // really is being deleted.
         when {
             group != null ->
                 articleDao.deleteByGroupId(
@@ -421,31 +436,39 @@ abstract class AbstractRssRepository(
     }
 
     suspend fun groupParseFullContent(group: Group, isFullContent: Boolean) {
+        withLibraryMutation(group.accountId) {
         feedDao.updateIsFullContentByGroupId(
             accountService.getCurrentAccountId(),
             group.id,
             isFullContent,
         )
+        }
     }
 
     suspend fun groupOpenInBrowser(group: Group, isBrowser: Boolean) {
+        withLibraryMutation(group.accountId) {
         feedDao.updateIsBrowserByGroupId(accountService.getCurrentAccountId(), group.id, isBrowser)
+        }
     }
 
     suspend fun groupAllowNotification(group: Group, isNotification: Boolean) {
+        withLibraryMutation(group.accountId) {
         feedDao.updateIsNotificationByGroupId(
             accountService.getCurrentAccountId(),
             group.id,
             isNotification,
         )
+        }
     }
 
     suspend fun groupMoveToTargetGroup(group: Group, targetGroup: Group) {
+        withLibraryMutation(group.accountId) {
         feedDao.updateTargetGroupIdByGroupId(
             accountService.getCurrentAccountId(),
             group.id,
             targetGroup.id,
         )
+        }
     }
 
     fun searchArticles(

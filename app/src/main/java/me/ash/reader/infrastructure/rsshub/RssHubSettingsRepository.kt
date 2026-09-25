@@ -37,8 +37,32 @@ class RssHubSettingsRepository @Inject constructor(
 
     fun current(): RssHubSettings = _settings.value
 
+    /**
+     * Remote Sync materialization path. Network success/cooldown history stays device-local and is
+     * intentionally not cleared.
+     */
+    fun replaceSyncSettings(settings: RssHubSettings): RssHubSettings {
+        val normalizedInstances =
+            settings.instances
+                .map { instance ->
+                    instance.copy(
+                        url = normalizeInstanceUrl(instance.url),
+                        location = RssHubLocation.canonical(instance.id, instance.location),
+                    )
+                }
+                .distinctBy(RssHubInstance::url)
+                .ifEmpty { defaultInstances() }
+        preferences.edit()
+            .putBoolean(KEY_ENABLED, settings.enabled)
+            .putString(KEY_INSTANCES, encodeInstances(normalizedInstances))
+            .commitSyncable("replace RSSHub sync settings")
+        return settings.copy(instances = normalizedInstances).also { _settings.value = it }
+    }
+
     fun setEnabled(enabled: Boolean) {
-        preferences.edit().putBoolean(KEY_ENABLED, enabled).apply()
+        preferences.edit()
+            .putBoolean(KEY_ENABLED, enabled)
+            .commitSyncable("persist RSSHub enabled state")
         _settings.value = _settings.value.copy(enabled = enabled)
     }
 
@@ -114,7 +138,7 @@ class RssHubSettingsRepository @Inject constructor(
             .remove(KEY_INSTANCES)
             .remove(KEY_LEGACY_INSTANCE_URL)
             .remove(KEY_LAST_SUCCESS_INSTANCE)
-            .apply()
+            .commitSyncable("restore default RSSHub settings")
         _settings.value = RssHubSettings()
     }
 
@@ -134,13 +158,24 @@ class RssHubSettingsRepository @Inject constructor(
             .clear()
             .putBoolean(KEY_ENABLED, settings.enabled)
             .putString(KEY_INSTANCES, encodeInstances(normalizedInstances))
-            .apply()
+            .commitSyncable("restore RSSHub settings backup")
         _settings.value = settings.copy(instances = normalizedInstances)
     }
 
     private fun saveInstances(instances: List<RssHubInstance>) {
-        preferences.edit().putString(KEY_INSTANCES, encodeInstances(instances)).apply()
+        preferences.edit()
+            .putString(KEY_INSTANCES, encodeInstances(instances))
+            .commitSyncable("persist RSSHub instances")
         _settings.value = _settings.value.copy(instances = instances)
+    }
+
+    /**
+     * Syncable SharedPreferences writes must be durable before returning to the Room mutation
+     * transaction. Otherwise apply() can let the Outbox commit first and a process death may
+     * resurrect the previous preference value on restart.
+     */
+    private fun android.content.SharedPreferences.Editor.commitSyncable(operation: String) {
+        check(commit()) { "Failed to $operation" }
     }
 
     private fun readSettings(): RssHubSettings {

@@ -161,18 +161,20 @@ constructor(
                     ),
                 destFeedName = feedTitle,
             )
-        feedDao.insert(
-            Feed(
-                id = accountId.spacerDollar(feedId),
-                name = feedTitle,
-                url = feedLink,
-                groupId = groupId,
-                accountId = accountId,
-                isNotification = isNotification,
-                isFullContent = isFullContent,
-                isBrowser = isBrowser,
+        withLibraryMutation(accountId) {
+            feedDao.insert(
+                Feed(
+                    id = accountId.spacerDollar(feedId),
+                    name = feedTitle,
+                    url = feedLink,
+                    groupId = groupId,
+                    accountId = accountId,
+                    isNotification = isNotification,
+                    isFullContent = isFullContent,
+                    isBrowser = isBrowser,
+                )
             )
-        )
+        }
         // TODO: When users need to subscribe to multiple feeds continuously, this makes them
         // uncomfortable.
         //  It is necessary to make syncWork support synchronizing individual specified feeds.
@@ -187,7 +189,9 @@ constructor(
                 destCategoryId = newGroupName,
             )
         val id = accountId.spacerDollar(newGroupName.ofCategoryIdToStreamId())
-        groupDao.insert(Group(id = id, name = newGroupName, accountId = accountId))
+        withLibraryMutation(accountId) {
+            groupDao.insert(Group(id = id, name = newGroupName, accountId = accountId))
+        }
         return id
     }
 
@@ -350,11 +354,15 @@ constructor(
                         .intersect(remoteStarredIds.await())
                         .map { accountId spacerDollar it }
                         .toSet()
-                articleDao.markAsStarredByIdSet(
-                    accountId = accountId,
-                    ids = toBeStarredLocal,
-                    isStarred = true,
-                )
+                if (toBeStarredLocal.isNotEmpty()) {
+                    withLibraryMutation(accountId) {
+                        articleDao.markAsStarredByIdSet(
+                            accountId = accountId,
+                            ids = toBeStarredLocal,
+                            isStarred = true,
+                        )
+                    }
+                }
             }
 
             launch {
@@ -362,11 +370,15 @@ constructor(
                     (localStarredIds - remoteStarredIds.await())
                         .map { accountId spacerDollar it }
                         .toSet()
-                articleDao.markAsStarredByIdSet(
-                    accountId = accountId,
-                    ids = toBeUnstarredLocal,
-                    isStarred = false,
-                )
+                if (toBeUnstarredLocal.isNotEmpty()) {
+                    withLibraryMutation(accountId) {
+                        articleDao.markAsStarredByIdSet(
+                            accountId = accountId,
+                            ids = toBeUnstarredLocal,
+                            isStarred = false,
+                        )
+                    }
+                }
             }
 
             launch {
@@ -374,12 +386,16 @@ constructor(
                     remoteReadIds.await().intersect(localUnreadIds).map {
                         accountId spacerDollar it
                     }
-                toBeReadLocal.chunked(1000).forEach {
-                    articleDao.markAsReadByIdSet(
-                        accountId = accountId,
-                        ids = it.toSet(),
-                        isUnread = false,
-                    )
+                if (toBeReadLocal.isNotEmpty()) {
+                    withLibraryMutation(accountId) {
+                        toBeReadLocal.chunked(1000).forEach {
+                            articleDao.markAsReadByIdSet(
+                                accountId = accountId,
+                                ids = it.toSet(),
+                                isUnread = false,
+                            )
+                        }
+                    }
                 }
             }
 
@@ -388,12 +404,16 @@ constructor(
                     localReadIds.intersect(remoteUnreadIds.await()).map {
                         accountId spacerDollar it
                     }
-                toBeUnreadLocal.chunked(1000).forEach {
-                    articleDao.markAsReadByIdSet(
-                        accountId = accountId,
-                        ids = it.toSet(),
-                        isUnread = true,
-                    )
+                if (toBeUnreadLocal.isNotEmpty()) {
+                    withLibraryMutation(accountId) {
+                        toBeUnreadLocal.chunked(1000).forEach {
+                            articleDao.markAsReadByIdSet(
+                                accountId = accountId,
+                                ids = it.toSet(),
+                                isUnread = true,
+                            )
+                        }
+                    }
                 }
             }
 
@@ -465,26 +485,35 @@ constructor(
             val remoteGroups = async { groupWithFeedsMap.await().keys.toList() }
             val remoteFeeds = async { groupWithFeedsMap.await().values.flatten() }
 
-            // Handle empty icon for feeds
-            launch {
-                val localFeeds = feedDao.queryAll(accountId)
-                val remoteFeeds = remoteFeeds.await()
-                val newFeeds = remoteFeeds.filter { feed -> feed.id !in localFeeds.map { it.id } }
+            val resolvedRemoteGroups = remoteGroups.await()
+            val resolvedRemoteFeeds = remoteFeeds.await()
+            val existingFeedIds = feedDao.queryAll(accountId).mapTo(hashSetOf(), Feed::id)
+            val newFeeds = resolvedRemoteFeeds.filter { it.id !in existingFeedIds }
 
+            withLibraryMutation(accountId) {
+                groupDao.insertOrUpdate(resolvedRemoteGroups)
+                feedDao.insertOrUpdate(resolvedRemoteFeeds)
+            }
+
+            // Handle empty icon for newly materialized feeds. Network lookup stays outside the
+            // Room mutation transaction; only the resulting local write is captured.
+            launch {
                 val feedsWithIconFetched =
                     newFeeds
                         .filter { it.icon == null }
                         .map { feed ->
                             async { feed.copy(icon = rssHelper.queryRssIconLink(feed.url)) }
                         }
-                feedsWithIconFetched
-                    .awaitAll()
-                    .filterNot { it.icon.isNullOrEmpty() }
-                    .also { feedDao.update(*it.toTypedArray()) }
+                val resolvedIcons =
+                    feedsWithIconFetched
+                        .awaitAll()
+                        .filterNot { it.icon.isNullOrEmpty() }
+                if (resolvedIcons.isNotEmpty()) {
+                    withLibraryMutation(accountId) {
+                        feedDao.update(*resolvedIcons.toTypedArray())
+                    }
+                }
             }
-
-            groupDao.insertOrUpdate(remoteGroups.await())
-            feedDao.insertOrUpdate(remoteFeeds.await())
 
             val notificationFeeds =
                 feedDao.queryNotificationEnabled(accountId).associateBy { it.id }
@@ -496,7 +525,9 @@ constructor(
                         whileSelect {
                             for (deferred in deferredList) {
                                 deferred.onAwait {
-                                    articleDao.insertList(it)
+                                    withLibraryMutation(accountId) {
+                                        articleDao.insertList(it)
+                                    }
                                     articlesToNotify.addAll(
                                         it.fastFilter {
                                             it.isUnread && notificationFeedIds.contains(it.feedId)
@@ -524,11 +555,11 @@ constructor(
             // starred/un-starred
             groupDao
                 .queryAll(accountId)
-                .filter { it.id !in remoteGroups.await().map { group -> group.id } }
+                .filter { it.id !in resolvedRemoteGroups.map { group -> group.id } }
                 .forEach { super.deleteGroup(it, true) }
             feedDao
                 .queryAll(accountId)
-                .filter { it.id !in remoteFeeds.await().map { feed -> feed.id } }
+                .filter { it.id !in resolvedRemoteFeeds.map { feed -> feed.id } }
                 .forEach { super.deleteFeed(it, true) }
 
             accountService.update(account.copy(updateAt = Date()))
@@ -630,62 +661,73 @@ constructor(
                 val remoteReadIds = remoteAllIds.await() - remoteUnreadIds.await()
                 val toBeReadIds = remoteReadIds.intersect(localUnreadIds)
 
-                toBeReadIds
-                    .map { it.dbId(accountId) }
-                    .chunked(1000)
-                    .forEach {
-                        articleDao.markAsReadByIdSet(
-                            accountId = accountId,
-                            ids = it.toSet(),
-                            isUnread = false,
-                        )
+                val localIds = toBeReadIds.map { it.dbId(accountId) }
+                if (localIds.isNotEmpty()) {
+                    withLibraryMutation(accountId) {
+                        localIds.chunked(1000).forEach {
+                            articleDao.markAsReadByIdSet(
+                                accountId = accountId,
+                                ids = it.toSet(),
+                                isUnread = false,
+                            )
+                        }
                     }
+                }
             }
 
             launch {
                 val toBeUnreadIds = localReadIds.intersect(remoteUnreadIds.await())
-                toBeUnreadIds
-                    .map { it.dbId(accountId) }
-                    .chunked(1000)
-                    .forEach {
-                        articleDao.markAsReadByIdSet(
-                            accountId = accountId,
-                            ids = it.toSet(),
-                            isUnread = true,
-                        )
+                val localIds = toBeUnreadIds.map { it.dbId(accountId) }
+                if (localIds.isNotEmpty()) {
+                    withLibraryMutation(accountId) {
+                        localIds.chunked(1000).forEach {
+                            articleDao.markAsReadByIdSet(
+                                accountId = accountId,
+                                ids = it.toSet(),
+                                isUnread = true,
+                            )
+                        }
                     }
+                }
             }
 
             launch {
                 val toBeStarred = remoteStarredIds.await().intersect(localIds) - localStarredIds
-
-                toBeStarred
-                    .map { it.dbId(accountId) }
-                    .chunked(1000)
-                    .forEach {
-                        articleDao.markAsStarredByIdSet(
-                            accountId = accountId,
-                            ids = it.toSet(),
-                            isStarred = true,
-                        )
+                val localArticleIds = toBeStarred.map { it.dbId(accountId) }
+                if (localArticleIds.isNotEmpty()) {
+                    withLibraryMutation(accountId) {
+                        localArticleIds.chunked(1000).forEach {
+                            articleDao.markAsStarredByIdSet(
+                                accountId = accountId,
+                                ids = it.toSet(),
+                                isStarred = true,
+                            )
+                        }
                     }
+                }
             }
 
             launch {
                 val toBeUnstarred = localStarredIds - remoteStarredIds.await()
-                toBeUnstarred
-                    .map { it.dbId(accountId) }
-                    .chunked(1000)
-                    .forEach {
-                        articleDao.markAsStarredByIdSet(
-                            accountId = accountId,
-                            ids = it.toSet(),
-                            isStarred = false,
-                        )
+                val localArticleIds = toBeUnstarred.map { it.dbId(accountId) }
+                if (localArticleIds.isNotEmpty()) {
+                    withLibraryMutation(accountId) {
+                        localArticleIds.chunked(1000).forEach {
+                            articleDao.markAsStarredByIdSet(
+                                accountId = accountId,
+                                ids = it.toSet(),
+                                isStarred = false,
+                            )
+                        }
                     }
+                }
             }
 
-            articleDao.insert(*items.toTypedArray())
+            if (items.isNotEmpty()) {
+                withLibraryMutation(accountId) {
+                    articleDao.insert(*items.toTypedArray())
+                }
+            }
             Timber.i("onCompletion: ${System.currentTimeMillis() - preTime}")
 
             ListenableWorker.Result.success()

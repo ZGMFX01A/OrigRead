@@ -126,7 +126,11 @@ fun FeedOptionDrawer(
                     TextButton(
                         enabled = sourcePattern.isNotBlank(),
                         onClick = {
-                            if (feedOptionViewModel.addSourceFilter(sourcePattern, sourceType)) sourcePattern = ""
+                            scope.launch {
+                                if (feedOptionViewModel.addSourceFilter(sourcePattern, sourceType)) {
+                                    sourcePattern = ""
+                                }
+                            }
                         },
                     ) { Text(stringResource(R.string.add)) }
                     LazyColumn(modifier = Modifier.height(240.dp)) {
@@ -148,13 +152,17 @@ fun FeedOptionDrawer(
                                     )
                                 }
                                 OrigReadSwitch(activated = rule.enabled) {
-                                    feedOptionViewModel.setSourceFilterEnabled(rule, !rule.enabled)
+                                    scope.launch {
+                                        feedOptionViewModel.setSourceFilterEnabled(rule, !rule.enabled)
+                                    }
                                 }
                                 FeedbackIconButton(
                                     imageVector = Icons.Outlined.Delete,
                                     contentDescription = stringResource(R.string.delete),
                                     tint = MaterialTheme.colorScheme.error,
-                                    onClick = { feedOptionViewModel.deleteSourceFilter(rule) },
+                                    onClick = {
+                                        scope.launch { feedOptionViewModel.deleteSourceFilter(rule) }
+                                    },
                                 )
                             }
                         }

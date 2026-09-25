@@ -8,9 +8,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import me.ash.reader.domain.service.AccountService
 import me.ash.reader.infrastructure.rsshub.RssHubInstance
 import me.ash.reader.infrastructure.rsshub.RssHubResolver
 import me.ash.reader.infrastructure.rsshub.RssHubSettingsRepository
+import me.ash.reader.infrastructure.sync.core.LibrarySyncMutationCapture
 
 data class RssHubSettingsUiState(
     val enabled: Boolean = true,
@@ -29,6 +31,8 @@ data class RssHubInstanceTestResult(
 class RssHubSettingsViewModel @Inject constructor(
     private val repository: RssHubSettingsRepository,
     private val resolver: RssHubResolver,
+    private val accountService: AccountService,
+    private val syncMutations: LibrarySyncMutationCapture,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(RssHubSettingsUiState())
     val uiState = _uiState.asStateFlow()
@@ -43,20 +47,33 @@ class RssHubSettingsViewModel @Inject constructor(
         }
     }
 
-    fun setEnabled(enabled: Boolean) = repository.setEnabled(enabled)
+    fun setEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            captureSettingsMutation { repository.setEnabled(enabled) }
+        }
+    }
 
     fun updateInstanceUrl(value: String) {
         _uiState.update { it.copy(instanceUrl = value) }
     }
 
-    fun setInstanceEnabled(id: String, enabled: Boolean) =
-        repository.setInstanceEnabled(id, enabled)
+    fun setInstanceEnabled(id: String, enabled: Boolean) {
+        viewModelScope.launch {
+            captureSettingsMutation { repository.setInstanceEnabled(id, enabled) }
+        }
+    }
 
-    fun deleteInstance(id: String) = repository.deleteInstance(id)
+    fun deleteInstance(id: String) {
+        viewModelScope.launch {
+            captureSettingsMutation { repository.deleteInstance(id) }
+        }
+    }
 
     fun restoreDefault() {
-        repository.restoreDefault()
-        _uiState.update { it.copy(instanceUrl = "", testResults = emptyMap()) }
+        viewModelScope.launch {
+            captureSettingsMutation { repository.restoreDefault() }
+            _uiState.update { it.copy(instanceUrl = "", testResults = emptyMap()) }
+        }
     }
 
     /** 测试实例基础连通性；自定义地址测试成功后自动加入列表。 */
@@ -77,7 +94,7 @@ class RssHubSettingsViewModel @Inject constructor(
             }
             val result = resolver.testConnection(normalized)
             if (result.isSuccess && addOnSuccess) {
-                repository.addInstance(normalized)
+                captureSettingsMutation { repository.addInstance(normalized) }
             }
             _uiState.update {
                 it.copy(
@@ -100,4 +117,12 @@ class RssHubSettingsViewModel @Inject constructor(
             }
         }
     }
+
+    private suspend fun <T> captureSettingsMutation(mutate: () -> T): T =
+        syncMutations.captureRssHubSettingsMutation(
+            accountId = accountService.getCurrentAccountId(),
+            readSettings = repository::current,
+            replaceSettings = { repository.replaceSyncSettings(it) },
+            mutate = mutate,
+        )
 }

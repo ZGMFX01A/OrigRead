@@ -19,10 +19,12 @@ import me.ash.reader.infrastructure.ai.AiSettings
 import me.ash.reader.infrastructure.ai.AiSettingsRepository
 import me.ash.reader.infrastructure.ai.aiRuleGenerationUserMessage
 import me.ash.reader.infrastructure.ai.resolvedDefaultModel
+import me.ash.reader.domain.service.AccountService
 import me.ash.reader.infrastructure.di.IODispatcher
 import me.ash.reader.infrastructure.di.MainDispatcher
 import me.ash.reader.infrastructure.json.JsonRule
 import me.ash.reader.infrastructure.json.JsonRuleRepository
+import me.ash.reader.infrastructure.sync.core.LibrarySyncMutationCapture
 
 data class JsonRulesUiState(
     val rules: List<JsonRule> = emptyList(),
@@ -41,6 +43,8 @@ class JsonRulesViewModel @Inject constructor(
     private val repository: JsonRuleRepository,
     private val aiRuleGenerationService: AiRuleGenerationService,
     private val aiSettingsRepository: AiSettingsRepository,
+    private val accountService: AccountService,
+    private val syncMutations: LibrarySyncMutationCapture,
     @IODispatcher private val ioDispatcher: CoroutineDispatcher,
     @MainDispatcher private val mainDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
@@ -77,7 +81,12 @@ class JsonRulesViewModel @Inject constructor(
 
     fun importRules(bytes: ByteArray, callback: (Result<Int>) -> Unit) {
         viewModelScope.launch(ioDispatcher) {
-            val result = runCatching { repository.importRules(String(bytes, Charsets.UTF_8)) }
+            val result =
+                runCatching {
+                    captureRulesMutation {
+                        repository.importRules(String(bytes, Charsets.UTF_8))
+                    }
+                }
             withContext(mainDispatcher) {
                 reload()
                 callback(result)
@@ -90,13 +99,31 @@ class JsonRulesViewModel @Inject constructor(
     fun exportTemplate(callback: (String) -> Unit) = callback(repository.exportTemplate())
 
     fun setEnabled(rule: JsonRule, enabled: Boolean) {
-        repository.setEnabled(rule.id, enabled)
-        reload()
+        viewModelScope.launch(ioDispatcher) {
+            runCatching {
+                captureRulesMutation { repository.setEnabled(rule.id, enabled) }
+            }.onSuccess {
+                withContext(mainDispatcher) { reload() }
+            }.onFailure { error ->
+                withContext(mainDispatcher) {
+                    _uiState.update { it.copy(aiError = error.message ?: "规则更新失败") }
+                }
+            }
+        }
     }
 
     fun delete(rule: JsonRule) {
-        repository.deleteRule(rule.id)
-        reload()
+        viewModelScope.launch(ioDispatcher) {
+            runCatching {
+                captureRulesMutation { repository.deleteRule(rule.id) }
+            }.onSuccess {
+                withContext(mainDispatcher) { reload() }
+            }.onFailure { error ->
+                withContext(mainDispatcher) {
+                    _uiState.update { it.copy(aiError = error.message ?: "规则删除失败") }
+                }
+            }
+        }
     }
 
     /** 根据公开 JSON API 或 Next/Nuxt 页面生成候选规则，并在服务层用真实数据试跑。 */
@@ -150,20 +177,28 @@ class JsonRulesViewModel @Inject constructor(
     /** 只有用户明确确认后才保存 AI 候选。 */
     fun saveAiPreview() {
         val preview = _uiState.value.aiPreview ?: return
-        runCatching { aiRuleGenerationService.save(preview) }
-            .onSuccess {
-                _uiState.update {
-                    it.copy(
-                        aiPreview = null,
-                        aiError = null,
-                        aiNotice = "规则已保存：${preview.name}",
-                    )
+        viewModelScope.launch(ioDispatcher) {
+            val result =
+                runCatching {
+                    captureRulesMutation { aiRuleGenerationService.save(preview) }
                 }
-                reload()
+            withContext(mainDispatcher) {
+                result
+                    .onSuccess {
+                        _uiState.update {
+                            it.copy(
+                                aiPreview = null,
+                                aiError = null,
+                                aiNotice = "规则已保存：" + preview.name,
+                            )
+                        }
+                        reload()
+                    }
+                    .onFailure { error ->
+                        _uiState.update { it.copy(aiError = error.message ?: "AI 规则保存失败") }
+                    }
             }
-            .onFailure { error ->
-                _uiState.update { it.copy(aiError = error.message ?: "AI 规则保存失败") }
-            }
+        }
     }
 
     fun dismissAiPreview() {
@@ -191,4 +226,12 @@ class JsonRulesViewModel @Inject constructor(
     fun setAiModel(model: String) {
         _uiState.update { it.copy(selectedAiModel = model) }
     }
+
+    private suspend fun <T> captureRulesMutation(mutate: () -> T): T =
+        syncMutations.captureJsonRulesMutation(
+            accountId = accountService.getCurrentAccountId(),
+            readRules = repository::listSyncRules,
+            replaceRules = repository::replaceSyncRules,
+            mutate = mutate,
+        )
 }

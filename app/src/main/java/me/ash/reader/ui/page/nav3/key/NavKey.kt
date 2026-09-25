@@ -83,4 +83,7 @@ sealed interface Route : NavKey {
     @Serializable data object TipsAndSupport : Route
 
     @Serializable data object LicenseList : Route
+
+    // Multi-device Sync
+    @Serializable data object SyncSettings : Route
 }

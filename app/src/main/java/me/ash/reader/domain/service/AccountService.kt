@@ -29,6 +29,8 @@ import me.ash.reader.domain.repository.FeedDao
 import me.ash.reader.domain.repository.GroupDao
 import me.ash.reader.infrastructure.di.ApplicationScope
 import me.ash.reader.infrastructure.preference.SettingsProvider
+import me.ash.reader.infrastructure.sync.core.LibrarySyncMutationCapture
+import me.ash.reader.infrastructure.sync.core.SyncRuntimeCoordinator
 import me.ash.reader.ui.ext.DataStoreKey
 import me.ash.reader.ui.ext.dataStore
 import me.ash.reader.ui.ext.getDefaultGroupId
@@ -46,6 +48,8 @@ constructor(
     private val articleDao: ArticleDao,
     @ApplicationScope private val coroutineScope: CoroutineScope,
     private val settingsProvider: SettingsProvider,
+    private val syncMutations: LibrarySyncMutationCapture,
+    private val syncRuntimeCoordinator: SyncRuntimeCoordinator,
 ) {
 
     private val accountIdKey = intPreferencesKey(DataStoreKey.currentAccountId)
@@ -83,6 +87,7 @@ constructor(
     suspend fun isNoAccount(): Boolean = accountDao.queryAll().isEmpty()
 
     suspend fun addAccount(account: Account): Account {
+        syncRuntimeCoordinator.purgeOrphanBindings()
         val id = accountDao.insert(account).toInt()
         return account.copy(id = id).also {
             when (it.type) {
@@ -131,23 +136,30 @@ constructor(
     suspend fun migrateOrigReadIdentifiers() {
         if (settingsProvider.dataStore.first()[origReadBrandMigrationKey] == true) return
 
-        accountDao.queryAll()
+        val accounts = accountDao.queryAll()
+        accounts
             .filter { it.type == AccountType.Local && it.name == "Read You" }
             .forEach { accountDao.update(it.copy(name = context.getString(R.string.origread))) }
 
-        accountDao.queryAll().forEach { account ->
+        accounts.forEach { account ->
             val accountId = account.id ?: return@forEach
-            feedDao.queryByLink(
-                accountId = accountId,
-                url = "https://github.com/ReadYouApp/ReadYou/releases.atom",
-            ).forEach { feed ->
-                feedDao.update(
-                    feed.copy(
-                        name = "OrigRead Releases",
-                        icon = "https://github.com/ZGMFX01A.png",
-                        url = "https://github.com/ZGMFX01A/OrigRead/releases.atom",
-                    )
+            val feedsToMigrate =
+                feedDao.queryByLink(
+                    accountId = accountId,
+                    url = "https://github.com/ReadYouApp/ReadYou/releases.atom",
                 )
+            if (feedsToMigrate.isNotEmpty()) {
+                syncMutations.captureLibraryMutation(accountId) {
+                    feedsToMigrate.forEach { feed ->
+                        feedDao.update(
+                            feed.copy(
+                                name = "OrigRead Releases",
+                                icon = "https://github.com/ZGMFX01A.png",
+                                url = "https://github.com/ZGMFX01A/OrigRead/releases.atom",
+                            )
+                        )
+                    }
+                }
             }
         }
 
@@ -174,8 +186,10 @@ constructor(
                 }
                 .map(Feed::normalizeRssReadingMode)
 
-        if (feedsToNormalize.isNotEmpty()) {
-            feedDao.updateAll(feedsToNormalize)
+        feedsToNormalize.groupBy(Feed::accountId).forEach { (accountId, feeds) ->
+            syncMutations.captureLibraryMutation(accountId) {
+                feedDao.updateAll(feeds)
+            }
         }
         context.dataStore.edit { preferences ->
             preferences[rssReadingModeMigrationKey] = true
@@ -205,10 +219,12 @@ constructor(
             return
         }
         accountDao.queryById(accountId)?.let {
-            articleDao.deleteByAccountId(accountId)
-            feedDao.deleteByAccountId(accountId)
-            groupDao.deleteByAccountId(accountId)
-            accountDao.delete(it)
+            syncRuntimeCoordinator.detachLocalAccount(accountId) {
+                articleDao.deleteByAccountId(accountId)
+                feedDao.deleteByAccountId(accountId)
+                groupDao.deleteByAccountId(accountId)
+                accountDao.delete(it)
+            }
             accountDao.queryAll().getOrNull(0)?.let {
                 context.dataStore.put(DataStoreKey.currentAccountId, it.id!!)
                 context.dataStore.put(DataStoreKey.currentAccountType, it.type.id)

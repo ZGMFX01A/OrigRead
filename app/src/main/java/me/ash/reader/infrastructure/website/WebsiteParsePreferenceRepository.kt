@@ -7,6 +7,7 @@ import javax.inject.Singleton
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import me.ash.reader.infrastructure.util.AtomicUtf8File
 
 /** 单条自动 DOM 规则的来源级历史统计。 */
 @Serializable
@@ -44,6 +45,17 @@ data class WebsiteParsePreference(
     val automaticFullScanCount: Int = 0,
 )
 
+/** R10 CONFIG only synchronizes user-authored parsing choices, never device-local detector history. */
+@Serializable
+data class WebsiteParsePreferenceUserSyncState(
+    val dynamicRenderingEnabled: Boolean = false,
+    val preferredRuleId: String? = null,
+    val preferredRuleName: String? = null,
+) {
+    fun isDefault(): Boolean =
+        !dynamicRenderingEnabled && preferredRuleId == null && preferredRuleName == null
+}
+
 @Serializable
 private data class WebsiteParsePreferenceBundle(
     val items: List<WebsiteParsePreference> = emptyList(),
@@ -74,6 +86,15 @@ class WebsiteParsePreferenceRepository @Inject constructor(
         json.decodeFromString<WebsiteParsePreferenceBundle>(content)
     }
 
+    /** 返回本次备份实际能够映射并恢复的本地 Feed ID，供 Sync capture 精确建立 before/after 集合。 */
+    fun mappedBackupFeedIds(
+        content: String,
+        feedIdMap: Map<String, String>,
+    ): Set<String> =
+        json.decodeFromString<WebsiteParsePreferenceBundle>(content)
+            .items
+            .mapNotNullTo(linkedSetOf()) { item -> feedIdMap[item.feedId] }
+
     /**
      * 恢复来源解析偏好。只替换本次备份涉及且已成功映射的订阅，不影响设备上额外存在的来源。
      */
@@ -89,7 +110,7 @@ class WebsiteParsePreferenceRepository @Inject constructor(
             (load().filterNot { it.feedId in affectedFeedIds } + restored)
                 .distinctBy(WebsiteParsePreference::feedId)
                 .sortedBy(WebsiteParsePreference::feedId)
-        preferenceFile.writeText(json.encodeToString(WebsiteParsePreferenceBundle(merged)))
+        writeAll(merged)
     }
 
     private val json = Json {
@@ -104,6 +125,56 @@ class WebsiteParsePreferenceRepository @Inject constructor(
     /** 查询指定来源的解析偏好。 */
     @Synchronized
     fun get(feedId: String): WebsiteParsePreference? = load().firstOrNull { it.feedId == feedId }
+
+    /** R10 CONFIG 读取用户可同步字段；全默认值视为不存在，用 GLOBAL_DELETE 表示清空偏好。 */
+    @Synchronized
+    fun getUserSyncState(feedId: String): WebsiteParsePreferenceUserSyncState? {
+        val current = get(feedId) ?: return null
+        return WebsiteParsePreferenceUserSyncState(
+            dynamicRenderingEnabled = current.dynamicRenderingEnabled,
+            preferredRuleId = current.preferredRuleId,
+            preferredRuleName = current.preferredRuleName,
+        ).takeUnless(WebsiteParsePreferenceUserSyncState::isDefault)
+    }
+
+    /** Genesis/Snapshot 只枚举当前 Local Account 中真正存在用户偏好的 Feed。 */
+    @Synchronized
+    fun listUserSyncStates(feedIds: Set<String>): Map<String, WebsiteParsePreferenceUserSyncState> =
+        load()
+            .asSequence()
+            .filter { it.feedId in feedIds }
+            .map { current ->
+                current.feedId to
+                    WebsiteParsePreferenceUserSyncState(
+                        dynamicRenderingEnabled = current.dynamicRenderingEnabled,
+                        preferredRuleId = current.preferredRuleId,
+                        preferredRuleName = current.preferredRuleName,
+                    )
+            }
+            .filterNot { (_, state) -> state.isDefault() }
+            .toMap()
+
+    /** Remote CONFIG apply merges user fields while preserving all device-local automatic detector state. */
+    @Synchronized
+    fun applyUserSyncState(feedId: String, state: WebsiteParsePreferenceUserSyncState?) {
+        val existing = get(feedId)
+        if (existing == null && state == null) return
+        val current = existing ?: WebsiteParsePreference(feedId = feedId)
+        save(
+            current.copy(
+                dynamicRenderingEnabled = state?.dynamicRenderingEnabled ?: false,
+                preferredRuleId = state?.preferredRuleId,
+                preferredRuleName = state?.preferredRuleName,
+            )
+        )
+    }
+
+    /** Feed deletion removes both user preference and device-local detector cache. */
+    @Synchronized
+    fun delete(feedId: String) {
+        val remaining = load().filterNot { it.feedId == feedId }
+        writeAll(remaining)
+    }
 
     /** 设置固定规则；传入 null 表示恢复自动选择。 */
     @Synchronized
@@ -253,14 +324,22 @@ class WebsiteParsePreferenceRepository @Inject constructor(
     @Synchronized
     private fun save(item: WebsiteParsePreference) {
         val merged = (load().filterNot { it.feedId == item.feedId } + item).sortedBy { it.feedId }
-        preferenceFile.writeText(json.encodeToString(WebsiteParsePreferenceBundle(merged)))
+        writeAll(merged)
     }
 
     private fun load(): List<WebsiteParsePreference> =
-        runCatching {
-            if (!preferenceFile.exists()) emptyList()
-            else json.decodeFromString<WebsiteParsePreferenceBundle>(preferenceFile.readText()).items
-        }.getOrDefault(emptyList())
+        AtomicUtf8File.readOrNull(preferenceFile)
+            ?.let { json.decodeFromString<WebsiteParsePreferenceBundle>(it).items }
+            ?: emptyList()
+
+    private fun writeAll(items: List<WebsiteParsePreference>) {
+        AtomicUtf8File.write(
+            preferenceFile,
+            json.encodeToString(
+                WebsiteParsePreferenceBundle(items.sortedBy(WebsiteParsePreference::feedId))
+            ),
+        )
+    }
 
     private fun Int.incrementHistoryCounter(): Int = (this + 1).coerceAtMost(MAX_HISTORY_COUNTER)
 }

@@ -41,8 +41,10 @@ import me.ash.reader.infrastructure.source.SourceCandidateKind
 import me.ash.reader.infrastructure.source.SourceInputHint
 import me.ash.reader.infrastructure.source.isKnownRssHubEndpoint
 import me.ash.reader.infrastructure.source.sourceInputHint
+import me.ash.reader.infrastructure.sync.core.LibrarySyncMutationCapture
 import me.ash.reader.infrastructure.website.CandidateState
 import me.ash.reader.infrastructure.website.WebsiteHelper
+import me.ash.reader.infrastructure.website.WebsiteParsePreferenceRepository
 import me.ash.reader.ui.ext.formatUrl
 
 @HiltViewModel
@@ -55,6 +57,8 @@ constructor(
     private val rssHubResolver: RssHubResolver,
     private val rssHubSettingsRepository: RssHubSettingsRepository,
     private val websiteHelper: WebsiteHelper,
+    private val websiteParsePreferenceRepository: WebsiteParsePreferenceRepository,
+    private val syncMutations: LibrarySyncMutationCapture,
     private val jsonSourceHelper: JsonSourceHelper,
     private val feedDiscoveryCatalog: FeedDiscoveryCatalog,
     private val androidStringsHelper: AndroidStringsHelper,
@@ -702,7 +706,24 @@ constructor(
                             isFullContent = state.fullContent,
                             isBrowser = state.browser,
                         ).also { feedId ->
-                            websiteHelper.setDynamicRenderingEnabled(feedId, state.dynamicRendering)
+                            syncMutations.captureWebsiteParsePreferenceMutation(
+                                accountId = accountService.getCurrentAccountId(),
+                                feedId = feedId,
+                                readState = {
+                                    websiteParsePreferenceRepository.getUserSyncState(feedId)
+                                },
+                                replaceState = { preference ->
+                                    websiteParsePreferenceRepository.applyUserSyncState(
+                                        feedId,
+                                        preference,
+                                    )
+                                },
+                            ) {
+                                websiteHelper.setDynamicRenderingEnabled(
+                                    feedId,
+                                    state.dynamicRendering,
+                                )
+                            }
                         }
 
                     SourceType.JSON ->
