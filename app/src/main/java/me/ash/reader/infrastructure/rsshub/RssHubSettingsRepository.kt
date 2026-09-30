@@ -32,6 +32,8 @@ class RssHubSettingsRepository @Inject constructor(
     private val preferences =
         context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
 
+    private val bundledInstances = loadBundledInstances(context).ifEmpty(::defaultInstances)
+
     private val _settings = MutableStateFlow(readSettings())
     val settings: StateFlow<RssHubSettings> = _settings.asStateFlow()
 
@@ -90,9 +92,39 @@ class RssHubSettingsRepository @Inject constructor(
     /** 实例网络失败后进入短暂冷却，避免连续添加来源时反复等待同一不可用实例。 */
     fun recordFailure(instanceBaseUrl: String, nowMillis: Long = System.currentTimeMillis()) {
         val normalized = normalizeInstanceUrl(instanceBaseUrl)
+        updateCooldown(cooldownKey(normalized), nowMillis)
+    }
+
+    /** route family 级成功记录，避免“实例 healthz 正常”被误当成所有反爬 route 都可用。 */
+    fun recordRouteSuccess(instanceBaseUrl: String, routeFamily: String) {
+        val normalized = normalizeInstanceUrl(instanceBaseUrl)
         preferences.edit()
-            .putLong(cooldownKey(normalized), nowMillis + INSTANCE_COOLDOWN_MILLIS)
+            .putString(routeLastSuccessKey(routeFamily), normalized)
+            .remove(routeCooldownKey(normalized, routeFamily))
             .apply()
+    }
+
+    /** route family 级失败冷却；不会把该实例对其它 RSSHub route 一并判死。 */
+    fun recordRouteFailure(
+        instanceBaseUrl: String,
+        routeFamily: String,
+        nowMillis: Long = System.currentTimeMillis(),
+    ) {
+        val normalized = normalizeInstanceUrl(instanceBaseUrl)
+        updateCooldown(routeCooldownKey(normalized, routeFamily), nowMillis)
+    }
+
+    /** 清理到期的临时键；串行化清理和写入，避免并发失败记录相互删除新冷却。 */
+    @Synchronized
+    private fun updateCooldown(key: String, nowMillis: Long) {
+        val editor = preferences.edit()
+        preferences.all.orEmpty().forEach { (storedKey, value) ->
+            if ((storedKey.startsWith(KEY_COOLDOWN_PREFIX) || storedKey.startsWith(KEY_ROUTE_COOLDOWN_PREFIX)) &&
+                value is Long && value <= nowMillis) {
+                editor.remove(storedKey)
+            }
+        }
+        editor.putLong(key, nowMillis + INSTANCE_COOLDOWN_MILLIS).apply()
     }
 
     /**
@@ -103,19 +135,45 @@ class RssHubSettingsRepository @Inject constructor(
         val enabledInstances = current().instances.filter { it.enabled }.map { it.url }
         val lastSuccess = preferences.getString(KEY_LAST_SUCCESS_INSTANCE, null)
         val ordered = orderInstances(lastSuccess, *enabledInstances.toTypedArray())
+            .filter { it in enabledInstances }
         val (ready, cooling) =
             ordered.partition { instance -> preferences.getLong(cooldownKey(instance), 0L) <= nowMillis }
         return ready + cooling
     }
 
+    fun candidateInstancesForRoute(
+        routeFamily: String,
+        nowMillis: Long = System.currentTimeMillis(),
+    ): List<String> {
+        val enabledInstances = current().instances.filter { it.enabled }.map { it.url }
+        val routeLastSuccess = preferences.getString(routeLastSuccessKey(routeFamily), null)
+        val globalLastSuccess = preferences.getString(KEY_LAST_SUCCESS_INSTANCE, null)
+        val ordered = orderInstances(routeLastSuccess, globalLastSuccess, *enabledInstances.toTypedArray())
+            .filter { it in enabledInstances }
+        val (ready, cooling) =
+            ordered.partition { instance ->
+                val globalCooldown = preferences.getLong(cooldownKey(instance), 0L)
+                val routeCooldown = preferences.getLong(routeCooldownKey(instance, routeFamily), 0L)
+                maxOf(globalCooldown, routeCooldown) <= nowMillis
+            }
+        return ready + cooling
+    }
+
     fun restoreDefault() {
-        preferences.edit()
+        val editor = preferences.edit()
             .putBoolean(KEY_ENABLED, true)
             .remove(KEY_INSTANCES)
             .remove(KEY_LEGACY_INSTANCE_URL)
             .remove(KEY_LAST_SUCCESS_INSTANCE)
-            .apply()
-        _settings.value = RssHubSettings()
+        preferences.all.keys
+            .filter { key ->
+                key.startsWith(KEY_COOLDOWN_PREFIX) ||
+                    key.startsWith(KEY_ROUTE_LAST_SUCCESS_PREFIX) ||
+                    key.startsWith(KEY_ROUTE_COOLDOWN_PREFIX)
+            }
+            .forEach(editor::remove)
+        editor.apply()
+        _settings.value = RssHubSettings(instances = bundledInstances)
     }
 
     /** 完整配置恢复入口；网络成功记录和失败冷却属于临时状态，不随备份迁移。 */
@@ -129,7 +187,7 @@ class RssHubSettingsRepository @Inject constructor(
                     )
                 }
                 .distinctBy(RssHubInstance::url)
-                .ifEmpty { defaultInstances() }
+                .ifEmpty { bundledInstances }
         preferences.edit()
             .clear()
             .putBoolean(KEY_ENABLED, settings.enabled)
@@ -149,7 +207,7 @@ class RssHubSettingsRepository @Inject constructor(
             if (stored.isNullOrBlank()) {
                 migrateLegacyInstances()
             } else {
-                decodeInstances(stored).ifEmpty { defaultInstances() }
+                decodeInstances(stored).ifEmpty { bundledInstances }
             }
         return RssHubSettings(
             enabled = preferences.getBoolean(KEY_ENABLED, true),
@@ -160,9 +218,9 @@ class RssHubSettingsRepository @Inject constructor(
     /** 兼容此前只保存一个实例地址的版本，并补齐新的公共实例列表。 */
     private fun migrateLegacyInstances(): List<RssHubInstance> {
         val legacy = preferences.getString(KEY_LEGACY_INSTANCE_URL, null)
-        if (legacy.isNullOrBlank()) return defaultInstances()
+        if (legacy.isNullOrBlank()) return bundledInstances
         val normalized = normalizeInstanceUrl(legacy)
-        return defaultInstances().map { instance ->
+        return bundledInstances.map { instance ->
             if (instance.url == normalized) instance.copy(enabled = true) else instance
         }.let { defaults ->
             if (defaults.any { it.url == normalized }) defaults
@@ -178,6 +236,37 @@ class RssHubSettingsRepository @Inject constructor(
         }
     }
 
+    private fun loadBundledInstances(context: Context): List<RssHubInstance> =
+        runCatching {
+            val raw =
+                context.assets.open(INSTANCE_CATALOG_ASSET)
+                    .bufferedReader()
+                    .use { it.readText() }
+            val root = JSONObject(raw)
+            check(root.optInt("schemaVersion") == INSTANCE_CATALOG_SCHEMA_VERSION)
+            val items = root.getJSONArray("instances")
+            buildList {
+                repeat(items.length()) { index ->
+                    val item = items.getJSONObject(index)
+                    val url = normalizeInstanceUrl(item.getString("url"))
+                    add(
+                        RssHubInstance(
+                            id = item.getString("id"),
+                            url = url,
+                            location =
+                                RssHubLocation.canonical(
+                                    item.getString("id"),
+                                    item.optString("location"),
+                                ),
+                            maintainer = item.optString("maintainer"),
+                            enabled = item.optBoolean("enabled", true),
+                            builtIn = true,
+                        )
+                    )
+                }
+            }.distinctBy(RssHubInstance::url)
+        }.getOrDefault(emptyList())
+
     companion object {
         private const val PREFERENCES_NAME = "rsshub_settings"
         private const val KEY_ENABLED = "enabled"
@@ -185,7 +274,11 @@ class RssHubSettingsRepository @Inject constructor(
         private const val KEY_LEGACY_INSTANCE_URL = "instance_url"
         private const val KEY_LAST_SUCCESS_INSTANCE = "last_success_instance"
         private const val KEY_COOLDOWN_PREFIX = "cooldown_until_"
+        private const val KEY_ROUTE_LAST_SUCCESS_PREFIX = "route_last_success_"
+        private const val KEY_ROUTE_COOLDOWN_PREFIX = "route_cooldown_until_"
         private const val INSTANCE_COOLDOWN_MILLIS = 5 * 60 * 1000L
+        private const val INSTANCE_CATALOG_ASSET = "rsshub_instances.json"
+        private const val INSTANCE_CATALOG_SCHEMA_VERSION = 1
 
         fun normalizeInstanceUrl(value: String): String {
             val trimmed = value.trim().trimEnd('/')
@@ -206,9 +299,12 @@ class RssHubSettingsRepository @Inject constructor(
         /** 内置实例只是初始配置，用户仍可逐个禁用或删除。 */
         fun defaultInstances(): List<RssHubInstance> =
             listOf(
-                instance("official", "https://rsshub.app", "US", "DIYgod"),
-                instance("rssforever", "https://rsshub.rssforever.com", "AE", "Stille"),
+                instance("isrss", "https://rsshub.isrss.com", "US", "isRSS"),
+                instance("cups", "https://rsshub.cups.moe", "US", "FunnyCups"),
                 instance("slarker", "https://hub.slarker.me", "US", "Slarker"),
+                instance("rssforever", "https://rsshub.rssforever.com", "AE", "Stille"),
+                instance("virworks", "https://rsshub-balancer.virworks.moe", "GLOBAL", "chesha1"),
+                instance("official", "https://rsshub.app", "US", "DIYgod", enabled = false),
                 instance("pseudoyu", "https://rsshub.pseudoyu.com", "FR", "pseudoyu"),
                 instance("rsstips", "https://rsshub.rss.tips", "US", "AboutRSS"),
                 instance("ktachibana", "https://rsshub.ktachibana.party", "US", "KTachibanaM"),
@@ -216,20 +312,24 @@ class RssHubSettingsRepository @Inject constructor(
                 instance("wudifeixue", "https://rss.wudifeixue.com", "CA", "wudifeixue"),
                 instance("henry", "https://rsshub.henry.wang", "GB", "HenryQW"),
                 instance("umzzz", "https://rsshub.umzzz.com", "HK", "nesay"),
-                instance("isrss", "https://rsshub.isrss.com", "US", "isRSS"),
                 instance("emailonce", "https://rsshub.email-once.com", "HK", "EmailOnce"),
                 instance("datuan", "https://rss.datuan.dev", "VN", "Tuấn Dev"),
-                instance("cups", "https://rsshub.cups.moe", "US", "FunnyCups"),
                 instance("spriple", "https://rss.spriple.org", "CN", "Spriple"),
-                instance("virworks", "https://rsshub-balancer.virworks.moe", "GLOBAL", "chesha1"),
             )
 
-        private fun instance(id: String, url: String, location: String, maintainer: String) =
+        private fun instance(
+            id: String,
+            url: String,
+            location: String,
+            maintainer: String,
+            enabled: Boolean = true,
+        ) =
             RssHubInstance(
                 id = id,
                 url = url,
                 location = location,
                 maintainer = maintainer,
+                enabled = enabled,
             )
 
         private fun encodeInstances(instances: List<RssHubInstance>): String {
@@ -275,5 +375,11 @@ class RssHubSettingsRepository @Inject constructor(
 
         private fun cooldownKey(instanceBaseUrl: String): String =
             KEY_COOLDOWN_PREFIX + instanceBaseUrl.hashCode()
+
+        private fun routeLastSuccessKey(routeFamily: String): String =
+            KEY_ROUTE_LAST_SUCCESS_PREFIX + routeFamily.hashCode()
+
+        private fun routeCooldownKey(instanceBaseUrl: String, routeFamily: String): String =
+            KEY_ROUTE_COOLDOWN_PREFIX + "$instanceBaseUrl|$routeFamily".hashCode()
     }
 }

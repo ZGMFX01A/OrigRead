@@ -11,17 +11,21 @@ import com.rometools.rome.feed.synd.SyndImageImpl
 import com.rometools.rome.io.SyndFeedInput
 import com.rometools.rome.io.XmlReader
 import dagger.hilt.android.qualifiers.ApplicationContext
-import java.io.ByteArrayInputStream
 import java.io.InputStream
 import java.net.URI
 import java.util.*
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.ash.reader.domain.model.article.Article
 import me.ash.reader.domain.model.feed.Feed
@@ -36,12 +40,14 @@ import me.ash.reader.infrastructure.content.FullContentFailureReason
 import me.ash.reader.infrastructure.html.Readability
 import me.ash.reader.infrastructure.net.HttpTextDecoder
 import me.ash.reader.infrastructure.net.HttpTextKind
+import me.ash.reader.infrastructure.rsshub.RssHubHttpClients
 import me.ash.reader.ui.ext.decodeHTML
 import me.ash.reader.ui.ext.extractDomain
 import me.ash.reader.ui.ext.isFuture
 import me.ash.reader.ui.ext.spacerDollar
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import okhttp3.executeAsync
 import okhttp3.internal.commonIsSuccessful
 import okio.IOException
@@ -75,7 +81,19 @@ data class RssQueryResult(
     val successful: Boolean = true,
     val etag: String? = null,
     val lastModified: String? = null,
+    val failure: Exception? = null,
 )
+
+enum class FeedFetchFailureReason {
+    BLOCKED_RESPONSE, HTTP_ERROR, HTML_RESPONSE, INVALID_CONTENT, UNSUPPORTED_FORMAT,
+}
+
+class FeedFetchException(
+    val reason: FeedFetchFailureReason,
+    val statusCode: Int? = null,
+    message: String,
+    cause: Throwable? = null,
+) : IOException(message, cause)
 
 /** Some operations on RSS. */
 class RssHelper
@@ -88,6 +106,7 @@ constructor(
     private val dynamicArticleContentService: DynamicArticleContentService,
     private val articleWebSessionManager: ArticleWebSessionManager,
 ) {
+    private val rssHubHttpClients = RssHubHttpClients(okHttpClient)
 
     @Throws(Exception::class)
     suspend fun searchFeed(feedLink: String): SyndFeed {
@@ -176,16 +195,12 @@ constructor(
         iconSourceUrl: String,
         client: OkHttpClient = okHttpClient,
     ): ParsedFeedResponse {
-        response(client, feedUrl).use { response ->
-            val bytes = response.body.bytes()
+        return withFeedResponse(client, Request.Builder().url(feedUrl).build()) { response ->
             val feed =
-                parseSyndFeed(
-                    inputStream = ByteArrayInputStream(bytes),
-                    contentType = response.header("Content-Type"),
-                )
+                parseFeedResponse(response)
                     .also {
                         require(it.title?.isNotBlank() == true || it.entries.isNotEmpty()) {
-                            "Feed 内容为空或格式无效：$feedUrl"
+                            "Feed 内容为空或格式无效"
                         }
                         val iconLink =
                             try {
@@ -202,10 +217,103 @@ constructor(
                             }
                         }
                     }
-            return ParsedFeedResponse(
+            ParsedFeedResponse(
                 feed = feed,
                 etag = response.header("ETag")?.trim()?.takeIf { it.isNotEmpty() },
                 lastModified = response.header("Last-Modified")?.trim()?.takeIf { it.isNotEmpty() },
+            )
+        }
+    }
+
+    /** 取消覆盖响应体读取阶段，避免仅取消等待响应头而留下阻塞的网络请求。 */
+    private suspend fun <T> withFeedResponse(
+        client: OkHttpClient,
+        request: Request,
+        block: suspend (Response) -> T,
+    ): T = withContext(ioDispatcher) {
+        coroutineScope {
+            val call = client.newCall(request)
+            val cancellationWatcher = launch(start = CoroutineStart.UNDISPATCHED) {
+                try { awaitCancellation() } finally { call.cancel() }
+            }
+            try { call.executeAsync().use { block(it) } }
+            catch (error: Exception) {
+                // 关闭阻塞中的 socket 会抛 IOException；取消仍须传播为正常的协程取消。
+                currentCoroutineContext().ensureActive()
+                throw error
+            }
+            finally { cancellationWatcher.cancel() }
+        }
+    }
+
+    private fun parseFeedResponse(response: Response, preserveWireFeed: Boolean = false): SyndFeed {
+        if (response.header("cf-mitigated").equals("challenge", ignoreCase = true)) {
+            throw FeedFetchException(
+                FeedFetchFailureReason.BLOCKED_RESPONSE, response.code,
+                "Feed request blocked by an anti-bot challenge",
+            )
+        }
+        // 错误页只检查有界前缀；读取错误页失败也必须保留已收到的 HTTP 状态。
+        val preview = try {
+            response.peekBody(64 * 1024L).string()
+        } catch (error: IOException) {
+            if (response.isSuccessful) throw error else ""
+        }
+        val feedRoot = Regex(
+            """(?is)^\uFEFF?\s*(?:(?:<\?.*?\?>|<!--.*?-->)\s*)*<(?:rss|(?:[\w-]+:)?feed|(?:[\w-]+:)?RDF)\b"""
+        ).containsMatchIn(preview)
+        val html = !feedRoot && (
+            response.header("Content-Type").orEmpty().contains("text/html", ignoreCase = true) ||
+                Regex("""(?i)<!doctype\s+html|<html\b|<head\b|<body\b""").containsMatchIn(preview)
+            )
+        val pageTitle = Regex("""(?is)<title\b[^>]*>\s*(.*?)\s*</title>""")
+            .find(preview)?.groupValues?.get(1).orEmpty()
+        // Turnstile 也会嵌入正常页面，不能仅凭脚本域名判为整页验证。
+        val challenge = html && (
+            preview.contains("/cdn-cgi/challenge-platform/", ignoreCase = true) ||
+                preview.contains("cf-chl-", ignoreCase = true) ||
+                pageTitle.matches(Regex("""(?i)Just a moment(?:\.{3}|…)?""")) ||
+                pageTitle.equals("Attention Required! | Cloudflare", ignoreCase = true) ||
+                (preview.contains("challenges.cloudflare.com", ignoreCase = true) &&
+                    pageTitle.matches(Regex("""(?i)(?:Verify you are human|Security verification|Checking your browser)[.!…]*""")))
+            )
+        if (challenge && !response.isSuccessful) throw FeedFetchException(
+            FeedFetchFailureReason.BLOCKED_RESPONSE, response.code,
+            "Feed request blocked by an anti-bot challenge",
+        )
+        if (!response.isSuccessful) throw FeedFetchException(
+            FeedFetchFailureReason.HTTP_ERROR, response.code, "Feed request failed with HTTP ${response.code}",
+        )
+        val json = !feedRoot && (response.header("Content-Type").orEmpty().contains("json", ignoreCase = true) ||
+            preview.trimStart().startsWith('{') || preview.trimStart().startsWith('['))
+        if (!feedRoot && (preview.trimStart().startsWith('{') || preview.trimStart().startsWith('['))) {
+            throw FeedFetchException(
+                FeedFetchFailureReason.UNSUPPORTED_FORMAT, response.code, "Use RSS or Atom output instead of JSON",
+            )
+        }
+        return try {
+            response.body.byteStream().use {
+                parseSyndFeed(it, response.header("Content-Type"), preserveWireFeed)
+            }
+        } catch (error: IOException) {
+            throw error
+        } catch (error: Exception) {
+            // ROME/JDOM 会包装响应体读取异常；断流仍属于连接故障，不能误报为坏 XML。
+            generateSequence(error as Throwable) { it.cause }.take(8)
+                .filterIsInstance<IOException>().firstOrNull()?.let { throw it }
+            // MIME 和有界前缀只是线索：先让 XML reader 验证，兼容错误 MIME、UTF-16 和较长序言。
+            if (challenge) throw FeedFetchException(
+                FeedFetchFailureReason.BLOCKED_RESPONSE, response.code,
+                "Feed request blocked by an anti-bot challenge", error,
+            )
+            if (html) throw FeedFetchException(
+                FeedFetchFailureReason.HTML_RESPONSE, response.code, "Server returned a web page instead of a feed", error,
+            )
+            if (json) throw FeedFetchException(
+                FeedFetchFailureReason.UNSUPPORTED_FORMAT, response.code, "Use RSS or Atom output instead of JSON", error,
+            )
+            throw FeedFetchException(
+                FeedFetchFailureReason.INVALID_CONTENT, response.code, "Feed content is invalid", error,
             )
         }
     }
@@ -362,12 +470,25 @@ constructor(
             lastModified = lastModified,
         )
 
+    /** RSSHub 刷新沿用条件请求及文章转换，只替换网络策略。普通 RSS 保留原客户端。 */
+    suspend fun queryRssHubXmlConditional(
+        feed: Feed,
+        latestLink: String?,
+        preDate: Date = Date(),
+        etag: String? = null,
+        lastModified: String? = null,
+    ): RssQueryResult = queryRssXmlInternal(
+        feed, latestLink, preDate, etag, lastModified,
+        client = rssHubHttpClients.forUrl(feed.url),
+    )
+
     private suspend fun queryRssXmlInternal(
         feed: Feed,
         latestLink: String?,
         preDate: Date,
         etag: String? = null,
         lastModified: String? = null,
+        client: OkHttpClient = okHttpClient,
     ): RssQueryResult =
         try {
             val request =
@@ -381,9 +502,9 @@ constructor(
                     }
                     .build()
 
-            response(okHttpClient, request).use { response ->
+            withFeedResponse(client, request) { response ->
                 if (response.code == 304) {
-                    return RssQueryResult(
+                    return@withFeedResponse RssQueryResult(
                         articles = emptyList(),
                         notModified = true,
                         successful = true,
@@ -391,23 +512,13 @@ constructor(
                         lastModified = response.header("Last-Modified") ?: lastModified,
                     )
                 }
-                if (!response.commonIsSuccessful) {
-                    throw IOException("RSS request failed with HTTP ${response.code}")
-                }
-
                 val entries =
                     withContext(ioDispatcher) {
-                        response.body.byteStream().use { inputStream ->
-                            parseSyndFeed(
-                                inputStream = inputStream,
-                                contentType = response.header("Content-Type"),
-                                preserveWireFeed = true,
-                            )
-                                .entries
-                                .asSequence()
-                                .takeWhile { latestLink == null || latestLink != it.link }
-                                .toList()
-                        }
+                        parseFeedResponse(response, preserveWireFeed = true)
+                            .entries
+                            .asSequence()
+                            .takeWhile { latestLink == null || latestLink != it.link }
+                            .toList()
                     }
                 val articles =
                     buildArticlesFromSyndEntries(
@@ -423,10 +534,12 @@ constructor(
                         response.header("Last-Modified")?.trim()?.takeIf { it.isNotEmpty() },
                 )
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             e.printStackTrace()
             Log.e("RLog", "queryRssXml[${feed.name}]: ${e.message}")
-            RssQueryResult(articles = emptyList(), successful = false)
+            RssQueryResult(articles = emptyList(), successful = false, failure = e)
         }
 
     /**

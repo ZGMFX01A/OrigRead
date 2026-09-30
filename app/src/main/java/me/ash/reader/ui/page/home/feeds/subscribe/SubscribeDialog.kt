@@ -1,5 +1,7 @@
 package me.ash.reader.ui.page.home.feeds.subscribe
 
+import me.ash.reader.domain.model.feed.SourceType
+
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -514,21 +516,33 @@ private fun CatalogMatchSection(
 }
 
 @Composable
-private fun RssHubRouteSection(
+internal fun RssHubRouteSection(
     results: List<RssHubProbeResult>,
     candidates: List<SubscribeSourceCandidate>,
     selectedIds: Set<String>,
     onToggle: (String) -> Unit,
     onRetry: (() -> Unit)?,
 ) {
+    val rssCandidatesByUrl = candidates.filter { it.sourceType == SourceType.RSS }
+        .associateBy(SubscribeSourceCandidate::feedLink)
+    val hasConfirmedResult = results.any { result ->
+        result.available && result.match.feedUrl?.let(rssCandidatesByUrl::containsKey) == true
+    }
+    val selectableResults = results.filter { result ->
+        result.available && result.match.feedUrl?.let { rssCandidatesByUrl[it]?.kind } == SourceCandidateKind.RSSHUB
+    }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = stringResource(R.string.rsshub_matched_channels),
+                text = stringResource(if (selectableResults.isEmpty()) R.string.rsshub_probe_results
+                    else R.string.rsshub_matched_channels),
                 style = MaterialTheme.typography.titleSmall,
             )
             Text(
-                text = stringResource(R.string.rsshub_matched_channels_desc, results.size),
+                text = if (selectableResults.isEmpty()) stringResource(
+                    if (hasConfirmedResult) R.string.rsshub_probe_rss_available_desc else R.string.rsshub_probe_results_desc)
+                    else stringResource(R.string.rsshub_matched_channels_desc,
+                        selectableResults.map { it.match.route.id to it.match.parameters }.distinct().size),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -542,14 +556,10 @@ private fun RssHubRouteSection(
     Spacer(modifier = Modifier.height(8.dp))
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         results.forEach { result ->
-            val candidate =
-                result.match.feedUrl?.let { feedUrl ->
-                    candidates.firstOrNull {
-                        it.kind == SourceCandidateKind.RSSHUB && it.feedLink == feedUrl
-                    }
-                }
-            val selectable = candidate != null
-            val selected = candidate?.id in selectedIds
+            val candidate = if (result.available)
+                result.match.feedUrl?.let(rssCandidatesByUrl::get) else null
+            val selectable = candidate?.kind == SourceCandidateKind.RSSHUB
+            val selected = selectable && candidate?.id in selectedIds
             val cardModifier =
                 if (selectable) {
                     Modifier.fillMaxWidth().roundClick { onToggle(requireNotNull(candidate).id) }
@@ -589,9 +599,13 @@ private fun RssHubRouteSection(
                             text = rssHubRouteStatus(result, candidate),
                             style = MaterialTheme.typography.bodySmall,
                             color =
-                                if (selectable) MaterialTheme.colorScheme.primary
+                                if (candidate != null) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        result.instanceBaseUrl?.let { instance ->
+                            Text(instance, style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
             }
@@ -714,12 +728,9 @@ private fun rssHubRouteStatus(
             stringResource(R.string.rsshub_route_available, candidate.diagnostics.articleCount)
 
         result.available -> stringResource(R.string.rsshub_route_quality_rejected)
-        result.state == CandidateState.TIMEOUT -> stringResource(R.string.rsshub_route_timeout)
-        result.state == CandidateState.NETWORK_UNAVAILABLE ->
-            stringResource(R.string.rsshub_route_network_unavailable)
-        result.state == CandidateState.UNSUPPORTED -> stringResource(R.string.rsshub_route_disabled)
-        result.state == CandidateState.NEEDS_INPUT -> stringResource(R.string.rsshub_route_needs_input)
-        else -> stringResource(R.string.rsshub_route_invalid_content)
+        else -> rssHubFailureText(result).let { text ->
+            stringResource(text.resourceId, *text.arguments.toTypedArray())
+        }
     }
 
 @Composable

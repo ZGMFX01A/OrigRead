@@ -35,13 +35,12 @@ import me.ash.reader.infrastructure.discovery.FeedCatalogUrlMatch
 import me.ash.reader.infrastructure.discovery.FeedDiscoveryCatalog
 import me.ash.reader.infrastructure.json.JsonSourceHelper
 import me.ash.reader.infrastructure.rss.RssHelper
+import me.ash.reader.infrastructure.rsshub.RssHubInputParser
 import me.ash.reader.infrastructure.rsshub.RssHubResolver
 import me.ash.reader.infrastructure.rsshub.RssHubSettingsRepository
 import me.ash.reader.infrastructure.source.SourceCandidateKind
 import me.ash.reader.infrastructure.source.SourceInputHint
-import me.ash.reader.infrastructure.source.isKnownRssHubEndpoint
 import me.ash.reader.infrastructure.source.sourceInputHint
-import me.ash.reader.infrastructure.website.CandidateState
 import me.ash.reader.infrastructure.website.WebsiteHelper
 import me.ash.reader.ui.ext.formatUrl
 
@@ -161,13 +160,23 @@ constructor(
         val currentState = _subscribeState.value
         if (currentState !is SubscribeState.Idle) return
         searchCoordinatorJob = viewModelScope.launch {
-            val feedLink = currentState.linkState.text.trim().toString().formatUrl()
-            currentState.linkState.edit { this.replace(0, length, feedLink) }
-
+            val rawInput = currentState.linkState.text.trim().toString()
             val knownInstances =
                 runCatching { rssHubSettingsRepository.current().instances.map { it.url } }
                     .getOrDefault(emptyList())
-            val knownRssHubEndpoint = isKnownRssHubEndpoint(feedLink, knownInstances)
+            val explicitRssHubInput = RssHubInputParser.parseExplicit(rawInput, knownInstances)
+            if (rawInput.startsWith("rsshub:", ignoreCase = true) && explicitRssHubInput == null) {
+                _subscribeState.value = currentState.copy(
+                    errorMessage = androidStringsHelper.getString(R.string.rsshub_invalid_input_notice),
+                )
+                return@launch
+            }
+            val feedLink = explicitRssHubInput?.preferredInstance?.let { instance ->
+                RssHubInputParser.buildFeedUrl(instance, explicitRssHubInput.routePath)
+            } ?: if (explicitRssHubInput != null) rawInput else rawInput.formatUrl()
+            currentState.linkState.edit { this.replace(0, length, feedLink) }
+
+            val knownRssHubEndpoint = explicitRssHubInput != null
             val inputHint = sourceInputHint(feedLink)
 
             // Catalog 是现有来源发现链之前的“可选本地知识”。目录读取/匹配失败绝不能阻断旧链。
@@ -203,16 +212,33 @@ constructor(
                         val isLocalAccount =
                             accountService.getCurrentAccount().type.id == AccountType.Local.id
                         if (knownRssHubEndpoint) {
-                            val rssHubDirectResult =
-                                runSuspendCatching { withTimeout(20_000) { rssHelper.parseFeedDirect(feedLink) } }
-                            val feed = rssHubDirectResult.getOrNull()
-                            if (feed != null) {
+                            val explicit = requireNotNull(explicitRssHubInput)
+                            val rssHubResults =
+                                runSuspendCatching {
+                                    withTimeout(20_000) {
+                                        // 关闭 RSSHub 时远端账户仍可订阅指定 HTTP 地址；
+                                        // 开启时与 logical 输入共用探测、回退和本地化诊断。
+                                        if (!isLocalAccount && explicit.preferredInstance != null &&
+                                            !rssHubSettingsRepository.current().enabled) {
+                                            listOf(rssHubResolver.probeExplicitRoute(
+                                                explicit.routePath, explicit.preferredInstance,
+                                            ))
+                                        } else {
+                                            rssHubResolver.probeRoute(
+                                                routePath = explicit.routePath,
+                                                preferredInstance = explicit.preferredInstance,
+                                            )
+                                        }
+                                    }
+                                }.getOrDefault(emptyList())
+                            val available = rssHubResults.firstOrNull { it.available }
+                            if (available?.feed != null && available.match.feedUrl != null) {
                                 applyBestCandidate(
                                     candidates =
                                         listOf(
                                             SubscribeCandidateProbe(
-                                                feed = feed,
-                                                feedLink = feedLink,
+                                                feed = available.feed,
+                                                feedLink = available.match.feedUrl,
                                                 sourceType = SourceType.RSS,
                                                 kind =
                                                     if (isLocalAccount) {
@@ -222,20 +248,23 @@ constructor(
                                                         // 但实例 route 本身仍是标准 RSS URL，可作为普通 RSS 订阅。
                                                         SourceCandidateKind.RSS_DIRECT
                                                     },
+                                                rssHubRoutePath = explicit.routePath,
+                                                rssHubPreferredInstanceBaseUrl = explicit.preferredInstance,
+                                                rssHubInstanceBaseUrl = available.instanceBaseUrl,
                                             )
                                         ),
                                     idleState = discoveryIdleState,
                                     firstGroupId = firstGroupId,
                                     lastError = null,
+                                    rssHubResults = rssHubResults,
                                 )
                                 return@launch
                             }
 
                             _subscribeState.value =
                                 discoveryIdleState.copy(
-                                    errorMessage =
-                                        rssHubDirectResult.exceptionOrNull()?.message
-                                            ?: "未能连接或解析该 RSSHub 实例地址"
+                                    errorMessage = explicitRssHubFailureNotice(rssHubResults),
+                                    rssHubResults = rssHubResults,
                                 )
                             return@launch
                         }
@@ -358,6 +387,8 @@ constructor(
                                             R.string.rsshub_source_notice,
                                             result.match.route.name,
                                         ),
+                                    rssHubRoutePath = result.routePath,
+                                    rssHubInstanceBaseUrl = result.instanceBaseUrl,
                                 )
                         }
                         val rssHubNotice = rssHubFailureNotice(rssHubResults)
@@ -510,22 +541,16 @@ constructor(
 
     /** RSSHub 网络失败仅作为非阻断提示，不影响其他候选参与评分。 */
     private fun rssHubFailureNotice(results: List<me.ash.reader.infrastructure.rsshub.RssHubProbeResult>): String? =
-        results.firstNotNullOfOrNull { result ->
-            when (result.state) {
-                CandidateState.TIMEOUT -> androidStringsHelper.getString(R.string.rsshub_timeout_notice)
-                CandidateState.NETWORK_UNAVAILABLE ->
-                    androidStringsHelper.getString(R.string.rsshub_network_unavailable_notice)
-                CandidateState.NEEDS_INPUT ->
-                    androidStringsHelper.getString(
-                        R.string.rsshub_missing_parameters_notice,
-                        result.match.route.name,
-                        result.match.missingParameters.joinToString(),
-                    )
-                CandidateState.INVALID_CONTENT ->
-                    androidStringsHelper.getString(R.string.rsshub_invalid_response_notice)
-                else -> null
-            }
+        rssHubFailureSummary(results)?.let { notice ->
+            androidStringsHelper.getString(notice.resourceId, *notice.arguments.toTypedArray())
         }
+
+    /** 显式 RSSHub 输入失败时不再回落网页解析，而是给出 route/instance 语义明确的错误。 */
+    private fun explicitRssHubFailureNotice(
+        results: List<me.ash.reader.infrastructure.rsshub.RssHubProbeResult>
+    ): String =
+        rssHubFailureNotice(results)
+            ?: androidStringsHelper.getString(R.string.rsshub_explicit_unavailable_notice)
 
     /** 在配置页切换有效来源候选，同时保留分组和订阅偏好。 */
     fun selectSourceCandidate(candidateId: String) {
@@ -640,6 +665,9 @@ constructor(
                                 searchedFeed = candidate.feed,
                                 feedLink = candidate.feedLink,
                                 sourcePageUrl = state.sourcePageUrl,
+                                routePath = candidate.rssHubRoutePath,
+                                preferredInstance = candidate.rssHubPreferredInstanceBaseUrl,
+                                resolvedInstance = candidate.rssHubInstanceBaseUrl,
                                 groupId = state.selectedGroupId,
                                 isNotification = state.notification,
                                 isFullContent = false,
@@ -657,10 +685,15 @@ constructor(
                         val selectedKind =
                             state.candidates.firstOrNull { it.id == state.selectedCandidateId }?.kind
                         if (selectedKind == SourceCandidateKind.RSSHUB) {
+                            val selectedCandidate =
+                                state.candidates.firstOrNull { it.id == state.selectedCandidateId }
                             rssService.subscribeRssHub(
                                 searchedFeed = searchedFeed,
                                 feedLink = state.feedLink,
                                 sourcePageUrl = state.sourcePageUrl,
+                                routePath = selectedCandidate?.rssHubRoutePath,
+                                preferredInstance = selectedCandidate?.rssHubPreferredInstanceBaseUrl,
+                                resolvedInstance = selectedCandidate?.rssHubInstanceBaseUrl,
                                 groupId = state.selectedGroupId,
                                 isNotification = state.notification,
                                 isFullContent = false,
@@ -810,9 +843,9 @@ internal fun mergeRssHubProbeResults(
 
     val merged = linkedMapOf<String, me.ash.reader.infrastructure.rsshub.RssHubProbeResult>()
     local.forEach { result -> merged[key(result)] = result }
-    // 网络探测结果信息更完整（可用 Feed、实际错误状态等），同一路由覆盖本地占位诊断。
-    probed.forEach { result -> merged[key(result)] = result }
-    return merged.values.toList()
+    // 只替换本地占位诊断。同一路由可以有多个真实诊断，例如 HTTP 503 加验证未完成。
+    probed.forEach { result -> merged.remove(key(result)) }
+    return merged.values.toList() + probed
 }
 
 enum class SearchStage {

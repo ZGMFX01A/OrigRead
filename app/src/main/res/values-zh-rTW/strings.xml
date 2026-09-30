@@ -508,6 +508,9 @@
   <string name="source_candidate_summary">%2$d 篇文章</string>
   <string name="source_candidate_article_count">%1$d 篇文章</string>
   <string name="rsshub_multi_select_hint">支援多選訂閱匹配到的 RSSHub 頻道。</string>
+  <string name="rsshub_probe_results">RSSHub 探測結果</string>
+  <string name="rsshub_probe_results_desc">目前沒有可在此勾選的頻道，請查看下方探測結果。</string>
+  <string name="rsshub_probe_rss_available_desc">已找到可用的 RSS 訂閱來源，請在下方確認訂閱。</string>
   <string name="rsshub_matched_channels">RSSHub 頻道</string>
   <string name="rsshub_matched_channels_desc">已匹配 %1$d 個頻道，支援多選訂閱</string>
   <string name="rsshub_route_available">可訂閱 · %1$d 篇文章</string>
@@ -546,6 +549,11 @@
   <string name="rsshub_timeout_notice">RSSHub 回應逾時，已切換至網頁解析</string>
   <string name="rsshub_network_unavailable_notice">RSSHub 無法存取，已切換至網頁解析</string>
   <string name="rsshub_missing_parameters_notice">RSSHub 符合項目「%1$s」還需要更多資訊（%2$s），請填寫更具體的頁面位址。</string>
+  <string name="rsshub_explicit_blocked_notice">RSSHub 伺服器或上游網站傳回了人機驗證或反爬攔截頁面。請重試或改用其他實例。</string>
+  <string name="rsshub_explicit_http_error_notice">RSSHub 請求在伺服器或上游網站執行失敗。請查看各伺服器的具體原因，或嘗試其他實例。</string>
+  <string name="rsshub_explicit_network_notice">無法連線至這個 RSSHub 伺服器。請檢查網路與伺服器位址。</string>
+  <string name="rsshub_explicit_invalid_notice">伺服器傳回的內容無法解析為有效的 RSS/Atom。</string>
+  <string name="rsshub_explicit_unavailable_notice">本次未取得可用的 RSSHub 訂閱。請查看具體原因後重試。</string>
   <string name="website_rule_tutorial">網站規則使用教學</string>
   <string name="export_website_rule_template">匯出固定規則範本</string>
   <string name="website_rule_tutorial_content">1. 先匯出固定範本，使用文字編輯器開啟 JSON 檔案。\n\n2. 修改 id、name 和
@@ -860,4 +868,22 @@
   <string name="ai_ask_article">詢問這篇文章</string>
   <string name="ai_analyze_article">深度分析</string>
   <string name="ai_reading_assistant">AI 閱讀助手</string>
+    <string name="rsshub_connection_closed_notice">連線在回應完成前被關閉。請重試，或檢查代理與伺服器。</string>
+    <string name="rsshub_disabled_notice">RSSHub 目前已關閉。請在設定中啟用後重試。</string>
+    <string name="rsshub_dns_notice">無法解析 RSSHub 伺服器網域名稱。請檢查伺服器位址與 DNS 設定。</string>
+    <string name="rsshub_html_notice">伺服器傳回了網頁，而非 RSS/Atom。請檢查實例位址與路由。</string>
+    <string name="rsshub_http_auth_notice">HTTP 401：請求需要身分驗證。請檢查實例存取權限或路由設定。</string>
+    <string name="rsshub_http_denied_notice">HTTP 403：伺服器拒絕了請求。請嘗試其他實例或檢查存取規則。</string>
+    <string name="rsshub_http_not_found_notice">HTTP 404：找不到請求的位址或路由。請檢查路由與實例基礎位址。</string>
+    <string name="rsshub_http_rate_limit_notice">HTTP 429：伺服器限制了請求頻率。請稍後重試或改用其他實例。</string>
+    <string name="rsshub_http_status_notice">RSSHub 伺服器傳回 HTTP %1$d。請檢查伺服器或上游路由，稍後重試。</string>
+    <string name="rsshub_invalid_input_notice">RSSHub 位址格式無效。請使用 rsshub://服務/路由，並檢查路由參數。</string>
+    <string name="rsshub_mixed_failures_notice">不同 RSSHub 伺服器傳回了不同錯誤。請查看下方各伺服器的具體原因後重試。</string>
+    <string name="rsshub_no_instances_notice">沒有啟用任何 RSSHub 實例。請在設定中新增或啟用實例。</string>
+    <string name="rsshub_probe_incomplete_notice">本次 RSSHub 探測逾時，部分實例尚未完成。請重試或調整實例順序。</string>
+    <string name="rsshub_request_timeout_notice">RSSHub 請求逾時。請稍後重試或改用其他實例。</string>
+    <string name="rsshub_tls_notice">無法與 RSSHub 建立安全連線。請檢查伺服器憑證或代理設定。</string>
+    <string name="rsshub_unsupported_format_notice">此 RSSHub 傳回了暫不支援的格式（如 JSON）。請使用 RSS 或 Atom 輸出，例如將 format 改為 rss。</string>
+    <string name="rsshub_auth_instance_notice">此 RSSHub 路由包含存取金鑰或存取碼。請填寫所屬實例的完整 HTTP/HTTPS 位址，避免將憑證傳送給其他實例。</string>
+    <string name="rsshub_bound_instance_disabled_notice">此帶憑證訂閱所屬的 RSSHub 實例已被停用或刪除。請啟用原實例後再進行自動復原。</string>
 </resources>

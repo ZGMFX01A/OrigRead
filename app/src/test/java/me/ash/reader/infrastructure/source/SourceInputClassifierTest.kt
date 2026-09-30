@@ -63,6 +63,7 @@ class SourceInputClassifierTest {
     @Test
     fun `known rsshub route uses configured base path instead of host only`() {
         assertTrue(isKnownRssHubEndpoint("https://rsshub.app/bilibili/user/video/2267573"))
+        assertTrue(isKnownRssHubEndpoint("rsshub://bilibili/user/dynamic/1161918898"))
         assertFalse(isKnownRssHubEndpoint("https://rsshub.app"))
 
         val instances = listOf("https://hub.example.com/rsshub")

@@ -34,6 +34,7 @@ import me.ash.reader.infrastructure.preference.SyncOnlyWhenChargingPreference
 import me.ash.reader.infrastructure.rsshub.RssHubInstance
 import me.ash.reader.infrastructure.rsshub.RssHubSettings
 import me.ash.reader.infrastructure.rsshub.RssHubSettingsRepository
+import me.ash.reader.infrastructure.rsshub.RssHubSubscriptionDescriptor
 import me.ash.reader.infrastructure.rsshub.RssHubSubscriptionRepository
 import me.ash.reader.infrastructure.source.findFeedByComparisonUrl
 import me.ash.reader.infrastructure.translation.TranslationDisplayMode
@@ -150,6 +151,9 @@ class ConfigurationBackupService @Inject constructor(
                     json.parseToJsonElement(websiteParsePreferenceRepository.exportBackup(feedIds)),
                 rssHub = rssHubSettingsRepository.current().toBackup(),
                 rssHubSourceUrls = rssHubSubscriptionRepository.exportMappings(feedIds),
+                rssHubSubscriptions =
+                    rssHubSubscriptionRepository.exportDescriptors(feedIds)
+                        .mapValues { (_, descriptor) -> descriptor.toBackup() },
                 translation = translationSettingsRepository.current().toBackup(),
                 ai = aiSettingsRepository.current().toBackup(),
                 editionConfiguration = editionBackupExtension.exportConfiguration(),
@@ -252,6 +256,10 @@ class ConfigurationBackupService @Inject constructor(
         websiteParsePreferenceRepository.restoreBackup(prepared.websitePreferencesJson, feedIdMap)
         rssHubSettingsRepository.restoreBackup(prepared.rssHubSettings)
         rssHubSubscriptionRepository.restoreMappings(backup.rssHubSourceUrls, feedIdMap)
+        rssHubSubscriptionRepository.restoreDescriptors(
+            backup.rssHubSubscriptions.mapValues { (_, descriptor) -> descriptor.toDescriptor() },
+            feedIdMap,
+        )
 
         val translationKeys =
             secrets?.translationApiKeys.orEmpty().mapNotNull { (name, value) ->
@@ -554,6 +562,24 @@ class ConfigurationBackupService @Inject constructor(
                         builtIn = instance.builtIn,
                     )
                 },
+        )
+
+    private fun RssHubSubscriptionDescriptor.toBackup() =
+        RssHubSubscriptionBackup(
+            originalInput = originalInput,
+            routePath = routePath,
+            preferredInstance = preferredInstance,
+            lastResolvedInstance = lastResolvedInstance,
+            lastResolvedUrl = lastResolvedUrl,
+        )
+
+    private fun RssHubSubscriptionBackup.toDescriptor() =
+        RssHubSubscriptionDescriptor(
+            originalInput = originalInput,
+            routePath = routePath,
+            preferredInstance = preferredInstance,
+            lastResolvedInstance = lastResolvedInstance,
+            lastResolvedUrl = lastResolvedUrl,
         )
 
     private fun TranslationSettings.toBackup() =

@@ -510,10 +510,14 @@ internal fun prepareWebViewReaderContent(
     sourceUrl: String?,
     originalContent: Boolean,
 ): WebViewPreparedReaderContent {
-    if (!originalContent) {
-        return WebViewPreparedReaderContent(content, ReaderEvidenceDocument(emptyList()))
-    }
     val body = Jsoup.parse(content, sourceUrl.orEmpty()).body()
+    val imageUrlsChanged = upgradeReaderImageUrls(body)
+    if (!originalContent) {
+        return WebViewPreparedReaderContent(
+            if (imageUrlsChanged) body.html() else content,
+            ReaderEvidenceDocument(emptyList()),
+        )
+    }
     val evidenceDocument = buildReaderEvidenceDocument(body)
     return WebViewPreparedReaderContent(body.html(), evidenceDocument)
 }
