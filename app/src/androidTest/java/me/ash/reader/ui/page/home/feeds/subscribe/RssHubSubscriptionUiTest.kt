@@ -17,6 +17,7 @@ import me.ash.reader.R
 import me.ash.reader.infrastructure.android.AndroidApp
 import me.ash.reader.infrastructure.android.MainActivity
 import me.ash.reader.infrastructure.rsshub.RssHubSubscriptionRepository
+import me.ash.reader.infrastructure.rsshub.RssHubSettingsRepository
 import me.ash.reader.ui.ext.PreferencesKey
 import me.ash.reader.ui.ext.dataStore
 import me.ash.reader.ui.ext.put
@@ -53,7 +54,7 @@ class RssHubSubscriptionUiTest {
         runBlocking { context.dataStore.put(PreferencesKey.isFirstLaunch, false) }
 
         val scenario = ActivityScenario.launch(MainActivity::class.java)
-        val repository = RssHubSubscriptionRepository(context)
+        val repository = RssHubSubscriptionRepository(context, RssHubSettingsRepository(context))
         try {
             subscribeThroughUi(
                 input = "https://rsshub.app/zhihu/hot",

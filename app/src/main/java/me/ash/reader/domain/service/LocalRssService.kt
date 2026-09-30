@@ -701,6 +701,14 @@ constructor(
         if (latest.icon == fetchedFrom.icon && detected.icon != fetchedFrom.icon) {
             merged = merged.copy(icon = detected.icon)
         }
+        // RSSHub failover can fill a missing title without changing the source type.
+        // Keep any user edits made while the network request was in flight.
+        if (
+            fetchedFrom.name.isBlank() && latest.name == fetchedFrom.name &&
+                latest.url == fetchedFrom.url && detected.name.isNotBlank()
+        ) {
+            merged = merged.copy(name = detected.name)
+        }
         if (
             latest.sourceType == fetchedFrom.sourceType &&
                 detected.sourceType != fetchedFrom.sourceType

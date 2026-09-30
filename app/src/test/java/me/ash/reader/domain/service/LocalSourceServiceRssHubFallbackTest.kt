@@ -1,5 +1,7 @@
 package me.ash.reader.domain.service
 
+import android.content.Context
+import android.content.SharedPreferences
 import com.rometools.rome.feed.synd.SyndEntryImpl
 import com.rometools.rome.feed.synd.SyndFeedImpl
 import java.util.Date
@@ -20,6 +22,8 @@ import me.ash.reader.infrastructure.rsshub.RssHubRouteDefinition
 import me.ash.reader.infrastructure.rsshub.RssHubRouteMatch
 import me.ash.reader.infrastructure.rsshub.RssHubSubscriptionRepository
 import me.ash.reader.infrastructure.rsshub.RssHubSubscriptionDescriptor
+import me.ash.reader.infrastructure.rsshub.RssHubSettings
+import me.ash.reader.infrastructure.rsshub.RssHubSettingsRepository
 import me.ash.reader.infrastructure.website.CandidateState
 import me.ash.reader.infrastructure.website.WebsiteHelper
 import org.junit.Assert.assertEquals
@@ -55,6 +59,38 @@ class LocalSourceServiceRssHubFallbackTest {
             rssHubResolver = rssHubResolver,
             rssHubSubscriptionRepository = subscriptionRepository,
         )
+
+    @Test
+    fun `source received through sync reaches logical route recovery before its first refresh`(): Unit = runBlocking {
+        val values = mutableMapOf<String, String>()
+        val preferences = mock<SharedPreferences>()
+        val editor = mock<SharedPreferences.Editor>()
+        val context = mock<Context>()
+        val settings = mock<RssHubSettingsRepository>()
+        whenever(settings.current()).thenReturn(RssHubSettings())
+        whenever(context.getSharedPreferences(any(), any())).thenReturn(preferences)
+        whenever(preferences.getString(any(), anyOrNull())).thenAnswer { values[it.getArgument<String>(0)] }
+        whenever(preferences.edit()).thenReturn(editor)
+        whenever(editor.putString(any(), anyOrNull())).thenAnswer {
+            values[it.getArgument<String>(0)] = it.getArgument<String>(1)
+            editor
+        }
+        whenever(editor.commit()).thenReturn(true)
+        val receivedSources = RssHubSubscriptionRepository(context, settings)
+        val feed = feed("https://old.example.com/zhihu/hot")
+        receivedSources.replaceSyncSource(feed.id, "rsshub://zhihu/hot")
+        whenever(rssHelper.queryRssHubXmlConditional(eq(feed), eq(""), any(), anyOrNull(), anyOrNull()))
+            .thenReturn(RssQueryResult(emptyList(), successful = false, failure = java.io.IOException("offline")))
+        whenever(rssHubResolver.probeRouteForRecovery("/zhihu/hot", null)).thenReturn(emptyList())
+        val receivedService = LocalSourceService(
+            feedDao, articleDao, rssHelper, rssHttpCacheDao, websiteHelper, jsonSourceHelper,
+            rssHubResolver, receivedSources,
+        )
+        receivedService.fetchForSync(feed)
+        verify(rssHubResolver).probeRouteForRecovery("/zhihu/hot", null)
+        verify(rssHubResolver, never()).probe(any(), any())
+        Unit
+    }
 
     @Test
     fun `RSS 304 在同步入口直接短路且不触发恢复和缓存写入`() {

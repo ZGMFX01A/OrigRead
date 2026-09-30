@@ -21,6 +21,7 @@ data class RssHubSubscriptionDescriptor(
 @Singleton
 class RssHubSubscriptionRepository @Inject constructor(
     @ApplicationContext context: Context,
+    private val settingsRepository: RssHubSettingsRepository,
 ) {
     private val preferences =
         context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
@@ -45,10 +46,24 @@ class RssHubSubscriptionRepository @Inject constructor(
 
     fun descriptor(feedId: String): RssHubSubscriptionDescriptor? {
         val encoded = preferences.getString(DESCRIPTOR_PREFIX + feedId, null)
-        if (!encoded.isNullOrBlank()) decode(encoded)?.let { return it }
+        if (!encoded.isNullOrBlank()) decode(encoded)?.let { return withExplicitRoute(it) }
         return preferences.getString(KEY_PREFIX + feedId, null)
             ?.takeIf(String::isNotBlank)
-            ?.let { RssHubSubscriptionDescriptor(originalInput = it) }
+            ?.let { withExplicitRoute(RssHubSubscriptionDescriptor(originalInput = it)) }
+    }
+
+    // Older backups and remote CONFIG carry only originalInput. Reconstruct explicit routes
+    // before recovery and duplicate detection, including the binding for key/code routes.
+    private fun withExplicitRoute(descriptor: RssHubSubscriptionDescriptor): RssHubSubscriptionDescriptor {
+        if (descriptor.routePath != null) return descriptor
+        val route = RssHubInputParser.parseExplicit(
+            descriptor.originalInput,
+            settingsRepository.current().instances.map { it.url },
+        ) ?: return descriptor
+        return descriptor.copy(
+            routePath = route.routePath,
+            preferredInstance = descriptor.preferredInstance ?: route.preferredInstance,
+        )
     }
 
     fun sourceUrl(feedId: String): String? =
@@ -89,12 +104,16 @@ class RssHubSubscriptionRepository @Inject constructor(
     fun findFeedIdsByRoute(routePath: String): List<String> {
         val normalized = RssHubInputParser.normalizeRoutePath(routePath) ?: return emptyList()
         return preferences.all.asSequence()
-            .filter { (key, value) -> key.startsWith(DESCRIPTOR_PREFIX) && value is String }
             .mapNotNull { (key, value) ->
-                decode(value as String)
-                    ?.takeIf { descriptor -> descriptor.routePath == normalized }
-                    ?.let { key.removePrefix(DESCRIPTOR_PREFIX) }
+                if (value !is String) null
+                else when {
+                    key.startsWith(DESCRIPTOR_PREFIX) -> key.removePrefix(DESCRIPTOR_PREFIX)
+                    key.startsWith(KEY_PREFIX) -> key.removePrefix(KEY_PREFIX)
+                    else -> null
+                }
             }
+            .distinct()
+            .filter { descriptor(it)?.routePath == normalized }
             .toList()
     }
 
