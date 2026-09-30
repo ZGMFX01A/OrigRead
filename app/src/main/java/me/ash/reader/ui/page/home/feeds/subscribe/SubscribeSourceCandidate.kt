@@ -20,6 +20,11 @@ data class SubscribeSourceCandidate(
     val dynamicRendering: Boolean = false,
     val etag: String? = null,
     val lastModified: String? = null,
+    val rssHubRoutePath: String? = null,
+    /** 用户显式输入的 RSSHub 实例；rsshub:// 与 Radar 发现均为 null。 */
+    val rssHubPreferredInstanceBaseUrl: String? = null,
+    /** 本轮探测实际成功返回 Feed 的实例。 */
+    val rssHubInstanceBaseUrl: String? = null,
 )
 
 /** 探测阶段尚未执行统一健康评分的来源结果。 */
@@ -33,6 +38,9 @@ internal data class SubscribeCandidateProbe(
     val dynamicRendering: Boolean = false,
     val etag: String? = null,
     val lastModified: String? = null,
+    val rssHubRoutePath: String? = null,
+    val rssHubPreferredInstanceBaseUrl: String? = null,
+    val rssHubInstanceBaseUrl: String? = null,
 )
 
 /** 将不同来源探测结果统一评分、排序并去重。 */
@@ -70,6 +78,9 @@ internal object SubscribeCandidateSelector {
                     dynamicRendering = candidate.dynamicRendering,
                     etag = candidate.etag,
                     lastModified = candidate.lastModified,
+                    rssHubRoutePath = candidate.rssHubRoutePath,
+                    rssHubPreferredInstanceBaseUrl = candidate.rssHubPreferredInstanceBaseUrl,
+                    rssHubInstanceBaseUrl = candidate.rssHubInstanceBaseUrl,
                 )
             }
             .sortedWith(

@@ -87,6 +87,9 @@ constructor(
     suspend fun subscribeRssHub(
         feedLink: String,
         sourcePageUrl: String,
+        routePath: String? = null,
+        preferredInstance: String? = null,
+        resolvedInstance: String? = null,
         searchedFeed: SyndFeed,
         groupId: String,
         isNotification: Boolean,
@@ -99,6 +102,9 @@ constructor(
         return localRssService.subscribeRssHub(
             feedLink = feedLink,
             sourcePageUrl = sourcePageUrl,
+            routePath = routePath,
+            preferredInstance = preferredInstance,
+            resolvedInstance = resolvedInstance,
             searchedFeed = searchedFeed,
             groupId = groupId,
             isNotification = isNotification,

@@ -32,6 +32,7 @@ import me.ash.reader.infrastructure.filter.ArticleFilterRepository
 import me.ash.reader.infrastructure.rss.RssHelper
 import me.ash.reader.infrastructure.rss.RssHttpCache
 import me.ash.reader.infrastructure.rss.RssHttpCacheDao
+import me.ash.reader.infrastructure.rsshub.RssHubSubscriptionDescriptor
 import me.ash.reader.infrastructure.rsshub.RssHubSubscriptionRepository
 import me.ash.reader.infrastructure.sync.core.LibrarySyncMutationCapture
 import me.ash.reader.infrastructure.website.WebsiteHelper
@@ -293,6 +294,9 @@ constructor(
     suspend fun subscribeRssHub(
         feedLink: String,
         sourcePageUrl: String,
+        routePath: String? = null,
+        preferredInstance: String? = null,
+        resolvedInstance: String? = null,
         searchedFeed: SyndFeed,
         groupId: String,
         isNotification: Boolean,
@@ -300,6 +304,12 @@ constructor(
         isBrowser: Boolean,
     ): String {
         return withSubscriptionLock { accountId ->
+            routePath
+                ?.let(rssHubSubscriptionRepository::findFeedIdsByRoute)
+                ?.firstNotNullOfOrNull { existingId ->
+                    feedDao.queryById(existingId)?.takeIf { existing -> existing.accountId == accountId }
+                }
+                ?.let { existing -> return@withSubscriptionLock existing.id }
             findExistingFeed(accountId, feedLink)?.let { return@withSubscriptionLock it.id }
 
             val feedId = accountId.spacerDollar(UUID.randomUUID().toString())
@@ -333,7 +343,16 @@ constructor(
                 readState = { rssHubSubscriptionRepository.sourceUrl(feedId) },
                 replaceState = { rssHubSubscriptionRepository.replaceSyncSource(feedId, it) },
             ) {
-                rssHubSubscriptionRepository.record(feedId, sourcePageUrl)
+                rssHubSubscriptionRepository.record(
+                    feedId,
+                    RssHubSubscriptionDescriptor(
+                        originalInput = sourcePageUrl,
+                        routePath = routePath,
+                        preferredInstance = preferredInstance,
+                        lastResolvedInstance = resolvedInstance,
+                        lastResolvedUrl = feedLink,
+                    ),
+                )
             }
             feedId
         }
@@ -488,6 +507,13 @@ constructor(
                     async(Dispatchers.IO) {
                         semaphore.withPermit {
                             val syncFetch = localSourceService.fetchForSync(currentFeed, preDate)
+                            if (syncFetch.failure != null) {
+                                syncLogger.log(java.io.IOException(
+                                    "RSSHub [${currentFeed.name}]: ${syncFetch.failure.message}",
+                                    syncFetch.failure,
+                                ))
+                                return@withPermit
+                            }
                             if (syncFetch.notModified) return@withPermit
                             val fetchedFeed = syncFetch.feedWithArticle
                             // 来源抓取阶段可能完成 RSSHub URL 恢复，或把旧版误存的空 Website

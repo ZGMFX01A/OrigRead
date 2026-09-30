@@ -1,6 +1,7 @@
 package me.ash.reader.infrastructure.sync.core
 
 import android.content.Context
+import android.content.SharedPreferences
 import kotlinx.coroutines.runBlocking
 import me.ash.reader.infrastructure.db.AndroidDatabase
 import org.junit.Assert.assertEquals
@@ -32,6 +33,11 @@ class AndroidSyncManagerTest {
     @Before
     fun setup() {
         `when`(database.syncRuntimeDao()).thenReturn(runtimeDao)
+        val preferences = mock(SharedPreferences::class.java)
+        val editor = mock(SharedPreferences.Editor::class.java)
+        whenever(context.getSharedPreferences(any(), any())).thenReturn(preferences)
+        whenever(preferences.edit()).thenReturn(editor)
+        whenever(editor.putBoolean(any(), any())).thenReturn(editor)
         syncManager = AndroidSyncManager(context, database, lanListener, registry, keyStore)
     }
 

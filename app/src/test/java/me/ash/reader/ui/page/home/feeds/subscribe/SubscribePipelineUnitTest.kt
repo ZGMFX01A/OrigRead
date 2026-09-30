@@ -27,12 +27,17 @@ import me.ash.reader.infrastructure.json.JsonSourceHelper
 import me.ash.reader.infrastructure.json.JsonSourceProbeResult
 import me.ash.reader.infrastructure.rss.DiscoveredFeed
 import me.ash.reader.infrastructure.rss.RssHelper
+import me.ash.reader.infrastructure.rsshub.RssHubFailureReason
+import me.ash.reader.infrastructure.rsshub.RssHubProbeResult
 import me.ash.reader.infrastructure.rsshub.RssHubResolver
+import me.ash.reader.infrastructure.rsshub.RssHubRouteDefinition
+import me.ash.reader.infrastructure.rsshub.RssHubRouteMatch
 import me.ash.reader.infrastructure.rsshub.RssHubSettings
 import me.ash.reader.infrastructure.rsshub.RssHubSettingsRepository
 import me.ash.reader.infrastructure.source.SourceCandidateKind
 import me.ash.reader.infrastructure.sync.core.LibrarySyncMutationCapture
 import me.ash.reader.infrastructure.website.WebsiteParsePreferenceRepository
+import me.ash.reader.infrastructure.website.CandidateState
 import me.ash.reader.infrastructure.website.WebsiteHelper
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -42,7 +47,10 @@ import org.junit.Before
 import org.junit.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.doReturn
+import org.mockito.kotlin.eq
+import org.mockito.kotlin.isNull
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.verify
 import org.mockito.kotlin.verifyNoInteractions
 import org.mockito.kotlin.whenever
 
@@ -221,16 +229,63 @@ class SubscribePipelineUnitTest {
         assertEquals(SourceCandidateKind.RSS_DIRECT, configure.candidates.first().kind)
     }
 
-    /**
-     * P2 核心验证：明确的 RSSHub 实例 Feed 必须调用 parseFeedDirect，严禁调用 discoverFeed，
-     * 且初始 stage 为 CHECKING_RSSHUB。
-     */
+    /** 明确的 RSSHub 实例 URL 必须走 logical route resolver，并保持 CHECKING_RSSHUB。 */
     @Test
-    fun `explicit rsshub endpoint uses parseFeedDirect without html discovery and sets stage checking rsshub`() = runBlocking {
-        val rssHubUrl = "https://rsshub.app/bilibili/user/video/2267573"
-        val feed = createFeed("Bilibili RSSHub")
+    fun `Radar UI keeps completed HTTP diagnostics alongside the unfinished budget notice`() = runBlocking {
+        val page = "https://example.com/news"
+        val instance = "https://hub.example.com"
+        val match = RssHubRouteMatch(RssHubRouteDefinition("hot", "News", "example.com", "/news", "/zhihu/hot"),
+            feedUrl = "$instance/zhihu/hot")
+        val placeholder = RssHubProbeResult(match, CandidateState.NETWORK_UNAVAILABLE)
+        val http = RssHubProbeResult(match, CandidateState.NETWORK_UNAVAILABLE,
+            instanceBaseUrl = instance, failureReason = RssHubFailureReason.HTTP_ERROR, statusCode = 503)
+        val incomplete = RssHubProbeResult(match, CandidateState.TIMEOUT,
+            failureReason = RssHubFailureReason.PROBE_BUDGET_EXHAUSTED)
+        whenever(rssHelper.discoverFeed(page)).thenThrow(IOException("no feed"))
+        whenever(rssHubResolver.localRouteDiagnostics(page)).thenReturn(listOf(placeholder))
+        whenever(rssHubResolver.probe(page)).thenReturn(listOf(http, incomplete))
+        whenever(websiteHelper.inspect(eq(page), any())).thenThrow(IllegalStateException("no website source"))
+        whenever(websiteHelper.inspectDynamic(eq(page), any())).thenThrow(IllegalStateException("no dynamic source"))
+        val viewModel = createViewModel()
+        viewModel.showDrawer()
+        (viewModel.subscribeState.value as SubscribeState.Idle).linkState.edit { replace(0, length, page) }
+        viewModel.searchFeed()
+        testDispatcher.scheduler.advanceUntilIdle()
+        val state = viewModel.subscribeState.value as SubscribeState.Idle
+        assertEquals(listOf(http, incomplete), state.rssHubResults)
+        assertEquals(503, state.rssHubResults.first().statusCode)
+        assertEquals(instance, state.rssHubResults.first().instanceBaseUrl)
+        assertEquals(me.ash.reader.R.string.rsshub_probe_incomplete_notice,
+            rssHubFailureSummary(state.rssHubResults)?.resourceId)
+    }
 
-        whenever(rssHelper.parseFeedDirect(any())).thenReturn(feed)
+    @Test
+    fun `scheme omitted and protocol relative RSSHub URLs use the dedicated pipeline`() = runBlocking {
+        val route = "/zhihu/hot"
+        val fullUrl = "https://rsshub.app$route"
+        whenever(rssHubResolver.probeRoute(route, "https://rsshub.app"))
+            .thenReturn(listOf(rssHubSuccess(route, fullUrl, createFeed("News"), "https://rsshub.app")))
+        listOf("rsshub.app$route", "//rsshub.app$route", "HTTPS://RSSHUB.APP$route").forEach { input ->
+            val viewModel = createViewModel()
+            viewModel.showDrawer()
+            val idle = viewModel.subscribeState.value as SubscribeState.Idle
+            idle.linkState.edit { replace(0, length, input) }
+            viewModel.searchFeed()
+            testDispatcher.scheduler.advanceUntilIdle()
+            val configure = viewModel.subscribeState.value as SubscribeState.Configure
+            assertEquals(fullUrl, configure.feedLink)
+            assertEquals(SourceCandidateKind.RSSHUB, configure.candidates.first().kind)
+        }
+        verifyNoInteractions(rssHelper, websiteHelper, jsonSourceHelper)
+    }
+
+    @Test
+    fun `explicit rsshub endpoint uses route resolver without html discovery and sets stage checking rsshub`() = runBlocking {
+        val rssHubUrl = "https://rsshub.app/bilibili/user/video/2267573"
+        val routePath = "/bilibili/user/video/2267573"
+        val feed = createFeed("Bilibili RSSHub")
+        whenever(rssHubResolver.probeRoute(routePath, "https://rsshub.app"))
+            .thenReturn(listOf(rssHubSuccess(routePath, rssHubUrl, feed, "https://rsshub.app")))
 
         val viewModel = createViewModel()
         viewModel.showDrawer()
@@ -251,16 +306,17 @@ class SubscribePipelineUnitTest {
         assertNotNull("Should transition through Fetching state", fetchingState)
         assertEquals(SearchStage.CHECKING_RSSHUB, fetchingState!!.stage)
 
-        // 验证 JSON、RSSHub 解析器与网页爬虫绝不产生交互
+        // Resolver 负责实例 failover；JSON、普通 RSS helper 与网页爬虫不参与显式 RSSHub 输入。
         verifyNoInteractions(jsonSourceHelper)
-        verifyNoInteractions(rssHubResolver)
         verifyNoInteractions(websiteHelper)
+        verifyNoInteractions(rssHelper)
 
         val state = viewModel.subscribeState.value
         assertTrue("State must be Configure, was $state", state is SubscribeState.Configure)
         val configure = state as SubscribeState.Configure
         assertEquals(SourceType.RSS, configure.sourceType)
         assertEquals(SourceCandidateKind.RSSHUB, configure.candidates.first().kind)
+        assertEquals(routePath, configure.candidates.first().rssHubRoutePath)
     }
 
     /** 远端账号遇到已知 RSSHub route 时只能把它当普通 RSS，不能生成 Local-only RSSHub 候选。 */
@@ -269,9 +325,13 @@ class SubscribePipelineUnitTest {
         val feverAccount = Account(2, "Fever Server", AccountType.Fever)
         whenever(accountService.getCurrentAccount()).thenReturn(feverAccount)
         whenever(accountService.currentAccountFlow).thenReturn(MutableStateFlow(feverAccount))
+        whenever(rssHubSettingsRepository.current()).thenReturn(RssHubSettings(enabled = false))
 
         val rssHubUrl = "https://rsshub.app/bilibili/user/video/2267573"
-        whenever(rssHelper.parseFeedDirect(any())).thenReturn(createFeed("RSSHub as plain RSS"))
+        val routePath = "/bilibili/user/video/2267573"
+        val feed = createFeed("RSSHub as plain RSS")
+        whenever(rssHubResolver.probeExplicitRoute(routePath, "https://rsshub.app"))
+            .thenReturn(rssHubSuccess(routePath, rssHubUrl, feed, "https://rsshub.app"))
 
         val viewModel = createViewModel()
         viewModel.showDrawer()
@@ -281,12 +341,243 @@ class SubscribePipelineUnitTest {
         viewModel.searchFeed()
         testDispatcher.scheduler.advanceUntilIdle()
 
-        verifyNoInteractions(rssHubResolver)
         verifyNoInteractions(jsonSourceHelper)
         verifyNoInteractions(websiteHelper)
+        verifyNoInteractions(rssHelper)
         val state = viewModel.subscribeState.value as SubscribeState.Configure
         assertEquals(SourceType.RSS, state.sourceType)
         assertEquals(SourceCandidateKind.RSS_DIRECT, state.candidates.first().kind)
+    }
+
+    @Test
+    fun `remote explicit RSSHub input can recover through a mirror as ordinary RSS`(): Unit = runBlocking {
+        val account = Account(2, "Fever Server", AccountType.Fever)
+        whenever(accountService.getCurrentAccount()).thenReturn(account)
+        val input = "https://rsshub.app/zhihu/hot"
+        val path = "/zhihu/hot"
+        val mirror = "https://mirror.example.com"
+        val feed = createFeed("Recovered hot list")
+        org.mockito.kotlin.doAnswer { throw
+            me.ash.reader.infrastructure.rss.FeedFetchException(
+                me.ash.reader.infrastructure.rss.FeedFetchFailureReason.BLOCKED_RESPONSE, 403,
+                "Feed request blocked by an anti-bot challenge")
+        }.whenever(rssHelper).parseFeedDirect(input)
+        whenever(rssHubResolver.probeRoute(path, "https://rsshub.app"))
+            .thenReturn(listOf(rssHubSuccess(path, mirror + path, feed, mirror)))
+        val vm = createViewModel()
+        vm.showDrawer()
+        (vm.subscribeState.value as SubscribeState.Idle).linkState.edit { replace(0, length, input) }
+        vm.searchFeed()
+        testDispatcher.scheduler.advanceUntilIdle()
+        val state = vm.subscribeState.value as SubscribeState.Configure
+        assertEquals(mirror + path, state.feedLink)
+        assertEquals(SourceCandidateKind.RSS_DIRECT, state.candidates.single().kind)
+        verifyNoInteractions(jsonSourceHelper, websiteHelper)
+        vm.subscribe()
+        testDispatcher.scheduler.advanceUntilIdle()
+        verify(rssRepository).subscribe(eq(mirror + path), eq(feed), eq("group_1"), eq(false), eq(false), eq(false))
+        verify(rssService, org.mockito.kotlin.never()).subscribeRssHub(any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
+    }
+
+    @Test
+    fun `remote RSSHub failures show localized diagnostics instead of the internal exception`() = runBlocking {
+        whenever(accountService.getCurrentAccount()).thenReturn(Account(2, "Fever Server", AccountType.Fever))
+        val input = "https://rsshub.app/zhihu/hot"
+        val path = "/zhihu/hot"
+        org.mockito.kotlin.doAnswer { throw
+            me.ash.reader.infrastructure.rss.FeedFetchException(
+                me.ash.reader.infrastructure.rss.FeedFetchFailureReason.BLOCKED_RESPONSE, 403,
+                "Feed request blocked by an anti-bot challenge")
+        }.whenever(rssHelper).parseFeedDirect(input)
+        val failure = rssHubSuccess(path, input, createFeed("unused"), "https://rsshub.app").copy(
+            feed = null, state = CandidateState.NETWORK_UNAVAILABLE,
+            failureReason = RssHubFailureReason.BLOCKED, statusCode = 403)
+        whenever(rssHubResolver.probeRoute(path, "https://rsshub.app")).thenReturn(listOf(failure))
+        val vm = createViewModel()
+        vm.showDrawer()
+        (vm.subscribeState.value as SubscribeState.Idle).linkState.edit { replace(0, length, input) }
+        vm.searchFeed()
+        testDispatcher.scheduler.advanceUntilIdle()
+        val state = vm.subscribeState.value as SubscribeState.Idle
+        assertEquals("Localized Notice", state.errorMessage)
+        assertEquals(listOf(failure), state.rssHubResults)
+    }
+
+    @Test
+    fun `disabled RSSHub still gives remote HTTP subscriptions localized direct errors`(): Unit = runBlocking {
+        whenever(accountService.getCurrentAccount()).thenReturn(Account(2, "Fever Server", AccountType.Fever))
+        whenever(rssHubSettingsRepository.current()).thenReturn(RssHubSettings(enabled = false))
+        val input = "https://rsshub.app/zhihu/hot"
+        val path = "/zhihu/hot"
+        val failure = rssHubSuccess(path, input, createFeed("unused"), "https://rsshub.app").copy(
+            feed = null, state = CandidateState.NETWORK_UNAVAILABLE,
+            failureReason = RssHubFailureReason.CONNECTION_CLOSED)
+        whenever(rssHubResolver.probeExplicitRoute(path, "https://rsshub.app")).thenReturn(failure)
+        val vm = createViewModel()
+        vm.showDrawer()
+        (vm.subscribeState.value as SubscribeState.Idle).linkState.edit { replace(0, length, input) }
+        vm.searchFeed()
+        testDispatcher.scheduler.advanceUntilIdle()
+        val state = vm.subscribeState.value as SubscribeState.Idle
+        assertEquals("Localized Notice", state.errorMessage)
+        assertEquals(listOf(failure), state.rssHubResults)
+        verify(rssHubResolver, org.mockito.kotlin.never()).probeRoute(any(), any())
+    }
+
+    @Test
+    fun `rsshub scheme is preserved and never falls through to website`() = runBlocking {
+        val input = "rsshub://bilibili/user/dynamic/1161918898"
+        val routePath = "/bilibili/user/dynamic/1161918898"
+        val instance = "https://mirror.example.com"
+        val resolvedUrl = "$instance$routePath"
+        val feed = createFeed("Bilibili Dynamic")
+        whenever(rssHubResolver.probeRoute(routePath, null))
+            .thenReturn(listOf(rssHubSuccess(routePath, resolvedUrl, feed, instance)))
+
+        val viewModel = createViewModel()
+        viewModel.showDrawer()
+        val idleState = viewModel.subscribeState.value as SubscribeState.Idle
+        idleState.linkState.edit { replace(0, length, input) }
+
+        viewModel.searchFeed()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        verifyNoInteractions(rssHelper)
+        verifyNoInteractions(jsonSourceHelper)
+        verifyNoInteractions(websiteHelper)
+        val state = viewModel.subscribeState.value as SubscribeState.Configure
+        assertEquals(input, state.sourcePageUrl)
+        assertEquals(resolvedUrl, state.feedLink)
+        assertEquals(SourceCandidateKind.RSSHUB, state.candidates.first().kind)
+        assertEquals(routePath, state.candidates.first().rssHubRoutePath)
+    }
+
+    @Test
+    fun `explicit rsshub subscription keeps preferred instance separate from resolved fallback`(): Unit = runBlocking {
+        val input = "https://rsshub.app/zhihu/hot"
+        val routePath = "/zhihu/hot"
+        val resolvedInstance = "https://mirror.example.com"
+        val resolvedUrl = "$resolvedInstance$routePath"
+        val feed = createFeed("Zhihu Hot")
+        whenever(rssHubResolver.probeRoute(routePath, "https://rsshub.app"))
+            .thenReturn(listOf(rssHubSuccess(routePath, resolvedUrl, feed, resolvedInstance)))
+
+        val viewModel = createViewModel()
+        viewModel.showDrawer()
+        val idleState = viewModel.subscribeState.value as SubscribeState.Idle
+        idleState.linkState.edit { replace(0, length, input) }
+
+        viewModel.searchFeed()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val configure = viewModel.subscribeState.value as SubscribeState.Configure
+        val candidate = configure.candidates.single()
+        assertEquals("https://rsshub.app", candidate.rssHubPreferredInstanceBaseUrl)
+        assertEquals(resolvedInstance, candidate.rssHubInstanceBaseUrl)
+
+        viewModel.subscribe()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        verify(rssService).subscribeRssHub(
+            feedLink = eq(resolvedUrl),
+            sourcePageUrl = eq(input),
+            routePath = eq(routePath),
+            preferredInstance = eq("https://rsshub.app"),
+            resolvedInstance = eq(resolvedInstance),
+            searchedFeed = eq(feed),
+            groupId = eq("group_1"),
+            isNotification = eq(false),
+            isFullContent = eq(false),
+            isBrowser = eq(false),
+        )
+        Unit
+    }
+
+    @Test
+    fun `rsshub scheme subscription keeps preferred instance null`(): Unit = runBlocking {
+        val input = "rsshub://bilibili/user/dynamic/1161918898"
+        val routePath = "/bilibili/user/dynamic/1161918898"
+        val resolvedInstance = "https://mirror.example.com"
+        val resolvedUrl = "$resolvedInstance$routePath"
+        val feed = createFeed("Bilibili Dynamic")
+        whenever(rssHubResolver.probeRoute(routePath, null))
+            .thenReturn(listOf(rssHubSuccess(routePath, resolvedUrl, feed, resolvedInstance)))
+
+        val viewModel = createViewModel()
+        viewModel.showDrawer()
+        val idleState = viewModel.subscribeState.value as SubscribeState.Idle
+        idleState.linkState.edit { replace(0, length, input) }
+
+        viewModel.searchFeed()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val configure = viewModel.subscribeState.value as SubscribeState.Configure
+        val candidate = configure.candidates.single()
+        assertEquals(null, candidate.rssHubPreferredInstanceBaseUrl)
+        assertEquals(resolvedInstance, candidate.rssHubInstanceBaseUrl)
+
+        viewModel.subscribe()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        verify(rssService).subscribeRssHub(
+            feedLink = eq(resolvedUrl),
+            sourcePageUrl = eq(input),
+            routePath = eq(routePath),
+            preferredInstance = isNull(),
+            resolvedInstance = eq(resolvedInstance),
+            searchedFeed = eq(feed),
+            groupId = eq("group_1"),
+            isNotification = eq(false),
+            isFullContent = eq(false),
+            isBrowser = eq(false),
+        )
+        Unit
+    }
+
+    @Test
+    fun `rsshub scheme failure never falls through to json or dynamic website`() = runBlocking {
+        val input = "rsshub://bilibili/user/dynamic/1161918898"
+        val routePath = "/bilibili/user/dynamic/1161918898"
+        val instance = "https://unavailable.example.com"
+        whenever(rssHubResolver.probeRoute(routePath, null))
+            .thenReturn(
+                listOf(
+                    RssHubProbeResult(
+                        match =
+                            RssHubRouteMatch(
+                                route =
+                                    RssHubRouteDefinition(
+                                        id = "direct:$routePath",
+                                        name = "RSSHub",
+                                        host = "rsshub",
+                                        pathPrefix = routePath,
+                                        target = routePath,
+                                    ),
+                                feedUrl = "$instance$routePath",
+                            ),
+                        state = CandidateState.NETWORK_UNAVAILABLE,
+                        message = "blocked",
+                        routePath = routePath,
+                        instanceBaseUrl = instance,
+                        failureReason = RssHubFailureReason.BLOCKED,
+                    )
+                )
+            )
+
+        val viewModel = createViewModel()
+        viewModel.showDrawer()
+        val idleState = viewModel.subscribeState.value as SubscribeState.Idle
+        idleState.linkState.edit { replace(0, length, input) }
+
+        viewModel.searchFeed()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        verifyNoInteractions(rssHelper)
+        verifyNoInteractions(jsonSourceHelper)
+        verifyNoInteractions(websiteHelper)
+        val state = viewModel.subscribeState.value as SubscribeState.Idle
+        assertEquals("Localized Notice", state.errorMessage)
+        assertEquals(input, state.linkState.text.toString())
     }
 
     /** RSS-like URL 只影响顺序；RSS 解析失败后必须继续 JSON，并在 JSON 证明成功时短路。 */
@@ -408,4 +699,29 @@ class SubscribePipelineUnitTest {
         verifyNoInteractions(rssHubResolver)
         verifyNoInteractions(websiteHelper)
     }
+
+    private fun rssHubSuccess(
+        routePath: String,
+        feedUrl: String,
+        feed: SyndFeed,
+        instance: String,
+    ) =
+        RssHubProbeResult(
+            match =
+                RssHubRouteMatch(
+                    route =
+                        RssHubRouteDefinition(
+                            id = "direct:$routePath",
+                            name = "RSSHub",
+                            host = "rsshub",
+                            pathPrefix = routePath,
+                            target = routePath,
+                        ),
+                    feedUrl = feedUrl,
+                ),
+            state = CandidateState.AVAILABLE,
+            feed = feed,
+            routePath = routePath,
+            instanceBaseUrl = instance,
+        )
 }

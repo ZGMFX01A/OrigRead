@@ -19,6 +19,7 @@ data class ConfigurationBackup(
     val websiteParsePreferences: JsonElement,
     val rssHub: RssHubBackup,
     val rssHubSourceUrls: Map<String, String> = emptyMap(),
+    val rssHubSubscriptions: Map<String, RssHubSubscriptionBackup> = emptyMap(),
     val translation: TranslationBackup,
     val ai: AiBackup,
     /** Edition 专属非敏感配置；Standard 为 null，LLM Edition 使用独立协议解析。 */
@@ -78,6 +79,15 @@ data class RssHubInstanceBackup(
     val maintainer: String = "",
     val enabled: Boolean = true,
     val builtIn: Boolean = true,
+)
+
+@Serializable
+data class RssHubSubscriptionBackup(
+    val originalInput: String,
+    val routePath: String? = null,
+    val preferredInstance: String? = null,
+    val lastResolvedInstance: String? = null,
+    val lastResolvedUrl: String? = null,
 )
 
 @Serializable

@@ -125,3 +125,15 @@ scripts/
 # Independent Electron desktop repository
 /OrigRead-Desktop/
 /rikkahub-master/
+
+# Temporary gradle and validation caches
+.gradle*/
+
+# Temporary test artifacts and probe results
+test-results/
+*probe-results.json
+
+# Local SQLite databases and journals
+*.db
+*.db-shm
+*.db-wal

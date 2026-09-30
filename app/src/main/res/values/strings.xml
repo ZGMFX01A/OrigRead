@@ -1024,6 +1024,9 @@
     <string
     name="rsshub_multi_select_hint">RSSHub channels can be selected together. You can remove
   unwanted channels later.</string>
+    <string name="rsshub_probe_results">RSSHub probe results</string>
+    <string name="rsshub_probe_results_desc">No channels can be selected here. Check the results below.</string>
+    <string name="rsshub_probe_rss_available_desc">A usable RSS feed was found. Confirm the subscription below.</string>
     <string name="rsshub_matched_channels">RSSHub channels</string>
     <string
     name="rsshub_matched_channels_desc">%1$d channels matched locally. Available channels can be
@@ -1087,6 +1090,11 @@
   on the current network and was skipped. Website parsing continued.</string>
     <string
     name="rsshub_missing_parameters_notice">RSSHub match “%1$s” needs more information (%2$s). Use a more specific page address.</string>
+    <string name="rsshub_explicit_blocked_notice">The RSSHub server or upstream site returned a verification or anti-bot block page. Retry or try another instance.</string>
+    <string name="rsshub_explicit_http_error_notice">The RSSHub request failed on the server or upstream site. Check the instance details or try another instance.</string>
+    <string name="rsshub_explicit_network_notice">Could not connect to this RSSHub server. Check your network and the server address.</string>
+    <string name="rsshub_explicit_invalid_notice">The server response could not be parsed as valid RSS/Atom.</string>
+    <string name="rsshub_explicit_unavailable_notice">No usable RSSHub feed was obtained in this attempt. Check the details and retry.</string>
     <string name="webview" translatable="false">WebView</string>
     <string
     name="native_component">Native component</string>
@@ -1483,4 +1491,22 @@
     <string name="origread_sync_discover">Scan LAN Devices</string>
     <string name="origread_sync_cloud_endpoint">Cloud Sync Server</string>
     <string name="origread_sync_now">Sync Now</string>
+    <string name="rsshub_connection_closed_notice">The connection closed before the response finished. Retry or check your proxy and server.</string>
+    <string name="rsshub_disabled_notice">RSSHub is disabled. Enable it in settings to use this source.</string>
+    <string name="rsshub_dns_notice">Could not resolve the RSSHub server address. Check the address and DNS settings.</string>
+    <string name="rsshub_html_notice">The server returned a webpage instead of RSS/Atom. Check the instance address and route.</string>
+    <string name="rsshub_http_auth_notice">HTTP 401: this RSSHub request requires authentication. Check the instance access or route configuration.</string>
+    <string name="rsshub_http_denied_notice">HTTP 403: the server denied this request. Try another instance or check its access rules.</string>
+    <string name="rsshub_http_not_found_notice">HTTP 404: the requested address or route was not found. Check the route and instance base URL.</string>
+    <string name="rsshub_http_rate_limit_notice">HTTP 429: the server is rate limiting requests. Retry later or try another instance.</string>
+    <string name="rsshub_http_status_notice">The RSSHub server returned HTTP %1$d. Check the server or upstream route and retry.</string>
+    <string name="rsshub_invalid_input_notice">Invalid RSSHub address. Use rsshub://service/route and check the route parameters.</string>
+    <string name="rsshub_mixed_failures_notice">The RSSHub instances returned different errors. Check each instance below and retry.</string>
+    <string name="rsshub_no_instances_notice">No RSSHub instance is enabled. Add or enable an instance in settings.</string>
+    <string name="rsshub_probe_incomplete_notice">This RSSHub probe timed out before all instances completed. Retry or adjust the instance order.</string>
+    <string name="rsshub_request_timeout_notice">The RSSHub request timed out. Retry later or try another instance.</string>
+    <string name="rsshub_tls_notice">Could not establish a secure connection to RSSHub. Check the server certificate or proxy settings.</string>
+    <string name="rsshub_unsupported_format_notice">This RSSHub response uses an unsupported format, such as JSON. Use RSS or Atom output, for example format=rss.</string>
+    <string name="rsshub_auth_instance_notice">This RSSHub route contains an access key or code. Enter the full HTTP/HTTPS address of its instance to keep credentials private.</string>
+    <string name="rsshub_bound_instance_disabled_notice">The instance for this authenticated RSSHub subscription has been disabled or removed. Enable that instance to resume automatic recovery.</string>
 </resources>

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-30",
+  "source": "https://docs.rsshub.app/guide/instances",
+  "instances": [
+    { "id": "isrss", "url": "https://rsshub.isrss.com", "location": "US", "maintainer": "isRSS", "enabled": true },
+    { "id": "cups", "url": "https://rsshub.cups.moe", "location": "US", "maintainer": "FunnyCups", "enabled": true },
+    { "id": "slarker", "url": "https://hub.slarker.me", "location": "US", "maintainer": "Slarker", "enabled": true },
+    { "id": "rssforever", "url": "https://rsshub.rssforever.com", "location": "AE", "maintainer": "Stille", "enabled": true },
+    { "id": "virworks", "url": "https://rsshub-balancer.virworks.moe", "location": "GLOBAL", "maintainer": "chesha1", "enabled": true },
+    { "id": "official", "url": "https://rsshub.app", "location": "US", "maintainer": "DIYgod", "enabled": false },
+    { "id": "pseudoyu", "url": "https://rsshub.pseudoyu.com", "location": "FR", "maintainer": "pseudoyu", "enabled": true },
+    { "id": "rsstips", "url": "https://rsshub.rss.tips", "location": "US", "maintainer": "AboutRSS", "enabled": true },
+    { "id": "ktachibana", "url": "https://rsshub.ktachibana.party", "location": "US", "maintainer": "KTachibanaM", "enabled": true },
+    { "id": "owonz", "url": "https://rss.owo.nz", "location": "DE", "maintainer": "Vincent Yang", "enabled": true },
+    { "id": "wudifeixue", "url": "https://rss.wudifeixue.com", "location": "CA", "maintainer": "wudifeixue", "enabled": true },
+    { "id": "henry", "url": "https://rsshub.henry.wang", "location": "GB", "maintainer": "HenryQW", "enabled": true },
+    { "id": "umzzz", "url": "https://rsshub.umzzz.com", "location": "HK", "maintainer": "nesay", "enabled": true },
+    { "id": "emailonce", "url": "https://rsshub.email-once.com", "location": "HK", "maintainer": "EmailOnce", "enabled": true },
+    { "id": "datuan", "url": "https://rss.datuan.dev", "location": "VN", "maintainer": "Tuấn Dev", "enabled": true },
+    { "id": "spriple", "url": "https://rss.spriple.org", "location": "CN", "maintainer": "Spriple", "enabled": true }
+  ]
+}

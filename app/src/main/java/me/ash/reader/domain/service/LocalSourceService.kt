@@ -34,6 +34,7 @@ class LocalSourceService @Inject constructor(
     data class SyncFetchResult(
         val feedWithArticle: FeedWithArticle,
         val notModified: Boolean = false,
+        val failure: Exception? = null,
     )
 
     /**
@@ -55,6 +56,11 @@ class LocalSourceService @Inject constructor(
 
     /** 保留成熟的 RSS 抓取及图标补全逻辑。 */
     private suspend fun fetchRss(feed: Feed, preDate: Date): FeedWithArticle {
+        if (isRssHubFeed(feed)) {
+            val result = fetchRssForSync(feed, preDate)
+            result.failure?.let { throw it }
+            return result.feedWithArticle
+        }
         var effectiveFeed = feed
         var articles = rssHelper.queryRssXml(feed, "", preDate)
         if (articles.isEmpty()) {
@@ -75,9 +81,16 @@ class LocalSourceService @Inject constructor(
     }
 
     private suspend fun fetchRssForSync(feed: Feed, preDate: Date): SyncFetchResult {
+        val rssHub = isRssHubFeed(feed)
         val cache = rssHttpCacheDao.query(feed.id)?.takeIf { it.feedUrl == feed.url }
         val queried =
-            rssHelper.queryRssXmlConditional(
+            if (rssHub) rssHelper.queryRssHubXmlConditional(
+                feed = feed,
+                latestLink = "",
+                preDate = preDate,
+                etag = cache?.etag,
+                lastModified = cache?.lastModified,
+            ) else rssHelper.queryRssXmlConditional(
                 feed = feed,
                 latestLink = "",
                 preDate = preDate,
@@ -93,33 +106,36 @@ class LocalSourceService @Inject constructor(
 
         var effectiveFeed = feed
         var articles = queried.articles
-        if (articles.isEmpty()) {
+        var recoveredSuccessfully = false
+        if (articles.isEmpty() && !queried.successful) {
             recoverRssHubFeed(feed, preDate)?.let { recovered ->
                 effectiveFeed = recovered.feed
                 articles = recovered.articles
+                recoveredSuccessfully = true
             }
         }
 
         // 只有成功完成 HTTP/XML/文章转换后才更新 validator；临时请求/解析失败保留旧缓存。
         // 若 RSSHub 恢复到了新 URL，则用空 validator 重建缓存归属，下一次 200 再建立条件请求。
-        if (queried.successful || effectiveFeed.url != feed.url) {
+        if (queried.successful || recoveredSuccessfully) {
             rssHttpCacheDao.upsert(
                 RssHttpCache(
                     feedId = feed.id,
                     feedUrl = effectiveFeed.url,
-                    etag = queried.etag.takeIf { effectiveFeed.url == feed.url },
-                    lastModified = queried.lastModified.takeIf { effectiveFeed.url == feed.url },
+                    etag = queried.etag.takeIf { queried.successful },
+                    lastModified = queried.lastModified.takeIf { queried.successful },
                     updatedAt = System.currentTimeMillis(),
                 )
             )
         }
 
-        if (feed.icon == null) {
+        if (feed.icon == null && !rssHub) {
             rssHelper.queryRssIconLink(effectiveFeed.url)?.let { iconLink ->
                 effectiveFeed = effectiveFeed.copy(icon = iconLink)
             }
         }
         return SyncFetchResult(
+            failure = queried.failure.takeIf { rssHub && !queried.successful && !recoveredSuccessfully },
             feedWithArticle =
                 FeedWithArticle(
                     feed = effectiveFeed,
@@ -128,18 +144,40 @@ class LocalSourceService @Inject constructor(
         )
     }
 
-    /**
-     * 已固定的 RSSHub 地址失效时，使用原始页面 URL 重新匹配路由和可用实例。
-     * 只更新 Feed.url，不删除历史文章；无可用候选时保持原订阅地址等待下次同步。
-     */
+    private fun isRssHubFeed(feed: Feed): Boolean =
+        rssHubSubscriptionRepository.descriptor(feed.id) != null
+
+    /** 已固定的 RSSHub 地址失效时按 logical route 重选实例；旧版只有 sourceUrl 时仍兼容 Radar 重匹配。 */
     private suspend fun recoverRssHubFeed(feed: Feed, preDate: Date): FeedWithArticle? {
-        val sourceUrl = rssHubSubscriptionRepository.sourceUrl(feed.id) ?: return null
+        val descriptor =
+            rssHubSubscriptionRepository.descriptor(feed.id)
+                ?: return null
+        val results =
+            if (!descriptor.routePath.isNullOrBlank()) {
+                rssHubResolver.probeRouteForRecovery(
+                    routePath = descriptor.routePath,
+                    boundInstance = descriptor.lastResolvedInstance ?: descriptor.preferredInstance,
+                )
+            } else {
+                rssHubResolver.probe(descriptor.originalInput)
+            }
         val recovered =
-            rssHubResolver.probe(sourceUrl)
-                .firstOrNull { result -> result.available && result.feed?.entries?.isNotEmpty() == true }
+            results
+                .firstOrNull { result -> result.available }
                 ?: return null
         val recoveredUrl = recovered.match.feedUrl ?: return null
-        val recoveredFeed = feed.copy(url = recoveredUrl)
+        val recoveredFeed = feed.copy(
+            url = recoveredUrl,
+            name = feed.name.ifBlank { recovered.feed?.title?.takeIf(String::isNotBlank) ?: feed.name },
+        )
+        rssHubSubscriptionRepository.record(
+            feed.id,
+            descriptor.copy(
+                routePath = recovered.routePath ?: descriptor.routePath,
+                lastResolvedInstance = recovered.instanceBaseUrl ?: descriptor.lastResolvedInstance,
+                lastResolvedUrl = recoveredUrl,
+            ),
+        )
         val articles =
             rssHelper.buildArticlesFromSyndEntries(
                 feed = recoveredFeed,

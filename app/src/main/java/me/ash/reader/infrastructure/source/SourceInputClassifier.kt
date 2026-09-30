@@ -1,6 +1,7 @@
 package me.ash.reader.infrastructure.source
 
 import java.net.URI
+import me.ash.reader.infrastructure.rsshub.RssHubInputParser
 
 /**
  * 用户输入 URL 的非排他性探测倾向。
@@ -79,29 +80,7 @@ private fun jsonHintScore(url: String): Int =
  * 这是唯一允许在网络请求前进入排他分支的情况，因为它有内置/用户配置实例作为额外证据。
  */
 fun isKnownRssHubEndpoint(url: String, knownInstances: List<String> = emptyList()): Boolean =
-    runCatching {
-        val trimmed = url.trim().trimEnd('/')
-        if (trimmed.isBlank()) return@runCatching false
-
-        val candidateBases = buildList {
-            add("https://rsshub.app")
-            add("http://rsshub.app")
-            knownInstances.forEach { instance ->
-                val normalized = instance.trim().trimEnd('/')
-                if (normalized.isNotBlank()) add(normalized)
-            }
-        }.distinct()
-
-        candidateBases.any { base ->
-            if (trimmed.equals(base, ignoreCase = true)) return@any false
-            if (!trimmed.startsWith("$base/", ignoreCase = true)) return@any false
-
-            val routePart = trimmed.substring(base.length).trimStart('/')
-            routePart.isNotBlank() &&
-                !routePart.equals("healthz", ignoreCase = true) &&
-                !routePart.equals("favicon.ico", ignoreCase = true)
-        }
-    }.getOrDefault(false)
+    RssHubInputParser.parseExplicit(url, knownInstances) != null
 
 /**
  * 提取非排他性 Hint。

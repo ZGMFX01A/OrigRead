@@ -34,6 +34,7 @@ import me.ash.reader.infrastructure.preference.SyncOnlyWhenChargingPreference
 import me.ash.reader.infrastructure.rsshub.RssHubInstance
 import me.ash.reader.infrastructure.rsshub.RssHubSettings
 import me.ash.reader.infrastructure.rsshub.RssHubSettingsRepository
+import me.ash.reader.infrastructure.rsshub.RssHubSubscriptionDescriptor
 import me.ash.reader.infrastructure.rsshub.RssHubSubscriptionRepository
 import me.ash.reader.infrastructure.sync.core.LibrarySyncMutationCapture
 import me.ash.reader.infrastructure.source.findFeedByComparisonUrl
@@ -152,6 +153,9 @@ class ConfigurationBackupService @Inject constructor(
                     json.parseToJsonElement(websiteParsePreferenceRepository.exportBackup(feedIds)),
                 rssHub = rssHubSettingsRepository.current().toBackup(),
                 rssHubSourceUrls = rssHubSubscriptionRepository.exportMappings(feedIds),
+                rssHubSubscriptions =
+                    rssHubSubscriptionRepository.exportDescriptors(feedIds)
+                        .mapValues { (_, descriptor) -> descriptor.toBackup() },
                 translation = translationSettingsRepository.current().toBackup(),
                 ai = aiSettingsRepository.current().toBackup(),
                 editionConfiguration = editionBackupExtension.exportConfiguration(),
@@ -317,7 +321,8 @@ class ConfigurationBackupService @Inject constructor(
             rssHubSettingsRepository.restoreBackup(prepared.rssHubSettings)
         }
         val rssHubSourceFeedIds =
-            backup.rssHubSourceUrls.keys.mapNotNullTo(linkedSetOf()) { feedIdMap[it] }
+            (backup.rssHubSourceUrls.keys + backup.rssHubSubscriptions.keys).mapNotNullTo(linkedSetOf()) { feedIdMap[it] }
+        val previousRssHubDescriptors = rssHubSubscriptionRepository.exportDescriptors(rssHubSourceFeedIds)
         syncMutations.captureRssHubSubscriptionSourcesMutation(
             accountId = accountId,
             feedIds = rssHubSourceFeedIds,
@@ -326,11 +331,20 @@ class ConfigurationBackupService @Inject constructor(
             },
             replaceStates = { states ->
                 rssHubSourceFeedIds.forEach { feedId ->
-                    rssHubSubscriptionRepository.replaceSyncSource(feedId, states[feedId])
+                    val previous = previousRssHubDescriptors[feedId]
+                    if (previous != null && previous.originalInput == states[feedId]) {
+                        rssHubSubscriptionRepository.record(feedId, previous)
+                    } else {
+                        rssHubSubscriptionRepository.replaceSyncSource(feedId, states[feedId])
+                    }
                 }
             },
         ) {
             rssHubSubscriptionRepository.restoreMappings(backup.rssHubSourceUrls, feedIdMap)
+            rssHubSubscriptionRepository.restoreDescriptors(
+                backup.rssHubSubscriptions.mapValues { (_, descriptor) -> descriptor.toDescriptor() },
+                feedIdMap,
+            )
         }
 
         val translationKeys =
@@ -634,6 +648,24 @@ class ConfigurationBackupService @Inject constructor(
                         builtIn = instance.builtIn,
                     )
                 },
+        )
+
+    private fun RssHubSubscriptionDescriptor.toBackup() =
+        RssHubSubscriptionBackup(
+            originalInput = originalInput,
+            routePath = routePath,
+            preferredInstance = preferredInstance,
+            lastResolvedInstance = lastResolvedInstance,
+            lastResolvedUrl = lastResolvedUrl,
+        )
+
+    private fun RssHubSubscriptionBackup.toDescriptor() =
+        RssHubSubscriptionDescriptor(
+            originalInput = originalInput,
+            routePath = routePath,
+            preferredInstance = preferredInstance,
+            lastResolvedInstance = lastResolvedInstance,
+            lastResolvedUrl = lastResolvedUrl,
         )
 
     private fun TranslationSettings.toBackup() =
