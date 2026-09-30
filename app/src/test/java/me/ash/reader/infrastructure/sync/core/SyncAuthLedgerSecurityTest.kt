@@ -13,6 +13,7 @@ class SyncAuthLedgerSecurityTest {
         val runtime: SyncRuntimeDao = mock()
         val inbox: SyncInboxDao = mock()
         val operations: SyncOperationDao = mock()
+        val trustedDevices: SyncTrustedDeviceDao = mock()
         val remote: SyncRemoteApplyCoordinator = mock()
         val keys = SyncDeviceSigningKeyStore()
         val rows = mutableListOf<SyncAuthLedgerEntity>()
@@ -22,6 +23,7 @@ class SyncAuthLedgerSecurityTest {
             whenever(database.syncRuntimeDao()).thenReturn(runtime)
             whenever(database.syncInboxDao()).thenReturn(inbox)
             whenever(database.syncOperationDao()).thenReturn(operations)
+            whenever(database.syncTrustedDeviceDao()).thenReturn(trustedDevices)
             whenever(remote.trustedPeer("space", "owner")).thenReturn(SyncPeerKey(keys.publicKeySpkiBase64("owner")))
             runBlocking {
                 whenever(inbox.listCoverage("space")).thenReturn(emptyList())

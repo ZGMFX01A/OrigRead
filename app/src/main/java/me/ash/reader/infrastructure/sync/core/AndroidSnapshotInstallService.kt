@@ -103,6 +103,28 @@ class AndroidSnapshotInstallService @Inject constructor(
         }
     private val blobState = SyncBlobStateService(database)
 
+    private interface SnapshotShardSource {
+        val descriptors: List<GenesisShardDescriptor>
+        suspend fun load(lane: String): SyncSnapshotShardEntity
+    }
+
+    private class InMemorySnapshotShardSource(
+        shards: List<SyncSnapshotShardEntity>,
+    ) : SnapshotShardSource {
+        private val byLane = shards.associateBy(SyncSnapshotShardEntity::replicationLaneId)
+        override val descriptors: List<GenesisShardDescriptor> =
+            shards.map {
+                GenesisShardDescriptor(
+                    it.replicationLaneId,
+                    it.shardHash,
+                    it.frontierByActorJson,
+                )
+            }
+
+        override suspend fun load(lane: String): SyncSnapshotShardEntity =
+            requireNotNull(byLane[lane]) { "Snapshot shard is missing for lane $lane" }
+    }
+
     suspend fun installWire(
         localAccountId: Int,
         wire: SyncSnapshotBundleWire,
@@ -147,6 +169,84 @@ class AndroidSnapshotInstallService @Inject constructor(
         } catch (error: Throwable) {
             throw SyncRebaseUnsafeException(
                 "REBASE_UNSAFE: snapshot manifest is incomplete: " + error.message,
+            )
+        }
+    }
+
+    suspend fun installStream(
+        localAccountId: Int,
+        manifest: SyncSnapshotStreamManifestWire,
+        trustedAuthorKey: SyncPeerKey,
+        shardLoader: (String) -> SyncSnapshotShardWire,
+        now: Long = System.currentTimeMillis(),
+        selectedLanes: Set<String>? = null,
+    ): AndroidSnapshotInstallResult {
+        if (manifest.hashSchemaVersion != SyncSnapshotWireCodec.HASH_SCHEMA_VERSION) {
+            throw SyncRebaseUnsafeException(
+                "REBASE_UNSAFE: streaming Snapshot requires the rich hash schema",
+            )
+        }
+        if (manifest.authorDeviceId.isNullOrBlank()) {
+            throw SyncRebaseUnsafeException("REBASE_UNSAFE: snapshot author is missing")
+        }
+        if (trustedAuthorKey.status != "ACTIVE") {
+            throw SyncRebaseUnsafeException("REBASE_UNSAFE: snapshot author is revoked")
+        }
+        if (
+            manifest.snapshotClass == SyncSnapshotClass.GC_BASELINE.name &&
+                manifest.authStabilityCheckpoint.isNullOrBlank()
+        ) {
+            throw SyncRebaseUnsafeException("REBASE_UNSAFE: GC baseline has no AuthStabilityCheckpoint")
+        }
+        if (
+            manifest.snapshotClass == SyncSnapshotClass.BOOTSTRAP_RECOVERY.name &&
+                (manifest.coverageCommitment.isNullOrBlank() ||
+                    manifest.authStabilityCheckpoint.isNullOrBlank())
+        ) {
+            throw SyncRebaseUnsafeException("REBASE_UNSAFE: recovery snapshot proof is incomplete")
+        }
+
+        val metadataWire = SyncSnapshotWireCodec.fromStreamManifest(manifest, emptyList())
+        validateStabilityProof(metadataWire)
+        try {
+            SyncSnapshotWireCodec.verifyRichStream(
+                manifest = manifest,
+                publicKeySpkiBase64 = trustedAuthorKey.publicKeySpkiBase64,
+                keyStore = signingKeys,
+                shardLoader = shardLoader,
+            )
+            val source =
+                object : SnapshotShardSource {
+                    override val descriptors: List<GenesisShardDescriptor> =
+                        manifest.shardDescriptors.map {
+                            GenesisShardDescriptor(
+                                it.replicationLaneId,
+                                it.contentHash,
+                                it.frontierJson,
+                            )
+                        }
+
+                    override suspend fun load(lane: String): SyncSnapshotShardEntity =
+                        SyncSnapshotWireCodec.toInternalShard(
+                            snapshotBundleId = manifest.snapshotBundleId,
+                            syncSpaceId = manifest.syncSpaceId,
+                            shard = shardLoader(lane),
+                        )
+                }
+            return installFromSource(
+                localAccountId = localAccountId,
+                bundle = SyncSnapshotWireCodec.toInternalBundle(manifest),
+                source = source,
+                now = now,
+                selectedLanes = selectedLanes,
+            )
+        } catch (error: SnapshotCorruptedError) {
+            throw error
+        } catch (error: SyncRebaseUnsafeException) {
+            throw error
+        } catch (error: Throwable) {
+            throw SyncRebaseUnsafeException(
+                "REBASE_UNSAFE: streamed snapshot manifest is incomplete: " + error.message,
             )
         }
     }
@@ -222,14 +322,29 @@ class AndroidSnapshotInstallService @Inject constructor(
         shards: List<SyncSnapshotShardEntity>,
         now: Long = System.currentTimeMillis(),
         selectedLanes: Set<String>? = null,
+    ): AndroidSnapshotInstallResult =
+        installFromSource(
+            localAccountId = localAccountId,
+            bundle = bundle,
+            source = InMemorySnapshotShardSource(shards),
+            now = now,
+            selectedLanes = selectedLanes,
+        )
+
+    private suspend fun installFromSource(
+        localAccountId: Int,
+        bundle: SyncSnapshotBundleEntity,
+        source: SnapshotShardSource,
+        now: Long,
+        selectedLanes: Set<String>?,
     ): AndroidSnapshotInstallResult {
         require(bundle.snapshotBundleId.isNotBlank()) { "Snapshot bundleId must not be blank" }
         require(bundle.syncSpaceId.isNotBlank()) { "Snapshot syncSpaceId must not be blank" }
-        require(shards.map { it.replicationLaneId }.distinct().size == shards.size) { "Duplicate snapshot lane" }
-        require(shards.all { it.syncSpaceId == bundle.syncSpaceId && it.snapshotBundleId == bundle.snapshotBundleId }) {
-            "Snapshot shard belongs to a different bundle or space"
+        val descriptors = source.descriptors
+        require(descriptors.map { it.replicationLaneId }.distinct().size == descriptors.size) {
+            "Duplicate snapshot lane"
         }
-        if (shards.any { it.replicationLaneId !in SUPPORTED_SNAPSHOT_LANES }) {
+        if (descriptors.any { it.replicationLaneId !in SUPPORTED_SNAPSHOT_LANES }) {
             throw SyncRebaseUnsafeException("REBASE_UNSAFE: snapshot contains an unsupported lane")
         }
 
@@ -244,7 +359,7 @@ class AndroidSnapshotInstallService @Inject constructor(
         }
 
         // 1. 严格完整性校验（R10-04）
-        val manifestLanes = shards.map { it.replicationLaneId }.toSet()
+        val manifestLanes = descriptors.map { it.replicationLaneId }.toSet()
         for (requiredLane in REQUIRED_SNAPSHOT_LANES) {
             if (requiredLane !in manifestLanes) {
                 throw SnapshotCorruptedError("Missing required core shard: $requiredLane")
@@ -252,7 +367,14 @@ class AndroidSnapshotInstallService @Inject constructor(
         }
 
         // 校验每个 shard 的 shardHash
-        for (shard in shards) {
+        for (lane in manifestLanes) {
+            val shard = source.load(lane)
+            require(
+                shard.syncSpaceId == bundle.syncSpaceId &&
+                    shard.snapshotBundleId == bundle.snapshotBundleId
+            ) {
+                "Snapshot shard belongs to a different bundle or space"
+            }
             val material = GenesisShardHashMaterial(
                 replicationLaneId = shard.replicationLaneId,
                 frontierByActorJson = shard.frontierByActorJson,
@@ -274,9 +396,7 @@ class AndroidSnapshotInstallService @Inject constructor(
         }
 
         // 校验 bundle 的 rootHash（descriptors 规范按 replicationLaneId 排序）
-        val sortedDescriptors = shards.map { shard ->
-            GenesisShardDescriptor(shard.replicationLaneId, shard.shardHash, shard.frontierByActorJson)
-        }.sortedBy(GenesisShardDescriptor::replicationLaneId)
+        val sortedDescriptors = descriptors.sortedBy(GenesisShardDescriptor::replicationLaneId)
         val descriptorsJson = json.encodeToString(sortedDescriptors)
         val bundleMaterial = GenesisBundleHashMaterial(
             schemaVersion = bundle.schemaVersion,
@@ -306,10 +426,10 @@ class AndroidSnapshotInstallService @Inject constructor(
                 )
             }
         }
-        val effectiveShards = shards.filter { it.replicationLaneId in presentLanes }
         validateProjectionShards(
             syncSpaceId = bundle.syncSpaceId,
-            shards = effectiveShards,
+            source = source,
+            presentLanes = presentLanes,
         )
 
         val existingStagedBundle = database.syncGenesisDao().findBundle(bundle.snapshotBundleId)
@@ -338,7 +458,8 @@ class AndroidSnapshotInstallService @Inject constructor(
         if (pendingOutbox.isNotEmpty() || extensionHasPendingOutbox) {
             persistRecoveryCapsule(
                 bundle = bundle,
-                shards = effectiveShards,
+                targetCoverage = snapshotCoverage(descriptors, presentLanes),
+                presentLanes = presentLanes,
                 pendingOutboxIds = pendingOutbox.map { it.outboxId },
                 reason = "PENDING_OUTBOX_REQUIRES_PREPARATION",
                 now = now,
@@ -350,7 +471,7 @@ class AndroidSnapshotInstallService @Inject constructor(
         val currentCoverage = currentCoverageVector(bundle.syncSpaceId)
         val coverageBeforeRebase = if (started == null) currentCoverage else
             mergeRecoveryCoverage(json.decodeFromString(started.coverageJson), currentCoverage)
-        val targetCoverage = snapshotCoverage(effectiveShards)
+        val targetCoverage = snapshotCoverage(descriptors, presentLanes)
         if (
             snapshotIsBehindStableGc(
                 targetCoverage = targetCoverage,
@@ -360,7 +481,8 @@ class AndroidSnapshotInstallService @Inject constructor(
         ) {
             persistRecoveryCapsule(
                 bundle = bundle,
-                shards = effectiveShards,
+                targetCoverage = targetCoverage,
+                presentLanes = presentLanes,
                 pendingOutboxIds = emptyList(),
                 reason = "LOCAL_RECOVERY_SNAPSHOT_REQUIRED",
                 now = now,
@@ -396,7 +518,8 @@ class AndroidSnapshotInstallService @Inject constructor(
         if (retainedTail.isNotEmpty() && started == null) {
             persistRecoveryCapsule(
                 bundle = bundle,
-                shards = effectiveShards,
+                targetCoverage = targetCoverage,
+                presentLanes = presentLanes,
                 pendingOutboxIds = emptyList(),
                 reason = "REBASE_PREPARE_RETAINED_TAIL",
                 now = now,
@@ -410,7 +533,9 @@ class AndroidSnapshotInstallService @Inject constructor(
         // expose a partially materialized Snapshot as ACTIVE.
         runInTransaction {
             database.syncGenesisDao().upsertBundle(bundle)
-            shards.forEach { database.syncGenesisDao().upsertShard(it) }
+            for (lane in manifestLanes) {
+                database.syncGenesisDao().upsertShard(source.load(lane))
+            }
             SyncSnapshotInstallJournal.start(database, bundle, presentLanes, coverageBeforeRebase, now)
             database.syncRuntimeDao().upsertBinding(
                 binding.copy(
@@ -424,12 +549,13 @@ class AndroidSnapshotInstallService @Inject constructor(
             // REBASE_PREPARE 仍保留在事务之外，下一次可安全重入。
             runInTransaction {
                 database.syncGenesisDao().upsertBundle(bundle)
-                shards.forEach { database.syncGenesisDao().upsertShard(it) }
+                for (lane in manifestLanes) {
+                    database.syncGenesisDao().upsertShard(source.load(lane))
+                }
 
-            val shardsByLane = effectiveShards.associateBy { it.replicationLaneId }
             if (
-                SyncReplicationLane.ARTICLE_STATE.wireName in shardsByLane &&
-                SyncReplicationLane.LIBRARY.wireName !in shardsByLane
+                SyncReplicationLane.ARTICLE_STATE.wireName in presentLanes &&
+                SyncReplicationLane.LIBRARY.wireName !in presentLanes
             ) {
                 throw SnapshotDependencyMissingError(
                     "ARTICLE_STATE Snapshot requires LIBRARY in the same selected Snapshot scope"
@@ -437,27 +563,36 @@ class AndroidSnapshotInstallService @Inject constructor(
             }
 
             // Snapshot 只恢复 Blob metadata/reference；没有实际 bytes 时绝不能标 READY。
-            for (shard in effectiveShards) {
+            for (lane in presentLanes) {
+                val shard = source.load(lane)
                 restoreBlobIndexes(bundle.syncSpaceId, shard, now)
             }
 
             // 3. 解析并物化 CORE_META
-            val coreShard = checkNotNull(shardsByLane[SyncReplicationLane.CORE_META.wireName])
-            runCatching { json.parseToJsonElement(coreShard.entityStateJson) }
-                .getOrElse { throw SnapshotCorruptedError("Corrupted CORE_META entityStateJson: " + it.message) }
+            run {
+                val coreShard = source.load(SyncReplicationLane.CORE_META.wireName)
+                runCatching { json.parseToJsonElement(coreShard.entityStateJson) }
+                    .getOrElse {
+                        throw SnapshotCorruptedError(
+                            "Corrupted CORE_META entityStateJson: " + it.message
+                        )
+                    }
+            }
             rebasedLanes.add(SyncReplicationLane.CORE_META.wireName)
 
             // AUTH bytes are exchanged and verified before Snapshot install. The AUTH shard must
             // describe only that already-verified ledger; Snapshot data cannot mint authorization.
-            val authShard = checkNotNull(shardsByLane[SyncReplicationLane.AUTH.wireName])
-            validateAuthShard(bundle.syncSpaceId, authShard.entityStateJson)
+            run {
+                val authShard = source.load(SyncReplicationLane.AUTH.wireName)
+                validateAuthShard(bundle.syncSpaceId, authShard.entityStateJson)
+            }
             rebasedLanes.add(SyncReplicationLane.AUTH.wireName)
 
             // 4. 解析并物化 LIBRARY（Group 与 Feed）
             val groupMappingBySyncId = mutableMapOf<String, String>() // syncId -> localGroupId
             val feedMappingBySyncId = mutableMapOf<String, String>() // syncId -> localFeedId
-            val libraryShard = shardsByLane[SyncReplicationLane.LIBRARY.wireName]
-            if (libraryShard != null) {
+            if (SyncReplicationLane.LIBRARY.wireName in presentLanes) {
+                val libraryShard = source.load(SyncReplicationLane.LIBRARY.wireName)
                 val libraryState = decodeLibraryState(libraryShard.entityStateJson)
 
             // 物化 Groups
@@ -697,8 +832,8 @@ class AndroidSnapshotInstallService @Inject constructor(
             }
 
             // 5. 解析并物化 ARTICLE_STATE（Article）
-            val articleShard = shardsByLane[SyncReplicationLane.ARTICLE_STATE.wireName]
-            if (articleShard != null) {
+            if (SyncReplicationLane.ARTICLE_STATE.wireName in presentLanes) {
+                val articleShard = source.load(SyncReplicationLane.ARTICLE_STATE.wireName)
                 val articleState = decodeArticleState(articleShard.entityStateJson)
 
             for (articleSnapshot in articleState.articles) {
@@ -854,12 +989,13 @@ class AndroidSnapshotInstallService @Inject constructor(
 
             // 6. CONFIG metadata is staged here; the external JSON file is replaced
             // idempotently after this Room transaction commits.
-            shardsByLane[SyncReplicationLane.CONFIG.wireName]?.let {
+            if (SyncReplicationLane.CONFIG.wireName in presentLanes) {
                 rebasedLanes.add(SyncReplicationLane.CONFIG.wireName)
             }
 
             // 7. 恢复 Field Versions（R10-06）- 严禁 fail-open
-            for (shard in effectiveShards) {
+            for (lane in presentLanes) {
+                val shard = source.load(lane)
                 if (shard.fieldVersionStateJson.isNotBlank() && shard.fieldVersionStateJson != "[]") {
                     val fieldVersions = decodeFieldVersions(shard)
                     val genericEntityTypesBySyncId =
@@ -998,36 +1134,39 @@ class AndroidSnapshotInstallService @Inject constructor(
                 }
             }
 
-            shardsByLane[SyncReplicationLane.CORE_META.wireName]?.let { core ->
+            run {
+                val core = source.load(SyncReplicationLane.CORE_META.wireName)
                 restoreAliasEdges(bundle.syncSpaceId, core.causalMergeMetadataJson, now)
             }
 
-            for (shard in effectiveShards.sortedBy { tombstoneLanePriority(it.replicationLaneId) }) {
+            for (lane in presentLanes.sortedBy(::tombstoneLanePriority)) {
+                val shard = source.load(lane)
                 restoreTombstones(bundle, shard, now)
             }
 
             // 8. 修正 Coverage 语义（R10-09, R10-10）：
             // 严禁将 retainedPrefix 虚高为 snapshotPrefix！严禁 fail-open 吞掉坏 Frontier
-            for (shard in effectiveShards) {
-                if (shard.frontierByActorJson.isBlank() || shard.frontierByActorJson == "{}") continue
+            for (descriptor in descriptors) {
+                if (descriptor.replicationLaneId !in presentLanes) continue
+                if (descriptor.frontierByActorJson.isBlank() || descriptor.frontierByActorJson == "{}") continue
                 val frontiers = try {
-                    SyncGenesisCodec.decodeFrontiers(shard.frontierByActorJson)[shard.replicationLaneId]
+                    SyncGenesisCodec.decodeFrontiers(descriptor.frontierByActorJson)[descriptor.replicationLaneId]
                         ?: emptyMap()
                 } catch (e: Throwable) {
                     throw SnapshotCorruptedError(
-                        "Corrupted frontierByActorJson in lane " + shard.replicationLaneId + ": " + e.message
+                        "Corrupted frontierByActorJson in lane " + descriptor.replicationLaneId + ": " + e.message
                     )
                 }
 
                 for ((actor, seq) in frontiers) {
                     if (seq < 0 || actor.isBlank()) throw SnapshotCorruptedError("Invalid snapshot frontier")
                     val existingCoverage = database.syncInboxDao().findCoverage(
-                        bundle.syncSpaceId, shard.replicationLaneId, actor,
+                        bundle.syncSpaceId, descriptor.replicationLaneId, actor,
                     )
                     database.syncInboxDao().upsertCoverage(
                         SyncCoverageEntity(
                             syncSpaceId = bundle.syncSpaceId,
-                            replicationLaneId = shard.replicationLaneId,
+                            replicationLaneId = descriptor.replicationLaneId,
                             actorIncarnationId = actor,
                             receivedPrefix = maxOf(existingCoverage?.receivedPrefix ?: 0L, seq),
                             appliedPrefix = maxOf(existingCoverage?.appliedPrefix ?: 0L, seq),
@@ -1042,7 +1181,12 @@ class AndroidSnapshotInstallService @Inject constructor(
 
             applyExternalConfigShard(
                 syncSpaceId = bundle.syncSpaceId,
-                shard = effectiveShards.firstOrNull { it.replicationLaneId == SyncReplicationLane.CONFIG.wireName },
+                shard =
+                    if (SyncReplicationLane.CONFIG.wireName in presentLanes) {
+                        source.load(SyncReplicationLane.CONFIG.wireName)
+                    } else {
+                        null
+                    },
                 now = now,
             )
 
@@ -1052,13 +1196,15 @@ class AndroidSnapshotInstallService @Inject constructor(
 
         materializeProjectionTombstones(
             bundle = bundle,
-            shards = effectiveShards,
+            source = source,
+            presentLanes = presentLanes,
             now = now,
         )
         val projectionResult =
             materializeProjectionShards(
                 syncSpaceId = bundle.syncSpaceId,
-                shards = effectiveShards,
+                source = source,
+                presentLanes = presentLanes,
                 now = now,
             )
         materializedCount += projectionResult.first
@@ -1125,19 +1271,26 @@ class AndroidSnapshotInstallService @Inject constructor(
         )
     }
 
-    private fun snapshotCoverage(shards: List<SyncSnapshotShardEntity>): SyncCoverage =
-        shards.associate { shard ->
-            val actors =
-                try {
-                    SyncGenesisCodec.decodeFrontiers(shard.frontierByActorJson)[shard.replicationLaneId]
-                        ?: emptyMap()
-                } catch (error: Throwable) {
-                    throw SnapshotCorruptedError(
-                        "Corrupted Snapshot frontier in lane ${shard.replicationLaneId}: ${error.message}"
-                    )
-                }
-            shard.replicationLaneId to actors
-        }.filterValues { it.isNotEmpty() }
+    private fun snapshotCoverage(
+        descriptors: List<GenesisShardDescriptor>,
+        presentLanes: Set<String>,
+    ): SyncCoverage =
+        descriptors
+            .asSequence()
+            .filter { it.replicationLaneId in presentLanes }
+            .associate { descriptor ->
+                val actors =
+                    try {
+                        SyncGenesisCodec.decodeFrontiers(descriptor.frontierByActorJson)[descriptor.replicationLaneId]
+                            ?: emptyMap()
+                    } catch (error: Throwable) {
+                        throw SnapshotCorruptedError(
+                            "Corrupted Snapshot frontier in lane ${descriptor.replicationLaneId}: ${error.message}"
+                        )
+                    }
+                descriptor.replicationLaneId to actors
+            }
+            .filterValues { it.isNotEmpty() }
 
     private fun assertRetainedTailIsComplete(
         targetCoverage: SyncCoverage,
@@ -1276,9 +1429,11 @@ class AndroidSnapshotInstallService @Inject constructor(
 
     private suspend fun validateProjectionShards(
         syncSpaceId: String,
-        shards: List<SyncSnapshotShardEntity>,
+        source: SnapshotShardSource,
+        presentLanes: Set<String>,
     ) {
-        shards.forEach { shard ->
+        for (lane in presentLanes) {
+            val shard = source.load(lane)
             snapshotDeletionRows(shard).forEach tombstoneLoop@{ row ->
                 val entityType =
                     row.stringValue("entityType")
@@ -1301,8 +1456,8 @@ class AndroidSnapshotInstallService @Inject constructor(
                 }
             }
         }
-        shards.filter { it.replicationLaneId == SyncReplicationLane.AI_HISTORY.wireName }
-            .forEach { shard ->
+        if (SyncReplicationLane.AI_HISTORY.wireName in presentLanes) {
+            val shard = source.load(SyncReplicationLane.AI_HISTORY.wireName)
                 genericEntities(shard.entityStateJson).forEach { entity ->
                     val entityType =
                         entity.stringValue("entityType")
@@ -1357,16 +1512,17 @@ class AndroidSnapshotInstallService @Inject constructor(
                                 ?: generationFor(shard, entityType, entitySyncId).coerceAtLeast(1L),
                     )
                 }
-            }
+        }
     }
 
     private suspend fun materializeProjectionTombstones(
         bundle: SyncSnapshotBundleEntity,
-        shards: List<SyncSnapshotShardEntity>,
+        source: SnapshotShardSource,
+        presentLanes: Set<String>,
         now: Long,
     ) {
-        shards.filter { it.replicationLaneId == SyncReplicationLane.AI_HISTORY.wireName }
-            .forEach { shard ->
+        if (SyncReplicationLane.AI_HISTORY.wireName !in presentLanes) return
+        val shard = source.load(SyncReplicationLane.AI_HISTORY.wireName)
                 for (row in snapshotDeletionRows(shard)) {
                     val entityType =
                         row.stringValue("entityType")
@@ -1403,18 +1559,18 @@ class AndroidSnapshotInstallService @Inject constructor(
                         )
                     }
                 }
-            }
     }
 
     private suspend fun materializeProjectionShards(
         syncSpaceId: String,
-        shards: List<SyncSnapshotShardEntity>,
+        source: SnapshotShardSource,
+        presentLanes: Set<String>,
         now: Long,
     ): Pair<Int, List<String>> {
         var count = 0
         val lanes = mutableListOf<String>()
-        shards.filter { it.replicationLaneId == SyncReplicationLane.AI_HISTORY.wireName }
-            .forEach { shard ->
+        if (SyncReplicationLane.AI_HISTORY.wireName in presentLanes) {
+            val shard = source.load(SyncReplicationLane.AI_HISTORY.wireName)
                 val entities =
                     genericEntities(shard.entityStateJson)
                         .sortedWith(
@@ -1468,7 +1624,7 @@ class AndroidSnapshotInstallService @Inject constructor(
                     count++
                 }
                 lanes += shard.replicationLaneId
-            }
+        }
         return count to lanes.distinct()
     }
 
@@ -2594,24 +2750,16 @@ class AndroidSnapshotInstallService @Inject constructor(
 
     private suspend fun persistRecoveryCapsule(
         bundle: SyncSnapshotBundleEntity,
-        shards: List<SyncSnapshotShardEntity>,
+        targetCoverage: SyncCoverage,
+        presentLanes: Set<String>,
         pendingOutboxIds: List<String>,
         reason: String,
         now: Long,
     ) {
-        val targetCoverage =
-            shards.associate { shard ->
-                val actors =
-                    runCatching {
-                        SyncGenesisCodec.decodeFrontiers(shard.frontierByActorJson)[shard.replicationLaneId]
-                            ?: emptyMap()
-                    }.getOrDefault(emptyMap())
-                shard.replicationLaneId to actors
-            }
         val operationIds =
             database.syncOperationDao().listAllForRecovery(bundle.syncSpaceId)
                 .filter { operation ->
-                    operation.replicationLaneId in targetCoverage &&
+                    operation.replicationLaneId in presentLanes &&
                     operation.sequence >
                         (targetCoverage[operation.replicationLaneId]?.get(operation.actorIncarnationId) ?: 0L)
                 }

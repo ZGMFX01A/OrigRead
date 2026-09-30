@@ -19,6 +19,12 @@ import me.ash.reader.infrastructure.sync.core.MIGRATION_21_22
 import me.ash.reader.infrastructure.sync.core.MIGRATION_22_23
 import me.ash.reader.infrastructure.sync.core.MIGRATION_23_24
 import me.ash.reader.infrastructure.sync.core.MIGRATION_24_25
+import me.ash.reader.infrastructure.sync.core.MIGRATION_26_27
+import me.ash.reader.infrastructure.sync.core.MIGRATION_27_28
+import me.ash.reader.infrastructure.sync.core.MIGRATION_28_29
+import me.ash.reader.infrastructure.sync.core.MIGRATION_29_30
+import me.ash.reader.infrastructure.sync.core.MIGRATION_30_31
+import me.ash.reader.infrastructure.sync.core.MIGRATION_31_32
 
 /** R10 SYNC-0 主阅读库身份层迁移回归。 */
 @RunWith(AndroidJUnit4::class)
@@ -179,11 +185,11 @@ class SyncIdentityMigrationTest {
     }
 
     @Test
-    fun migration18To24_addsAuthStabilityRecoveryAliasAndBlobState() {
+    fun migration18To32_addsAuthStabilityRecoveryAliasBlobAndR11State() {
         helper.createDatabase(TEST_DATABASE_NAME, 18).close()
         helper.runMigrationsAndValidate(
             TEST_DATABASE_NAME,
-            24,
+            32,
             true,
             MIGRATION_18_19,
             MIGRATION_19_20,
@@ -191,6 +197,14 @@ class SyncIdentityMigrationTest {
             MIGRATION_21_22,
             MIGRATION_22_23,
             MIGRATION_23_24,
+            MIGRATION_24_25,
+            MIGRATION_25_26,
+            MIGRATION_26_27,
+            MIGRATION_27_28,
+            MIGRATION_28_29,
+            MIGRATION_29_30,
+            MIGRATION_30_31,
+            MIGRATION_31_32,
         ).apply {
             query("PRAGMA table_info(`sync_inbox_operation`)").use { cursor ->
                 val names = mutableSetOf<String>()
@@ -216,6 +230,12 @@ class SyncIdentityMigrationTest {
                 assertEquals(0, cursor.getInt(0))
             }
             listOf("sync_blob_manifest", "sync_blob_reference", "sync_blob_persisted_ack").forEach { table ->
+                query("SELECT COUNT(*) FROM `$table`").use { cursor ->
+                    check(cursor.moveToFirst())
+                    assertEquals(0, cursor.getInt(0))
+                }
+            }
+            listOf("sync_trusted_device", "sync_peer_coverage_report", "sync_run_history", "sync_snapshot_stream_stage", "sync_snapshot_stream_shard").forEach { table ->
                 query("SELECT COUNT(*) FROM `$table`").use { cursor ->
                     check(cursor.moveToFirst())
                     assertEquals(0, cursor.getInt(0))

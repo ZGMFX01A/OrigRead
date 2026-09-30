@@ -258,6 +258,112 @@ interface SyncGenesisDao {
     )
     suspend fun listShards(bundleId: String): List<SyncSnapshotShardEntity>
 
+    @androidx.room.Query(
+        """
+        SELECT replicationLaneId, frontierByActorJson, shardHash
+        FROM sync_snapshot_shard
+        WHERE snapshotBundleId = :bundleId
+        ORDER BY replicationLaneId ASC
+        """
+    )
+    suspend fun listShardDescriptors(bundleId: String): List<SyncSnapshotShardDescriptorRow>
+
+    @androidx.room.Query(
+        """
+        SELECT * FROM sync_snapshot_shard
+        WHERE snapshotBundleId = :bundleId AND replicationLaneId = :lane
+        LIMIT 1
+        """
+    )
+    suspend fun findShard(bundleId: String, lane: String): SyncSnapshotShardEntity?
+
+    @androidx.room.Query(
+        """
+        SELECT * FROM sync_snapshot_shard
+        WHERE snapshotBundleId = :bundleId AND replicationLaneId = :lane
+        LIMIT 1
+        """
+    )
+    fun findShardForStreaming(bundleId: String, lane: String): SyncSnapshotShardEntity?
+
+    @androidx.room.Insert(onConflict = androidx.room.OnConflictStrategy.REPLACE)
+    suspend fun upsertStreamStage(stage: SyncSnapshotStreamStageEntity)
+
+    @androidx.room.Query(
+        """
+        SELECT * FROM sync_snapshot_stream_stage
+        WHERE syncSpaceId = :syncSpaceId AND snapshotBundleId = :snapshotBundleId
+        LIMIT 1
+        """
+    )
+    suspend fun findStreamStage(
+        syncSpaceId: String,
+        snapshotBundleId: String,
+    ): SyncSnapshotStreamStageEntity?
+
+    @androidx.room.Insert(onConflict = androidx.room.OnConflictStrategy.REPLACE)
+    suspend fun upsertStreamShard(shard: SyncSnapshotStreamShardEntity)
+
+    @androidx.room.Query(
+        """
+        SELECT * FROM sync_snapshot_stream_shard
+        WHERE syncSpaceId = :syncSpaceId
+          AND snapshotBundleId = :snapshotBundleId
+          AND replicationLaneId = :lane
+        LIMIT 1
+        """
+    )
+    fun findStreamShardForStreaming(
+        syncSpaceId: String,
+        snapshotBundleId: String,
+        lane: String,
+    ): SyncSnapshotStreamShardEntity?
+
+    @androidx.room.Query(
+        """
+        SELECT COUNT(*) FROM sync_snapshot_stream_shard
+        WHERE syncSpaceId = :syncSpaceId AND snapshotBundleId = :snapshotBundleId
+        """
+    )
+    suspend fun countStreamShards(syncSpaceId: String, snapshotBundleId: String): Int
+
+    @androidx.room.Query(
+        """
+        DELETE FROM sync_snapshot_stream_shard
+        WHERE syncSpaceId = :syncSpaceId AND snapshotBundleId = :snapshotBundleId
+        """
+    )
+    suspend fun deleteStreamShards(syncSpaceId: String, snapshotBundleId: String): Int
+
+    @androidx.room.Query(
+        """
+        DELETE FROM sync_snapshot_stream_stage
+        WHERE syncSpaceId = :syncSpaceId AND snapshotBundleId = :snapshotBundleId
+        """
+    )
+    suspend fun deleteStreamStage(syncSpaceId: String, snapshotBundleId: String): Int
+
+    @androidx.room.Query(
+        """
+        DELETE FROM sync_snapshot_stream_shard
+        WHERE EXISTS (
+            SELECT 1 FROM sync_snapshot_stream_stage s
+            WHERE s.syncSpaceId = sync_snapshot_stream_shard.syncSpaceId
+              AND s.snapshotBundleId = sync_snapshot_stream_shard.snapshotBundleId
+              AND s.updatedAt < :cutoff
+        )
+        """
+    )
+    suspend fun deleteExpiredStreamShards(cutoff: Long): Int
+
+    @androidx.room.Query(
+        """
+        DELETE FROM sync_snapshot_stream_stage
+        WHERE updatedAt < :cutoff
+        """
+    )
+    suspend fun deleteExpiredStreamStages(cutoff: Long): Int
+
     @androidx.room.Insert(onConflict = androidx.room.OnConflictStrategy.REPLACE)
     suspend fun upsertOperationCoverage(coverage: SyncGenesisOperationCoverageEntity)
 

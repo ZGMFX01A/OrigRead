@@ -90,6 +90,9 @@ class SyncStableGcCoordinator @Inject constructor(
                         database.syncOperationDao()
                             .listThroughPrefix(bundle.syncSpaceId, lane, actor, prefix)
                     operations.forEach { operation ->
+                        check(operation.buildStatus == SyncOperationBuildStatus.SIGNED.name) {
+                            "Stable GC cannot remove non-signed canonical operation ${operation.operationId} (${operation.buildStatus})"
+                        }
                         val inbox = database.syncInboxDao().find(operation.operationId)
                         if (inbox != null) {
                             check(inbox.state == "APPLIED") {

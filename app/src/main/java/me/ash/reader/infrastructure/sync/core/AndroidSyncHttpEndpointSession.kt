@@ -102,6 +102,64 @@ class AndroidSyncHttpEndpointSession(
         )
     }
 
+    override suspend fun getLatestSnapshotStreamManifest(
+        snapshotClass: String?,
+        lanes: List<String>,
+    ): SyncSnapshotStreamManifestWire? {
+        val query = buildList {
+            if (!snapshotClass.isNullOrBlank()) {
+                add("class=${URLEncoder.encode(snapshotClass, StandardCharsets.UTF_8.name())}")
+            }
+            if (lanes.isNotEmpty()) {
+                add("lanes=${URLEncoder.encode(lanes.joinToString(","), StandardCharsets.UTF_8.name())}")
+            }
+        }.joinToString("&").takeIf { it.isNotBlank() }?.let { "?$it" } ?: ""
+        val body =
+            requestText(
+                "GET",
+                "/v1/spaces/${path(syncSpaceId)}/snapshots/latest/stream$query",
+            )
+        return if (body == "null") null
+        else json.decodeFromString(SyncSnapshotStreamManifestWire.serializer(), body)
+    }
+
+    override suspend fun fetchSnapshotStreamShard(
+        sourceSnapshotBundleId: String,
+        lane: String,
+    ): SyncSnapshotShardWire =
+        requestJson(
+            "GET",
+            "/v1/spaces/${path(syncSpaceId)}/snapshots/${path(sourceSnapshotBundleId)}/shards/${path(lane)}",
+            SyncSnapshotShardWire.serializer(),
+        )
+
+    override suspend fun pushSnapshotStreamManifest(manifest: SyncSnapshotStreamManifestWire) {
+        requestText(
+            "PUT",
+            "/v1/spaces/${path(syncSpaceId)}/snapshots/${path(manifest.snapshotBundleId)}/stream/manifest",
+            json.encodeToString(SyncSnapshotStreamManifestWire.serializer(), manifest),
+        )
+    }
+
+    override suspend fun pushSnapshotStreamShard(
+        snapshotBundleId: String,
+        shard: SyncSnapshotShardWire,
+    ) {
+        requestText(
+            "PUT",
+            "/v1/spaces/${path(syncSpaceId)}/snapshots/${path(snapshotBundleId)}/stream/shards/${path(shard.replicationLaneId)}",
+            json.encodeToString(SyncSnapshotShardWire.serializer(), shard),
+        )
+    }
+
+    override suspend fun commitSnapshotStream(snapshotBundleId: String) {
+        requestText(
+            "POST",
+            "/v1/spaces/${path(syncSpaceId)}/snapshots/${path(snapshotBundleId)}/stream/commit",
+            "{}",
+        )
+    }
+
     override suspend fun acceptRecoverySnapshot(
         snapshotBundleId: String,
         acceptance: SyncAuthProtocolObject,
@@ -164,13 +222,24 @@ class AndroidSyncHttpEndpointSession(
         return withContext(Dispatchers.IO) {
             client.newCall(request).execute().use { response ->
                 check(response.isSuccessful) { "Sync Blob push failed: HTTP ${response.code}" }
-                if (response.code == 204) {
-                    null
-                } else {
-                    val body = response.body?.string().orEmpty()
-                    require(body.isNotBlank()) { "BlobPersistedAck response is empty" }
-                    json.decodeFromString(SyncBlobPersistedAckWire.serializer(), body)
+                if (!chunk.isFinal) {
+                    require(response.code == 204) {
+                        "Non-final Blob chunk must return HTTP 204, got ${response.code}"
+                    }
+                    return@use null
                 }
+                require(response.code != 204) { "Final Blob chunk requires BlobPersistedAck" }
+                val body = response.body?.string().orEmpty()
+                require(body.isNotBlank()) { "BlobPersistedAck response is empty" }
+                val ack = json.decodeFromString(SyncBlobPersistedAckWire.serializer(), body)
+                require(
+                    ack.syncSpaceId == syncSpaceId &&
+                        ack.hash == chunk.hash &&
+                        ack.totalBytes == chunk.totalBytes &&
+                        ack.replicaId.isNotBlank() &&
+                        ack.persistedAt > 0L
+                ) { "BlobPersistedAck does not match the uploaded Blob" }
+                ack
             }
         }
     }

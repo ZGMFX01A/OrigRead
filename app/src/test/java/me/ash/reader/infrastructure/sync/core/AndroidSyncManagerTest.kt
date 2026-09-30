@@ -72,7 +72,7 @@ class AndroidSyncManagerTest {
                 succeeded = 2,
                 failedEndpointIds = emptyList(),
             )
-            `when`(registry.syncAll()).thenReturn(expectedSummary)
+            whenever(registry.syncAll(any(), any())).thenReturn(expectedSummary)
 
             val summary = syncManager.syncNow()
 

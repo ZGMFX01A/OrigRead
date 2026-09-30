@@ -5,6 +5,7 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
@@ -425,6 +426,135 @@ class SyncGenesisSnapshotService @Inject constructor(
         )
     }
 
+    suspend fun exportStreamShard(
+        sourceSnapshotBundleId: String,
+        lane: String,
+    ): SyncSnapshotShardWire {
+        val shard =
+            requireNotNull(database.syncGenesisDao().findShard(sourceSnapshotBundleId, lane)) {
+                "Snapshot shard not found: $sourceSnapshotBundleId/$lane"
+            }
+        return SyncSnapshotWireCodec.toWireShard(shard)
+    }
+
+    suspend fun exportStreamManifest(
+        snapshotBundleId: String,
+        selectedLanes: Set<String>? = null,
+    ): SyncSnapshotStreamManifestWire {
+        val bundle =
+            requireNotNull(database.syncGenesisDao().findBundle(snapshotBundleId)) {
+                "Snapshot bundle not found: $snapshotBundleId"
+            }
+        val descriptors = database.syncGenesisDao().listShardDescriptors(snapshotBundleId)
+        require(descriptors.isNotEmpty()) { "Snapshot bundle has no shards: $snapshotBundleId" }
+
+        val manifestLanes = descriptors.map { it.replicationLaneId }.toSet()
+        val effectiveLanes = selectedLanes ?: manifestLanes
+        require(manifestLanes.containsAll(effectiveLanes)) {
+            "Snapshot scope contains a lane that is absent from the persisted manifest"
+        }
+        val requiredCoreShardIds =
+            json.decodeFromString<List<String>>(bundle.requiredCoreShardIdsJson)
+        require(effectiveLanes.containsAll(requiredCoreShardIds)) {
+            "Snapshot scope must include required core shards"
+        }
+
+        val selectedDescriptors =
+            descriptors.filter { it.replicationLaneId in effectiveLanes }
+        val lightweightShards =
+            selectedDescriptors.map { descriptor ->
+                SyncSnapshotShardWire(
+                    replicationLaneId = descriptor.replicationLaneId,
+                    frontierJson = descriptor.frontierByActorJson,
+                    entityStateJson = "",
+                    fieldVersionStateJson = "",
+                    causalMetadataJson = "",
+                    genesisCoverageJson = "",
+                    deletionGenerationSummaryJson = "",
+                    contentHash = descriptor.shardHash,
+                )
+            }
+        val coverage = SyncSnapshotWireCodec.coverageFromShards(lightweightShards)
+        val isScoped = effectiveLanes != manifestLanes
+        val policyHash =
+            if (isScoped) {
+                SyncSnapshotWireCodec.scopedPolicyHash(
+                    bundle.replicationPolicyHash,
+                    effectiveLanes,
+                )
+            } else {
+                bundle.replicationPolicyHash
+            }
+        val wireBundleId =
+            if (isScoped) {
+                SyncSnapshotWireCodec.scopedSnapshotBundleId(
+                    bundle.snapshotBundleId,
+                    policyHash,
+                )
+            } else {
+                bundle.snapshotBundleId
+            }
+        val unsigned =
+            SyncSnapshotStreamManifestWire(
+                sourceSnapshotBundleId = bundle.snapshotBundleId,
+                snapshotBundleId = wireBundleId,
+                syncSpaceId = bundle.syncSpaceId,
+                snapshotClass = bundle.snapshotClass,
+                genesisBaselineId = SyncSnapshotWireCodec.genesisBaselineId(bundle),
+                rootHash = "",
+                policyHash = policyHash,
+                capturedAt = bundle.createdAt,
+                shardDescriptors =
+                    selectedDescriptors.map {
+                        SyncSnapshotShardDescriptorWire(
+                            replicationLaneId = it.replicationLaneId,
+                            contentHash = it.shardHash,
+                            frontierJson = it.frontierByActorJson,
+                        )
+                    },
+                coverage = coverage,
+                hashSchemaVersion = SyncSnapshotWireCodec.HASH_SCHEMA_VERSION,
+                schemaVersion = bundle.schemaVersion,
+                snapshotEpoch = bundle.snapshotEpoch,
+                crossDbCutId = bundle.crossDbCutId,
+                requiredCoreShardIds = requiredCoreShardIds,
+                coverageCommitment =
+                    if (bundle.snapshotClass == SyncSnapshotClass.BOOTSTRAP_RECOVERY.name) {
+                        SyncSnapshotWireCodec.coverageCommitment(coverage)
+                    } else {
+                        null
+                    },
+                authStabilityCheckpoint = bundle.authStabilityCheckpointId,
+                authorDeviceId = bundle.createdByDeviceId,
+                authorSignature = null,
+            )
+        val rootHash =
+            SyncSnapshotWireCodec.richRootHash(
+                SyncSnapshotWireCodec.fromStreamManifest(unsigned, lightweightShards)
+            )
+        if (!isScoped) {
+            require(rootHash == bundle.rootHash) {
+                "Persisted Snapshot rootHash does not match streamed manifest"
+            }
+        }
+        val withRoot = unsigned.copy(rootHash = rootHash)
+        val signature =
+            signingKeys.signChunksBase64(
+                bundle.createdByDeviceId,
+                SyncSnapshotWireCodec.signingMaterialChunks(withRoot) { lane ->
+                    val shard =
+                        requireNotNull(
+                            database.syncGenesisDao()
+                                .findShardForStreaming(bundle.snapshotBundleId, lane)
+                        ) {
+                            "Snapshot shard disappeared during streaming export: $lane"
+                        }
+                    SyncSnapshotWireCodec.toWireShard(shard)
+                },
+            )
+        return withRoot.copy(authorSignature = signature)
+    }
+
     suspend fun mergeRecoverySnapshot(
         localSnapshotBundleId: String,
         target: SyncSnapshotBundleWire,
@@ -579,6 +709,22 @@ class SyncGenesisSnapshotService @Inject constructor(
         now: Long = System.currentTimeMillis(),
         selectedLanes: Set<String>? = null,
     ): SyncSnapshotBundleWire {
+        val promotedBundleId =
+            promoteToGcBaselinePersisted(
+                snapshotBundleId = snapshotBundleId,
+                checkpointId = checkpointId,
+                now = now,
+                selectedLanes = selectedLanes,
+            )
+        return exportWire(promotedBundleId)
+    }
+
+    suspend fun promoteToGcBaselinePersisted(
+        snapshotBundleId: String,
+        checkpointId: String,
+        now: Long = System.currentTimeMillis(),
+        selectedLanes: Set<String>? = null,
+    ): String {
         require(checkpointId.isNotBlank()) { "GC_BASELINE requires AuthStabilityCheckpoint" }
         val bundle =
             requireNotNull(database.syncGenesisDao().findBundle(snapshotBundleId)) {
@@ -600,11 +746,11 @@ class SyncGenesisSnapshotService @Inject constructor(
             "GC_BASELINE must reference the current AuthStabilityCheckpoint"
         }
         val accepted = parseAcceptedCoverage(checkpoint)
-        val currentWire = exportWire(snapshotBundleId, selectedLanes)
-        require(coverageDominates(accepted, currentWire.coverage)) {
+        val currentManifest = exportStreamManifest(snapshotBundleId, selectedLanes)
+        require(coverageDominates(accepted, currentManifest.coverage)) {
             "GC_BASELINE Snapshot exceeds stable authorized coverage"
         }
-        currentWire.coverage.forEach { (lane, actors) ->
+        currentManifest.coverage.forEach { (lane, actors) ->
             actors.forEach { (actor, prefix) ->
                 check(
                     !database.syncInboxDao().hasAppliedProvisionalAtOrBefore(
@@ -618,9 +764,9 @@ class SyncGenesisSnapshotService @Inject constructor(
                 }
             }
         }
-        return promoteSnapshotVariant(
+        return promoteSnapshotVariantFromManifest(
             baseBundle = bundle,
-            currentWire = currentWire,
+            currentManifest = currentManifest,
             snapshotClass = SyncSnapshotClass.GC_BASELINE.name,
             checkpointId = checkpointId,
             now = now,
@@ -633,6 +779,22 @@ class SyncGenesisSnapshotService @Inject constructor(
         now: Long = System.currentTimeMillis(),
         selectedLanes: Set<String>? = null,
     ): SyncSnapshotBundleWire {
+        val promotedBundleId =
+            promoteToBootstrapRecoveryPersisted(
+                snapshotBundleId = snapshotBundleId,
+                checkpointId = checkpointId,
+                now = now,
+                selectedLanes = selectedLanes,
+            )
+        return exportWire(promotedBundleId)
+    }
+
+    suspend fun promoteToBootstrapRecoveryPersisted(
+        snapshotBundleId: String,
+        checkpointId: String,
+        now: Long = System.currentTimeMillis(),
+        selectedLanes: Set<String>? = null,
+    ): String {
         require(checkpointId.isNotBlank()) { "BOOTSTRAP_RECOVERY requires AuthStabilityCheckpoint" }
         val bundle =
             requireNotNull(database.syncGenesisDao().findBundle(snapshotBundleId)) {
@@ -654,22 +816,56 @@ class SyncGenesisSnapshotService @Inject constructor(
             "BOOTSTRAP_RECOVERY must reference the current AuthStabilityCheckpoint"
         }
         val checkpointRoot = json.parseToJsonElement(checkpoint.payloadJson).jsonObject
-        val currentWire = exportWire(snapshotBundleId, selectedLanes)
+        val currentManifest = exportStreamManifest(snapshotBundleId, selectedLanes)
         require(
-            checkpointRoot["acceptedSnapshotBundleId"]?.jsonPrimitive?.content == currentWire.snapshotBundleId
-        ) { "Recovery checkpoint does not accept Snapshot ${currentWire.snapshotBundleId}" }
+            checkpointRoot["acceptedSnapshotBundleId"]?.jsonPrimitive?.content == currentManifest.snapshotBundleId
+        ) { "Recovery checkpoint does not accept Snapshot ${currentManifest.snapshotBundleId}" }
         val accepted = parseAcceptedCoverage(checkpoint)
-        require(coverageDominates(accepted, currentWire.coverage)) {
+        require(coverageDominates(accepted, currentManifest.coverage)) {
             "BOOTSTRAP_RECOVERY Snapshot exceeds stable authorized coverage"
         }
 
-        return promoteSnapshotVariant(
+        return promoteSnapshotVariantFromManifest(
             baseBundle = bundle,
-            currentWire = currentWire,
+            currentManifest = currentManifest,
             snapshotClass = SyncSnapshotClass.BOOTSTRAP_RECOVERY.name,
             checkpointId = checkpointId,
             now = now,
         )
+    }
+
+    private suspend fun promoteSnapshotVariantFromManifest(
+        baseBundle: SyncSnapshotBundleEntity,
+        currentManifest: SyncSnapshotStreamManifestWire,
+        snapshotClass: String,
+        checkpointId: String,
+        now: Long,
+    ): String {
+        val selectedLanes = currentManifest.shardDescriptors.map { it.replicationLaneId }.toSet()
+        val baseShards =
+            database.syncGenesisDao().listShards(baseBundle.snapshotBundleId)
+                .filter { it.replicationLaneId in selectedLanes }
+        val descriptors =
+            baseShards.map {
+                GenesisShardDescriptor(it.replicationLaneId, it.shardHash, it.frontierByActorJson)
+            }.sortedBy(GenesisShardDescriptor::replicationLaneId)
+        val promotedBundle =
+            baseBundle.copy(
+                snapshotBundleId = currentManifest.snapshotBundleId,
+                snapshotClass = snapshotClass,
+                replicationPolicyHash = currentManifest.policyHash,
+                shardDescriptorsJson = json.encodeToString(descriptors),
+                authStabilityCheckpointId = checkpointId,
+                rootHash = currentManifest.rootHash,
+                createdAt = now,
+            )
+        val promotedShards =
+            baseShards.map { it.copy(snapshotBundleId = currentManifest.snapshotBundleId) }
+        database.withTransaction {
+            database.syncGenesisDao().upsertBundle(promotedBundle)
+            promotedShards.forEach { database.syncGenesisDao().upsertShard(it) }
+        }
+        return currentManifest.snapshotBundleId
     }
 
     private suspend fun promoteSnapshotVariant(
@@ -1555,9 +1751,10 @@ class SyncGenesisSnapshotService @Inject constructor(
                     generationSummary[key] =
                         maxOf(generationSummary[key] ?: 0L, tombstone.entityGeneration)
                 }
+                val sortedGenerationSummary: Map<String, Long> = generationSummary.toSortedMap()
                 val generationSummaryJson =
                     SyncOperationCanonicalizer.canonicalJson(
-                        json.encodeToString(generationSummary.toSortedMap()),
+                        json.encodeToString(sortedGenerationSummary),
                     )
                 val blobIndexes = blobState.snapshotIndexes(cut.syncSpaceId, lane.wireName)
                 val material =

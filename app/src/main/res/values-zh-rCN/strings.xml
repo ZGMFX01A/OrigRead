@@ -1317,6 +1317,7 @@
     <string name="selected_text_ai">AI</string>
     <string name="origread_sync">多端同步</string>
     <string name="origread_sync_desc">局域网对等发现与自建云端同步</string>
+    <string name="origread_sync_activate">启用同步</string>
     <string name="origread_sync_lan_listener">局域网同步监听</string>
     <string name="origread_sync_lan_listener_desc">允许局域网内的其他 OrigRead 设备发现并同步</string>
     <string name="origread_sync_discover">扫描局域网设备</string>

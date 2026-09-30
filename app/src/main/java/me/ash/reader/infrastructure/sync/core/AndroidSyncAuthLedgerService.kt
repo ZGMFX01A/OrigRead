@@ -12,6 +12,11 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.encodeToString
 import me.ash.reader.infrastructure.db.AndroidDatabase
 
+data class SyncAuthBootstrapPin(
+    val deviceId: String,
+    val publicKeySpkiBase64: String,
+)
+
 /**
  * Android 端 AUTH Ledger 存储、链式校验与持久化服务。
  *
@@ -169,27 +174,41 @@ class AndroidSyncAuthLedgerService @Inject constructor(
         syncSpaceId: String,
         incomingObjects: List<SyncAuthProtocolObject>,
         now: Long = System.currentTimeMillis(),
+        refreshPeerCache: Boolean = true,
+        bootstrapPin: SyncAuthBootstrapPin? = null,
     ): SyncAuthLedgerPage {
         if (incomingObjects.isEmpty()) {
-            return getAuthLedger(syncSpaceId).also { remoteApply.applyAuthLedger(syncSpaceId, it.objects) }
+            val current = getAuthLedger(syncSpaceId)
+            if (refreshPeerCache && !database.inTransaction()) {
+                remoteApply.applyAuthLedger(syncSpaceId, current.objects)
+            }
+            return current
         }
 
         if (runInTransaction) {
             database.withTransaction {
                 for (obj in incomingObjects.sortedWith(AUTH_ORDER)) {
-                    appendSingleObject(syncSpaceId, obj, now)
+                    appendSingleObject(syncSpaceId, obj, now, bootstrapPin)
                 }
             }
         } else {
             for (obj in incomingObjects.sortedWith(AUTH_ORDER)) {
-                appendSingleObject(syncSpaceId, obj, now)
+                appendSingleObject(syncSpaceId, obj, now, bootstrapPin)
             }
         }
 
         // 重新查询最新 AUTH 记录并刷新内存中的 Peer 授权缓存
         val latestPage = getAuthLedger(syncSpaceId)
-        remoteApply.applyAuthLedger(syncSpaceId, latestPage.objects)
+        if (refreshPeerCache && !database.inTransaction()) {
+            remoteApply.applyAuthLedger(syncSpaceId, latestPage.objects)
+        }
         return latestPage
+    }
+
+    /** Refresh the in-memory authorization cache only after the caller's outer Room transaction commits. */
+    suspend fun refreshPeerAuthorizationCache(syncSpaceId: String) {
+        check(!database.inTransaction()) { "AUTH peer cache cannot be published before the Room transaction commits" }
+        remoteApply.applyAuthLedger(syncSpaceId, getAuthLedger(syncSpaceId).objects)
     }
 
     /**
@@ -199,6 +218,7 @@ class AndroidSyncAuthLedgerService @Inject constructor(
         syncSpaceId: String,
         obj: SyncAuthProtocolObject,
         now: Long,
+        bootstrapPin: SyncAuthBootstrapPin? = null,
     ) {
         check(obj.syncSpaceId == syncSpaceId) {
             "AUTH object Sync Space (${obj.syncSpaceId}) does not match endpoint ($syncSpaceId)"
@@ -237,9 +257,16 @@ class AndroidSyncAuthLedgerService @Inject constructor(
         }
         if (existingObjects.isEmpty()) {
             val localDevice = database.syncRuntimeDao().findDeviceIdentity()
-            val pinnedKey = if (localDevice?.deviceId == obj.authorDeviceId) {
-                signingKeys.publicKeySpkiBase64(localDevice.deviceId)
-            } else remoteApply.trustedPeer(syncSpaceId, obj.authorDeviceId)?.publicKeySpkiBase64
+            val pinnedKey = when {
+                bootstrapPin != null -> {
+                    check(bootstrapPin.deviceId == obj.authorDeviceId && obj.ownerDeviceId == bootstrapPin.deviceId) {
+                        "AUTH_FAILED: pairing bootstrap root does not belong to the confirmed peer"
+                    }
+                    bootstrapPin.publicKeySpkiBase64
+                }
+                localDevice?.deviceId == obj.authorDeviceId -> signingKeys.publicKeySpkiBase64(localDevice.deviceId)
+                else -> remoteApply.trustedPeer(syncSpaceId, obj.authorDeviceId)?.publicKeySpkiBase64
+            }
             check(pinnedKey != null && pinnedKey == authorPublicKey) { "AUTH_FAILED: initial root does not match a confirmed identity" }
         }
 
@@ -411,8 +438,48 @@ class AndroidSyncAuthLedgerService @Inject constructor(
             updatedAt = now,
         )
         database.syncAuthLedgerDao().upsertAll(listOf(entity))
+        syncDurableTrustFromAuthObject(syncSpaceId, obj, now)
         if (obj.objectType == SyncAuthObjectType.AUTH_STABILITY_CHECKPOINT) {
             remoteApply.promoteStableAuthorization(syncSpaceId, obj)
+        }
+    }
+
+    private suspend fun syncDurableTrustFromAuthObject(
+        syncSpaceId: String,
+        obj: SyncAuthProtocolObject,
+        now: Long,
+    ) {
+        val deviceId =
+            when (obj.objectType) {
+                SyncAuthObjectType.SPACE_ROOT -> obj.ownerDeviceId
+                SyncAuthObjectType.MEMBER_GRANT,
+                SyncAuthObjectType.MEMBER_REVOKE,
+                SyncAuthObjectType.OWNER_TRANSFER,
+                SyncAuthObjectType.OWNER_RECOVERY,
+                -> obj.targetDeviceId
+                SyncAuthObjectType.AUTH_STABILITY_CHECKPOINT -> null
+            } ?: return
+        val trusted = database.syncTrustedDeviceDao().find(syncSpaceId, deviceId) ?: return
+        val nextState =
+            if (obj.objectType == SyncAuthObjectType.MEMBER_REVOKE) "REVOKED" else "TRUSTED"
+        if (trusted.trustState != nextState || trusted.authEpoch != obj.authEpoch) {
+            database.syncTrustedDeviceDao().updateTrustState(
+                syncSpaceId = syncSpaceId,
+                deviceId = deviceId,
+                state = nextState,
+                authEpoch = obj.authEpoch,
+                lastSeenAt = now,
+            )
+        }
+        if (nextState == "REVOKED") {
+            val endpointId = "lan:$deviceId"
+            database.syncEndpointDao().listAll()
+                .firstOrNull { it.endpointId == endpointId && it.syncSpaceId == syncSpaceId && it.enabled }
+                ?.let { endpoint ->
+                    database.syncEndpointDao().upsert(
+                        endpoint.copy(enabled = false, updatedAt = now)
+                    )
+                }
         }
     }
 

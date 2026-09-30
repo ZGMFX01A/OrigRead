@@ -50,6 +50,9 @@ interface SyncOperationDao {
     @Query("SELECT * FROM sync_operation_log WHERE operationId = :operationId LIMIT 1")
     suspend fun findById(operationId: String): SyncOperationEntity?
 
+    @Query("SELECT * FROM sync_operation_log WHERE syncSpaceId = :syncSpaceId AND payloadJson LIKE :hashPattern LIMIT 1")
+    suspend fun findFirstByBlobHash(syncSpaceId: String, hashPattern: String): SyncOperationEntity?
+
     @Query(
         """
         SELECT * FROM sync_operation_log
@@ -64,6 +67,32 @@ interface SyncOperationDao {
         replicationLaneId: String,
         sequence: Long,
     ): SyncOperationEntity?
+
+    @Query(
+        """
+        SELECT EXISTS(
+            SELECT 1 FROM sync_operation_log
+            WHERE syncSpaceId=:syncSpaceId
+              AND actorIncarnationId=:actor
+              AND replicationLaneId=:lane
+              AND entityType=:entityType
+              AND entitySyncId=:entitySyncId
+              AND entityGeneration=:entityGeneration
+              AND operationType='UPSERT'
+              AND sequence>:sequence
+              AND payloadJson!='{"fields":{}}'
+        )
+        """
+    )
+    suspend fun hasLaterNonEmptyUpsert(
+        syncSpaceId: String,
+        actor: String,
+        lane: String,
+        entityType: String,
+        entitySyncId: String,
+        entityGeneration: Long,
+        sequence: Long,
+    ): Boolean
 
     @Query(
         """

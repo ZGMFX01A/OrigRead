@@ -50,6 +50,14 @@ class AndroidSyncSessionCoordinatorTest {
             whenever(db.accountDao()).thenReturn(accounts)
             whenever(db.localConfigStateDao()).thenReturn(localConfig)
             runBlocking {
+                whenever(runtime.findDeviceIdentity()).thenReturn(
+                    SyncDeviceIdentityEntity(
+                        deviceId = "local",
+                        witnessId = "witness-local",
+                        createdAt = 1L,
+                        updatedAt = 1L,
+                    )
+                )
                 whenever(runtime.findBindingBySpace("space")).thenReturn(
                     SyncLocalSpaceBindingEntity(
                         localAccountId = 1,

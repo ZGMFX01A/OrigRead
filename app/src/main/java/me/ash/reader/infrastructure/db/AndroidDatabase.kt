@@ -49,6 +49,18 @@ import me.ash.reader.infrastructure.sync.core.SyncApplyJournalEntity
 import me.ash.reader.infrastructure.sync.core.SyncFieldVersionEntity
 import me.ash.reader.infrastructure.sync.core.SyncFieldCandidateEntity
 import me.ash.reader.infrastructure.sync.core.MIGRATION_27_28
+import me.ash.reader.infrastructure.sync.core.MIGRATION_28_29
+import me.ash.reader.infrastructure.sync.core.MIGRATION_29_30
+import me.ash.reader.infrastructure.sync.core.MIGRATION_30_31
+import me.ash.reader.infrastructure.sync.core.MIGRATION_31_32
+import me.ash.reader.infrastructure.sync.core.SyncTrustedDeviceDao
+import me.ash.reader.infrastructure.sync.core.SyncTrustedDeviceEntity
+import me.ash.reader.infrastructure.sync.core.SyncPeerCoverageReportDao
+import me.ash.reader.infrastructure.sync.core.SyncPeerCoverageReportEntity
+import me.ash.reader.infrastructure.sync.core.SyncRunHistoryDao
+import me.ash.reader.infrastructure.sync.core.SyncRunHistoryEntity
+import me.ash.reader.infrastructure.sync.core.SyncSnapshotStreamShardEntity
+import me.ash.reader.infrastructure.sync.core.SyncSnapshotStreamStageEntity
 import me.ash.reader.infrastructure.sync.core.SyncFieldRollbackBaselineEntity
 import me.ash.reader.infrastructure.sync.core.SyncTombstoneEntity
 import me.ash.reader.infrastructure.sync.core.MIGRATION_16_17
@@ -119,8 +131,13 @@ import java.util.*
         SyncBlobManifestEntity::class,
         SyncBlobReferenceEntity::class,
         SyncBlobPersistedAckEntity::class,
+        SyncTrustedDeviceEntity::class,
+        SyncPeerCoverageReportEntity::class,
+        SyncRunHistoryEntity::class,
+        SyncSnapshotStreamStageEntity::class,
+        SyncSnapshotStreamShardEntity::class,
     ],
-    version = 28,
+    version = 32,
     autoMigrations = [
         AutoMigration(from = 5, to = 6),
         AutoMigration(from = 5, to = 7),
@@ -161,6 +178,9 @@ abstract class AndroidDatabase : RoomDatabase() {
     abstract fun syncPeerCursorDao(): SyncPeerCursorDao
     abstract fun syncAliasDao(): SyncAliasDao
     abstract fun syncBlobDao(): SyncBlobDao
+    abstract fun syncTrustedDeviceDao(): SyncTrustedDeviceDao
+    abstract fun syncPeerCoverageReportDao(): SyncPeerCoverageReportDao
+    abstract fun syncRunHistoryDao(): SyncRunHistoryDao
 
     companion object {
 
@@ -221,6 +241,10 @@ val allMigrations = arrayOf(
     MIGRATION_25_26,
     MIGRATION_26_27,
     MIGRATION_27_28,
+    MIGRATION_28_29,
+    MIGRATION_29_30,
+    MIGRATION_30_31,
+    MIGRATION_31_32,
 )
 
 @Suppress("ClassName")

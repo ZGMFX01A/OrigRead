@@ -37,25 +37,8 @@ object SyncSnapshotWireCodec {
         require(effectiveLanes.containsAll(requiredCoreShardIds)) {
             "Snapshot scope must include required core shards"
         }
-        val wireShards = shards.filter { it.replicationLaneId in effectiveLanes }.map { shard ->
-            SyncSnapshotShardWire(
-                replicationLaneId = shard.replicationLaneId,
-                frontierJson = shard.frontierByActorJson,
-                entityStateJson = shard.entityStateJson,
-                fieldVersionStateJson = shard.fieldVersionStateJson,
-                causalMetadataJson = shard.causalMergeMetadataJson,
-                genesisCoverageJson = shard.genesisCoverageJson,
-                deletionGenerationSummaryJson = canonicalDeletionGenerationSummary(
-                    shard.deletionSummaryJson,
-                    shard.generationSummaryJson,
-                ),
-                contentHash = shard.shardHash,
-                deletionSummaryJson = shard.deletionSummaryJson,
-                generationSummaryJson = shard.generationSummaryJson,
-                blobManifestIndexJson = shard.blobManifestIndexJson,
-                blobReferenceIndexJson = shard.blobReferenceIndexJson,
-            )
-        }
+        val wireShards =
+            shards.filter { it.replicationLaneId in effectiveLanes }.map(::toWireShard)
         val isScoped = effectiveLanes != manifestLanes
         val policyHash =
             if (isScoped) {
@@ -75,12 +58,7 @@ object SyncSnapshotWireCodec {
             snapshotBundleId = snapshotBundleId,
             syncSpaceId = bundle.syncSpaceId,
             snapshotClass = bundle.snapshotClass,
-            genesisBaselineId =
-                bundle.snapshotBundleId
-                    .substringBefore(":scope:")
-                    .removePrefix("genesis:v1:")
-                    .substringBefore(":merge:")
-                    .takeIf { it.isNotBlank() },
+            genesisBaselineId = genesisBaselineId(bundle),
             rootHash = "",
             policyHash = policyHash,
             capturedAt = bundle.createdAt,
@@ -195,11 +173,63 @@ object SyncSnapshotWireCodec {
         )
     }
 
-    fun toInternalShards(wire: SyncSnapshotBundleWire): List<SyncSnapshotShardEntity> =
-        wire.shards.map { shard ->
-            SyncSnapshotShardEntity(
-                snapshotBundleId = wire.snapshotBundleId,
-                syncSpaceId = wire.syncSpaceId,
+    fun toInternalBundle(manifest: SyncSnapshotStreamManifestWire): SyncSnapshotBundleEntity {
+        val descriptors =
+            manifest.shardDescriptors.map {
+                GenesisShardDescriptor(it.replicationLaneId, it.contentHash, it.frontierJson)
+            }.sortedBy(GenesisShardDescriptor::replicationLaneId)
+        return SyncSnapshotBundleEntity(
+            snapshotBundleId = manifest.snapshotBundleId,
+            syncSpaceId = manifest.syncSpaceId,
+            snapshotClass = manifest.snapshotClass,
+            schemaVersion = manifest.schemaVersion,
+            snapshotEpoch = manifest.snapshotEpoch,
+            crossDbCutId = checkNotNull(manifest.crossDbCutId),
+            replicationPolicyHash = manifest.policyHash,
+            requiredCoreShardIdsJson = SyncGenesisCodec.encodeStringList(manifest.requiredCoreShardIds),
+            shardDescriptorsJson = json.encodeToString(descriptors),
+            authStabilityCheckpointId = manifest.authStabilityCheckpoint,
+            rootHash = manifest.rootHash,
+            createdByDeviceId = checkNotNull(manifest.authorDeviceId),
+            createdAt = manifest.capturedAt,
+        )
+    }
+
+    fun toWireShard(shard: SyncSnapshotShardEntity): SyncSnapshotShardWire =
+        SyncSnapshotShardWire(
+            replicationLaneId = shard.replicationLaneId,
+            frontierJson = shard.frontierByActorJson,
+            entityStateJson = shard.entityStateJson,
+            fieldVersionStateJson = shard.fieldVersionStateJson,
+            causalMetadataJson = shard.causalMergeMetadataJson,
+            genesisCoverageJson = shard.genesisCoverageJson,
+            deletionGenerationSummaryJson =
+                canonicalDeletionGenerationSummary(
+                    shard.deletionSummaryJson,
+                    shard.generationSummaryJson,
+                ),
+            contentHash = shard.shardHash,
+            deletionSummaryJson = shard.deletionSummaryJson,
+            generationSummaryJson = shard.generationSummaryJson,
+            blobManifestIndexJson = shard.blobManifestIndexJson,
+            blobReferenceIndexJson = shard.blobReferenceIndexJson,
+        )
+
+    fun genesisBaselineId(bundle: SyncSnapshotBundleEntity): String? =
+        bundle.snapshotBundleId
+            .substringBefore(":scope:")
+            .removePrefix("genesis:v1:")
+            .substringBefore(":merge:")
+            .takeIf { it.isNotBlank() }
+
+    fun toInternalShard(
+        snapshotBundleId: String,
+        syncSpaceId: String,
+        shard: SyncSnapshotShardWire,
+    ): SyncSnapshotShardEntity =
+        SyncSnapshotShardEntity(
+                snapshotBundleId = snapshotBundleId,
+                syncSpaceId = syncSpaceId,
                 replicationLaneId = shard.replicationLaneId,
                 frontierByActorJson = shard.frontierJson,
                 receivedCoverageSummaryJson = shard.frontierJson,
@@ -221,12 +251,192 @@ object SyncSnapshotWireCodec {
                 },
                 shardHash = shard.contentHash,
             )
+
+    fun toInternalShards(wire: SyncSnapshotBundleWire): List<SyncSnapshotShardEntity> =
+        wire.shards.map { shard ->
+            toInternalShard(
+                snapshotBundleId = wire.snapshotBundleId,
+                syncSpaceId = wire.syncSpaceId,
+                shard = shard,
+            )
         }
 
     fun signingMaterial(wire: SyncSnapshotBundleWire): String {
         val element = json.encodeToJsonElement(SyncSnapshotBundleWire.serializer(), wire).jsonObject
         val withoutSignature = JsonObject(element.filterKeys { it != "authorSignature" })
         return SIGNING_DOMAIN + "\n" + SyncOperationCanonicalizer.canonicalJson(withoutSignature.toString())
+    }
+
+    fun toStreamManifest(wire: SyncSnapshotBundleWire): SyncSnapshotStreamManifestWire =
+        SyncSnapshotStreamManifestWire(
+            sourceSnapshotBundleId = wire.snapshotBundleId,
+            snapshotBundleId = wire.snapshotBundleId,
+            syncSpaceId = wire.syncSpaceId,
+            snapshotClass = wire.snapshotClass,
+            genesisBaselineId = wire.genesisBaselineId,
+            rootHash = wire.rootHash,
+            policyHash = wire.policyHash,
+            capturedAt = wire.capturedAt,
+            shardDescriptors =
+                wire.shards.map {
+                    SyncSnapshotShardDescriptorWire(
+                        replicationLaneId = it.replicationLaneId,
+                        contentHash = it.contentHash,
+                        frontierJson = it.frontierJson,
+                    )
+                },
+            coverage = wire.coverage,
+            hashSchemaVersion = wire.hashSchemaVersion,
+            schemaVersion = wire.schemaVersion,
+            snapshotEpoch = wire.snapshotEpoch,
+            crossDbCutId = wire.crossDbCutId,
+            requiredCoreShardIds = wire.requiredCoreShardIds,
+            coverageCommitment = wire.coverageCommitment,
+            authStabilityCheckpoint = wire.authStabilityCheckpoint,
+            authorDeviceId = wire.authorDeviceId,
+            authorSignature = wire.authorSignature,
+        )
+
+    fun fromStreamManifest(
+        manifest: SyncSnapshotStreamManifestWire,
+        shards: List<SyncSnapshotShardWire>,
+    ): SyncSnapshotBundleWire =
+        SyncSnapshotBundleWire(
+            snapshotBundleId = manifest.snapshotBundleId,
+            syncSpaceId = manifest.syncSpaceId,
+            snapshotClass = manifest.snapshotClass,
+            genesisBaselineId = manifest.genesisBaselineId,
+            rootHash = manifest.rootHash,
+            policyHash = manifest.policyHash,
+            capturedAt = manifest.capturedAt,
+            shards = shards,
+            coverage = manifest.coverage,
+            hashSchemaVersion = manifest.hashSchemaVersion,
+            schemaVersion = manifest.schemaVersion,
+            snapshotEpoch = manifest.snapshotEpoch,
+            crossDbCutId = manifest.crossDbCutId,
+            requiredCoreShardIds = manifest.requiredCoreShardIds,
+            coverageCommitment = manifest.coverageCommitment,
+            authStabilityCheckpoint = manifest.authStabilityCheckpoint,
+            authorDeviceId = manifest.authorDeviceId,
+            authorSignature = manifest.authorSignature,
+        )
+
+    /**
+     * Produces exactly the same bytes as [signingMaterial] without ever constructing the complete
+     * Snapshot JSON. The caller may load one shard at a time from SQLite/staging storage.
+     */
+    fun signingMaterialChunks(
+        manifest: SyncSnapshotStreamManifestWire,
+        shardLoader: (String) -> SyncSnapshotShardWire,
+    ): Sequence<ByteArray> = sequence {
+        yield((SIGNING_DOMAIN + "\n{").toByteArray(Charsets.UTF_8))
+        val skeleton =
+            fromStreamManifest(manifest.copy(authorSignature = null), emptyList())
+        val element =
+            json.encodeToJsonElement(SyncSnapshotBundleWire.serializer(), skeleton).jsonObject
+                .filterKeys { it != "authorSignature" }
+        val sortedKeys = element.keys.sorted()
+        sortedKeys.forEachIndexed { index, key ->
+            if (index > 0) yield(",".toByteArray(Charsets.UTF_8))
+            yield(json.encodeToString(key).toByteArray(Charsets.UTF_8))
+            yield(":".toByteArray(Charsets.UTF_8))
+            if (key == "shards") {
+                yield("[".toByteArray(Charsets.UTF_8))
+                manifest.shardDescriptors.forEachIndexed { shardIndex, descriptor ->
+                    if (shardIndex > 0) yield(",".toByteArray(Charsets.UTF_8))
+                    val shard = shardLoader(descriptor.replicationLaneId)
+                    require(
+                        shard.replicationLaneId == descriptor.replicationLaneId &&
+                            shard.contentHash == descriptor.contentHash &&
+                            shard.frontierJson == descriptor.frontierJson
+                    ) {
+                        "SNAPSHOT_CORRUPTED: streamed shard does not match its signed descriptor"
+                    }
+                    yield(
+                        SyncOperationCanonicalizer.canonicalJson(
+                            json.encodeToString(SyncSnapshotShardWire.serializer(), shard)
+                        ).toByteArray(Charsets.UTF_8)
+                    )
+                }
+                yield("]".toByteArray(Charsets.UTF_8))
+            } else {
+                yield(
+                    SyncOperationCanonicalizer.canonicalJson(
+                        checkNotNull(element[key]).toString()
+                    ).toByteArray(Charsets.UTF_8)
+                )
+            }
+        }
+        yield("}".toByteArray(Charsets.UTF_8))
+    }
+
+    fun verifyRichStream(
+        manifest: SyncSnapshotStreamManifestWire,
+        publicKeySpkiBase64: String,
+        keyStore: SyncDeviceSigningKeyStore,
+        shardLoader: (String) -> SyncSnapshotShardWire,
+    ) {
+        require(manifest.hashSchemaVersion == HASH_SCHEMA_VERSION) {
+            "REBASE_UNSAFE: unsupported snapshot hash schema " + manifest.hashSchemaVersion
+        }
+        require(!manifest.authorDeviceId.isNullOrBlank() && !manifest.authorSignature.isNullOrBlank()) {
+            "REBASE_UNSAFE: snapshot author signature is missing"
+        }
+        require(!manifest.crossDbCutId.isNullOrBlank()) {
+            "REBASE_UNSAFE: snapshot crossDbCutId is missing"
+        }
+        require(manifest.requiredCoreShardIds.isNotEmpty()) {
+            "REBASE_UNSAFE: snapshot required core shard manifest is missing"
+        }
+        require(
+            manifest.shardDescriptors.map { it.replicationLaneId }.distinct().size ==
+                manifest.shardDescriptors.size
+        ) { "REBASE_UNSAFE: duplicate streamed snapshot lane" }
+
+        val lightweightShards =
+            manifest.shardDescriptors.map { descriptor ->
+                val shard = shardLoader(descriptor.replicationLaneId)
+                require(
+                    shard.replicationLaneId == descriptor.replicationLaneId &&
+                        shard.contentHash == descriptor.contentHash &&
+                        shard.frontierJson == descriptor.frontierJson
+                ) {
+                    "SNAPSHOT_CORRUPTED: streamed shard does not match its descriptor"
+                }
+                val expected = richShardHash(shard)
+                if (expected != shard.contentHash) {
+                    throw SnapshotCorruptedError(
+                        "Shard contentHash mismatch for lane " + shard.replicationLaneId
+                    )
+                }
+                SyncSnapshotShardWire(
+                    replicationLaneId = descriptor.replicationLaneId,
+                    frontierJson = descriptor.frontierJson,
+                    entityStateJson = "",
+                    fieldVersionStateJson = "",
+                    causalMetadataJson = "",
+                    genesisCoverageJson = "",
+                    deletionGenerationSummaryJson = "",
+                    contentHash = descriptor.contentHash,
+                )
+            }
+        val lightweight = fromStreamManifest(manifest, lightweightShards)
+        if (richRootHash(lightweight) != manifest.rootHash) {
+            throw SnapshotCorruptedError("Snapshot rootHash mismatch")
+        }
+        if (normalizeCoverage(manifest.coverage) != coverageFromShards(lightweightShards)) {
+            throw SnapshotCorruptedError("Snapshot coverage does not match shard frontiers")
+        }
+        if (
+            !keyStore.verifyChunksBase64(
+                publicKeySpkiBase64,
+                signingMaterialChunks(manifest, shardLoader),
+                checkNotNull(manifest.authorSignature),
+            )
+        ) {
+            throw SnapshotCorruptedError("Snapshot author signature verification failed")
+        }
     }
 
     fun richShardHash(shard: SyncSnapshotShardWire): String {

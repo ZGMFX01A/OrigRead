@@ -311,6 +311,18 @@ class SyncRemoteApplyCoordinator @Inject constructor(
                     database.syncInboxDao().markFailure(inbox.operationId, "Operation log row is missing")
                     return@forEach
                 }
+                if (isLegacyEmptyUpsertWithLaterRepair(operation)) {
+                    database.withTransaction {
+                        if (database.syncInboxDao().find(inbox.operationId)?.state != "PENDING") return@withTransaction
+                        database.syncInboxDao().markApplied(inbox.operationId, now)
+                        advanceCoverageLocked(syncSpaceId, inbox.replicationLaneId, inbox.actorIncarnationId, now)
+                        database.syncInboxDao().upsertApplyJournal(
+                            SyncApplyJournalEntity(inbox.operationId, syncSpaceId, "COMMITTED", now, now)
+                        )
+                    }
+                    applied += inbox.operationId
+                    return@forEach
+                }
                 try {
                     database.withTransaction {
                         if (database.syncInboxDao().find(inbox.operationId)?.state != "PENDING") return@withTransaction
@@ -389,6 +401,26 @@ class SyncRemoteApplyCoordinator @Inject constructor(
             }
         }
         return SyncApplyResult(applied, deferred, failed)
+    }
+
+    suspend fun applyPendingWithBusinessApplier(
+        syncSpaceId: String,
+        limit: Int = 100,
+        now: Long = System.currentTimeMillis(),
+        policyByLane: Map<String, String> = emptyMap(),
+    ): SyncApplyResult = applyPending(syncSpaceId, businessApplier, limit, now, policyByLane)
+
+    private suspend fun isLegacyEmptyUpsertWithLaterRepair(operation: SyncOperationEntity): Boolean {
+        if (operation.operationType != SyncMutationType.UPSERT.name || operation.payloadJson != "{\"fields\":{}}") return false
+        return database.syncOperationDao().hasLaterNonEmptyUpsert(
+            syncSpaceId = operation.syncSpaceId,
+            actor = operation.actorIncarnationId,
+            lane = operation.replicationLaneId,
+            entityType = operation.entityType,
+            entitySyncId = operation.entitySyncId,
+            entityGeneration = operation.entityGeneration,
+            sequence = operation.sequence,
+        )
     }
 
     private suspend fun resumeRevokedRollbacks(

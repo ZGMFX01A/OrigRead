@@ -4,6 +4,7 @@ import dagger.Module
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import dagger.multibindings.Multibinds
+import java.io.File
 
 /**
  * Edition-specific business projections plug into the transport-independent R10 apply boundary.
@@ -18,6 +19,8 @@ interface SyncBusinessProjectionExtension {
     suspend fun apply(operation: SyncOperationEntity)
 
     fun readLocalBlob(hash: String): ByteArray? = null
+
+    fun localBlobFile(hash: String): File? = null
 
     suspend fun persistFetchedBlob(
         syncSpaceId: String,

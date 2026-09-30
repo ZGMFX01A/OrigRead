@@ -8,6 +8,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.decodeFromString
 import me.ash.reader.domain.model.account.AccountType
 import me.ash.reader.infrastructure.db.AndroidDatabase
+import me.ash.reader.infrastructure.sync.identity.SyncEntityType
 
 data class AndroidSyncSessionRunResult(
     val pushedOperationIds: List<String>,
@@ -17,6 +18,8 @@ data class AndroidSyncSessionRunResult(
     val rejectedOperationIds: List<String>,
     val remotePolicyByLane: Map<String, String>,
     val remoteCapabilities: SyncPeerCapabilities,
+    val blobBytesSent: Long = 0L,
+    val blobBytesReceived: Long = 0L,
 )
 
 class SyncSessionBaselineMissingException(message: String) : IllegalStateException(message)
@@ -56,7 +59,15 @@ class AndroidSyncSessionCoordinator @Inject constructor(
         endpointId: String? = null,
         localPolicyByLane: Map<String, String> = emptyMap(),
         allowStableGc: Boolean = false,
+        onProgress: suspend (SyncSessionProgress) -> Unit = {},
     ): AndroidSyncSessionRunResult = sessionMutex.withLock {
+        suspend fun report(progress: SyncSessionProgress) {
+            try {
+                onProgress(progress)
+            } catch (_: Throwable) {
+                // Progress/history is diagnostic state and must never break the Sync Core run.
+            }
+        }
         require(syncSpaceId.isNotBlank()) { "Sync Space ID must not be blank" }
         require(maxOperations > 0) { "maxOperations must be positive" }
         val localBinding =
@@ -79,8 +90,25 @@ class AndroidSyncSessionCoordinator @Inject constructor(
             }
         }
 
+        report(SyncSessionProgress(stage = "NEGOTIATING"))
         val negotiation = session.negotiateProtocolAndCapabilities()
         check(negotiation.syncSpaceId == syncSpaceId) { "Sync session negotiated a different Sync Space" }
+        val localDeviceId =
+            checkNotNull(database.syncRuntimeDao().findDeviceIdentity()?.deviceId) {
+                "Sync Device Identity is not initialized"
+            }
+        check(negotiation.localDeviceId == localDeviceId) {
+            "Sync session reflected a different local device identity"
+        }
+        check(negotiation.remoteDeviceId.isNotBlank() && negotiation.remoteDeviceId != localDeviceId) {
+            "Sync session negotiated an invalid remote device identity"
+        }
+        if (endpointId?.startsWith("lan:") == true) {
+            val expectedRemoteDeviceId = endpointId.removePrefix("lan:")
+            check(negotiation.remoteDeviceId == expectedRemoteDeviceId) {
+                "LAN endpoint identity does not match the negotiated remote device"
+            }
+        }
         check(SYNC_PROTOCOL_VERSION in negotiation.capabilities.protocolVersions) { "Unsupported sync protocol" }
         listOf(
             SyncReplicationLane.CORE_META.wireName,
@@ -90,6 +118,21 @@ class AndroidSyncSessionCoordinator @Inject constructor(
                 "Remote endpoint does not support required Sync core lane: $lane"
             }
         }
+        check(negotiation.capabilities.maxOperationBatch > 0) {
+            "Invalid remote operation batch limit"
+        }
+        check(negotiation.capabilities.maxBlobChunkBytes > 0) {
+            "Invalid remote Blob chunk limit"
+        }
+        val effectiveMaxOperations = minOf(maxOperations, negotiation.capabilities.maxOperationBatch)
+        val effectiveBlobChunkBytes =
+            minOf(1_048_576, negotiation.capabilities.maxBlobChunkBytes)
+        report(
+            SyncSessionProgress(
+                stage = "AUTHORIZING",
+                remoteDeviceId = negotiation.remoteDeviceId,
+            )
+        )
         syncAuthLedger(syncSpaceId, session, now)
 
         // Coverage in the Reader DB may already be committed while another database's
@@ -105,9 +148,9 @@ class AndroidSyncSessionCoordinator @Inject constructor(
             check(bundle.syncSpaceId == syncSpaceId && bundle.rootHash == scope.rootHash) {
                 "Unfinished Snapshot manifest does not match its install journal"
             }
-            while (operationBuilder.buildPending(syncSpaceId, maxOperations, now) > 0) { /* drain local capture */ }
-            while (businessApplier.buildExtensionPendingOperations(syncSpaceId, maxOperations, now) > 0) { /* drain extension capture */ }
-            while (signer.signPending(syncSpaceId, maxOperations, now) > 0) { /* preserve every new local operation */ }
+            while (operationBuilder.buildPending(syncSpaceId, effectiveMaxOperations, now) > 0) { /* drain local capture */ }
+            while (businessApplier.buildExtensionPendingOperations(syncSpaceId, effectiveMaxOperations, now) > 0) { /* drain extension capture */ }
+            while (signer.signPending(syncSpaceId, effectiveMaxOperations, now) > 0) { /* preserve every new local operation */ }
             installer.install(localBinding.localAccountId, bundle,
                 database.syncGenesisDao().listShards(bundle.snapshotBundleId), now, scope.installedLanes.toSet())
         }
@@ -119,7 +162,7 @@ class AndroidSyncSessionCoordinator @Inject constructor(
                 remoteApply.applyPending(
                     syncSpaceId = syncSpaceId,
                     handler = applyHandler,
-                    limit = maxOperations,
+                    limit = effectiveMaxOperations,
                     now = now,
                     policyByLane = effectiveLocalPolicy,
                 )
@@ -132,9 +175,9 @@ class AndroidSyncSessionCoordinator @Inject constructor(
         }
         externalConfigReconciler.reconcile(syncSpaceId)
 
-        operationBuilder.buildPending(syncSpaceId, maxOperations, now)
-        businessApplier.buildExtensionPendingOperations(syncSpaceId, maxOperations, now)
-        signer.signPending(syncSpaceId, maxOperations, now)
+        operationBuilder.buildPending(syncSpaceId, effectiveMaxOperations, now)
+        businessApplier.buildExtensionPendingOperations(syncSpaceId, effectiveMaxOperations, now)
+        signer.signPending(syncSpaceId, effectiveMaxOperations, now)
 
         suspend fun readRemoteState(): SyncStateVectorResponse {
             val state = session.getRemoteStateVector()
@@ -160,6 +203,24 @@ class AndroidSyncSessionCoordinator @Inject constructor(
         val appliedOperationIds = preflightAppliedOperationIds
         val deferredOperationIds = preflightDeferredOperationIds
         val rejectedOperationIds = mutableListOf<String>()
+        var blobBytesSent = 0L
+        var blobBytesReceived = 0L
+
+        suspend fun reportStage(stage: String) {
+            report(
+                SyncSessionProgress(
+                    stage = stage,
+                    remoteDeviceId = negotiation.remoteDeviceId,
+                    pushedOperations = pushedOperationIds.size,
+                    pulledOperations = pulledOperationIds.size,
+                    appliedOperations = appliedOperationIds.size,
+                    rejectedOperations = rejectedOperationIds.size,
+                    blobBytesSent = blobBytesSent,
+                    blobBytesReceived = blobBytesReceived,
+                )
+            )
+        }
+        reportStage("PREPARING")
 
         suspend fun uploadReferencedBlobs(operations: List<SyncOperationEnvelope>) {
             val transferred = mutableSetOf<String>()
@@ -170,18 +231,34 @@ class AndroidSyncSessionCoordinator @Inject constructor(
                     check(negotiation.capabilities.blobTransfer) {
                         "Remote endpoint does not support required Blob transfer"
                     }
-                    val bytes =
-                        businessApplier.readLocalBlob(operation.entityType, reference.manifest.hash)
-                            ?: error("Local operation references an unavailable Blob")
-                    blobTransfer.upload(
-                        syncSpaceId = syncSpaceId,
-                        manifest = reference.manifest,
-                        bytes = bytes,
-                        session = session,
-                        policyByLane = remoteState.policyByLane,
-                        chunkBytes = negotiation.capabilities.maxBlobChunkBytes.coerceAtLeast(1),
-                        now = now,
-                    )
+                    val file = businessApplier.localBlobFile(operation.entityType, reference.manifest.hash)
+                    if (file != null) {
+                        blobTransfer.uploadFile(
+                            syncSpaceId = syncSpaceId,
+                            manifest = reference.manifest,
+                            file = file,
+                            session = session,
+                            policyByLane = remoteState.policyByLane,
+                            chunkBytes = effectiveBlobChunkBytes,
+                            now = now,
+                            onChunkSent = { sent -> blobBytesSent += sent },
+                        )
+                    } else {
+                        val bytes =
+                            businessApplier.readLocalBlob(operation.entityType, reference.manifest.hash)
+                                ?: error("Local operation references an unavailable Blob")
+                        blobTransfer.upload(
+                            syncSpaceId = syncSpaceId,
+                            manifest = reference.manifest,
+                            bytes = bytes,
+                            session = session,
+                            policyByLane = remoteState.policyByLane,
+                            chunkBytes = effectiveBlobChunkBytes,
+                            now = now,
+                            onChunkSent = { sent -> blobBytesSent += sent },
+                        )
+                    }
+                    reportStage("SYNCING_BLOBS")
                 }
             }
         }
@@ -205,7 +282,7 @@ class AndroidSyncSessionCoordinator @Inject constructor(
                         return@forEach
                     }
                     if (!transferred.add(reference.manifest.hash)) return@forEach
-                    if (businessApplier.readLocalBlob(operation.entityType, reference.manifest.hash) != null) {
+                    if (businessApplier.localBlobFile(operation.entityType, reference.manifest.hash) != null) {
                         return@forEach
                     }
                     val canApplyWithoutBlob =
@@ -215,25 +292,43 @@ class AndroidSyncSessionCoordinator @Inject constructor(
                         error("Remote endpoint does not support required Blob transfer")
                     }
                     try {
-                        blobTransfer.fetch(
-                            syncSpaceId = syncSpaceId,
-                            manifest = reference.manifest,
-                            session = session,
-                            policyByLane = remoteState.policyByLane,
-                            persistVerified = { bytes ->
-                                businessApplier.persistFetchedBlob(
-                                    syncSpaceId = operation.syncSpaceId,
-                                    entityType = operation.entityType,
-                                    entitySyncId = operation.entitySyncId,
-                                    entityGeneration = operation.entityGeneration,
-                                    referenceKind = reference.referenceKind,
-                                    manifest = reference.manifest,
-                                    bytes = bytes,
-                                )
-                            },
-                            chunkBytes = negotiation.capabilities.maxBlobChunkBytes.coerceAtLeast(1).toLong(),
-                            now = now,
-                        )
+                        if (operation.entityType == SyncEntityType.ARTICLE.wireName) {
+                            blobTransfer.fetchToFile(
+                                syncSpaceId = syncSpaceId,
+                                manifest = reference.manifest,
+                                session = session,
+                                policyByLane = remoteState.policyByLane,
+                                stagedFile = businessApplier.createArticleBlobStagingFile(reference.manifest.hash),
+                                persistVerified = { file ->
+                                    businessApplier.installFetchedArticleBlob(reference.manifest.hash, file)
+                                },
+                                chunkBytes = effectiveBlobChunkBytes.toLong(),
+                                now = now,
+                                onChunkReceived = { received -> blobBytesReceived += received },
+                            )
+                        } else {
+                            blobTransfer.fetch(
+                                syncSpaceId = syncSpaceId,
+                                manifest = reference.manifest,
+                                session = session,
+                                policyByLane = remoteState.policyByLane,
+                                persistVerified = { bytes ->
+                                    businessApplier.persistFetchedBlob(
+                                        syncSpaceId = operation.syncSpaceId,
+                                        entityType = operation.entityType,
+                                        entitySyncId = operation.entitySyncId,
+                                        entityGeneration = operation.entityGeneration,
+                                        referenceKind = reference.referenceKind,
+                                        manifest = reference.manifest,
+                                        bytes = bytes,
+                                    )
+                                },
+                                chunkBytes = effectiveBlobChunkBytes.toLong(),
+                                now = now,
+                                onChunkReceived = { received -> blobBytesReceived += received },
+                            )
+                        }
+                        reportStage("SYNCING_BLOBS")
                     } catch (error: CancellationException) {
                         throw error
                     } catch (error: Throwable) {
@@ -247,8 +342,8 @@ class AndroidSyncSessionCoordinator @Inject constructor(
         suspend fun fetchPendingReferencedBlobs() {
             val paused = remoteState.policyByLane.filterValues { it != "ENABLED" }.keys.toList()
             val pending =
-                (if (paused.isEmpty()) database.syncInboxDao().listPending(syncSpaceId, maxOperations)
-                else database.syncInboxDao().listPendingAllowed(syncSpaceId, paused, maxOperations))
+                (if (paused.isEmpty()) database.syncInboxDao().listPending(syncSpaceId, effectiveMaxOperations)
+                else database.syncInboxDao().listPendingAllowed(syncSpaceId, paused, effectiveMaxOperations))
                     .map { inbox ->
                         runCatching { SyncOperationWireCodec.decode(inbox.operationJson) }
                             .getOrElse {
@@ -333,7 +428,7 @@ class AndroidSyncSessionCoordinator @Inject constructor(
                                 reference.referenceKind,
                             )
                         }
-                    if (businessApplier.readLocalBlob(owner.ownerEntityType, manifest.hash) != null) {
+                    if (businessApplier.localBlobFile(owner.ownerEntityType, manifest.hash) != null) {
                         return@manifestLoop
                     }
                     if (!negotiation.capabilities.blobTransfer) {
@@ -341,27 +436,47 @@ class AndroidSyncSessionCoordinator @Inject constructor(
                         error("Remote endpoint does not support Snapshot Blob transfer")
                     }
                     try {
-                        blobTransfer.fetch(
-                            syncSpaceId = syncSpaceId,
-                            manifest = manifest,
-                            session = session,
-                            policyByLane = remoteState.policyByLane,
-                            persistVerified = { bytes ->
-                                fetchOwners.forEach { reference ->
-                                    businessApplier.persistFetchedBlob(
-                                        syncSpaceId = syncSpaceId,
-                                        entityType = reference.ownerEntityType,
-                                        entitySyncId = reference.ownerEntitySyncId,
-                                        entityGeneration = reference.ownerEntityGeneration,
-                                        referenceKind = reference.referenceKind,
-                                        manifest = manifest,
-                                        bytes = bytes,
-                                    )
-                                }
-                            },
-                            chunkBytes = negotiation.capabilities.maxBlobChunkBytes.coerceAtLeast(1).toLong(),
-                            now = now,
-                        )
+                        if (fetchOwners.isEmpty() ||
+                            fetchOwners.all { it.ownerEntityType == SyncEntityType.ARTICLE.wireName }
+                        ) {
+                            blobTransfer.fetchToFile(
+                                syncSpaceId = syncSpaceId,
+                                manifest = manifest,
+                                session = session,
+                                policyByLane = remoteState.policyByLane,
+                                stagedFile = businessApplier.createArticleBlobStagingFile(manifest.hash),
+                                persistVerified = { file ->
+                                    businessApplier.installFetchedArticleBlob(manifest.hash, file)
+                                },
+                                chunkBytes = effectiveBlobChunkBytes.toLong(),
+                                now = now,
+                                onChunkReceived = { received -> blobBytesReceived += received },
+                            )
+                        } else {
+                            blobTransfer.fetch(
+                                syncSpaceId = syncSpaceId,
+                                manifest = manifest,
+                                session = session,
+                                policyByLane = remoteState.policyByLane,
+                                persistVerified = { bytes ->
+                                    fetchOwners.forEach { reference ->
+                                        businessApplier.persistFetchedBlob(
+                                            syncSpaceId = syncSpaceId,
+                                            entityType = reference.ownerEntityType,
+                                            entitySyncId = reference.ownerEntitySyncId,
+                                            entityGeneration = reference.ownerEntityGeneration,
+                                            referenceKind = reference.referenceKind,
+                                            manifest = manifest,
+                                            bytes = bytes,
+                                        )
+                                    }
+                                },
+                                chunkBytes = effectiveBlobChunkBytes.toLong(),
+                                now = now,
+                                onChunkReceived = { received -> blobBytesReceived += received },
+                            )
+                        }
+                        reportStage("SYNCING_BLOBS")
                     } catch (error: CancellationException) {
                         throw error
                     } catch (error: Throwable) {
@@ -369,6 +484,142 @@ class AndroidSyncSessionCoordinator @Inject constructor(
                         if (!canApplyWithoutBlob) throw error
                     }
                 }
+            }
+        }
+
+        suspend fun stageRemoteSnapshotStream(
+            manifest: SyncSnapshotStreamManifestWire,
+            selectedLanes: Set<String>,
+        ): (String) -> SyncSnapshotShardWire {
+            check(manifest.syncSpaceId == syncSpaceId) {
+                "REBASE_UNSAFE: streamed Snapshot belongs to a different Sync Space"
+            }
+            val manifestLanes = manifest.shardDescriptors.map { it.replicationLaneId }.toSet()
+            check(selectedLanes.all { it in manifestLanes }) {
+                "REBASE_UNSAFE: streamed Snapshot is outside the negotiated lane policy"
+            }
+            val dao = database.syncGenesisDao()
+            val manifestJson =
+                json.encodeToString(
+                    SyncSnapshotStreamManifestWire.serializer(),
+                    manifest,
+                )
+            val existing = dao.findStreamStage(syncSpaceId, manifest.snapshotBundleId)
+            check(
+                existing == null ||
+                    (
+                        existing.transportPeerDeviceId == negotiation.remoteDeviceId &&
+                            existing.manifestJson == manifestJson
+                    )
+            ) {
+                "REBASE_UNSAFE: local Snapshot stream staging conflicts with a different source"
+            }
+            val stagedAt = System.currentTimeMillis()
+            val cutoff = stagedAt - 24L * 60L * 60L * 1000L
+            dao.deleteExpiredStreamShards(cutoff)
+            dao.deleteExpiredStreamStages(cutoff)
+            dao.upsertStreamStage(
+                SyncSnapshotStreamStageEntity(
+                    syncSpaceId = syncSpaceId,
+                    snapshotBundleId = manifest.snapshotBundleId,
+                    sourceSnapshotBundleId = manifest.sourceSnapshotBundleId,
+                    transportPeerDeviceId = negotiation.remoteDeviceId,
+                    manifestJson = manifestJson,
+                    state = "RECEIVING",
+                    createdAt = existing?.createdAt ?: stagedAt,
+                    updatedAt = stagedAt,
+                )
+            )
+
+            manifest.shardDescriptors.forEach { descriptor ->
+                if (descriptor.replicationLaneId !in selectedLanes) return@forEach
+                var shard: SyncSnapshotShardWire? =
+                    dao.findStreamShardForStreaming(
+                        syncSpaceId,
+                        manifest.snapshotBundleId,
+                        descriptor.replicationLaneId,
+                    )?.takeIf { it.contentHash == descriptor.contentHash }?.let { staged ->
+                        runCatching {
+                            json.decodeFromString(
+                                SyncSnapshotShardWire.serializer(),
+                                staged.shardJson,
+                            )
+                        }.getOrNull()?.takeIf { parsed ->
+                            parsed.replicationLaneId == descriptor.replicationLaneId &&
+                                parsed.contentHash == descriptor.contentHash &&
+                                parsed.frontierJson == descriptor.frontierJson
+                        }
+                    }
+                if (shard == null) {
+                    shard =
+                        session.fetchSnapshotStreamShard(
+                            manifest.sourceSnapshotBundleId,
+                            descriptor.replicationLaneId,
+                        )
+                    check(
+                        shard.replicationLaneId == descriptor.replicationLaneId &&
+                            shard.contentHash == descriptor.contentHash &&
+                            shard.frontierJson == descriptor.frontierJson
+                    ) {
+                        "SNAPSHOT_CORRUPTED: fetched streamed shard does not match its signed descriptor"
+                    }
+                    dao.upsertStreamShard(
+                        SyncSnapshotStreamShardEntity(
+                            syncSpaceId = syncSpaceId,
+                            snapshotBundleId = manifest.snapshotBundleId,
+                            replicationLaneId = descriptor.replicationLaneId,
+                            contentHash = descriptor.contentHash,
+                            shardJson =
+                                json.encodeToString(
+                                    SyncSnapshotShardWire.serializer(),
+                                    shard,
+                                ),
+                            updatedAt = System.currentTimeMillis(),
+                        )
+                    )
+                }
+                fetchSnapshotBlobs(
+                    SyncSnapshotWireCodec.fromStreamManifest(manifest, listOf(shard)),
+                    setOf(descriptor.replicationLaneId),
+                )
+            }
+            dao.upsertStreamStage(
+                SyncSnapshotStreamStageEntity(
+                    syncSpaceId = syncSpaceId,
+                    snapshotBundleId = manifest.snapshotBundleId,
+                    sourceSnapshotBundleId = manifest.sourceSnapshotBundleId,
+                    transportPeerDeviceId = negotiation.remoteDeviceId,
+                    manifestJson = manifestJson,
+                    state = "READY",
+                    createdAt = existing?.createdAt ?: stagedAt,
+                    updatedAt = System.currentTimeMillis(),
+                )
+            )
+
+            val descriptorsByLane =
+                manifest.shardDescriptors.associateBy { it.replicationLaneId }
+            return { lane ->
+                val descriptor =
+                    requireNotNull(descriptorsByLane[lane]) {
+                        "SNAPSHOT_CORRUPTED: descriptor is missing for lane $lane"
+                    }
+                val row =
+                    requireNotNull(
+                        dao.findStreamShardForStreaming(
+                            syncSpaceId,
+                            manifest.snapshotBundleId,
+                            lane,
+                        )
+                    ) {
+                        "SNAPSHOT_CORRUPTED: staged shard is missing for lane $lane"
+                    }
+                check(row.contentHash == descriptor.contentHash) {
+                    "SNAPSHOT_CORRUPTED: staged shard changed for lane $lane"
+                }
+                json.decodeFromString(
+                    SyncSnapshotShardWire.serializer(),
+                    row.shardJson,
+                )
             }
         }
 
@@ -430,13 +681,23 @@ class AndroidSyncSessionCoordinator @Inject constructor(
                             remoteStatus.persistedAt != null
                     if (alreadyDurable) return@manifestLoop
 
-                    val bytes =
+                    val file =
                         owners.asSequence()
                             .mapNotNull { owner ->
-                                businessApplier.readLocalBlob(owner.ownerEntityType, manifest.hash)
+                                businessApplier.localBlobFile(owner.ownerEntityType, manifest.hash)
                             }
                             .firstOrNull()
-                    if (bytes == null) {
+                    val fallbackBytes =
+                        if (file == null) {
+                            owners.asSequence()
+                                .mapNotNull { owner ->
+                                    businessApplier.readLocalBlob(owner.ownerEntityType, manifest.hash)
+                                }
+                                .firstOrNull()
+                        } else {
+                            null
+                        }
+                    if (file == null && fallbackBytes == null) {
                         if (manifest.durability == SyncBlobDurability.SYNC_DURABLE) {
                             throw SyncRebaseUnsafeException(
                                 "REBASE_UNSAFE: durable Snapshot Blob " + manifest.hash + " has no recoverable replica"
@@ -452,21 +713,102 @@ class AndroidSyncSessionCoordinator @Inject constructor(
                         }
                         return@manifestLoop
                     }
-                    blobTransfer.upload(
-                        syncSpaceId = syncSpaceId,
-                        manifest = manifest,
-                        bytes = bytes,
-                        session = session,
-                        policyByLane = remoteState.policyByLane,
-                        chunkBytes = negotiation.capabilities.maxBlobChunkBytes.coerceAtLeast(1),
-                        now = now,
-                    )
+                    if (file != null) {
+                        blobTransfer.uploadFile(
+                            syncSpaceId = syncSpaceId,
+                            manifest = manifest,
+                            file = file,
+                            session = session,
+                            policyByLane = remoteState.policyByLane,
+                            chunkBytes = effectiveBlobChunkBytes,
+                            now = now,
+                            onChunkSent = { sent -> blobBytesSent += sent },
+                        )
+                    } else {
+                        blobTransfer.upload(
+                            syncSpaceId = syncSpaceId,
+                            manifest = manifest,
+                            bytes = checkNotNull(fallbackBytes),
+                            session = session,
+                            policyByLane = remoteState.policyByLane,
+                            chunkBytes = effectiveBlobChunkBytes,
+                            now = now,
+                            onChunkSent = { sent -> blobBytesSent += sent },
+                        )
+                    }
+                    reportStage("SYNCING_BLOBS")
                 }
             }
         }
 
+        suspend fun pushSnapshotUsingNegotiatedTransport(
+            snapshot: SyncSnapshotBundleWire,
+        ) {
+            if (negotiation.capabilities.streamingSnapshots) {
+                val manifest = SyncSnapshotWireCodec.toStreamManifest(snapshot)
+                session.pushSnapshotStreamManifest(manifest)
+                snapshot.shards.forEach { shard ->
+                    session.pushSnapshotStreamShard(
+                        manifest.snapshotBundleId,
+                        shard,
+                    )
+                }
+                session.commitSnapshotStream(manifest.snapshotBundleId)
+                return
+            }
+            session.pushSnapshot(snapshot)
+        }
+
+        suspend fun uploadPersistedSnapshotBlobs(
+            snapshotBundleId: String,
+            selectedLanes: Set<String>,
+        ) {
+            val genesis =
+                genesisSnapshotService
+                    ?: throw SyncRebaseUnsafeException("Snapshot exporter is not configured")
+            val manifest = genesis.exportStreamManifest(snapshotBundleId, selectedLanes)
+            manifest.shardDescriptors.forEach { descriptor ->
+                val shard =
+                    genesis.exportStreamShard(
+                        manifest.sourceSnapshotBundleId,
+                        descriptor.replicationLaneId,
+                    )
+                uploadSnapshotBlobs(
+                    SyncSnapshotWireCodec.fromStreamManifest(manifest, listOf(shard)),
+                    setOf(descriptor.replicationLaneId),
+                )
+            }
+        }
+
+        suspend fun pushPersistedSnapshotUsingNegotiatedTransport(
+            snapshotBundleId: String,
+            selectedLanes: Set<String>,
+        ): String {
+            val genesis =
+                genesisSnapshotService
+                    ?: throw SyncRebaseUnsafeException("Snapshot exporter is not configured")
+            if (negotiation.capabilities.streamingSnapshots) {
+                val manifest = genesis.exportStreamManifest(snapshotBundleId, selectedLanes)
+                session.pushSnapshotStreamManifest(manifest)
+                manifest.shardDescriptors.forEach { descriptor ->
+                    session.pushSnapshotStreamShard(
+                        manifest.snapshotBundleId,
+                        genesis.exportStreamShard(
+                            manifest.sourceSnapshotBundleId,
+                            descriptor.replicationLaneId,
+                        ),
+                    )
+                }
+                session.commitSnapshotStream(manifest.snapshotBundleId)
+                return manifest.snapshotBundleId
+            }
+            val wire = genesis.exportWire(snapshotBundleId, selectedLanes)
+            pushSnapshotUsingNegotiatedTransport(wire)
+            return wire.snapshotBundleId
+        }
+
         suspend fun retryMissingAppliedBlobs() {
-            val candidates = blobState.listRetryableReferencedBlobs(syncSpaceId, maxOperations)
+            val candidates = blobState.listRetryableReferencedBlobs(syncSpaceId, effectiveMaxOperations)
             candidates.forEach { candidate ->
                 val owners = mutableListOf<SyncBlobReferenceEntity>()
                 for (reference in candidate.references) {
@@ -484,12 +826,39 @@ class AndroidSyncSessionCoordinator @Inject constructor(
                     }
                 }
                 if (owners.isEmpty()) return@forEach
+                val articleOnly =
+                    owners.all { owner ->
+                        owner.ownerEntityType == SyncEntityType.ARTICLE.wireName &&
+                            owner.referenceKind == SYNC_ARTICLE_FULL_CONTENT_REFERENCE_KIND
+                    }
+                val localFile =
+                    if (articleOnly) {
+                        businessApplier.localBlobFile(
+                            SyncEntityType.ARTICLE.wireName,
+                            candidate.manifest.hash,
+                        )
+                    } else {
+                        null
+                    }
+                if (localFile != null && localFile.length() == candidate.manifest.totalBytes) {
+                    businessApplier.materializeArticleBlobOwnersFromLocal(
+                        syncSpaceId = syncSpaceId,
+                        manifest = candidate.manifest,
+                        owners = owners,
+                    )
+                    blobState.markReadyVerified(candidate.manifest.hash, candidate.manifest.totalBytes, now)
+                    return@forEach
+                }
                 val localBytes =
-                    owners.asSequence()
-                        .mapNotNull { owner ->
-                            businessApplier.readLocalBlob(owner.ownerEntityType, candidate.manifest.hash)
-                        }
-                        .firstOrNull()
+                    if (articleOnly) {
+                        null
+                    } else {
+                        owners.asSequence()
+                            .mapNotNull { owner ->
+                                businessApplier.readLocalBlob(owner.ownerEntityType, candidate.manifest.hash)
+                            }
+                            .firstOrNull()
+                    }
                 if (localBytes != null && localBytes.size.toLong() == candidate.manifest.totalBytes) {
                     owners.forEach { owner ->
                         businessApplier.persistAndMaterializeFetchedBlob(
@@ -507,27 +876,50 @@ class AndroidSyncSessionCoordinator @Inject constructor(
                 }
                 if (!negotiation.capabilities.blobTransfer) return@forEach
                 try {
-                    blobTransfer.fetch(
-                        syncSpaceId = syncSpaceId,
-                        manifest = candidate.manifest,
-                        session = session,
-                        policyByLane = remoteState.policyByLane,
-                        persistVerified = { bytes ->
-                            owners.forEach { owner ->
-                                businessApplier.persistAndMaterializeFetchedBlob(
+                    if (articleOnly) {
+                        blobTransfer.fetchToFile(
+                            syncSpaceId = syncSpaceId,
+                            manifest = candidate.manifest,
+                            session = session,
+                            policyByLane = remoteState.policyByLane,
+                            stagedFile = businessApplier.createArticleBlobStagingFile(candidate.manifest.hash),
+                            persistVerified = { file ->
+                                businessApplier.installFetchedArticleBlob(candidate.manifest.hash, file)
+                                businessApplier.materializeArticleBlobOwnersFromLocal(
                                     syncSpaceId = syncSpaceId,
-                                    entityType = owner.ownerEntityType,
-                                    entitySyncId = owner.ownerEntitySyncId,
-                                    entityGeneration = owner.ownerEntityGeneration,
-                                    referenceKind = owner.referenceKind,
                                     manifest = candidate.manifest,
-                                    bytes = bytes,
+                                    owners = owners,
                                 )
-                            }
-                        },
-                        chunkBytes = negotiation.capabilities.maxBlobChunkBytes.coerceAtLeast(1).toLong(),
-                        now = now,
-                    )
+                            },
+                            chunkBytes = effectiveBlobChunkBytes.toLong(),
+                            now = now,
+                            onChunkReceived = { received -> blobBytesReceived += received },
+                        )
+                    } else {
+                        blobTransfer.fetch(
+                            syncSpaceId = syncSpaceId,
+                            manifest = candidate.manifest,
+                            session = session,
+                            policyByLane = remoteState.policyByLane,
+                            persistVerified = { bytes ->
+                                owners.forEach { owner ->
+                                    businessApplier.persistAndMaterializeFetchedBlob(
+                                        syncSpaceId = syncSpaceId,
+                                        entityType = owner.ownerEntityType,
+                                        entitySyncId = owner.ownerEntitySyncId,
+                                        entityGeneration = owner.ownerEntityGeneration,
+                                        referenceKind = owner.referenceKind,
+                                        manifest = candidate.manifest,
+                                        bytes = bytes,
+                                    )
+                                }
+                            },
+                            chunkBytes = effectiveBlobChunkBytes.toLong(),
+                            now = now,
+                            onChunkReceived = { received -> blobBytesReceived += received },
+                        )
+                    }
+                    reportStage("SYNCING_BLOBS")
                 } catch (error: CancellationException) {
                     throw error
                 } catch (_: Throwable) {
@@ -541,17 +933,18 @@ class AndroidSyncSessionCoordinator @Inject constructor(
         val acknowledgedIds = mutableSetOf<String>()
         suspend fun pushMissing() {
             while (true) {
-                operationBuilder.buildPending(syncSpaceId, maxOperations, now)
-                businessApplier.buildExtensionPendingOperations(syncSpaceId, maxOperations, now)
-                signer.signPending(syncSpaceId, maxOperations, now)
+                operationBuilder.buildPending(syncSpaceId, effectiveMaxOperations, now)
+                businessApplier.buildExtensionPendingOperations(syncSpaceId, effectiveMaxOperations, now)
+                signer.signPending(syncSpaceId, effectiveMaxOperations, now)
                 if (authLedgerService.issueStabilityCheckpoint(syncSpaceId, now) != null) {
                     syncAuthLedger(syncSpaceId, session, now)
                 }
 
-                val pushable = collectPushable(syncSpaceId, remoteState.policyByLane, remoteReceived, maxOperations, acknowledgedIds)
+                val pushable = collectPushable(syncSpaceId, remoteState.policyByLane, remoteReceived, effectiveMaxOperations, acknowledgedIds)
                 if (pushable.isEmpty()) break
 
                 uploadReferencedBlobs(pushable)
+                reportStage("SYNCING_OPERATIONS")
                 val pushResult = session.pushOperations(pushable)
                 pushedOperationIds += pushResult.acceptedOperationIds + pushResult.duplicateOperationIds
                 rejectedOperationIds += pushResult.rejected.mapNotNull { it.operationId }
@@ -561,6 +954,7 @@ class AndroidSyncSessionCoordinator @Inject constructor(
                 // A receipt for a sparse Dot is not proof of a contiguous prefix.
                 acknowledgedIds += pushable.map { it.operationId }
                 remoteReceived = pushResult.coverage.received
+                reportStage("SYNCING_OPERATIONS")
             }
         }
         pushMissing()
@@ -586,7 +980,7 @@ class AndroidSyncSessionCoordinator @Inject constructor(
                     .toSet()
             var recoveryBundleId = recoveryCut.snapshotBundleId
             var recoveryPreview =
-                genesis.exportWire(
+                genesis.exportStreamManifest(
                     snapshotBundleId = recoveryCut.snapshotBundleId,
                     selectedLanes = selectedLanes,
                 )
@@ -596,14 +990,19 @@ class AndroidSyncSessionCoordinator @Inject constructor(
                     filterCoverageByPolicy(targetSnapshot.coverage, remoteState.policyByLane)
                         .filterKeys { it in selectedLanes }
                 if (!coverageDominates(recoveryPreview.coverage, verifiedTargetCoverage)) {
-                    recoveryPreview =
+                    val merged =
                         genesis.mergeRecoverySnapshot(
                             localSnapshotBundleId = recoveryBundleId,
                             target = targetSnapshot,
                             selectedLanes = selectedLanes,
                             now = now,
                         )
-                    recoveryBundleId = recoveryPreview.snapshotBundleId
+                    recoveryBundleId = merged.snapshotBundleId
+                    recoveryPreview =
+                        genesis.exportStreamManifest(
+                            snapshotBundleId = recoveryBundleId,
+                            selectedLanes = selectedLanes,
+                        )
                 }
                 val scopedTarget =
                     verifiedTargetCoverage.filterKeys { it in selectedLanes }
@@ -627,8 +1026,8 @@ class AndroidSyncSessionCoordinator @Inject constructor(
                     recoveryPreview.coverage,
                 )
             ) {
-                uploadSnapshotBlobs(recoveryPreview, selectedLanes)
-                session.pushSnapshot(recoveryPreview)
+                uploadPersistedSnapshotBlobs(recoveryBundleId, selectedLanes)
+                pushPersistedSnapshotUsingNegotiatedTransport(recoveryBundleId, selectedLanes)
                 return
             }
             check(SyncSnapshotClass.BOOTSTRAP_RECOVERY.name in negotiation.capabilities.snapshotClasses) {
@@ -646,16 +1045,20 @@ class AndroidSyncSessionCoordinator @Inject constructor(
                         "REBASE_UNSAFE: current device is not OWNER for LocalRecoverySnapshot acceptance"
                     )
             syncAuthLedger(syncSpaceId, session, now)
-            val recoveryWire =
-                genesis.promoteToBootstrapRecovery(
+            val recoveryBundle =
+                genesis.promoteToBootstrapRecoveryPersisted(
                     snapshotBundleId = recoveryBundleId,
                     checkpointId = acceptance.authObjectId,
                     now = now,
                     selectedLanes = selectedLanes,
                 )
-            uploadSnapshotBlobs(recoveryWire, selectedLanes)
-            session.pushSnapshot(recoveryWire)
-            session.acceptRecoverySnapshot(recoveryWire.snapshotBundleId, acceptance)
+            uploadPersistedSnapshotBlobs(recoveryBundle, selectedLanes)
+            val publishedBundleId =
+                pushPersistedSnapshotUsingNegotiatedTransport(
+                    recoveryBundle,
+                    selectedLanes,
+                )
+            session.acceptRecoverySnapshot(publishedBundleId, acceptance)
         }
 
         // 2. 拉取循环（Pull Loop）：支持分批拉取与 History Rewind / Baseline 自愈
@@ -679,7 +1082,7 @@ class AndroidSyncSessionCoordinator @Inject constructor(
                 syncAuthLedger(syncSpaceId, session, now)
             }
             while (true) {
-                val batch = remoteApply.applyPending(syncSpaceId, applyHandler, maxOperations, now, remoteState.policyByLane)
+                val batch = remoteApply.applyPending(syncSpaceId, applyHandler, effectiveMaxOperations, now, remoteState.policyByLane)
                 appliedOperationIds += batch.appliedOperationIds
                 deferredOperationIds += batch.deferredOperationIds
                 check(batch.failedOperationIds.isEmpty()) { "Sync business application failed: ${batch.failedOperationIds}" }
@@ -693,12 +1096,12 @@ class AndroidSyncSessionCoordinator @Inject constructor(
             val ranges = missingRanges(
                 filterCoverageByPolicy(remoteState.coverage.retained, remoteState.policyByLane),
                 filterCoverageByPolicy(localCoverage, remoteState.policyByLane),
-                maxOperations,
+                effectiveMaxOperations,
             )
 
             val needsBaseline = ranges.isEmpty() && missingRanges(
                 filterCoverageByPolicy(remoteState.coverage.snapshot, remoteState.policyByLane),
-                localCoverage, maxOperations,
+                localCoverage, effectiveMaxOperations,
             ).isNotEmpty()
             if (ranges.isEmpty() && !needsBaseline) break
 
@@ -727,51 +1130,146 @@ class AndroidSyncSessionCoordinator @Inject constructor(
                         val lanes =
                             negotiation.capabilities.replicationLanes
                                 .filter { laneIsEnabled(remoteState.policyByLane, it) }
-                        val snapshot =
-                            session.getLatestSnapshot("GC_BASELINE", lanes)
-                                ?: session.getLatestSnapshot("WORKING", lanes)
-                        if (snapshot == null) {
-                            // A rewound/empty Server may have lost both retained Operations and
-                            // every Snapshot. Recover from the client's durable local state instead
-                            // of dead-ending while asking that same Server for a missing baseline.
-                            pushLocalRecoverySnapshot(binding.localAccountId)
-                        } else {
-                            val manifestLanes = snapshot.shards.map { it.replicationLaneId }.toSet()
-                            val selectedLanes = lanes.toSet()
-                            check(
-                                snapshot.syncSpaceId == syncSpaceId &&
-                                    manifestLanes.containsAll(selectedLanes)
-                            ) {
-                                "Snapshot is outside the negotiated space or lane policy"
+                        val selectedLanes = lanes.toSet()
+                        if (negotiation.capabilities.streamingSnapshots) {
+                            val manifest =
+                                session.getLatestSnapshotStreamManifest("GC_BASELINE", lanes)
+                                    ?: session.getLatestSnapshotStreamManifest("WORKING", lanes)
+                            if (manifest == null) {
+                                // A rewound/empty Server may have lost both retained Operations and
+                                // every Snapshot. Recover from the client's durable local state instead.
+                                pushLocalRecoverySnapshot(binding.localAccountId)
+                            } else {
+                                reportStage("SYNCING_SNAPSHOT")
+                                val manifestLanes =
+                                    manifest.shardDescriptors.map { it.replicationLaneId }.toSet()
+                                check(
+                                    manifest.syncSpaceId == syncSpaceId &&
+                                        manifestLanes.containsAll(selectedLanes)
+                                ) {
+                                    "Streamed Snapshot is outside the negotiated space or lane policy"
+                                }
+                                val snapshotAuthor =
+                                    manifest.authorDeviceId
+                                        ?: throw SyncSessionBaselineMissingException(
+                                            "Baseline snapshot has no author"
+                                        )
+                                val trustedAuthor =
+                                    remoteApply.trustedPeer(syncSpaceId, snapshotAuthor)
+                                        ?: throw SyncSessionBaselineMissingException(
+                                            "Baseline snapshot author is not trusted"
+                                        )
+                                try {
+                                    val shardLoader =
+                                        stageRemoteSnapshotStream(
+                                            manifest = manifest,
+                                            selectedLanes = selectedLanes,
+                                        )
+                                    val installResult =
+                                        snapshotInstaller.installStream(
+                                            localAccountId = binding.localAccountId,
+                                            manifest = manifest,
+                                            trustedAuthorKey = trustedAuthor,
+                                            shardLoader = shardLoader,
+                                            now = now,
+                                            selectedLanes = selectedLanes,
+                                        )
+                                    database.syncGenesisDao().deleteStreamShards(
+                                        syncSpaceId,
+                                        manifest.snapshotBundleId,
+                                    )
+                                    database.syncGenesisDao().deleteStreamStage(
+                                        syncSpaceId,
+                                        manifest.snapshotBundleId,
+                                    )
+                                    stagedSnapshotAccountId = binding.localAccountId
+                                    stagedSnapshotBundleId = installResult.snapshotBundleId
+                                    reportStage("SYNCING_SNAPSHOT")
+                                } catch (installErr: Throwable) {
+                                    if (installErr is CancellationException) throw installErr
+                                    if (installErr is SyncLocalRecoverySnapshotRequiredException) {
+                                        val targetSnapshot =
+                                            session.getLatestSnapshot(
+                                                manifest.snapshotClass,
+                                                lanes,
+                                            )
+                                                ?: throw SyncRebaseUnsafeException(
+                                                    "REBASE_UNSAFE: recovery target disappeared while streamed baseline was staged"
+                                                )
+                                        check(
+                                            targetSnapshot.snapshotBundleId ==
+                                                    manifest.snapshotBundleId &&
+                                                targetSnapshot.rootHash == manifest.rootHash
+                                        ) {
+                                            "REBASE_UNSAFE: recovery target changed while streamed baseline was staged"
+                                        }
+                                        pushLocalRecoverySnapshot(
+                                            binding.localAccountId,
+                                            targetSnapshot,
+                                        )
+                                    } else {
+                                        throw SyncSessionSnapshotInstallException(
+                                            "Failed to install streamed baseline snapshot: ${installErr.message}",
+                                            installErr,
+                                        )
+                                    }
+                                }
                             }
-                            val snapshotAuthor = snapshot.authorDeviceId
-                                ?: throw SyncSessionBaselineMissingException("Baseline snapshot has no author")
-                            val trustedAuthor = remoteApply.trustedPeer(syncSpaceId, snapshotAuthor)
-                                ?: throw SyncSessionBaselineMissingException("Baseline snapshot author is not trusted")
-                            try {
-                                fetchSnapshotBlobs(snapshot, selectedLanes)
-                                val installResult =
-                                    snapshotInstaller.installWire(
-                                        localAccountId = binding.localAccountId,
-                                        wire = snapshot,
-                                        trustedAuthorKey = trustedAuthor,
-                                        now = now,
-                                        selectedLanes = selectedLanes,
-                                    )
-                                stagedSnapshotAccountId = binding.localAccountId
-                                stagedSnapshotBundleId = installResult.snapshotBundleId
-                            } catch (installErr: Throwable) {
-                                if (installErr is CancellationException) throw installErr
-                                if (installErr is SyncLocalRecoverySnapshotRequiredException) {
-                                    pushLocalRecoverySnapshot(
-                                        binding.localAccountId,
-                                        snapshot,
-                                    )
-                                } else {
-                                    throw SyncSessionSnapshotInstallException(
-                                        "Failed to install baseline snapshot: ${installErr.message}",
-                                        installErr,
-                                    )
+                        } else {
+                            val snapshot =
+                                session.getLatestSnapshot("GC_BASELINE", lanes)
+                                    ?: session.getLatestSnapshot("WORKING", lanes)
+                            if (snapshot == null) {
+                                // A rewound/empty Server may have lost both retained Operations and
+                                // every Snapshot. Recover from the client's durable local state instead
+                                // of dead-ending while asking that same Server for a missing baseline.
+                                pushLocalRecoverySnapshot(binding.localAccountId)
+                            } else {
+                                reportStage("SYNCING_SNAPSHOT")
+                                val manifestLanes =
+                                    snapshot.shards.map { it.replicationLaneId }.toSet()
+                                check(
+                                    snapshot.syncSpaceId == syncSpaceId &&
+                                        manifestLanes.containsAll(selectedLanes)
+                                ) {
+                                    "Snapshot is outside the negotiated space or lane policy"
+                                }
+                                val snapshotAuthor =
+                                    snapshot.authorDeviceId
+                                        ?: throw SyncSessionBaselineMissingException(
+                                            "Baseline snapshot has no author"
+                                        )
+                                val trustedAuthor =
+                                    remoteApply.trustedPeer(syncSpaceId, snapshotAuthor)
+                                        ?: throw SyncSessionBaselineMissingException(
+                                            "Baseline snapshot author is not trusted"
+                                        )
+                                try {
+                                    fetchSnapshotBlobs(snapshot, selectedLanes)
+                                    val installResult =
+                                        snapshotInstaller.installWire(
+                                            localAccountId = binding.localAccountId,
+                                            wire = snapshot,
+                                            trustedAuthorKey = trustedAuthor,
+                                            now = now,
+                                            selectedLanes = selectedLanes,
+                                        )
+                                    stagedSnapshotAccountId = binding.localAccountId
+                                    stagedSnapshotBundleId = installResult.snapshotBundleId
+                                    reportStage("SYNCING_SNAPSHOT")
+                                } catch (installErr: Throwable) {
+                                    if (installErr is CancellationException) throw installErr
+                                    if (installErr is SyncLocalRecoverySnapshotRequiredException) {
+                                        pushLocalRecoverySnapshot(
+                                            binding.localAccountId,
+                                            snapshot,
+                                        )
+                                    } else {
+                                        throw SyncSessionSnapshotInstallException(
+                                            "Failed to install baseline snapshot: ${installErr.message}",
+                                            installErr,
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -803,6 +1301,7 @@ class AndroidSyncSessionCoordinator @Inject constructor(
             }) { "Operation page is outside the requested space, lane or range" }
 
             pulledOperationIds += page.operations.map(SyncOperationEnvelope::operationId)
+            reportStage("SYNCING_OPERATIONS")
             val ingest = remoteApply.ingest(page.operations, now)
             rejectedOperationIds += ingest.rejected.mapNotNull { it.operationId }
             check(ingest.rejected.all { it.rejectionDigest != null }) { "Operation page contains invalid or unauthenticated data" }
@@ -824,6 +1323,7 @@ class AndroidSyncSessionCoordinator @Inject constructor(
             fetchReferencedBlobs(page.operations.filter { database.syncInboxDao().find(it.operationId)?.state != "REJECTED" })
 
             drainApplied()
+            reportStage("SYNCING_OPERATIONS")
 
             val localState = remoteApply.coverage(syncSpaceId)
             session.reportAppliedCoverage(localState.applied)
@@ -857,91 +1357,23 @@ class AndroidSyncSessionCoordinator @Inject constructor(
         }
 
         retryMissingAppliedBlobs()
+        reportStage("FINALIZING")
 
-        if (
-            allowStableGc &&
-            genesisSnapshotService != null &&
-            stableGcCoordinator != null &&
-            SyncSnapshotClass.GC_BASELINE.name in negotiation.capabilities.snapshotClasses &&
-            setOf(
-                SyncReplicationLane.CORE_META.wireName,
-                SyncReplicationLane.LIBRARY.wireName,
-                SyncReplicationLane.ARTICLE_STATE.wireName,
-                SyncReplicationLane.CONFIG.wireName,
-                SyncReplicationLane.AUTH.wireName,
-            ).all {
-                it in negotiation.capabilities.replicationLanes &&
-                    laneIsEnabled(remoteState.policyByLane, it)
-            }
-        ) {
-            val activeGenesisSnapshotService = checkNotNull(genesisSnapshotService)
-            val binding =
-                database.syncRuntimeDao().findBindingBySpace(syncSpaceId)
-                    ?: throw IllegalStateException("Stable GC requires a local Sync Space binding")
-            val working =
-                activeGenesisSnapshotService.run(
-                    localAccountId = binding.localAccountId,
-                    syncSpaceId = syncSpaceId,
-                    now = now,
-                )
-            // Tail operations created after the Snapshot cut must be signed/pushed before
-            // publishing a stability checkpoint. They are not part of this GC baseline.
-            pushMissing()
-            val issuedCheckpoint = authLedgerService.issueStabilityCheckpoint(syncSpaceId, now)
-            if (issuedCheckpoint != null) {
-                syncAuthLedger(syncSpaceId, session, now)
-            }
-            val checkpointId =
-                issuedCheckpoint?.authObjectId
-                    ?: authLedgerService.getAuthLedger(syncSpaceId).authStabilityCheckpointId
-            if (checkpointId != null) {
-                val selectedLanes =
-                    negotiation.capabilities.replicationLanes
-                        .filter { laneIsEnabled(remoteState.policyByLane, it) }
-                        .toSet()
-                val coreLanes =
-                    setOf(
-                        SyncReplicationLane.CORE_META.wireName,
-                        SyncReplicationLane.LIBRARY.wireName,
-                        SyncReplicationLane.ARTICLE_STATE.wireName,
-                        SyncReplicationLane.CONFIG.wireName,
-                        SyncReplicationLane.AUTH.wireName,
-                    )
-                if (selectedLanes.any { it !in coreLanes }) {
-                    val coreBaseline =
-                        activeGenesisSnapshotService.promoteToGcBaseline(
-                            snapshotBundleId = working.snapshotBundleId,
-                            checkpointId = checkpointId,
-                            now = now,
-                            selectedLanes = coreLanes,
-                        )
-                    uploadSnapshotBlobs(coreBaseline, coreLanes)
-                    session.pushSnapshot(coreBaseline)
-                }
-                val gcBaseline =
-                    runCatching {
-                        activeGenesisSnapshotService.promoteToGcBaseline(
-                            snapshotBundleId = working.snapshotBundleId,
-                            checkpointId = checkpointId,
-                            now = now,
-                            selectedLanes = selectedLanes,
-                        )
-                    }.getOrNull()
-                if (gcBaseline != null) {
-                    // Server acceptance is the durability fence. Never compact first.
-                    uploadSnapshotBlobs(gcBaseline, selectedLanes)
-                    session.pushSnapshot(gcBaseline)
-                    stableGcCoordinator.compact(gcBaseline.snapshotBundleId, now)
-                    database.syncRuntimeDao().findDeviceIdentity()?.deviceId?.let { localReplicaId ->
-                        stableGcCoordinator.sweepUnreferencedBlobs(
-                            syncSpaceId = syncSpaceId,
-                            localReplicaId = localReplicaId,
-                            now = now,
-                        )
-                    }
-                }
-            }
-        }
+        performStableGcIfEligible(
+            syncSpaceId = syncSpaceId,
+            session = session,
+            now = now,
+            allowStableGc = allowStableGc,
+            negotiation = negotiation,
+            remoteState = remoteState,
+            pushMissing = { pushMissing() },
+            uploadPersistedSnapshotBlobs = { bundleId, lanes ->
+                uploadPersistedSnapshotBlobs(bundleId, lanes)
+            },
+            pushPersistedSnapshot = { bundleId, lanes ->
+                pushPersistedSnapshotUsingNegotiatedTransport(bundleId, lanes)
+            },
+        )
 
         AndroidSyncSessionRunResult(
             pushedOperationIds = pushedOperationIds,
@@ -951,7 +1383,92 @@ class AndroidSyncSessionCoordinator @Inject constructor(
             rejectedOperationIds = rejectedOperationIds,
             remotePolicyByLane = remoteState.policyByLane,
             remoteCapabilities = negotiation.capabilities,
+            blobBytesSent = blobBytesSent,
+            blobBytesReceived = blobBytesReceived,
         )
+    }
+
+    private suspend fun performStableGcIfEligible(
+        syncSpaceId: String,
+        session: SyncEndpointSession,
+        now: Long,
+        allowStableGc: Boolean,
+        negotiation: SyncSessionNegotiation,
+        remoteState: SyncStateVectorResponse,
+        pushMissing: suspend () -> Unit,
+        uploadPersistedSnapshotBlobs: suspend (String, Set<String>) -> Unit,
+        pushPersistedSnapshot: suspend (String, Set<String>) -> String,
+    ) {
+        val genesis = genesisSnapshotService ?: return
+        val gc = stableGcCoordinator ?: return
+        val coreLanes =
+            setOf(
+                SyncReplicationLane.CORE_META.wireName,
+                SyncReplicationLane.LIBRARY.wireName,
+                SyncReplicationLane.ARTICLE_STATE.wireName,
+                SyncReplicationLane.CONFIG.wireName,
+                SyncReplicationLane.AUTH.wireName,
+            )
+        if (
+            !allowStableGc ||
+            SyncSnapshotClass.GC_BASELINE.name !in negotiation.capabilities.snapshotClasses ||
+            !coreLanes.all {
+                it in negotiation.capabilities.replicationLanes &&
+                    laneIsEnabled(remoteState.policyByLane, it)
+            }
+        ) {
+            return
+        }
+        val binding =
+            database.syncRuntimeDao().findBindingBySpace(syncSpaceId)
+                ?: throw IllegalStateException("Stable GC requires a local Sync Space binding")
+        val working =
+            genesis.run(
+                localAccountId = binding.localAccountId,
+                syncSpaceId = syncSpaceId,
+                now = now,
+            )
+        pushMissing()
+        val issuedCheckpoint = authLedgerService.issueStabilityCheckpoint(syncSpaceId, now)
+        if (issuedCheckpoint != null) syncAuthLedger(syncSpaceId, session, now)
+        val checkpointId =
+            issuedCheckpoint?.authObjectId
+                ?: authLedgerService.getAuthLedger(syncSpaceId).authStabilityCheckpointId
+                ?: return
+        val selectedLanes =
+            negotiation.capabilities.replicationLanes
+                .filter { laneIsEnabled(remoteState.policyByLane, it) }
+                .toSet()
+        if (selectedLanes.any { it !in coreLanes }) {
+            val coreBaselineBundleId =
+                genesis.promoteToGcBaselinePersisted(
+                    snapshotBundleId = working.snapshotBundleId,
+                    checkpointId = checkpointId,
+                    now = now,
+                    selectedLanes = coreLanes,
+                )
+            uploadPersistedSnapshotBlobs(coreBaselineBundleId, coreLanes)
+            pushPersistedSnapshot(coreBaselineBundleId, coreLanes)
+        }
+        val gcBaselineBundleId =
+            runCatching {
+                genesis.promoteToGcBaselinePersisted(
+                    snapshotBundleId = working.snapshotBundleId,
+                    checkpointId = checkpointId,
+                    now = now,
+                    selectedLanes = selectedLanes,
+                )
+            }.getOrNull() ?: return
+        uploadPersistedSnapshotBlobs(gcBaselineBundleId, selectedLanes)
+        val publishedBundleId = pushPersistedSnapshot(gcBaselineBundleId, selectedLanes)
+        gc.compact(publishedBundleId, now)
+        database.syncRuntimeDao().findDeviceIdentity()?.deviceId?.let { localReplicaId ->
+            gc.sweepUnreferencedBlobs(
+                syncSpaceId = syncSpaceId,
+                localReplicaId = localReplicaId,
+                now = now,
+            )
+        }
     }
 
     private suspend fun collectPushable(

@@ -85,6 +85,9 @@ class LlmSyncBusinessProjection @Inject constructor(
     override fun readLocalBlob(hash: String): ByteArray? =
         localBlobStore.readVerified(hash)
 
+    override fun localBlobFile(hash: String): java.io.File? =
+        localBlobStore.getBlobFile(hash)?.takeIf { localBlobStore.verifyFile(hash, it) }
+
     override suspend fun persistFetchedBlob(
         syncSpaceId: String,
         entityType: String,

@@ -377,6 +377,19 @@ class AndroidSyncBusinessApplier @Inject constructor(
             projectionExtensions.firstOrNull { it.owns(entityType) }?.readLocalBlob(hash)
         }
 
+    internal fun localBlobFile(entityType: String, hash: String): java.io.File? =
+        if (entityType == SyncEntityType.ARTICLE.wireName) {
+            localBlobStore.getBlobFile(hash)?.takeIf { localBlobStore.verifyFile(hash, it) }
+        } else {
+            projectionExtensions.firstOrNull { it.owns(entityType) }?.localBlobFile(hash)
+        }
+
+    internal fun createArticleBlobStagingFile(hash: String): java.io.File =
+        localBlobStore.createStagingFile(hash)
+
+    internal fun installFetchedArticleBlob(hash: String, stagedFile: java.io.File): Long =
+        localBlobStore.installVerifiedFile(hash, stagedFile)
+
     internal fun hasProjectionForEntity(entityType: String): Boolean =
         entityType == SyncEntityType.ARTICLE.wireName || projectionExtensions.any { it.owns(entityType) }
 
@@ -492,6 +505,68 @@ class AndroidSyncBusinessApplier @Inject constructor(
             localArticleId = mapping.localId,
             hash = manifest.hash,
         )
+    }
+
+    internal suspend fun materializeArticleBlobOwnersFromLocal(
+        syncSpaceId: String,
+        manifest: SyncBlobManifestWire,
+        owners: List<SyncBlobReferenceEntity>,
+    ) {
+        val currentReferences =
+            database.syncBlobDao().listReferencesForBlob(syncSpaceId, manifest.hash)
+                .associateBy {
+                    listOf(
+                        it.ownerEntityType,
+                        it.ownerEntitySyncId,
+                        it.ownerEntityGeneration.toString(),
+                        it.referenceKind,
+                    ).joinToString("|")
+                }
+        val articleOwners =
+            owners.filter { owner ->
+                owner.ownerEntityType == SyncEntityType.ARTICLE.wireName &&
+                    owner.referenceKind == SYNC_ARTICLE_FULL_CONTENT_REFERENCE_KIND &&
+                    listOf(
+                        owner.ownerEntityType,
+                        owner.ownerEntitySyncId,
+                        owner.ownerEntityGeneration.toString(),
+                        owner.referenceKind,
+                    ).joinToString("|") in currentReferences
+            }
+        if (articleOwners.isEmpty()) return
+        val bytes = localBlobStore.readVerified(manifest.hash)
+        if (bytes == null || bytes.size.toLong() != manifest.totalBytes) {
+            blobState.markMissing(manifest.hash)
+            return
+        }
+        val binding =
+            database.syncRuntimeDao().findBindingBySpace(syncSpaceId)
+                ?: throw SyncApplyDeferredException("Missing local Space binding for Blob refill")
+        val content = bytes.toString(Charsets.UTF_8)
+        blobState.markReadyVerified(manifest.hash, bytes.size.toLong())
+        articleOwners.forEach { owner ->
+            if (
+                localEviction.isEvicted(
+                    syncSpaceId,
+                    SyncEntityType.ARTICLE.wireName,
+                    owner.ownerEntitySyncId,
+                    owner.ownerEntityGeneration,
+                    SYNC_ARTICLE_FULL_CONTENT_REFERENCE_KIND,
+                )
+            ) return@forEach
+            val mapping =
+                aliasResolver.resolveMapping(
+                    syncSpaceId,
+                    SyncEntityType.ARTICLE.wireName,
+                    owner.ownerEntitySyncId,
+                    owner.ownerEntityGeneration,
+                ) ?: throw SyncApplyDeferredException("Missing Article mapping for Blob refill")
+            readerCacheHelper.writeContentToCacheFromSync(
+                binding.localAccountId,
+                content,
+                mapping.localId,
+            )
+        }
     }
 
     internal suspend fun shouldFetchBlob(

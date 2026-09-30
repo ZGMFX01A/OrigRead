@@ -4,14 +4,27 @@ import java.security.KeyFactory
 import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.KeyStore
+import java.security.Principal
 import java.security.PrivateKey
 import java.security.PublicKey
 import java.security.Signature
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
 import java.security.spec.ECGenParameterSpec
 import java.security.spec.X509EncodedKeySpec
 import java.util.concurrent.ConcurrentHashMap
+import javax.net.ssl.SSLEngine
+import javax.net.ssl.X509ExtendedKeyManager
 import javax.inject.Inject
 import javax.inject.Singleton
+import javax.net.ssl.KeyManagerFactory
+import javax.net.ssl.SSLContext
+import java.net.Socket
+
+data class AndroidSyncLanServerIdentity(
+    val sslContext: SSLContext,
+    val certificateDerBase64: String,
+)
 
 /**
  * 设备身份私钥管理与签名验签组件。
@@ -39,6 +52,44 @@ class SyncDeviceSigningKeyStore @Inject constructor() {
             runCatching {
                 KeyStore.getInstance(ANDROID_KEYSTORE) != null
             }.getOrDefault(false)
+    }
+
+    /**
+     * Builds the LAN server TLS context from the existing AndroidKeyStore identity.
+     * The private key remains inside AndroidKeyStore; a process-only fallback is deliberately
+     * rejected because it cannot provide a certificate bound to the durable device identity.
+     */
+    fun lanTlsServerIdentity(deviceId: String): AndroidSyncLanServerIdentity {
+        check(hasAndroidKeyStoreProvider()) {
+            "LAN TLS requires the persistent AndroidKeyStore device identity"
+        }
+        val entry = ensureAndroidKeyStoreEntry(deviceId)
+        val certificate = entry.certificate as? X509Certificate
+            ?: error("AndroidKeyStore device identity has no X.509 certificate")
+        val probe = ByteArray(32).also(SecureRandom()::nextBytes)
+        val probeSignature = Signature.getInstance(SIGNATURE_ALGORITHM).run {
+            initSign(entry.privateKey)
+            update(probe)
+            sign()
+        }
+        check(Signature.getInstance(SIGNATURE_ALGORITHM).run {
+            initVerify(certificate.publicKey)
+            update(probe)
+            verify(probeSignature)
+        }) { "AndroidKeyStore device certificate does not match its identity key" }
+        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        val keyManager = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm()).apply {
+            init(keyStore, null)
+        }.keyManagers.filterIsInstance<X509ExtendedKeyManager>().firstOrNull()
+            ?: error("Android TLS provider does not expose an X509ExtendedKeyManager")
+        val pinnedKeyManager = AndroidSyncExactAliasKeyManager(keyManager, aliasFor(deviceId))
+        val sslContext = SSLContext.getInstance("TLS").apply {
+            init(arrayOf(pinnedKeyManager), null, SecureRandom())
+        }
+        return AndroidSyncLanServerIdentity(
+            sslContext = sslContext,
+            certificateDerBase64 = encodeBase64(certificate.encoded),
+        )
     }
 
     /**
@@ -70,6 +121,16 @@ class SyncDeviceSigningKeyStore @Inject constructor() {
         return encodeBase64(signature.sign())
     }
 
+    fun signChunksBase64(
+        deviceId: String,
+        chunks: Sequence<ByteArray>,
+    ): String {
+        val signature = Signature.getInstance(SIGNATURE_ALGORITHM)
+        signature.initSign(getPrivateKey(deviceId))
+        chunks.forEach(signature::update)
+        return encodeBase64(signature.sign())
+    }
+
     /**
      * 使用公钥 Base64 字符串验证数字签名。
      *
@@ -93,6 +154,21 @@ class SyncDeviceSigningKeyStore @Inject constructor() {
             verifier.initVerify(publicKey)
             verifier.update(material)
             verifier.verify(sigBytes)
+        }.getOrDefault(false)
+
+    fun verifyChunksBase64(
+        publicKeySpkiBase64: String,
+        chunks: Sequence<ByteArray>,
+        signatureBase64: String,
+    ): Boolean =
+        runCatching {
+            val publicKey =
+                KeyFactory.getInstance(EC_ALGORITHM)
+                    .generatePublic(X509EncodedKeySpec(decodeBase64(publicKeySpkiBase64)))
+            val verifier = Signature.getInstance(SIGNATURE_ALGORITHM)
+            verifier.initVerify(publicKey)
+            chunks.forEach(verifier::update)
+            verifier.verify(decodeBase64(signatureBase64))
         }.getOrDefault(false)
 
     private fun getPublicKey(deviceId: String): PublicKey {
@@ -132,7 +208,12 @@ class SyncDeviceSigningKeyStore @Inject constructor() {
         setAlgorithmParameterSpec.invoke(builder, ECGenParameterSpec(P256_CURVE))
 
         val setDigests = specClass.getMethod("setDigests", Array<String>::class.java)
-        setDigests.invoke(builder, arrayOf("SHA-256"))
+        // Conscrypt performs TLS CertificateVerify by hashing the handshake itself and asking
+        // AndroidKeyStore to sign the already-computed digest. Android therefore requires
+        // DIGEST_NONE authorization for a private key used by a TLS server. Keep SHA-256 as
+        // well because OrigRead also uses this durable device key for SHA256withECDSA protocol
+        // signatures and for the AndroidKeyStore-generated self-signed certificate.
+        setDigests.invoke(builder, arrayOf("NONE", "SHA-256"))
 
         val buildMethod = specClass.getMethod("build")
         val spec = buildMethod.invoke(builder) as java.security.spec.AlgorithmParameterSpec
@@ -174,4 +255,36 @@ class SyncDeviceSigningKeyStore @Inject constructor() {
         }.getOrElse {
             android.util.Base64.decode(value, android.util.Base64.DEFAULT)
         }
+}
+
+private class AndroidSyncExactAliasKeyManager(
+    private val delegate: X509ExtendedKeyManager,
+    private val alias: String,
+) : X509ExtendedKeyManager() {
+    override fun chooseEngineServerAlias(keyType: String?, issuers: Array<out Principal>?, engine: SSLEngine?): String? =
+        alias.takeIf { supports(keyType, issuers) }
+
+    override fun chooseServerAlias(keyType: String?, issuers: Array<out Principal>?, socket: Socket?): String? =
+        alias.takeIf { supports(keyType, issuers) }
+
+    private fun supports(keyType: String?, issuers: Array<out Principal>?): Boolean =
+        !keyType.isNullOrBlank() && delegate.getServerAliases(keyType, issuers)?.contains(alias) == true
+
+    override fun getServerAliases(keyType: String?, issuers: Array<out Principal>?): Array<String>? =
+        if (supports(keyType, issuers)) arrayOf(alias) else null
+
+    override fun getCertificateChain(alias: String?): Array<X509Certificate>? =
+        if (alias == this.alias) delegate.getCertificateChain(alias) else null
+
+    override fun getPrivateKey(alias: String?): PrivateKey? =
+        if (alias == this.alias) delegate.getPrivateKey(alias) else null
+
+    override fun chooseEngineClientAlias(keyTypes: Array<out String>?, issuers: Array<out Principal>?, engine: SSLEngine?): String? =
+        delegate.chooseEngineClientAlias(keyTypes, issuers, engine)
+
+    override fun chooseClientAlias(keyTypes: Array<out String>?, issuers: Array<out Principal>?, socket: Socket?): String? =
+        delegate.chooseClientAlias(keyTypes, issuers, socket)
+
+    override fun getClientAliases(keyType: String?, issuers: Array<out Principal>?): Array<String>? =
+        delegate.getClientAliases(keyType, issuers)
 }

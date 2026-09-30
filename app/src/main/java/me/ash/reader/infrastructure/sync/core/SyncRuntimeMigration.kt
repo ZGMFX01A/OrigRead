@@ -299,19 +299,9 @@ val MIGRATION_23_24 =
                     "PRIMARY KEY(syncSpaceId,replicationLaneId,ownerEntityType,ownerEntitySyncId,ownerEntityGeneration,referenceKind,hash))"
             )
             db.execSQL(
-                "CREATE INDEX IF NOT EXISTS index_sync_blob_reference_syncSpaceId_replicationLaneId " +
-                    "ON sync_blob_reference(syncSpaceId, replicationLaneId)"
-            )
-            db.execSQL(
-                "CREATE INDEX IF NOT EXISTS index_sync_blob_reference_hash ON sync_blob_reference(hash)"
-            )
-            db.execSQL(
                 "CREATE TABLE IF NOT EXISTS sync_blob_persisted_ack (" +
                     "syncSpaceId TEXT NOT NULL, hash TEXT NOT NULL, replicaId TEXT NOT NULL, totalBytes INTEGER NOT NULL, " +
                     "persistedAt INTEGER NOT NULL, PRIMARY KEY(syncSpaceId,hash,replicaId))"
-            )
-            db.execSQL(
-                "CREATE INDEX IF NOT EXISTS index_sync_blob_persisted_ack_hash ON sync_blob_persisted_ack(hash)"
             )
         }
     }
@@ -326,6 +316,136 @@ val MIGRATION_27_28 = object : Migration(27, 28) {
             causalContextJson TEXT, logicalClock INTEGER,
             PRIMARY KEY(syncSpaceId,entityType,entitySyncId,entityGeneration,fieldId,versionToken))""")
         db.execSQL("INSERT INTO sync_field_candidate SELECT * FROM sync_field_version")
+    }
+}
+
+/** R11 Multi-Device LAN Sync: durable trusted device storage for authenticated pairing and trust lifecycle. */
+val MIGRATION_28_29 = object : Migration(28, 29) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """CREATE TABLE IF NOT EXISTS `sync_trusted_device` (
+                `id` TEXT NOT NULL,
+                `syncSpaceId` TEXT NOT NULL,
+                `deviceId` TEXT NOT NULL,
+                `staticPublicKey` TEXT NOT NULL,
+                `fingerprint` TEXT NOT NULL,
+                `displayName` TEXT NOT NULL,
+                `platform` TEXT NOT NULL,
+                `trustState` TEXT NOT NULL,
+                `pairedAt` INTEGER NOT NULL,
+                `lastSeenAt` INTEGER NOT NULL,
+                `authEpoch` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )""".trimIndent()
+        )
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_sync_trusted_device_syncSpaceId_deviceId` " +
+                "ON `sync_trusted_device` (`syncSpaceId`, `deviceId`)"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_sync_trusted_device_syncSpaceId_trustState` " +
+                "ON `sync_trusted_device` (`syncSpaceId`, `trustState`)"
+        )
+    }
+}
+
+/** R11: persist remote peer progress without contaminating the local Sync Coverage vector. */
+val MIGRATION_29_30 = object : Migration(29, 30) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """CREATE TABLE IF NOT EXISTS sync_peer_coverage_report (
+                syncSpaceId TEXT NOT NULL,
+                peerDeviceId TEXT NOT NULL,
+                coverageKind TEXT NOT NULL,
+                replicationLaneId TEXT NOT NULL,
+                actorIncarnationId TEXT NOT NULL,
+                sequence INTEGER NOT NULL,
+                updatedAt INTEGER NOT NULL,
+                PRIMARY KEY(syncSpaceId,peerDeviceId,coverageKind,replicationLaneId,actorIncarnationId)
+            )""".trimIndent()
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_sync_peer_coverage_report_syncSpaceId_peerDeviceId " +
+                "ON sync_peer_coverage_report (syncSpaceId,peerDeviceId)"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_sync_peer_coverage_report_syncSpaceId_coverageKind " +
+                "ON sync_peer_coverage_report (syncSpaceId,coverageKind)"
+        )
+    }
+}
+
+/** R11: durable local execution history for progress, retry and diagnostics. */
+val MIGRATION_30_31 = object : Migration(30, 31) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """CREATE TABLE IF NOT EXISTS sync_run_history (
+                runId TEXT NOT NULL PRIMARY KEY,
+                syncSpaceId TEXT NOT NULL,
+                endpointId TEXT,
+                remoteDeviceId TEXT,
+                transport TEXT,
+                stage TEXT NOT NULL,
+                status TEXT NOT NULL,
+                startedAt INTEGER NOT NULL,
+                finishedAt INTEGER,
+                pushedOperations INTEGER NOT NULL,
+                pulledOperations INTEGER NOT NULL,
+                appliedOperations INTEGER NOT NULL,
+                rejectedOperations INTEGER NOT NULL,
+                blobBytesSent INTEGER NOT NULL,
+                blobBytesReceived INTEGER NOT NULL,
+                retryAttempt INTEGER NOT NULL,
+                errorCode TEXT,
+                errorMessage TEXT
+            )""".trimIndent()
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_sync_run_history_syncSpaceId_startedAt " +
+                "ON sync_run_history (syncSpaceId, startedAt)"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_sync_run_history_endpointId_startedAt " +
+                "ON sync_run_history (endpointId, startedAt)"
+        )
+    }
+}
+
+/** R11: durable Snapshot stream staging; partial transfers must never look like installed baselines. */
+val MIGRATION_31_32 = object : Migration(31, 32) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """CREATE TABLE IF NOT EXISTS sync_snapshot_stream_stage (
+                syncSpaceId TEXT NOT NULL,
+                snapshotBundleId TEXT NOT NULL,
+                sourceSnapshotBundleId TEXT NOT NULL,
+                transportPeerDeviceId TEXT NOT NULL,
+                manifestJson TEXT NOT NULL,
+                state TEXT NOT NULL,
+                createdAt INTEGER NOT NULL,
+                updatedAt INTEGER NOT NULL,
+                PRIMARY KEY(syncSpaceId,snapshotBundleId)
+            )""".trimIndent()
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_sync_snapshot_stream_stage_syncSpaceId_updatedAt " +
+                "ON sync_snapshot_stream_stage(syncSpaceId,updatedAt)"
+        )
+        db.execSQL(
+            """CREATE TABLE IF NOT EXISTS sync_snapshot_stream_shard (
+                syncSpaceId TEXT NOT NULL,
+                snapshotBundleId TEXT NOT NULL,
+                replicationLaneId TEXT NOT NULL,
+                contentHash TEXT NOT NULL,
+                shardJson TEXT NOT NULL,
+                updatedAt INTEGER NOT NULL,
+                PRIMARY KEY(syncSpaceId,snapshotBundleId,replicationLaneId)
+            )""".trimIndent()
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_sync_snapshot_stream_shard_syncSpaceId_snapshotBundleId " +
+                "ON sync_snapshot_stream_shard(syncSpaceId,snapshotBundleId)"
+        )
     }
 }
 

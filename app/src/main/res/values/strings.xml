@@ -1477,6 +1477,7 @@
     <string name="selected_text_ai">AI</string>
     <string name="origread_sync">Multi-device Sync</string>
     <string name="origread_sync_desc">LAN peer discovery &amp; durable cloud sync</string>
+    <string name="origread_sync_activate">Activate Sync</string>
     <string name="origread_sync_lan_listener">LAN Sync Listener</string>
     <string name="origread_sync_lan_listener_desc">Allow other OrigRead devices on the LAN to discover and sync</string>
     <string name="origread_sync_discover">Scan LAN Devices</string>

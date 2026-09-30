@@ -25,17 +25,18 @@ class AndroidNsdAdvertisementProvider(context: Context) {
         require(port in 1..65_535) { "LAN Sync port must be valid" }
         require(deviceId.isNotBlank() && displayName.isNotBlank()) { "LAN Sync device metadata must not be blank" }
         unregister()
+        // 遵循 B23 规范：局域网广播仅广播匿名随机临时 discoveryId，不泄露稳定持久 deviceId 或 spaceId
+        val randomDiscoveryId = "and-" + java.util.UUID.randomUUID().toString().replace("-", "").take(12)
+        val genericName = "OrigRead Android"
         return suspendCancellableCoroutine { continuation ->
             val serviceInfo =
                 NsdServiceInfo().apply {
-                    serviceName = displayName.take(63)
+                    serviceName = genericName
                     serviceType = "_origread-sync._tcp"
                     this.port = port
-                    setAttribute("deviceId", deviceId)
-                    setAttribute("name", displayName)
+                    setAttribute("deviceId", randomDiscoveryId)
+                    setAttribute("name", genericName)
                     setAttribute("tls", if (tls) "1" else "0")
-                    if (syncSpaceIds.isNotEmpty()) setAttribute("space", syncSpaceIds.take(8).joinToString(","))
-                    if (!fingerprint.isNullOrBlank()) setAttribute("fingerprint", fingerprint)
                 }
             val listener = object : NsdManager.RegistrationListener {
                 override fun onServiceRegistered(info: NsdServiceInfo) {
@@ -43,10 +44,13 @@ class AndroidNsdAdvertisementProvider(context: Context) {
                 }
 
                 override fun onRegistrationFailed(info: NsdServiceInfo, errorCode: Int) {
+                    if (registrationListener === this) registrationListener = null
                     if (continuation.isActive) continuation.resume(false)
                 }
 
-                override fun onServiceUnregistered(info: NsdServiceInfo) = Unit
+                override fun onServiceUnregistered(info: NsdServiceInfo) {
+                    if (registrationListener === this) registrationListener = null
+                }
                 override fun onUnregistrationFailed(info: NsdServiceInfo, errorCode: Int) = Unit
             }
             registrationListener = listener
@@ -59,7 +63,12 @@ class AndroidNsdAdvertisementProvider(context: Context) {
                 registrationListener = null
                 if (continuation.isActive) continuation.resume(false)
             }
-            continuation.invokeOnCancellation { unregister() }
+            continuation.invokeOnCancellation {
+                if (registrationListener === listener) {
+                    runCatching { nsdManager.unregisterService(listener) }
+                    registrationListener = null
+                }
+            }
         }
     }
 

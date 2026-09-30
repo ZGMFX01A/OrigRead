@@ -100,6 +100,42 @@ data class SyncSnapshotShardEntity(
     val shardHash: String,
 )
 
+data class SyncSnapshotShardDescriptorRow(
+    val replicationLaneId: String,
+    val frontierByActorJson: String,
+    val shardHash: String,
+)
+
+@Entity(
+    tableName = "sync_snapshot_stream_stage",
+    primaryKeys = ["syncSpaceId", "snapshotBundleId"],
+    indices = [Index(value = ["syncSpaceId", "updatedAt"])],
+)
+data class SyncSnapshotStreamStageEntity(
+    val syncSpaceId: String,
+    val snapshotBundleId: String,
+    val sourceSnapshotBundleId: String,
+    val transportPeerDeviceId: String,
+    val manifestJson: String,
+    val state: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+@Entity(
+    tableName = "sync_snapshot_stream_shard",
+    primaryKeys = ["syncSpaceId", "snapshotBundleId", "replicationLaneId"],
+    indices = [Index(value = ["syncSpaceId", "snapshotBundleId"])],
+)
+data class SyncSnapshotStreamShardEntity(
+    val syncSpaceId: String,
+    val snapshotBundleId: String,
+    val replicationLaneId: String,
+    val contentHash: String,
+    val shardJson: String,
+    val updatedAt: Long,
+)
+
 @Entity(
     tableName = "sync_genesis_operation_coverage",
     indices = [Index(value = ["genesisSessionId"])],

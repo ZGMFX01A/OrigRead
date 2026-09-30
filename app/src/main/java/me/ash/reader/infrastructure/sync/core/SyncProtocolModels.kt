@@ -75,6 +75,9 @@ data class SyncPeerCapabilities(
     val maxOperationBatch: Int = 500,
     val maxBlobChunkBytes: Int = 1_048_576,
     val supportsRangeResume: Boolean = true,
+    val streamingSnapshots: Boolean = false,
+    val blobRangeRequests: Boolean = false,
+    val authStabilityCheckpoints: Boolean = false,
 )
 
 @Serializable
@@ -144,6 +147,41 @@ data class SyncSnapshotBundleWire(
     val policyHash: String,
     val capturedAt: Long,
     val shards: List<SyncSnapshotShardWire>,
+    val coverage: SyncCoverage = emptyMap(),
+    val hashSchemaVersion: Int = 1,
+    val schemaVersion: Int = 1,
+    val snapshotEpoch: Long = 1L,
+    val crossDbCutId: String? = null,
+    val requiredCoreShardIds: List<String> = emptyList(),
+    val coverageCommitment: String? = null,
+    val authStabilityCheckpoint: String? = null,
+    val authorDeviceId: String? = null,
+    val authorSignature: String? = null,
+)
+
+@Serializable
+data class SyncSnapshotShardDescriptorWire(
+    val replicationLaneId: String,
+    val contentHash: String,
+    val frontierJson: String,
+)
+
+/**
+ * R11 transport-only Snapshot descriptor. It preserves every signed bundle field except the
+ * heavyweight shard payloads. shardDescriptors retain the original shard array order because the
+ * detached R10 author signature covers that order exactly.
+ */
+@Serializable
+data class SyncSnapshotStreamManifestWire(
+    val sourceSnapshotBundleId: String,
+    val snapshotBundleId: String,
+    val syncSpaceId: String,
+    val snapshotClass: String,
+    val genesisBaselineId: String? = null,
+    val rootHash: String,
+    val policyHash: String,
+    val capturedAt: Long,
+    val shardDescriptors: List<SyncSnapshotShardDescriptorWire>,
     val coverage: SyncCoverage = emptyMap(),
     val hashSchemaVersion: Int = 1,
     val schemaVersion: Int = 1,
@@ -268,6 +306,28 @@ interface SyncEndpointSession {
     suspend fun pushOperations(batch: List<SyncOperationEnvelope>): SyncOperationBatchResult
     suspend fun getLatestSnapshot(snapshotClass: String? = null, lanes: List<String> = emptyList()): SyncSnapshotBundleWire?
     suspend fun pushSnapshot(snapshot: SyncSnapshotBundleWire)
+    suspend fun getLatestSnapshotStreamManifest(
+        snapshotClass: String? = null,
+        lanes: List<String> = emptyList(),
+    ): SyncSnapshotStreamManifestWire? =
+        throw UnsupportedOperationException("Snapshot streaming is not supported by this endpoint")
+    suspend fun fetchSnapshotStreamShard(
+        sourceSnapshotBundleId: String,
+        lane: String,
+    ): SyncSnapshotShardWire =
+        throw UnsupportedOperationException("Snapshot streaming is not supported by this endpoint")
+    suspend fun pushSnapshotStreamManifest(manifest: SyncSnapshotStreamManifestWire) {
+        throw UnsupportedOperationException("Snapshot streaming is not supported by this endpoint")
+    }
+    suspend fun pushSnapshotStreamShard(
+        snapshotBundleId: String,
+        shard: SyncSnapshotShardWire,
+    ) {
+        throw UnsupportedOperationException("Snapshot streaming is not supported by this endpoint")
+    }
+    suspend fun commitSnapshotStream(snapshotBundleId: String) {
+        throw UnsupportedOperationException("Snapshot streaming is not supported by this endpoint")
+    }
     suspend fun acceptRecoverySnapshot(
         snapshotBundleId: String,
         acceptance: SyncAuthProtocolObject,
