@@ -223,8 +223,31 @@ class SyncGenesisSnapshotService @Inject constructor(
     private val signingKeys: SyncDeviceSigningKeyStore,
     private val projectionExtensions: Set<@JvmSuppressWildcards SyncBusinessProjectionExtension> = emptySet(),
 ) {
+    @Inject lateinit var joinBaselineCapture: SyncSpaceJoinBaselineCapture
+    @Inject lateinit var pagedBuilder: SyncPagedGenesisBuilder
+    @Inject lateinit var pagedExecution: SyncGenesisExecution
+    @Inject lateinit var pagedExport: SyncPagedSnapshotExport
     private val json = Json { encodeDefaults = true; ignoreUnknownKeys = true }
     private val blobState = SyncBlobStateService(database)
+
+    data class PagedRunOptions(val localAccountId: Int, val syncSpaceId: String? = null,
+        val genesisSessionId: String = UUID.randomUUID().toString(), val now: Long = System.currentTimeMillis())
+
+    /** 分页捕获显式进入既有 cut/barrier/Tail 生命周期，旧格式仅保留给独立的非 LAN 契约。 */
+    suspend fun runPaged(options: PagedRunOptions): SyncGenesisCutoverResult =
+        pagedExecution.run(SyncGenesisExecution.Options(accountId = options.localAccountId, space = options.syncSpaceId,
+            sessionId = options.genesisSessionId, now = options.now,
+            prepare = { space -> pagedBuilder.prepare(SyncSnapshotArticleContent.Preparation(options.localAccountId, space, options.now)) }, capture = { input ->
+                pagedBuilder.capture(SyncPagedGenesisBuilder.Options(input.accountId, input.session, input.cut))
+            }) { input ->
+            pagedBuilder.build(SyncPagedGenesisBuilder.Options(input.accountId, input.session, input.cut))
+        })
+
+    /** 对外分页清单读取仍受正式来源发布与策略 scope 检查，不能导出接收暂存区。 */
+    suspend fun exportPagedManifest(options: SyncPagedSnapshotExport.Scope): SyncPagedSnapshotManifest = pagedExport.manifest(options)
+
+    /** 一次只读取当前已发布字节页，供 HTTPS 页面路由发送。 */
+    suspend fun exportPagedPage(options: SyncPagedSnapshotExport.Page): SyncSnapshotBytePage = pagedExport.page(options)
 
     suspend fun run(
         localAccountId: Int,
@@ -1629,6 +1652,7 @@ class SyncGenesisSnapshotService @Inject constructor(
         )
         val persistedTombstones =
             database.syncInboxDao().listTombstones(cut.syncSpaceId)
+        val joinWinners = linkedMapOf<SyncReplicationLane, List<GenesisFieldVersionSnapshot>>()
         val shards =
             PHASE_A_SNAPSHOT_LANES.map { lane ->
                 val frontierJson = SyncGenesisCodec.encodeFrontiers(
@@ -1674,6 +1698,7 @@ class SyncGenesisSnapshotService @Inject constructor(
                         "[]"
                     }
                 val winnerVersions = json.decodeFromString<List<GenesisFieldVersionSnapshot>>(winnerFieldVersionJson)
+                if (session.genesisSessionId.startsWith("join-")) joinWinners[lane] = winnerVersions
                 val allVersions = winnerVersions.flatMap { winner ->
                     retainedFieldCandidates.filter { candidate ->
                         candidate.entityType == winner.entityType && candidate.entitySyncId == winner.entitySyncId &&
@@ -1835,6 +1860,17 @@ class SyncGenesisSnapshotService @Inject constructor(
                 laneFrontiers = cut.laneFrontiers,
                 now = now,
             )
+        }
+        // 入组基线由各自数据库先独立提交；最后的 Reader 发布不等待 Chat 写锁。
+        if (session.genesisSessionId.startsWith("join-")) {
+            val actor = checkNotNull(database.syncRuntimeDao().findActiveActor(cut.syncSpaceId))
+            val context = SyncWritableActorContext(localAccountId = accountId, syncSpaceId = cut.syncSpaceId,
+                deviceId = deviceId, actorIncarnationId = actor.actorIncarnationId,
+                lifecycleState = SyncSpaceLifecycleState.GENESIS_CAPTURING)
+            joinWinners.filterValues { it.isNotEmpty() }.forEach { (lane, winners) ->
+                joinBaselineCapture.capture(SyncSpaceJoinBaselineCapture.JoinBaselineLane(context = context,
+                    lane = lane, baselineId = session.genesisSessionId, winners = winners))
+            }
         }
         database.withTransaction {
             database.syncGenesisDao().upsertBundle(bundle)

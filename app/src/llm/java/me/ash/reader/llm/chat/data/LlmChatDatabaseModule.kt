@@ -394,7 +394,7 @@ object LlmChatDatabaseModule {
             context,
             LlmChatDatabase::class.java,
             DATABASE_NAME,
-        ).addMigrations(
+        ).openHelperFactory(me.ash.reader.infrastructure.sync.core.SyncSnapshotGuardFactory(context)).addMigrations(
             MIGRATION_1_2,
             MIGRATION_2_3,
             MIGRATION_3_4,
@@ -416,6 +416,7 @@ object LlmChatDatabaseModule {
             MIGRATION_CHAT_19_20,
             MIGRATION_CHAT_20_21,
             MIGRATION_CHAT_21_22,
+            MIGRATION_CHAT_22_23,
         ).build()
 
     /** 向业务层提供 Chat DAO 单例。 */

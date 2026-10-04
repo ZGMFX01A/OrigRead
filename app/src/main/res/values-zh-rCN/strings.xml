@@ -1349,4 +1349,6 @@
     <string name="rsshub_unsupported_format_notice">此 RSSHub 返回了暂不支持的格式（如 JSON）。请使用 RSS 或 Atom 输出，例如将 format 改为 rss。</string>
     <string name="rsshub_auth_instance_notice">此 RSSHub 路由包含访问密钥或访问码。请填写所属实例的完整 HTTP/HTTPS 地址，避免将凭证发送给其他实例。</string>
     <string name="rsshub_bound_instance_disabled_notice">此带凭证订阅所属的 RSSHub 实例已被禁用或删除。请启用原实例后再进行自动恢复。</string>
+    <string name="sync_snapshot_installing">正在安装同步数据，完成后恢复显示</string>
+    <string name="sync_snapshot_status_recovery">同步状态与恢复</string>
 </resources>

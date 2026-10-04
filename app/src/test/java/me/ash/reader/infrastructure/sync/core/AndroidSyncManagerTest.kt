@@ -3,6 +3,7 @@ package me.ash.reader.infrastructure.sync.core
 import android.content.Context
 import android.content.SharedPreferences
 import kotlinx.coroutines.runBlocking
+import me.ash.reader.domain.service.AccountService
 import me.ash.reader.infrastructure.db.AndroidDatabase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -38,7 +39,10 @@ class AndroidSyncManagerTest {
         whenever(context.getSharedPreferences(any(), any())).thenReturn(preferences)
         whenever(preferences.edit()).thenReturn(editor)
         whenever(editor.putBoolean(any(), any())).thenReturn(editor)
-        syncManager = AndroidSyncManager(context, database, lanListener, registry, keyStore)
+        val accountService = mock(AccountService::class.java).also {
+            whenever(it.getCurrentAccountId()).thenReturn(1)
+        }
+        syncManager = AndroidSyncManager(context, database, lanListener, registry, keyStore, accountService)
     }
 
     @Test
@@ -52,7 +56,7 @@ class AndroidSyncManagerTest {
                     updatedAt = 1000L,
                 )
             )
-            `when`(runtimeDao.findActiveBinding()).thenReturn(
+            `when`(runtimeDao.findBinding(1)).thenReturn(
                 SyncLocalSpaceBindingEntity(
                     localAccountId = 1,
                     syncSpaceId = "space-test-456",
@@ -125,7 +129,7 @@ class AndroidSyncManagerTest {
                     updatedAt = 1L,
                 )
             )
-            `when`(runtimeDao.findActiveBinding()).thenReturn(
+            `when`(runtimeDao.findBinding(1)).thenReturn(
                 SyncLocalSpaceBindingEntity(
                     localAccountId = 1,
                     syncSpaceId = "space-lan-test",

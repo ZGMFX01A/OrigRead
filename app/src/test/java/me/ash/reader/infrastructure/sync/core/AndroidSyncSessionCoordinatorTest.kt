@@ -41,6 +41,7 @@ class AndroidSyncSessionCoordinatorTest {
                 snapshotInstaller = installer,
             )
         init {
+            stubEmptySyncSql(db)
             whenever(db.syncOperationDao()).thenReturn(operations)
             whenever(db.syncInboxDao()).thenReturn(inbox)
             whenever(db.syncPeerCursorDao()).thenReturn(cursors)
@@ -73,6 +74,12 @@ class AndroidSyncSessionCoordinatorTest {
                 whenever(blobs.listRetryableReferencedManifests(eq("space"), any()))
                     .thenReturn(emptyList())
                 whenever(operations.listSigned(any(), any(), any())).thenReturn(emptyList())
+                whenever(operations.pushActors(any())).thenReturn(emptyList())
+                whenever(genesis.listRecoveryCapsules(any())).thenReturn(emptyList())
+                whenever(genesis.findRecoveryCapsule(any(), any())).thenAnswer { call ->
+                    runBlocking { genesis.listRecoveryCapsules(call.getArgument(0)) }
+                        .firstOrNull { it.capsuleId == call.getArgument<String>(1) }
+                }
                 whenever(session.negotiateProtocolAndCapabilities()).thenReturn(SyncSessionNegotiation("space", "local", "peer", SyncPeerCapabilities()))
                 whenever(session.getAuthLedger()).thenReturn(SyncAuthLedgerPage())
                 whenever(auth.getAuthLedger("space")).thenReturn(SyncAuthLedgerPage())

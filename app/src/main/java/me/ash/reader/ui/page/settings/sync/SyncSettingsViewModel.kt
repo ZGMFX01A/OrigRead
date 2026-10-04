@@ -6,6 +6,8 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import me.ash.reader.infrastructure.sync.core.AndroidSyncEndpointConfig
@@ -28,13 +30,12 @@ class SyncSettingsViewModel @Inject constructor(
     private val _endpoints = MutableStateFlow<List<AndroidSyncEndpointConfig>>(emptyList())
     val endpoints: StateFlow<List<AndroidSyncEndpointConfig>> = _endpoints.asStateFlow()
 
-    private val _runHistory = MutableStateFlow<List<SyncRunHistoryEntity>>(emptyList())
-    val runHistory: StateFlow<List<SyncRunHistoryEntity>> = _runHistory.asStateFlow()
+    // 页面只订阅真实持久历史，后台任务更新后无需退出重进或手动刷新。
+    val runHistory: StateFlow<List<SyncRunHistoryEntity>> = syncManager.observeRunHistory(HISTORY_PAGE_SIZE)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     init {
-        loadEndpoints()
-        loadRunHistory()
-        refreshTrustedDevices()
+        refreshDiagnostics()
     }
 
     /**
@@ -49,10 +50,11 @@ class SyncSettingsViewModel @Inject constructor(
      */
     fun refreshDiagnostics() {
         viewModelScope.launch {
+            // 页面重新进入时先读取当前账户绑定，避免沿用单例管理器的旧空间和信任列表。
+            syncManager.loadDeviceIdentity()
             syncManager.networkMonitor?.updateDiagnostics()
-            loadEndpoints()
-            loadRunHistory()
-            refreshTrustedDevices()
+            _endpoints.value = syncManager.listEndpoints()
+            syncManager.refreshTrustedDevices()
         }
     }
 
@@ -62,12 +64,6 @@ class SyncSettingsViewModel @Inject constructor(
     fun loadEndpoints() {
         viewModelScope.launch {
             _endpoints.value = syncManager.listEndpoints()
-        }
-    }
-
-    fun loadRunHistory() {
-        viewModelScope.launch {
-            _runHistory.value = syncManager.listRunHistory(50)
         }
     }
 
@@ -85,7 +81,6 @@ class SyncSettingsViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { syncManager.activateGenesis() }
             loadEndpoints()
-            loadRunHistory()
             refreshTrustedDevices()
         }
     }
@@ -177,7 +172,6 @@ class SyncSettingsViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { syncManager.syncNow() }
             loadEndpoints()
-            loadRunHistory()
         }
     }
 
@@ -224,7 +218,11 @@ class SyncSettingsViewModel @Inject constructor(
         viewModelScope.launch {
             syncManager.removeEndpoint(endpointId)
             loadEndpoints()
-            loadRunHistory()
         }
     }
+    companion object {
+        /** 设置页面保留最近任务的显示窗口，不限制持久历史或同步执行次数。 */
+        private const val HISTORY_PAGE_SIZE = 50
+    }
+
 }

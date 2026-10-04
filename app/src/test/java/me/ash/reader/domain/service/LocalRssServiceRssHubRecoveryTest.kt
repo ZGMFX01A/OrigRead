@@ -80,9 +80,9 @@ class LocalRssServiceRssHubRecoveryTest {
         )
         whenever(filter.filterBeforeInsert(any(), any())).thenReturn(emptyList())
         whenever(articleDao.insertListIfNotExist(any(), any())).thenReturn(emptyList())
-        whenever(syncMutations.captureLibraryMutation<List<me.ash.reader.domain.model.article.Article>>(eq(1), any()))
+        whenever(syncMutations.captureLibraryMutation<List<me.ash.reader.domain.model.article.Article>>(eq(1), any(), any()))
             .thenAnswer { invocation ->
-                runBlocking { invocation.getArgument<suspend () -> List<me.ash.reader.domain.model.article.Article>>(1)() }
+                runBlocking { invocation.getArgument<suspend () -> List<me.ash.reader.domain.model.article.Article>>(2)() }
             }
         val service = LocalRssService(
             context = mock<Context>(), articleDao = articleDao, feedDao = feedDao,

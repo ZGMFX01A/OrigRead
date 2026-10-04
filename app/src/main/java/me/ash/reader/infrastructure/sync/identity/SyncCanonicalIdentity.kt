@@ -14,7 +14,10 @@ import me.ash.reader.infrastructure.source.SourceUrlNormalizer
  * 未来即使 URL 归一化策略升级，也不能静默重写已经保存的 v1 key。
  */
 object SyncCanonicalIdentity {
+    /** 历史 key 版本保持不变，用于签名 fixture 与旧数据读取。 */
     const val CANONICAL_KEY_VERSION = 1
+    /** 新身份候选修复转义且保留路径/query；不代表自动等价证明。 */
+    const val CANDIDATE_KEY_VERSION = 2
     const val RELATION_ID_VERSION = 1
     const val CONFIG_RULE_ID_VERSION = 1
 
@@ -27,7 +30,7 @@ object SyncCanonicalIdentity {
 
     internal fun feedKey(sourceTypeWire: String, sourceUrl: String): String {
         val normalizedType = sourceTypeWire.trim().lowercase(Locale.ROOT)
-        val normalizedUrl = SourceUrlNormalizer.comparisonKey(sourceUrl)
+        val normalizedUrl = SourceUrlNormalizer.legacyComparisonKey(sourceUrl)
         return "feed:v$CANONICAL_KEY_VERSION:${sha256Framed(normalizedType, normalizedUrl)}"
     }
 
@@ -40,8 +43,19 @@ object SyncCanonicalIdentity {
     fun articleKey(feedCanonicalKey: String?, articleLink: String?): String? {
         val feedKey = feedCanonicalKey?.takeIf(String::isNotBlank) ?: return null
         val link = articleLink?.trim()?.takeIf(String::isNotEmpty) ?: return null
-        val normalizedLink = SourceUrlNormalizer.comparisonKey(link)
+        val normalizedLink = SourceUrlNormalizer.legacyComparisonKey(link)
         return "article:v$CANONICAL_KEY_VERSION:${sha256Framed(feedKey, "link", normalizedLink)}"
+    }
+
+    /** 新 Feed 映射使用 v2 候选，现有 Mapping 从不重算。 */
+    fun feedCandidateKey(sourceType: SourceType, sourceUrl: String): String =
+        "feed:v$CANDIDATE_KEY_VERSION:${sha256Framed(sourceType.name.lowercase(Locale.ROOT), SourceUrlNormalizer.comparisonKey(sourceUrl))}"
+
+    /** 新 Article 仅生成候选，不以 link-only 建立自动 Alias。 */
+    fun articleCandidateKey(feedCanonicalKey: String?, articleLink: String?): String? {
+        val parent = feedCanonicalKey?.takeIf(String::isNotBlank) ?: return null
+        val link = articleLink?.trim()?.takeIf(String::isNotEmpty) ?: return null
+        return "article:v$CANDIDATE_KEY_VERSION:${sha256Framed(parent, "link", SourceUrlNormalizer.comparisonKey(link))}"
     }
 
     /** 随机、不可从 Local PK 推导的普通 Sync ID。 */

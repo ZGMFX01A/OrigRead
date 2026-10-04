@@ -75,7 +75,8 @@ class SyncBlobTransferCoordinatorTest {
             assertEquals(SyncBlobAvailabilityState.READY.name, stored?.availabilityState)
             assertFalse(state.canAutoGc("space", hash, "local"))
             references.clear()
-            assertTrue(state.canAutoGc("space", hash, "local"))
+            // 旧 persisted ACK 未证明存储代次和保管责任转移，零引用仍不得删除最后一份。
+            assertFalse(state.canAutoGc("space", hash, "local"))
         }
 
     @Test

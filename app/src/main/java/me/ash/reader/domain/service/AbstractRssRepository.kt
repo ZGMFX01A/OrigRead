@@ -11,6 +11,8 @@ import java.util.UUID
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -77,7 +79,10 @@ abstract class AbstractRssRepository(
 
     open suspend fun clearAuthorization() {}
 
-    protected open suspend fun <T> withLibraryMutation(accountId: Int, block: suspend () -> T): T = block()
+    /** 日常命令只捕获确定的订阅或级联实体，导入才使用整账户模式。 */
+    protected open suspend fun <T> withLibraryMutation(accountId: Int,
+        scope: me.ash.reader.infrastructure.sync.core.SyncLibrarySelection = me.ash.reader.infrastructure.sync.core.SyncLibrarySelection(subscriptionsOnly = true),
+        block: suspend () -> T): T = block()
 
     open suspend fun subscribe(
         feedLink: String,
@@ -105,7 +110,7 @@ abstract class AbstractRssRepository(
                 )
             val articles =
                 searchedFeed.entries.map { rssHelper.buildArticleFromSyndEntry(feed, accountId, it) }
-            withLibraryMutation(accountId) {
+            withLibraryMutation(accountId, me.ash.reader.infrastructure.sync.core.SyncLibrarySelection(feedIds = setOf(feed.id), articleIds = articles.map { it.id }.toSet())) {
                 feedDao.insert(feed)
                 articleDao.insertList(articles.map { it.copy(feedId = feed.id) })
             }
@@ -115,7 +120,7 @@ abstract class AbstractRssRepository(
     open suspend fun addGroup(destFeed: Feed?, newGroupName: String): String {
         accountService.getCurrentAccountId().let { accountId ->
             return accountId.spacerDollar(UUID.randomUUID().toString()).also {
-                withLibraryMutation(accountId) { groupDao.insert(Group(id = it, name = newGroupName, accountId = accountId)) }
+                withLibraryMutation(accountId, me.ash.reader.infrastructure.sync.core.SyncLibrarySelection(groupIds = setOf(it))) { groupDao.insert(Group(id = it, name = newGroupName, accountId = accountId)) }
             }
         }
     }
@@ -250,12 +255,18 @@ abstract class AbstractRssRepository(
         }
     }
 
+    /** 同类型账户共用服务实例，分组查询必须随账户 ID 切换，不能固定首次订阅的账户。 */
+    @OptIn(ExperimentalCoroutinesApi::class)
     fun pullGroups(): Flow<MutableList<Group>> =
-        groupDao.queryAllGroup(accountService.getCurrentAccountId()).flowOn(dispatcherIO)
+        accountService.currentAccountIdFlow.filterNotNull()
+            .flatMapLatest { groupDao.queryAllGroup(it) }
+            .flowOn(dispatcherIO)
 
+    /** 切换账户时取消旧账户的来源观察，避免抽屉及订阅页继续使用旧账户关系。 */
+    @OptIn(ExperimentalCoroutinesApi::class)
     fun pullFeeds(): Flow<MutableList<GroupWithFeed>> =
-        groupDao
-            .queryAllGroupWithFeedAsFlow(accountService.getCurrentAccountId())
+        accountService.currentAccountIdFlow.filterNotNull()
+            .flatMapLatest { groupDao.queryAllGroupWithFeedAsFlow(it) }
             .flowOn(dispatcherIO)
 
     fun pullArticles(
@@ -353,7 +364,7 @@ abstract class AbstractRssRepository(
         groupDao.queryAllGroupWithFeed(accountService.getCurrentAccountId())
 
     open suspend fun renameGroup(group: Group) {
-        withLibraryMutation(group.accountId) { groupDao.update(group) }
+        withLibraryMutation(group.accountId, me.ash.reader.infrastructure.sync.core.SyncLibrarySelection(groupIds = setOf(group.id))) { groupDao.update(group) }
     }
 
     open suspend fun renameFeed(feed: Feed) {
@@ -369,7 +380,7 @@ abstract class AbstractRssRepository(
     }
 
     internal suspend fun updateFeed(feed: Feed) {
-        withLibraryMutation(feed.accountId) { feedDao.update(feed) }
+        withLibraryMutation(feed.accountId, me.ash.reader.infrastructure.sync.core.SyncLibrarySelection(feedIds = setOf(feed.id))) { feedDao.update(feed) }
     }
 
     open suspend fun deleteGroup(group: Group, onlyDeleteNoStarred: Boolean? = false) {
@@ -380,7 +391,7 @@ abstract class AbstractRssRepository(
         ) {
             return
         }
-        withLibraryMutation(accountId) {
+        withLibraryMutation(accountId, me.ash.reader.infrastructure.sync.core.SyncLibrarySelection(groupIds = setOf(group.id), cascade = true)) {
             deleteArticles(group = group, includeStarred = true)
             feedDao.deleteByGroupId(accountId, group.id)
             groupDao.delete(group)
@@ -398,7 +409,7 @@ abstract class AbstractRssRepository(
         ) {
             return
         }
-        withLibraryMutation(feed.accountId) {
+        withLibraryMutation(feed.accountId, me.ash.reader.infrastructure.sync.core.SyncLibrarySelection(feedIds = setOf(feed.id), cascade = true)) {
             deleteArticles(feed = feed, includeStarred = true)
             feedDao.delete(feed)
         }
@@ -436,7 +447,7 @@ abstract class AbstractRssRepository(
     }
 
     suspend fun groupParseFullContent(group: Group, isFullContent: Boolean) {
-        withLibraryMutation(group.accountId) {
+        withLibraryMutation(group.accountId, me.ash.reader.infrastructure.sync.core.SyncLibrarySelection(groupIds = setOf(group.id))) {
         feedDao.updateIsFullContentByGroupId(
             accountService.getCurrentAccountId(),
             group.id,
@@ -446,13 +457,13 @@ abstract class AbstractRssRepository(
     }
 
     suspend fun groupOpenInBrowser(group: Group, isBrowser: Boolean) {
-        withLibraryMutation(group.accountId) {
+        withLibraryMutation(group.accountId, me.ash.reader.infrastructure.sync.core.SyncLibrarySelection(groupIds = setOf(group.id))) {
         feedDao.updateIsBrowserByGroupId(accountService.getCurrentAccountId(), group.id, isBrowser)
         }
     }
 
     suspend fun groupAllowNotification(group: Group, isNotification: Boolean) {
-        withLibraryMutation(group.accountId) {
+        withLibraryMutation(group.accountId, me.ash.reader.infrastructure.sync.core.SyncLibrarySelection(groupIds = setOf(group.id))) {
         feedDao.updateIsNotificationByGroupId(
             accountService.getCurrentAccountId(),
             group.id,
@@ -462,7 +473,7 @@ abstract class AbstractRssRepository(
     }
 
     suspend fun groupMoveToTargetGroup(group: Group, targetGroup: Group) {
-        withLibraryMutation(group.accountId) {
+        withLibraryMutation(group.accountId, me.ash.reader.infrastructure.sync.core.SyncLibrarySelection(groupIds = setOf(group.id), feedIds = emptySet())) {
         feedDao.updateTargetGroupIdByGroupId(
             accountService.getCurrentAccountId(),
             group.id,

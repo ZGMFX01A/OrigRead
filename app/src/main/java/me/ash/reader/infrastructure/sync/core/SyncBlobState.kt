@@ -81,6 +81,8 @@ data class SyncBlobPersistedAckEntity(
     val replicaId: String,
     val totalBytes: Long,
     val persistedAt: Long,
+    val storageGeneration: String? = null,
+    val custodyState: String? = null,
 )
 
 @Dao
@@ -168,6 +170,10 @@ interface SyncBlobDao {
     )
     suspend fun listReferencesForLane(syncSpaceId: String, lane: String): List<SyncBlobReferenceEntity>
 
+    /** 分页 baseline 清理每次只读取一个 owner 引用，避免复制整 lane 引用集合。 */
+    @Query("SELECT * FROM sync_blob_reference WHERE syncSpaceId=:syncSpaceId AND replicationLaneId=:lane AND ownerEntityType<>'__operation__' LIMIT 1")
+    suspend fun findMaterializedLaneReference(syncSpaceId: String, lane: String): SyncBlobReferenceEntity?
+
     @Query(
         """
         SELECT r.ownerEntityType AS ownerEntityType,
@@ -241,8 +247,12 @@ data class SyncBlobRetryCandidate(
 
 @Singleton
 class SyncBlobStateService @Inject constructor(
-    private val database: AndroidDatabase,
+    database: AndroidDatabase,
 ) {
+    private val liveDatabase = database
+    // 冻结转换只读取当前 cut 的副本，普通业务调用继续访问自身数据库。
+    private val database get() = me.ash.reader.infrastructure.sync.core.SyncFrozenSourceContext.database(liveDatabase)
+
     private val json = Json { encodeDefaults = true; ignoreUnknownKeys = true }
 
     suspend fun registerManifest(
@@ -386,6 +396,8 @@ class SyncBlobStateService @Inject constructor(
                 ack.replicaId,
                 ack.totalBytes,
                 ack.persistedAt,
+                ack.storageGeneration,
+                ack.custodyState,
             )
         )
     }
@@ -397,9 +409,8 @@ class SyncBlobStateService @Inject constructor(
             SyncBlobDurability.CACHE,
             SyncBlobDurability.REHYDRATABLE,
             -> true
-            SyncBlobDurability.SYNC_DURABLE ->
-                database.syncBlobDao().listPersistedAcks(syncSpaceId, hash)
-                    .any { it.replicaId != localReplicaId && it.totalBytes == manifest.totalBytes }
+            // 历史 ACK/HOLDING 没有新的责任接管承诺，不释放不可再生内容的最后保管责任。
+            SyncBlobDurability.SYNC_DURABLE -> false
         }
     }
 
@@ -482,19 +493,12 @@ class SyncBlobStateService @Inject constructor(
         syncSpaceId: String,
         lane: String,
     ) {
-        database.syncBlobDao().listReferencesForLane(syncSpaceId, lane)
-            .filter { it.ownerEntityType != "__operation__" }
-            .forEach { reference ->
-                removeReference(
-                    syncSpaceId = syncSpaceId,
-                    lane = lane,
-                    ownerEntityType = reference.ownerEntityType,
-                    ownerEntitySyncId = reference.ownerEntitySyncId,
-                    ownerEntityGeneration = reference.ownerEntityGeneration,
-                    referenceKind = reference.referenceKind,
-                    hash = reference.hash,
-                )
-            }
+        while (true) {
+            val reference = database.syncBlobDao().findMaterializedLaneReference(syncSpaceId, lane) ?: return
+            removeReference(syncSpaceId = syncSpaceId, lane = lane, ownerEntityType = reference.ownerEntityType,
+                ownerEntitySyncId = reference.ownerEntitySyncId, ownerEntityGeneration = reference.ownerEntityGeneration,
+                referenceKind = reference.referenceKind, hash = reference.hash)
+        }
     }
 
     suspend fun snapshotIndexes(syncSpaceId: String, lane: String): SyncBlobSnapshotIndexes {

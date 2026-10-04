@@ -10,7 +10,7 @@ object SyncOperationWireCodec {
     private val json =
         Json {
             encodeDefaults = true
-            ignoreUnknownKeys = true
+            ignoreUnknownKeys = false
             explicitNulls = true
         }
 
@@ -74,8 +74,12 @@ object SyncOperationWireCodec {
     fun encode(envelope: SyncOperationEnvelope): String =
         canonicalize(json.encodeToJsonElement(SyncOperationEnvelope.serializer(), envelope)).toString()
 
+    /** 只用于已匹配完整签名对象、公钥和验证版本的证明，不接受未验证网络输入。 */
+    internal fun fromVerifiedWire(envelope: SyncOperationEnvelope, receivedAt: Long): SyncOperationEntity =
+        fromWireUnchecked(envelope).copy(createdAt = receivedAt, updatedAt = receivedAt)
+
     fun decode(value: String): SyncOperationEnvelope =
-        json.decodeFromString(SyncOperationEnvelope.serializer(), value)
+        json.decodeFromJsonElement(SyncOperationEnvelope.serializer(), SyncStrictJson.parse(value))
 
     fun validate(envelope: SyncOperationEnvelope) {
         require(envelope.protocolVersion == SYNC_PROTOCOL_VERSION) { "Unsupported Sync protocol version" }

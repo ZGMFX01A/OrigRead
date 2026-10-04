@@ -12,17 +12,22 @@ data class SyncSnapshotInstalledScope(val rootHash: String, val installedLanes: 
 /** Local-only install completion marker, committed with the binding's STAGING transition. */
 object SyncSnapshotInstallJournal {
     suspend fun readStarted(database: AndroidDatabase, space: String): SyncRecoveryCapsuleEntity? =
-        database.syncGenesisDao().listRecoveryCapsules(space).firstOrNull {
-            it.capsuleId == "snapshot-install:$space" && it.reason == "SNAPSHOT_INSTALL_STARTED"
-        }
+        database.syncGenesisDao().findRecoveryCapsule(space, "snapshot-install:$space")
+            ?.takeIf { it.reason in setOf("SNAPSHOT_INSTALL_STARTED", "SNAPSHOT_BASELINE_READY") }
 
     suspend fun read(database: AndroidDatabase, space: String): SyncRecoveryCapsuleEntity? =
-        database.syncGenesisDao().listRecoveryCapsules(space).firstOrNull {
-            it.capsuleId == "snapshot-install:$space" && it.reason == "SNAPSHOT_INSTALL_READY"
-        }
+        database.syncGenesisDao().findRecoveryCapsule(space, "snapshot-install:$space")
+            ?.takeIf { it.reason == "SNAPSHOT_INSTALL_READY" }
 
     fun scope(record: SyncRecoveryCapsuleEntity): SyncSnapshotInstalledScope =
         Json.decodeFromString(record.recoveryStateJson)
+
+    /** 与 Reader baseline 同事务提交，尾部失败后的重试不得再次覆盖已重放的业务状态。 */
+    suspend fun baselineReady(database: AndroidDatabase, bundle: SyncSnapshotBundleEntity, now: Long) {
+        val started = checkNotNull(readStarted(database, bundle.syncSpaceId))
+        check(started.targetSnapshotBundleId == bundle.snapshotBundleId) { "Snapshot installation journal changed" }
+        database.syncGenesisDao().upsertRecoveryCapsule(started.copy(reason = "SNAPSHOT_BASELINE_READY", createdAt = now))
+    }
 
     suspend fun start(database: AndroidDatabase, bundle: SyncSnapshotBundleEntity, lanes: Set<String>,
                       coverage: SyncCoverageVector, now: Long) {

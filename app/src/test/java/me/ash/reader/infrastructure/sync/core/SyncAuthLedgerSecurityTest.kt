@@ -1,6 +1,7 @@
 package me.ash.reader.infrastructure.sync.core
 
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
 import me.ash.reader.infrastructure.db.AndroidDatabase
 import org.junit.Assert.*
 import org.junit.Test
@@ -19,6 +20,7 @@ class SyncAuthLedgerSecurityTest {
         val rows = mutableListOf<SyncAuthLedgerEntity>()
         val service = AndroidSyncAuthLedgerService(database, keys, remote).also { it.runInTransaction = false }
         init {
+            whenever(database.syncProjectionMutex).thenReturn(Mutex())
             whenever(database.syncAuthLedgerDao()).thenReturn(dao)
             whenever(database.syncRuntimeDao()).thenReturn(runtime)
             whenever(database.syncInboxDao()).thenReturn(inbox)

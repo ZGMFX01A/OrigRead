@@ -10,6 +10,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.encodeToString
+import kotlinx.coroutines.sync.withLock
 import me.ash.reader.infrastructure.db.AndroidDatabase
 
 data class SyncAuthBootstrapPin(
@@ -39,7 +40,7 @@ class AndroidSyncAuthLedgerService @Inject constructor(
         acceptedSnapshotBundleId: String? = null,
         verifiedExternalCoverage: SyncCoverage? = null,
     ): SyncAuthProtocolObject? =
-        database.withTransaction {
+        database.syncProjectionMutex.withLock { database.withTransaction {
             require(verifiedExternalCoverage == null || acceptedSnapshotBundleId != null) {
                 "AUTH_FAILED: external stable coverage requires an accepted Snapshot"
             }
@@ -62,19 +63,14 @@ class AndroidSyncAuthLedgerService @Inject constructor(
                     lane[actorId] = maxOf(lane[actorId] ?: 0L, prefix)
                 }
             }
-            for (op in database.syncOperationDao().listAllForRecovery(syncSpaceId)
-                .sortedWith(compareBy({ it.replicationLaneId }, { it.actorIncarnationId }, { it.sequence }))) {
-                if (op.buildStatus != SyncOperationBuildStatus.SIGNED.name || database.syncInboxDao().find(op.operationId)?.state == "REJECTED") continue
-                val prefix = accepted[op.replicationLaneId]?.get(op.actorIncarnationId) ?: 0L
-                if (op.sequence == prefix + 1L) accepted.getOrPut(op.replicationLaneId) { mutableMapOf() }[op.actorIncarnationId] = op.sequence
-            }
-            if (accepted == previous && acceptedSnapshotBundleId == null) return@withTransaction null
+            val contiguous = signedPrefixes(syncSpaceId, accepted)
+            if (contiguous == previous && acceptedSnapshotBundleId == null) return@withTransaction null
             val payloadJson =
                 SyncOperationCanonicalizer.canonicalJson(
                     buildJsonObject {
                         put(
                             "acceptedPrefixByActorLane",
-                            json.parseToJsonElement(json.encodeToString(accepted)),
+                            json.parseToJsonElement(json.encodeToString(contiguous)),
                         )
                         acceptedSnapshotBundleId?.let { put("acceptedSnapshotBundleId", it) }
                     }.toString()
@@ -87,7 +83,25 @@ class AndroidSyncAuthLedgerService @Inject constructor(
                 payloadHash = "pending", signingDigest = "pending", authorSignature = "pending"), signingKeys)
             appendAuthObjects(syncSpaceId, listOf(checkpoint), now)
             checkpoint
+        } }
+
+    /** 稳定前缀只读签名操作的轻量 Dot，不能把全量正文日志装入 Room CursorWindow。 */
+    private fun signedPrefixes(space: String, initial: SyncCoverage): SyncCoverage {
+        val result = initial.mapValues { it.value.toMutableMap() }.toMutableMap()
+        database.openHelper.writableDatabase.query("""SELECT o.replicationLaneId,o.actorIncarnationId,o.sequence
+            FROM sync_operation_log o WHERE o.syncSpaceId=? AND o.buildStatus='SIGNED' AND NOT EXISTS(
+              SELECT 1 FROM sync_inbox_operation i WHERE i.operationId=o.operationId AND i.state='REJECTED')
+            ORDER BY o.replicationLaneId,o.actorIncarnationId,o.sequence""", arrayOf(space)).use { cursor ->
+            while (cursor.moveToNext()) {
+                val lane = cursor.getString(0)
+                val actor = cursor.getString(1)
+                val sequence = cursor.getLong(2)
+                val prefix = result[lane]?.get(actor) ?: 0L
+                if (sequence == prefix + 1L) result.getOrPut(lane) { mutableMapOf() }[actor] = sequence
+            }
         }
+        return result.mapValues { it.value.toMap() }
+    }
 
     /**
      * 读取指定 Sync Space 的完整 AUTH ledger 分页。
@@ -177,6 +191,18 @@ class AndroidSyncAuthLedgerService @Inject constructor(
         refreshPeerCache: Boolean = true,
         bootstrapPin: SyncAuthBootstrapPin? = null,
     ): SyncAuthLedgerPage {
+        val request = AppendRequest(syncSpaceId, incomingObjects, now, refreshPeerCache, bootstrapPin)
+        // 调用方的外层事务（配对或 checkpoint）已经持有投影锁，禁止在事务内部倒序取锁。
+        if (database.inTransaction()) return appendLocked(request)
+        return database.syncProjectionMutex.withLock { appendLocked(request) }
+    }
+
+    private data class AppendRequest(val space: String, val objects: List<SyncAuthProtocolObject>, val now: Long,
+        val refresh: Boolean, val pin: SyncAuthBootstrapPin?)
+
+    /** AUTH rollback、持久账本及缓存发布与普通 apply、分页安装使用同一投影顺序。 */
+    private suspend fun appendLocked(request: AppendRequest): SyncAuthLedgerPage {
+        val (syncSpaceId, incomingObjects, now, refreshPeerCache, bootstrapPin) = request
         if (incomingObjects.isEmpty()) {
             val current = getAuthLedger(syncSpaceId)
             if (refreshPeerCache && !database.inTransaction()) {

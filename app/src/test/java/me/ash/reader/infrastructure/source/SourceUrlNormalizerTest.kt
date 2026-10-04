@@ -10,9 +10,10 @@ class SourceUrlNormalizerTest {
     fun `normalizes harmless source url variations for duplicate checks`() {
         val expected = "https://example.com/feed"
 
-        assertEquals(expected, SourceUrlNormalizer.comparisonKey(" HTTPS://EXAMPLE.COM:443/feed/ "))
+        assertEquals(expected, SourceUrlNormalizer.comparisonKey(" HTTPS://EXAMPLE.COM:443/feed "))
         assertEquals(expected, SourceUrlNormalizer.comparisonKey("https://example.com/feed#latest"))
-        assertEquals(expected, SourceUrlNormalizer.comparisonKey("https://example.com/feed?utm_source=app&fbclid=abc"))
+        assertNotEquals(expected, SourceUrlNormalizer.comparisonKey("https://example.com/feed/"))
+        assertNotEquals(expected, SourceUrlNormalizer.comparisonKey("https://example.com/feed?utm_source=app&fbclid=abc"))
     }
 
     @Test
@@ -40,14 +41,16 @@ class SourceUrlNormalizerTest {
     }
 
     @Test
-    fun `normalizes default ports fragments trailing slash tracking and host case together`() {
-        val expected = SourceUrlNormalizer.comparisonKey("https://example.com/feed?category=ai")
+    fun `normalizes host default port and fragment while preserving path and query`() {
+        val expected = "https://example.com/feed/?utm_medium=share&category=ai&gclid=tracking"
         val actual =
             SourceUrlNormalizer.comparisonKey(
                 "HTTPS://EXAMPLE.COM:443/feed/?utm_medium=share&category=ai&gclid=tracking#latest"
             )
 
         assertEquals(expected, actual)
+        assertEquals("https://example.com/a%2Fb?q=a%2Bb&q=c", SourceUrlNormalizer.comparisonKey("https://EXAMPLE.com:443/a%2Fb?q=a%2Bb&q=c#section"))
+        assertEquals("https://[2001:db8::1]/feed/", SourceUrlNormalizer.comparisonKey("https://[2001:db8::1]:443/feed/#latest"))
     }
 
     @Test
@@ -63,10 +66,12 @@ class SourceUrlNormalizerTest {
             "1",
             findFeedByComparisonUrl(
                 feeds,
-                " HTTPS://EXAMPLE.COM:443/feed/?utm_source=backup#latest ",
+                " HTTPS://EXAMPLE.COM:443/feed#latest ",
             )?.id,
         )
         assertEquals("2", findFeedByComparisonUrl(feeds, "http://example.com/feed")?.id)
         assertEquals("3", findFeedByComparisonUrl(feeds, "https://www.example.com/feed")?.id)
+        assertEquals(null, findFeedByComparisonUrl(feeds, "https://example.com/feed/"))
+        assertEquals(null, findFeedByComparisonUrl(feeds, "https://example.com/feed?utm_source=backup"))
     }
 }

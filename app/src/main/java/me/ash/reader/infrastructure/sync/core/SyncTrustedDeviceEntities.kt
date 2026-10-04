@@ -60,6 +60,16 @@ data class SyncPeerCoverageReportEntity(
 
 @Dao
 interface SyncTrustedDeviceDao {
+    /** 已配对空间在恢复安装及 tail 同步期间也需要接收请求；暂停和孤儿账户不加载。 */
+    @Query("""
+        SELECT d.* FROM sync_trusted_device d
+        INNER JOIN sync_local_space_binding b ON b.syncSpaceId = d.syncSpaceId
+        INNER JOIN account a ON a.id = b.localAccountId
+        WHERE b.lifecycleState IN ('ACTIVE', 'STAGING', 'REBASE_PREPARE', 'GENESIS_CAPTURING')
+          AND d.trustState = 'TRUSTED'
+    """)
+    suspend fun listTrustedForSyncBindings(): List<SyncTrustedDeviceEntity>
+
     @Query("SELECT * FROM sync_trusted_device WHERE syncSpaceId = :syncSpaceId ORDER BY lastSeenAt DESC")
     suspend fun listBySpace(syncSpaceId: String): List<SyncTrustedDeviceEntity>
 

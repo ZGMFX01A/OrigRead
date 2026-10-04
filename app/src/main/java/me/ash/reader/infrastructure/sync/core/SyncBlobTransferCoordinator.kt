@@ -15,6 +15,7 @@ private const val MAX_IN_MEMORY_BLOB_BYTES = 16L * 1024L * 1024L
 class SyncBlobTransferCoordinator @Inject constructor(
     private val blobState: SyncBlobStateService,
 ) {
+    private val downloads = SyncPeerSessions()
     suspend fun upload(
         syncSpaceId: String,
         manifest: SyncBlobManifestWire,
@@ -270,58 +271,34 @@ class SyncBlobTransferCoordinator @Inject constructor(
         chunkBytes: Long = 1024L * 1024L,
         now: Long = System.currentTimeMillis(),
         onChunkReceived: suspend (Int) -> Unit = {},
-    ) {
+    ) = downloads.run("$syncSpaceId:${manifest.hash}") {
         require(chunkBytes > 0)
         blobState.registerManifest(manifest, SyncBlobAvailabilityState.BLOB_MISSING, now)
-        check(blobState.transferAllowed(syncSpaceId, manifest.hash, policyByLane)) {
-            "Blob transfer is blocked by replication lane policy"
-        }
+        check(blobState.transferAllowed(syncSpaceId, manifest.hash, policyByLane)) { "Blob transfer is blocked by replication lane policy" }
         blobState.markFetching(manifest.hash, now)
+        stagedFile.parentFile?.mkdirs()
         try {
-            stagedFile.parentFile?.mkdirs()
-            if (manifest.totalBytes == 0L) {
-                require(sha256Hex(ByteArray(0)) == manifest.hash) { "Fetched empty Blob hash mismatch" }
-                RandomAccessFile(stagedFile, "rw").use { output ->
-                    output.setLength(0L)
-                    output.fd.sync()
-                }
-                persistVerified(stagedFile)
-                blobState.markReadyVerified(manifest.hash, 0L, now)
-                return
-            }
-            val digest = MessageDigest.getInstance("SHA-256")
-            var offset = 0L
-            RandomAccessFile(stagedFile, "rw").use { output ->
-                output.setLength(0L)
-                while (true) {
+            val download = SyncBlobDownload(SyncBlobDownload.Input(stagedFile, syncSpaceId, manifest))
+            download.use {
+                while (download.offset < manifest.totalBytes) {
+                    val offset = download.offset
                     val chunk = session.fetchBlob(manifest.hash, offset, chunkBytes)
-                    require(chunk.hash == manifest.hash) { "Fetched Blob hash identity mismatch" }
-                    require(chunk.offset == offset) { "Fetched Blob offset is not contiguous" }
-                    require(chunk.totalBytes == manifest.totalBytes) { "Fetched Blob size does not match manifest" }
+                    require(chunk.hash == manifest.hash && chunk.offset == offset && chunk.totalBytes == manifest.totalBytes) {
+                        "Fetched Blob chunk identity differs from download manifest"
+                    }
                     val bytes = Base64.getDecoder().decode(chunk.bytesBase64)
                     require(bytes.isNotEmpty() || chunk.isFinal) { "Blob fetch made no progress" }
-                    if (bytes.isNotEmpty()) {
-                        output.seek(offset)
-                        output.write(bytes)
-                        digest.update(bytes)
-                    }
+                    download.append(bytes)
                     onChunkReceived(bytes.size)
-                    offset += bytes.size
-                    require(offset <= manifest.totalBytes) { "Fetched Blob exceeds manifest size" }
-                    if (chunk.isFinal) {
-                        require(offset == manifest.totalBytes) { "Final Blob chunk is incomplete" }
-                        break
-                    }
+                    require(!chunk.isFinal || download.offset == manifest.totalBytes) { "Final Blob chunk is incomplete" }
                 }
-                output.fd.sync()
+                download.verify()
             }
-            require(stagedFile.length() == manifest.totalBytes) { "Fetched Blob file size mismatch" }
-            val actualHash = digest.digest().joinToString("") { "%02x".format(it) }
-            require(actualHash == manifest.hash) { "Fetched Blob content hash mismatch" }
-            persistVerified(stagedFile)
+            persistVerified(download.file)
             blobState.markReadyVerified(manifest.hash, manifest.totalBytes, now)
+            download.complete()
         } catch (error: Throwable) {
-            if (stagedFile.exists()) stagedFile.delete()
+            // 网络中断保留已提交前缀；损坏任务由下载对象清除且错误继续上抛。
             blobState.markFailed(manifest.hash, error.message ?: error::class.java.simpleName, now)
             throw error
         }

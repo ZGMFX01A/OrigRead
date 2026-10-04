@@ -5,6 +5,7 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import me.ash.reader.infrastructure.db.AndroidDatabase
@@ -46,14 +47,40 @@ class SyncRemoteApplyCoordinator @Inject constructor(
     private val signingKeys: SyncDeviceSigningKeyStore,
     private val businessApplier: AndroidSyncBusinessApplier,
 ) {
+    @Inject lateinit var verifiedDecoder: SyncVerifiedOperationDecoder
+    @Inject lateinit var validatedAuth: SyncValidatedAuthObjects
+
     private val peerKeys = ConcurrentHashMap<String, SyncPeerKey>()
+    private val authorityMonitor = Any()
+    private val peerRevisions = mutableMapOf<String, Long>()
 
     fun registerPeer(syncSpaceId: String, deviceId: String, key: SyncPeerKey) {
         require(syncSpaceId.isNotBlank() && deviceId.isNotBlank())
-        peerKeys["${syncSpaceId}\u0000${deviceId}"] = key
+        updatePeer(syncSpaceId, deviceId, key)
+    }
+
+    /** 内存信任缓存的语义变化也参与证明；monitor 中不访问 SQLite。 */
+    fun authorityRevision(space: String): Long = synchronized(authorityMonitor) { peerRevisions[space] ?: 0L }
+
+    private fun updatePeer(space: String, device: String, value: SyncPeerKey) = synchronized(authorityMonitor) {
+        val compound = "$space\u0000$device"
+        if (peerKeys[compound] != value) {
+            peerKeys[compound] = value
+            peerRevisions[space] = (peerRevisions[space] ?: 0L) + 1L
+        }
+    }
+
+    /** 派生信任缓存先与已验签账本对齐，随后字段准备的 revision 比较排除并发变化。 */
+    suspend fun prepareSnapshotAuthority(space: String) {
+        applyAuthLedger(space, database.syncAuthLedgerDao().list(space).map(validatedAuth::decode))
     }
 
     fun trustedPeer(syncSpaceId: String, deviceId: String): SyncPeerKey? = peerKeys["$syncSpaceId\u0000$deviceId"]
+
+    /** 本地信任状态变更也必须使 Snapshot 证明缓存失效。 */
+    fun authorityFingerprint(syncSpaceId: String): String = peerKeys.entries
+        .filter { it.key.startsWith("$syncSpaceId\u0000") }.sortedBy { it.key }
+        .joinToString("\n") { "${it.key}:${it.value}" }
 
     /** Rebuild the local peer-auth cache from the durable signed AUTH ledger. */
     fun applyAuthLedger(syncSpaceId: String, objects: List<SyncAuthProtocolObject>) {
@@ -64,10 +91,10 @@ class SyncRemoteApplyCoordinator @Inject constructor(
         val epochCuts = linkedMapOf<Long, SyncCoverage>()
         var currentEpoch = 0L
         objects.sortedWith(AndroidSyncAuthLedgerService.AUTH_ORDER).forEach { objectValue ->
-            SyncAuthWireCodec.validate(objectValue)
+            validatedAuth.validate(objectValue)
             currentEpoch = maxOf(currentEpoch, objectValue.authEpoch)
             val payload =
-                runCatching { kotlinx.serialization.json.Json.parseToJsonElement(objectValue.payloadJson).jsonObject }
+                runCatching { validatedAuth.payload(objectValue.payloadJson) }
                     .getOrNull()
             payload?.get("publicKeySpkiBase64")?.let { value ->
                 val key = value.jsonPrimitive.content
@@ -97,31 +124,82 @@ class SyncRemoteApplyCoordinator @Inject constructor(
         keysForSpace.forEach { (compound, existing) ->
             val deviceId = compound.substringAfter('\u0000')
             val status = if (active[deviceId] == true) "ACTIVE" else "REVOKED"
-            peerKeys[compound] =
-                existing.copy(
+            updatePeer(syncSpaceId, deviceId, existing.copy(
                     status = status,
                     authEpoch = currentEpoch,
                     revokeCutoffByActorLane = revokeCutoffs[deviceId] ?: existing.revokeCutoffByActorLane,
                     acceptedPrefixByEpoch = epochCuts,
-                )
+                ))
         }
         publicKeys.forEach { (deviceId, publicKey) ->
             val compound = "$syncSpaceId\u0000$deviceId"
             val existing = peerKeys[compound] ?: SyncPeerKey(publicKey)
-                peerKeys[compound] =
-                    existing.copy(
+                updatePeer(syncSpaceId, deviceId, existing.copy(
                         publicKeySpkiBase64 = publicKey,
                         status = if (active[deviceId] == true) "ACTIVE" else "REVOKED",
                         authEpoch = currentEpoch,
                         revokeCutoffByActorLane = revokeCutoffs[deviceId] ?: existing.revokeCutoffByActorLane,
                         acceptedPrefixByEpoch = epochCuts,
-                    )
+                    ))
         }
+    }
+
+    /** 仅保存单个完整来源及其已验证公钥，不保存可并发变化的 actor 状态。 */
+    internal data class SnapshotOperationProof(
+        val envelope: SyncOperationEnvelope,
+        val peer: SyncPeerKey,
+        val result: Pair<SyncOperationEntity, String?>,
+    )
+
+    /** 快照 effect 仍由原作者签名及当前 AUTH 决定合法性，不由快照作者代为授权。 */
+    suspend fun verifySnapshotOperation(envelope: SyncOperationEnvelope): Pair<SyncOperationEntity, String?> =
+        snapshotOperationProof(envelope).result
+
+    /** 仅调用者持有投影屏障或 Reader 事务时复用冻结授权；每字段仍检测锁外 ingest 的归属与 Dot 竞争。 */
+    internal suspend fun verifySnapshotOperationWithinAuthorityBarrier(
+        envelope: SyncOperationEnvelope,
+        previous: SnapshotOperationProof?,
+    ): SnapshotOperationProof {
+        if (previous?.envelope != envelope) return snapshotOperationProof(envelope)
+        val operation = previous.result.first
+        verifyActorIntegrity(operation, previous.peer, System.currentTimeMillis())
+        requireActorAuthor(operation)
+        check(previous.result.second != null || businessApplier.canApplyProvisionally(operation)) {
+            "AUTH_PROVISIONAL: Snapshot effect requires stable authorization"
+        }
+        return previous
+    }
+
+    /** 完整检查产生仅供同一次安装复用的签名与 AUTH 证明，普通路径不跳过账本查询。 */
+    private suspend fun snapshotOperationProof(envelope: SyncOperationEnvelope): SnapshotOperationProof {
+        val history = database.syncAuthLedgerDao().list(envelope.syncSpaceId).map(validatedAuth::decode)
+        applyAuthLedger(envelope.syncSpaceId, history)
+        val peer = checkNotNull(trustedPeer(envelope.syncSpaceId, envelope.authorDeviceId)) { "AUTH_FAILED: unknown Snapshot operation author" }
+        val operation = verifiedDecoder.decode(envelope, peer.publicKeySpkiBase64, envelope.createdWallClock)
+        verifyActorIntegrity(operation, peer, System.currentTimeMillis())
+        check(authorizationFailure(operation) == null) { "AUTH_REVOKED: Snapshot contains rejected original operation" }
+        val checkpoint = stabilityCheckpointFor(operation, history.sortedWith(AndroidSyncAuthLedgerService.AUTH_ORDER))
+        check(checkpoint != null || businessApplier.canApplyProvisionally(operation)) { "AUTH_PROVISIONAL: Snapshot effect requires stable authorization" }
+        return SnapshotOperationProof(envelope, peer, operation to checkpoint)
+    }
+
+    /** baseline 完成后保留原操作、真实 Inbox 和授权状态，保证未来撤销可回滚。 */
+    suspend fun restoreSnapshotOperation(envelope: SyncOperationEnvelope, now: Long) {
+        stageSnapshotOperation(envelope, now)
+        database.syncInboxDao().markApplied(envelope.operationId, now)
+    }
+
+    /** 快照来源只恢复真实 Inbox 与授权，不把单个字段安装冒充整条操作完成。 */
+    suspend fun stageSnapshotOperation(envelope: SyncOperationEnvelope, now: Long) {
+        val proof = verifySnapshotOperation(envelope)
+        val report = ingest(listOf(envelope), now)
+        check(report.rejected.isEmpty() && database.syncInboxDao().findState(envelope.operationId) != "REJECTED") { "AUTH_FAILED: Snapshot operation was rejected" }
+        proof.second?.let { database.syncInboxDao().markAuthorizationStable(envelope.operationId, it) }
     }
 
     private suspend fun authorizationFailure(operation: SyncOperationEntity): String? {
         val objects = database.syncAuthLedgerDao().list(operation.syncSpaceId)
-            .map { SyncAuthWireCodec.decode(it.authObjectJson) }.sortedWith(AndroidSyncAuthLedgerService.AUTH_ORDER)
+            .map(validatedAuth::decode).sortedWith(AndroidSyncAuthLedgerService.AUTH_ORDER)
         check(objects.isNotEmpty()) { "AUTH_FAILED: verified AUTH ledger is required" }
         val epoch = checkNotNull(operation.authEpoch) { "AUTH_FAILED: authEpoch is required" }
         check(epoch <= objects.last().authEpoch) { "AUTH_FAILED: unknown future epoch" }
@@ -131,9 +209,7 @@ class SyncRemoteApplyCoordinator @Inject constructor(
             SyncAuthObjectType.MEMBER_GRANT, SyncAuthObjectType.OWNER_TRANSFER, SyncAuthObjectType.OWNER_RECOVERY -> grant.targetDeviceId == operation.authorDeviceId
             else -> false
         }) { "AUTH_FAILED: invalid author grant" }
-        check(!database.syncOperationDao().hasOtherActorAuthor(operation.syncSpaceId, operation.actorIncarnationId, operation.authorDeviceId)) {
-            "AUTH_FAILED: actor belongs to another author"
-        }
+        requireActorAuthor(operation)
         val stableCheckpointId = stabilityCheckpointFor(operation, objects)
         for (obj in objects) {
             if (obj.objectType == SyncAuthObjectType.MEMBER_REVOKE && obj.targetDeviceId == operation.authorDeviceId &&
@@ -145,6 +221,13 @@ class SyncRemoteApplyCoordinator @Inject constructor(
                 operation.sequence > (obj.previousEpochFinalAcceptedPrefixByActorLane[operation.replicationLaneId]?.get(operation.actorIncarnationId) ?: 0L)) return "AUTH_EPOCH_CUT"
         }
         return null
+    }
+
+    /** actor 归属可被锁外网络接收改变，不能随冻结 AUTH 或相同签名一起缓存。 */
+    private suspend fun requireActorAuthor(operation: SyncOperationEntity) {
+        check(!database.syncOperationDao().hasOtherActorAuthor(operation.syncSpaceId, operation.actorIncarnationId, operation.authorDeviceId)) {
+            "AUTH_FAILED: actor belongs to another author"
+        }
     }
 
     private fun stabilityCheckpointFor(
@@ -165,7 +248,7 @@ class SyncRemoteApplyCoordinator @Inject constructor(
 
     private fun checkpointCoverage(obj: SyncAuthProtocolObject): SyncCoverage? =
         runCatching {
-            val root = kotlinx.serialization.json.Json.parseToJsonElement(obj.payloadJson).jsonObject
+            val root = validatedAuth.payload(obj.payloadJson)
             val accepted = root["acceptedPrefixByActorLane"]?.jsonObject ?: return@runCatching null
             accepted.mapValues { (_, laneValue) ->
                 laneValue.jsonObject.mapValues { (_, prefixValue) -> prefixValue.jsonPrimitive.content.toLong() }
@@ -181,15 +264,12 @@ class SyncRemoteApplyCoordinator @Inject constructor(
         val rejected = mutableListOf<SyncRejectedOperation>()
         batch.forEach { envelope ->
             try {
-                SyncOperationWireCodec.validate(envelope)
-                val authObjects = database.syncAuthLedgerDao().list(envelope.syncSpaceId).map { SyncAuthWireCodec.decode(it.authObjectJson) }
+                val authObjects = database.syncAuthLedgerDao().list(envelope.syncSpaceId).map(validatedAuth::decode)
                 applyAuthLedger(envelope.syncSpaceId, authObjects)
                 val peer = peerKeys["${envelope.syncSpaceId}\u0000${envelope.authorDeviceId}"]
                     ?: error("AUTH_FAILED: unknown author device")
-                check(SyncOperationWireCodec.verify(envelope, peer.publicKeySpkiBase64, signingKeys)) {
-                    "AUTH_FAILED: invalid author signature"
-                }
-                val operation = SyncOperationWireCodec.fromWire(envelope, now)
+                val operation = verifiedDecoder.decode(envelope, peer.publicKeySpkiBase64, now)
+                verifyActorIntegrity(operation, peer, now)
                 val authFailure = authorizationFailure(operation)
                 val revokeCutoff = peer.revokeCutoffByActorLane[envelope.replicationLaneId]?.get(envelope.actorIncarnationId) ?: 0L
                 val rejectedByRevoke = peer.status == "REVOKED" && operation.sequence > revokeCutoff
@@ -261,9 +341,15 @@ class SyncRemoteApplyCoordinator @Inject constructor(
                 }
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
+                // 唯一索引竞争可能发生在预检之后；事务已回滚，在独立提交中确认并保留隔离证据。
+                if (error.message?.startsWith("DOT_COLLISION") == true) confirmConcurrentCollision(envelope, now)
                 rejected += SyncRejectedOperation(
                     operationId = envelope.operationId,
-                    code = if (error.message?.startsWith("AUTH") == true) "AUTH_FAILED" else "INVALID_OPERATION",
+                    code = when {
+                        error.message?.startsWith("AUTH") == true -> "AUTH_FAILED"
+                        error.message?.startsWith("DOT_COLLISION") == true -> "DOT_COLLISION"
+                        else -> "INVALID_OPERATION"
+                    },
                     message = error.message ?: "Invalid operation",
                 )
             }
@@ -278,7 +364,7 @@ class SyncRemoteApplyCoordinator @Inject constructor(
         limit: Int = 100,
         now: Long = System.currentTimeMillis(),
         policyByLane: Map<String, String> = emptyMap(),
-    ): SyncApplyResult {
+    ): SyncApplyResult = database.syncProjectionMutex.withLock {
         resumeRevokedRollbacks(syncSpaceId, now)
         val applied = mutableListOf<String>()
         val deferred = mutableListOf<String>()
@@ -295,12 +381,13 @@ class SyncRemoteApplyCoordinator @Inject constructor(
             after = pending.last()
             pending.forEach { inbox ->
                 if (applied.size >= limit) return@forEach
-                val coverage = database.syncInboxDao().listCoverage(syncSpaceId)
-                    .firstOrNull { it.replicationLaneId == inbox.replicationLaneId && it.actorIncarnationId == inbox.actorIncarnationId }
-                var current = maxOf(coverage?.snapshotPrefix ?: 0L, coverage?.stableGcPrefix ?: 0L)
-                val actorRows = database.syncInboxDao().listActorOperations(syncSpaceId, inbox.replicationLaneId, inbox.actorIncarnationId)
-                    .associateBy { it.sequence }
-                while (current < Long.MAX_VALUE && actorRows[current + 1L]?.state in setOf("APPLIED", "REJECTED")) current++
+                if (database.syncIntegrityDao().isolation(syncSpaceId, inbox.actorIncarnationId) != null) {
+                    deferred += inbox.operationId
+                    return@forEach
+                }
+                SyncCoverageProgress.advance(database, SyncCoverageProgress.Scope(syncSpaceId, inbox.replicationLaneId, inbox.actorIncarnationId, now))
+                val coverage = database.syncInboxDao().findCoverage(syncSpaceId, inbox.replicationLaneId, inbox.actorIncarnationId)
+                val current = maxOf(coverage?.processedPrefix ?: 0L, coverage?.snapshotPrefix ?: 0L, coverage?.stableGcPrefix ?: 0L)
                 if (inbox.sequence != current + 1L) {
                     deferred += inbox.operationId
                     return@forEach
@@ -400,7 +487,7 @@ class SyncRemoteApplyCoordinator @Inject constructor(
                 }
             }
         }
-        return SyncApplyResult(applied, deferred, failed)
+        SyncApplyResult(applied, deferred, failed)
     }
 
     suspend fun applyPendingWithBusinessApplier(
@@ -451,6 +538,36 @@ class SyncRemoteApplyCoordinator @Inject constructor(
 
     suspend fun coverage(syncSpaceId: String): SyncCoverageVector =
         database.syncInboxDao().listCoverage(syncSpaceId).toCoverageVector()
+
+    /** 两份原作者签名及同设备绑定均有效才隔离，伪造垃圾包不能冻结合法 actor。 */
+    private suspend fun verifyActorIntegrity(operation: SyncOperationEntity, peer: SyncPeerKey, now: Long) {
+        check(database.syncIntegrityDao().isolation(operation.syncSpaceId, operation.actorIncarnationId) == null) {
+            "DOT_COLLISION: actor remains isolated"
+        }
+        if (persistActorConflict(operation, peer, now)) {
+            error("DOT_COLLISION: authenticated actor history conflict; actor is isolated")
+        }
+    }
+
+    /** 入库竞争失败后重新验签双方，隔离记录不能跟随失败的业务事务回滚。 */
+    private suspend fun confirmConcurrentCollision(envelope: SyncOperationEnvelope, now: Long) {
+        val peer = peerKeys["${envelope.syncSpaceId}\u0000${envelope.authorDeviceId}"] ?: return
+        if (!SyncOperationWireCodec.verify(envelope, peer.publicKeySpkiBase64, signingKeys)) return
+        persistActorConflict(SyncOperationWireCodec.fromWire(envelope, now), peer, now)
+    }
+
+    /** 仅以同一空间、作者的两份有效签名记录证明 equivocation。 */
+    private suspend fun persistActorConflict(operation: SyncOperationEntity, peer: SyncPeerKey, now: Long): Boolean {
+        val existing = database.syncOperationDao().findByDot(operation.actorIncarnationId, operation.replicationLaneId, operation.sequence) ?: return false
+        if (existing.syncSpaceId != operation.syncSpaceId || existing.authorDeviceId != operation.authorDeviceId) {
+            error("AUTH_FAILED: actor belongs to another author or space")
+        }
+        if (existing.signingDigest == operation.signingDigest) return false
+        if (!SyncOperationWireCodec.verify(SyncOperationWireCodec.toWire(existing), peer.publicKeySpkiBase64, signingKeys)) return false
+        database.syncIntegrityDao().isolate(SyncActorIsolationEntity(operation.syncSpaceId, operation.actorIncarnationId,
+            operation.replicationLaneId, operation.sequence, existing.signingDigest, operation.signingDigest, now))
+        return true
+    }
 
     private suspend fun insertOperationIdempotently(operation: SyncOperationEntity) {
         val inserted = database.syncOperationDao().insertIgnore(operation)
@@ -569,35 +686,9 @@ class SyncRemoteApplyCoordinator @Inject constructor(
         return promoted
     }
 
+    /** 批次处理只推进新增轻量尾部，前缀不会吞掉缺口或把拒绝算成 Applied。 */
     private suspend fun advanceCoverageLocked(syncSpaceId: String, lane: String, actor: String, now: Long) {
-        val rows = database.syncInboxDao().listActorOperations(syncSpaceId, lane, actor)
-        val current = database.syncInboxDao().listCoverage(syncSpaceId)
-            .firstOrNull { it.replicationLaneId == lane && it.actorIncarnationId == actor }
-        val baseline = maxOf(current?.snapshotPrefix ?: 0L, current?.stableGcPrefix ?: 0L)
-        var received = baseline
-        var applied = baseline
-        // A stable Snapshot is retained state even after its covered raw Operation rows are compacted.
-        // Starting from zero here would erase RetainedCoverage the next time a tail Operation is applied.
-        var retained = baseline
-        val bySequence = rows.associateBy { it.sequence }
-        // received 代表本地已经 durable 接收（包含 PENDING、APPLIED、REJECTED 等所有已落盘记录）的连续前缀
-        while (received < Long.MAX_VALUE && bySequence[received + 1L] != null) received++
-        // applied 必须严格代表业务数据库真实成功应用的连续前缀，严禁将 REJECTED / AUTH_REVOKED 伪装成业务 Applied
-        while (applied < Long.MAX_VALUE && bySequence[applied + 1L]?.state == "APPLIED") applied++
-        while (retained < Long.MAX_VALUE && bySequence[retained + 1L]?.state in setOf("PENDING", "APPLIED")) retained++
-        database.syncInboxDao().upsertCoverage(
-            SyncCoverageEntity(
-                syncSpaceId = syncSpaceId,
-                replicationLaneId = lane,
-                actorIncarnationId = actor,
-                receivedPrefix = received,
-                appliedPrefix = applied,
-                retainedPrefix = retained,
-                snapshotPrefix = current?.snapshotPrefix ?: 0L,
-                stableGcPrefix = current?.stableGcPrefix ?: 0L,
-                updatedAt = now,
-            )
-        )
+        SyncCoverageProgress.advance(database, SyncCoverageProgress.Scope(syncSpaceId, lane, actor, now))
     }
 
     private fun sameImmutable(left: SyncOperationEntity, right: SyncOperationEntity): Boolean =

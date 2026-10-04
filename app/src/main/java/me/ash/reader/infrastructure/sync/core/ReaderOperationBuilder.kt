@@ -75,6 +75,7 @@ class ReaderOperationBuilder @Inject constructor(
         activeGrant: ActiveAuthGrant? = null,
         strictAuth: Boolean = false,
     ): SyncOperationEntity {
+        SyncConfigExport.requireExportable(outbox.entityType, kotlinx.serialization.json.Json.parseToJsonElement(outbox.payloadJson))
         if (activeGrant == null && strictAuth) {
             throw SyncAuthNotGrantedException("Device $authorDeviceId has no active AUTH grant in space ${outbox.syncSpaceId}")
         }

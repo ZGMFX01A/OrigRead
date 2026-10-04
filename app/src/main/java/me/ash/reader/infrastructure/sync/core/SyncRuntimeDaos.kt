@@ -221,6 +221,21 @@ interface SyncGenesisDao {
     @androidx.room.Query("SELECT * FROM sync_snapshot_bundle WHERE snapshotBundleId = :bundleId LIMIT 1")
     suspend fun findBundle(bundleId: String): SyncSnapshotBundleEntity?
 
+    /** 只读取已发布分页 bundle 的轻量身份，因果观察不加载页面或旧 shard 正文。 */
+    @androidx.room.Query("SELECT b.snapshotBundleId FROM sync_snapshot_bundle b WHERE b.syncSpaceId=:syncSpaceId AND b.schemaVersion=:formatVersion " +
+        "AND (EXISTS(SELECT 1 FROM sync_genesis_session g WHERE g.snapshotBundleId=b.snapshotBundleId AND g.syncSpaceId=b.syncSpaceId) OR EXISTS(SELECT 1 FROM sync_recovery_capsule c " +
+        "WHERE c.targetSnapshotBundleId=b.snapshotBundleId AND c.syncSpaceId=b.syncSpaceId AND c.reason IN ('SNAPSHOT_BASELINE_READY','SNAPSHOT_INSTALL_READY')))")
+    suspend fun listPagedBundleIds(syncSpaceId: String, formatVersion: Int): List<String>
+
+    /** LAN 分页来源只选择 formatVersion 对应的已发布 bundle，不回退到整包格式。 */
+    @androidx.room.Query("SELECT * FROM sync_snapshot_bundle WHERE syncSpaceId=:space AND createdByDeviceId=:device " +
+        "AND schemaVersion=$PAGED_SNAPSHOT_FORMAT AND (:snapshotClass IS NULL OR snapshotClass=:snapshotClass) ORDER BY createdAt DESC,snapshotBundleId DESC LIMIT 1")
+    suspend fun findLatestOwnedPagedBundle(space: String, device: String, snapshotClass: String?): SyncSnapshotBundleEntity?
+
+    /** 私有 capture 必须拥有真实 Reader 发布 journal 才能成为网络快照来源。 */
+    @androidx.room.Query("SELECT * FROM sync_genesis_session WHERE syncSpaceId=:space AND snapshotBundleId=:bundle LIMIT 1")
+    suspend fun findPublishedSessionForBundle(space: String, bundle: String): SyncGenesisSessionEntity?
+
     @androidx.room.Query(
         """
         SELECT * FROM sync_snapshot_bundle
@@ -372,6 +387,9 @@ interface SyncGenesisDao {
 
     @androidx.room.Insert(onConflict = androidx.room.OnConflictStrategy.REPLACE)
     suspend fun upsertRecoveryCapsule(capsule: SyncRecoveryCapsuleEntity)
+
+    @androidx.room.Query("SELECT * FROM sync_recovery_capsule WHERE capsuleId=:capsuleId AND syncSpaceId=:syncSpaceId")
+    suspend fun findRecoveryCapsule(syncSpaceId: String, capsuleId: String): SyncRecoveryCapsuleEntity?
 
     @androidx.room.Query(
         """

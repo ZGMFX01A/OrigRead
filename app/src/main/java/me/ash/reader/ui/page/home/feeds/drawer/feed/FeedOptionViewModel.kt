@@ -469,7 +469,7 @@ constructor(
         _feedOptionUiState.value.feed?.let { feed ->
             viewModelScope.launch(ioDispatcher) {
                 val icon = rssHelper.queryRssIconLink(feed.url) ?: return@launch
-                syncMutations.captureLibraryMutation(feed.accountId) {
+                syncMutations.captureLibraryMutation(feed.accountId, me.ash.reader.infrastructure.sync.core.SyncLibrarySelection(feedIds = setOf(feed.id))) {
                     feedDao.update(feed.copy(icon = icon))
                 }
                 fetchFeed(feed.id)

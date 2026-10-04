@@ -30,6 +30,7 @@ class SyncStableGcCoordinator @Inject constructor(
     private val localBlobStore: SyncLocalBlobStore,
     private val projectionExtensions: Set<@JvmSuppressWildcards SyncBusinessProjectionExtension> = emptySet(),
 ) {
+    @Inject lateinit var pagedGc: SyncPagedStableGc
     private val json = Json { ignoreUnknownKeys = true }
     private val blobState = SyncBlobStateService(database)
 
@@ -41,6 +42,7 @@ class SyncStableGcCoordinator @Inject constructor(
             requireNotNull(database.syncGenesisDao().findBundle(snapshotBundleId)) {
                 "GC baseline Snapshot was not found: $snapshotBundleId"
             }
+        if (bundle.schemaVersion == PAGED_SNAPSHOT_FORMAT) return pagedGc.compact(SyncPagedStableGc.Options(bundle, now))
         require(bundle.snapshotClass == SyncSnapshotClass.GC_BASELINE.name) {
             "Stable GC requires a GC_BASELINE Snapshot"
         }

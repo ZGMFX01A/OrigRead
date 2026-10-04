@@ -29,16 +29,21 @@ import me.ash.reader.infrastructure.sync.identity.SyncIdentityMappingEntity
         SyncOutboxEntity::class,
         SyncProjectionGenesisCutEntity::class,
         LlmSyncApplyJournalEntity::class,
+        LlmSnapshotBodyObligation::class,
     ],
-    version = 22,
+    version = 23,
     exportSchema = true,
 )
 @TypeConverters(LlmChatConverters::class)
 abstract class LlmChatDatabase : RoomDatabase() {
-    abstract fun chatDao(): LlmChatDao
+    private val visibleDaos = me.ash.reader.infrastructure.sync.core.SyncSnapshotVisibilityDao()
+    abstract fun rawChatDao(): LlmChatDao
+    /** Chat 观察查询只能在 Reader/Chat 和正文义务全部完成后重新发出真实数据。 */
+    fun chatDao(): LlmChatDao = visibleDaos.wrap(rawChatDao(), LlmChatDao::class.java)
     abstract fun syncIdentityMappingDao(): SyncIdentityMappingDao
     abstract fun syncIdentitySourceDao(): LlmSyncIdentitySourceDao
     abstract fun syncOutboxDao(): SyncOutboxDao
     abstract fun syncProjectionGenesisCutDao(): SyncProjectionGenesisCutDao
     abstract fun syncApplyJournalDao(): LlmSyncApplyJournalDao
+    abstract fun snapshotBodyDao(): LlmSnapshotBodyDao
 }

@@ -1,0 +1,3390 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 34,
+    "identityHash": "b4728265596eccb4f49741485962aff5",
+    "entities": [
+      {
+        "tableName": "account",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT, `name` TEXT NOT NULL, `type` INTEGER NOT NULL, `updateAt` INTEGER, `lastArticleId` TEXT, `syncInterval` INTEGER NOT NULL DEFAULT 30, `syncOnStart` INTEGER NOT NULL DEFAULT 0, `syncOnlyOnWiFi` INTEGER NOT NULL DEFAULT 0, `syncOnlyWhenCharging` INTEGER NOT NULL DEFAULT 0, `keepArchived` INTEGER NOT NULL DEFAULT 2592000000, `syncBlockList` TEXT NOT NULL DEFAULT '', `securityKey` TEXT DEFAULT 'CvJ1PKM8EW8=')",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updateAt",
+            "columnName": "updateAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastArticleId",
+            "columnName": "lastArticleId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "syncInterval",
+            "columnName": "syncInterval",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "30"
+          },
+          {
+            "fieldPath": "syncOnStart",
+            "columnName": "syncOnStart",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "syncOnlyOnWiFi",
+            "columnName": "syncOnlyOnWiFi",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "syncOnlyWhenCharging",
+            "columnName": "syncOnlyWhenCharging",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "keepArchived",
+            "columnName": "keepArchived",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "2592000000"
+          },
+          {
+            "fieldPath": "syncBlockList",
+            "columnName": "syncBlockList",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "securityKey",
+            "columnName": "securityKey",
+            "affinity": "TEXT",
+            "defaultValue": "'CvJ1PKM8EW8='"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "feed",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `icon` TEXT, `url` TEXT NOT NULL, `groupId` TEXT NOT NULL, `accountId` INTEGER NOT NULL, `isNotification` INTEGER NOT NULL, `isFullContent` INTEGER NOT NULL, `isBrowser` INTEGER NOT NULL DEFAULT 0, `sourceType` TEXT NOT NULL DEFAULT 'RSS', PRIMARY KEY(`id`), FOREIGN KEY(`groupId`) REFERENCES `group`(`id`) ON UPDATE CASCADE ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "icon",
+            "columnName": "icon",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "url",
+            "columnName": "url",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "groupId",
+            "columnName": "groupId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accountId",
+            "columnName": "accountId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isNotification",
+            "columnName": "isNotification",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isFullContent",
+            "columnName": "isFullContent",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isBrowser",
+            "columnName": "isBrowser",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "sourceType",
+            "columnName": "sourceType",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'RSS'"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_feed_groupId",
+            "unique": false,
+            "columnNames": [
+              "groupId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_feed_groupId` ON `${TABLE_NAME}` (`groupId`)"
+          },
+          {
+            "name": "index_feed_accountId",
+            "unique": false,
+            "columnNames": [
+              "accountId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_feed_accountId` ON `${TABLE_NAME}` (`accountId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "group",
+            "onDelete": "CASCADE",
+            "onUpdate": "CASCADE",
+            "columns": [
+              "groupId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "article",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `date` INTEGER NOT NULL, `title` TEXT NOT NULL, `author` TEXT, `rawDescription` TEXT NOT NULL, `shortDescription` TEXT NOT NULL, `fullContent` TEXT, `img` TEXT, `link` TEXT NOT NULL, `feedId` TEXT NOT NULL, `accountId` INTEGER NOT NULL, `isUnread` INTEGER NOT NULL, `isStarred` INTEGER NOT NULL, `isReadLater` INTEGER NOT NULL, `updateAt` INTEGER, PRIMARY KEY(`id`), FOREIGN KEY(`feedId`) REFERENCES `feed`(`id`) ON UPDATE CASCADE ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "date",
+            "columnName": "date",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "author",
+            "columnName": "author",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "rawDescription",
+            "columnName": "rawDescription",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "shortDescription",
+            "columnName": "shortDescription",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fullContent",
+            "columnName": "fullContent",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "img",
+            "columnName": "img",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "link",
+            "columnName": "link",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "feedId",
+            "columnName": "feedId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accountId",
+            "columnName": "accountId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isUnread",
+            "columnName": "isUnread",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isStarred",
+            "columnName": "isStarred",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isReadLater",
+            "columnName": "isReadLater",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updateAt",
+            "columnName": "updateAt",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_article_feedId",
+            "unique": false,
+            "columnNames": [
+              "feedId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_article_feedId` ON `${TABLE_NAME}` (`feedId`)"
+          },
+          {
+            "name": "index_article_accountId",
+            "unique": false,
+            "columnNames": [
+              "accountId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_article_accountId` ON `${TABLE_NAME}` (`accountId`)"
+          },
+          {
+            "name": "index_article_feedId_link",
+            "unique": false,
+            "columnNames": [
+              "feedId",
+              "link"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_article_feedId_link` ON `${TABLE_NAME}` (`feedId`, `link`)"
+          },
+          {
+            "name": "index_article_accountId_isUnread_date",
+            "unique": false,
+            "columnNames": [
+              "accountId",
+              "isUnread",
+              "date"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_article_accountId_isUnread_date` ON `${TABLE_NAME}` (`accountId`, `isUnread`, `date`)"
+          },
+          {
+            "name": "index_article_accountId_isStarred_date",
+            "unique": false,
+            "columnNames": [
+              "accountId",
+              "isStarred",
+              "date"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_article_accountId_isStarred_date` ON `${TABLE_NAME}` (`accountId`, `isStarred`, `date`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "feed",
+            "onDelete": "CASCADE",
+            "onUpdate": "CASCADE",
+            "columns": [
+              "feedId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "group",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `accountId` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accountId",
+            "columnName": "accountId",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_group_accountId",
+            "unique": false,
+            "columnNames": [
+              "accountId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_group_accountId` ON `${TABLE_NAME}` (`accountId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "archived_article",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `feedId` TEXT NOT NULL, `link` TEXT NOT NULL, FOREIGN KEY(`feedId`) REFERENCES `feed`(`id`) ON UPDATE CASCADE ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "feedId",
+            "columnName": "feedId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "link",
+            "columnName": "link",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_archived_article_feedId",
+            "unique": false,
+            "columnNames": [
+              "feedId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_archived_article_feedId` ON `${TABLE_NAME}` (`feedId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "feed",
+            "onDelete": "CASCADE",
+            "onUpdate": "CASCADE",
+            "columns": [
+              "feedId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "rss_http_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`feedId` TEXT NOT NULL, `feedUrl` TEXT NOT NULL, `etag` TEXT, `lastModified` TEXT, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`feedId`), FOREIGN KEY(`feedId`) REFERENCES `feed`(`id`) ON UPDATE CASCADE ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "feedId",
+            "columnName": "feedId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "feedUrl",
+            "columnName": "feedUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "etag",
+            "columnName": "etag",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastModified",
+            "columnName": "lastModified",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "feedId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_rss_http_cache_feedId",
+            "unique": false,
+            "columnNames": [
+              "feedId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_rss_http_cache_feedId` ON `${TABLE_NAME}` (`feedId`)"
+          },
+          {
+            "name": "index_rss_http_cache_feedUrl",
+            "unique": false,
+            "columnNames": [
+              "feedUrl"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_rss_http_cache_feedUrl` ON `${TABLE_NAME}` (`feedUrl`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "feed",
+            "onDelete": "CASCADE",
+            "onUpdate": "CASCADE",
+            "columns": [
+              "feedId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "sync_spaces",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`syncSpaceId` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`syncSpaceId`))",
+        "fields": [
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "syncSpaceId"
+          ]
+        }
+      },
+      {
+        "tableName": "sync_identity_mapping",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`syncSpaceId` TEXT NOT NULL, `entityType` TEXT NOT NULL, `localId` TEXT NOT NULL, `syncId` TEXT NOT NULL, `canonicalKey` TEXT, `generation` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`syncSpaceId`, `entityType`, `localId`))",
+        "fields": [
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityType",
+            "columnName": "entityType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "localId",
+            "columnName": "localId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncId",
+            "columnName": "syncId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "canonicalKey",
+            "columnName": "canonicalKey",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "generation",
+            "columnName": "generation",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "syncSpaceId",
+            "entityType",
+            "localId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sync_identity_mapping_space_type_sync",
+            "unique": true,
+            "columnNames": [
+              "syncSpaceId",
+              "entityType",
+              "syncId"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_sync_identity_mapping_space_type_sync` ON `${TABLE_NAME}` (`syncSpaceId`, `entityType`, `syncId`)"
+          },
+          {
+            "name": "index_sync_identity_mapping_space_type_canonical",
+            "unique": false,
+            "columnNames": [
+              "syncSpaceId",
+              "entityType",
+              "canonicalKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_identity_mapping_space_type_canonical` ON `${TABLE_NAME}` (`syncSpaceId`, `entityType`, `canonicalKey`)"
+          }
+        ]
+      },
+      {
+        "tableName": "sync_local_space_binding",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`localAccountId` INTEGER NOT NULL, `syncSpaceId` TEXT NOT NULL, `lifecycleState` TEXT NOT NULL, `genesisSessionId` TEXT, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`localAccountId`))",
+        "fields": [
+          {
+            "fieldPath": "localAccountId",
+            "columnName": "localAccountId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lifecycleState",
+            "columnName": "lifecycleState",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "genesisSessionId",
+            "columnName": "genesisSessionId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "localAccountId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sync_local_space_binding_syncSpaceId",
+            "unique": true,
+            "columnNames": [
+              "syncSpaceId"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_sync_local_space_binding_syncSpaceId` ON `${TABLE_NAME}` (`syncSpaceId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "sync_device_identity",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`singletonId` INTEGER NOT NULL, `deviceId` TEXT NOT NULL, `witnessId` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`singletonId`))",
+        "fields": [
+          {
+            "fieldPath": "singletonId",
+            "columnName": "singletonId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deviceId",
+            "columnName": "deviceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "witnessId",
+            "columnName": "witnessId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "singletonId"
+          ]
+        }
+      },
+      {
+        "tableName": "sync_actor_incarnation",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`actorIncarnationId` TEXT NOT NULL, `syncSpaceId` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `status` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `retiredAt` INTEGER, PRIMARY KEY(`actorIncarnationId`))",
+        "fields": [
+          {
+            "fieldPath": "actorIncarnationId",
+            "columnName": "actorIncarnationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deviceId",
+            "columnName": "deviceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "retiredAt",
+            "columnName": "retiredAt",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "actorIncarnationId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sync_actor_incarnation_syncSpaceId_status",
+            "unique": false,
+            "columnNames": [
+              "syncSpaceId",
+              "status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_actor_incarnation_syncSpaceId_status` ON `${TABLE_NAME}` (`syncSpaceId`, `status`)"
+          },
+          {
+            "name": "index_sync_actor_incarnation_deviceId",
+            "unique": false,
+            "columnNames": [
+              "deviceId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_actor_incarnation_deviceId` ON `${TABLE_NAME}` (`deviceId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "sync_lane_writer_state",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`syncSpaceId` TEXT NOT NULL, `actorIncarnationId` TEXT NOT NULL, `replicationLaneId` TEXT NOT NULL, `lastSequence` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`syncSpaceId`, `actorIncarnationId`, `replicationLaneId`))",
+        "fields": [
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actorIncarnationId",
+            "columnName": "actorIncarnationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "replicationLaneId",
+            "columnName": "replicationLaneId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSequence",
+            "columnName": "lastSequence",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "syncSpaceId",
+            "actorIncarnationId",
+            "replicationLaneId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sync_lane_writer_state_syncSpaceId_replicationLaneId",
+            "unique": false,
+            "columnNames": [
+              "syncSpaceId",
+              "replicationLaneId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_lane_writer_state_syncSpaceId_replicationLaneId` ON `${TABLE_NAME}` (`syncSpaceId`, `replicationLaneId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "sync_applied_frontier",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`syncSpaceId` TEXT NOT NULL, `replicationLaneId` TEXT NOT NULL, `actorIncarnationId` TEXT NOT NULL, `appliedPrefix` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`syncSpaceId`, `replicationLaneId`, `actorIncarnationId`))",
+        "fields": [
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "replicationLaneId",
+            "columnName": "replicationLaneId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actorIncarnationId",
+            "columnName": "actorIncarnationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "appliedPrefix",
+            "columnName": "appliedPrefix",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "syncSpaceId",
+            "replicationLaneId",
+            "actorIncarnationId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sync_applied_frontier_syncSpaceId_replicationLaneId",
+            "unique": false,
+            "columnNames": [
+              "syncSpaceId",
+              "replicationLaneId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_applied_frontier_syncSpaceId_replicationLaneId` ON `${TABLE_NAME}` (`syncSpaceId`, `replicationLaneId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "sync_outbox",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`outboxId` TEXT NOT NULL, `syncSpaceId` TEXT NOT NULL, `actorIncarnationId` TEXT NOT NULL, `replicationLaneId` TEXT NOT NULL, `sequence` INTEGER NOT NULL, `entityType` TEXT NOT NULL, `entitySyncId` TEXT NOT NULL, `entityGeneration` INTEGER NOT NULL, `mutationType` TEXT NOT NULL, `payloadSchemaVersion` INTEGER NOT NULL, `payloadJson` TEXT NOT NULL, `causalContextJson` TEXT NOT NULL, `observedEntityVersionJson` TEXT, `status` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `genesisIncludedAt` INTEGER, PRIMARY KEY(`outboxId`))",
+        "fields": [
+          {
+            "fieldPath": "outboxId",
+            "columnName": "outboxId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actorIncarnationId",
+            "columnName": "actorIncarnationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "replicationLaneId",
+            "columnName": "replicationLaneId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sequence",
+            "columnName": "sequence",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityType",
+            "columnName": "entityType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entitySyncId",
+            "columnName": "entitySyncId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityGeneration",
+            "columnName": "entityGeneration",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mutationType",
+            "columnName": "mutationType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payloadSchemaVersion",
+            "columnName": "payloadSchemaVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payloadJson",
+            "columnName": "payloadJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "causalContextJson",
+            "columnName": "causalContextJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "observedEntityVersionJson",
+            "columnName": "observedEntityVersionJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "genesisIncludedAt",
+            "columnName": "genesisIncludedAt",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "outboxId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sync_outbox_actor_lane_sequence",
+            "unique": true,
+            "columnNames": [
+              "actorIncarnationId",
+              "replicationLaneId",
+              "sequence"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_sync_outbox_actor_lane_sequence` ON `${TABLE_NAME}` (`actorIncarnationId`, `replicationLaneId`, `sequence`)"
+          },
+          {
+            "name": "index_sync_outbox_syncSpaceId_status_createdAt",
+            "unique": false,
+            "columnNames": [
+              "syncSpaceId",
+              "status",
+              "createdAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_outbox_syncSpaceId_status_createdAt` ON `${TABLE_NAME}` (`syncSpaceId`, `status`, `createdAt`)"
+          },
+          {
+            "name": "index_sync_outbox_syncSpaceId_entityType_entitySyncId",
+            "unique": false,
+            "columnNames": [
+              "syncSpaceId",
+              "entityType",
+              "entitySyncId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_outbox_syncSpaceId_entityType_entitySyncId` ON `${TABLE_NAME}` (`syncSpaceId`, `entityType`, `entitySyncId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "sync_operation_log",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`operationId` TEXT NOT NULL, `syncSpaceId` TEXT NOT NULL, `authorDeviceId` TEXT NOT NULL, `actorIncarnationId` TEXT NOT NULL, `replicationLaneId` TEXT NOT NULL, `sequence` INTEGER NOT NULL, `logicalClock` INTEGER NOT NULL, `causalContextJson` TEXT NOT NULL, `dependencyDotsJson` TEXT NOT NULL, `entityType` TEXT NOT NULL, `entitySyncId` TEXT NOT NULL, `entityGeneration` INTEGER NOT NULL, `operationType` TEXT NOT NULL, `payloadSchemaVersion` INTEGER NOT NULL, `payloadJson` TEXT NOT NULL, `schemaVersion` INTEGER NOT NULL, `authGrantId` TEXT, `authEpoch` INTEGER, `createdWallClock` INTEGER NOT NULL, `payloadHash` TEXT NOT NULL, `signingDigest` TEXT NOT NULL, `authorSignature` TEXT, `buildStatus` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`operationId`))",
+        "fields": [
+          {
+            "fieldPath": "operationId",
+            "columnName": "operationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "authorDeviceId",
+            "columnName": "authorDeviceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actorIncarnationId",
+            "columnName": "actorIncarnationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "replicationLaneId",
+            "columnName": "replicationLaneId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sequence",
+            "columnName": "sequence",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "logicalClock",
+            "columnName": "logicalClock",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "causalContextJson",
+            "columnName": "causalContextJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dependencyDotsJson",
+            "columnName": "dependencyDotsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityType",
+            "columnName": "entityType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entitySyncId",
+            "columnName": "entitySyncId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityGeneration",
+            "columnName": "entityGeneration",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "operationType",
+            "columnName": "operationType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payloadSchemaVersion",
+            "columnName": "payloadSchemaVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payloadJson",
+            "columnName": "payloadJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "schemaVersion",
+            "columnName": "schemaVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "authGrantId",
+            "columnName": "authGrantId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "authEpoch",
+            "columnName": "authEpoch",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "createdWallClock",
+            "columnName": "createdWallClock",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payloadHash",
+            "columnName": "payloadHash",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "signingDigest",
+            "columnName": "signingDigest",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "authorSignature",
+            "columnName": "authorSignature",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "buildStatus",
+            "columnName": "buildStatus",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "operationId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sync_operation_log_actor_lane_sequence",
+            "unique": true,
+            "columnNames": [
+              "actorIncarnationId",
+              "replicationLaneId",
+              "sequence"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_sync_operation_log_actor_lane_sequence` ON `${TABLE_NAME}` (`actorIncarnationId`, `replicationLaneId`, `sequence`)"
+          },
+          {
+            "name": "index_sync_operation_log_syncSpaceId_buildStatus_createdWallClock",
+            "unique": false,
+            "columnNames": [
+              "syncSpaceId",
+              "buildStatus",
+              "createdWallClock"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_operation_log_syncSpaceId_buildStatus_createdWallClock` ON `${TABLE_NAME}` (`syncSpaceId`, `buildStatus`, `createdWallClock`)"
+          },
+          {
+            "name": "index_sync_operation_log_syncSpaceId_entityType_entitySyncId",
+            "unique": false,
+            "columnNames": [
+              "syncSpaceId",
+              "entityType",
+              "entitySyncId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_operation_log_syncSpaceId_entityType_entitySyncId` ON `${TABLE_NAME}` (`syncSpaceId`, `entityType`, `entitySyncId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "sync_actor_author",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`syncSpaceId` TEXT NOT NULL, `actorIncarnationId` TEXT NOT NULL, `authorDeviceId` TEXT NOT NULL, PRIMARY KEY(`syncSpaceId`, `actorIncarnationId`))",
+        "fields": [
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actorIncarnationId",
+            "columnName": "actorIncarnationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "authorDeviceId",
+            "columnName": "authorDeviceId",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "syncSpaceId",
+            "actorIncarnationId"
+          ]
+        }
+      },
+      {
+        "tableName": "local_config_state",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `value` TEXT NOT NULL, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "value",
+            "columnName": "value",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        }
+      },
+      {
+        "tableName": "sync_genesis_session",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`genesisSessionId` TEXT NOT NULL, `syncSpaceId` TEXT NOT NULL, `genesisBaselineId` TEXT NOT NULL, `state` TEXT NOT NULL, `crossDbCutId` TEXT, `cutFrontierJson` TEXT, `snapshotBundleId` TEXT, `failureReason` TEXT, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `capturedAt` INTEGER, PRIMARY KEY(`genesisSessionId`))",
+        "fields": [
+          {
+            "fieldPath": "genesisSessionId",
+            "columnName": "genesisSessionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "genesisBaselineId",
+            "columnName": "genesisBaselineId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "crossDbCutId",
+            "columnName": "crossDbCutId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "cutFrontierJson",
+            "columnName": "cutFrontierJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "snapshotBundleId",
+            "columnName": "snapshotBundleId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "failureReason",
+            "columnName": "failureReason",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "capturedAt",
+            "columnName": "capturedAt",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "genesisSessionId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sync_genesis_session_syncSpaceId_state",
+            "unique": false,
+            "columnNames": [
+              "syncSpaceId",
+              "state"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_genesis_session_syncSpaceId_state` ON `${TABLE_NAME}` (`syncSpaceId`, `state`)"
+          },
+          {
+            "name": "index_sync_genesis_session_syncSpaceId_genesisBaselineId",
+            "unique": true,
+            "columnNames": [
+              "syncSpaceId",
+              "genesisBaselineId"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_sync_genesis_session_syncSpaceId_genesisBaselineId` ON `${TABLE_NAME}` (`syncSpaceId`, `genesisBaselineId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "sync_snapshot_bundle",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`snapshotBundleId` TEXT NOT NULL, `syncSpaceId` TEXT NOT NULL, `snapshotClass` TEXT NOT NULL, `schemaVersion` INTEGER NOT NULL, `snapshotEpoch` INTEGER NOT NULL, `crossDbCutId` TEXT NOT NULL, `replicationPolicyHash` TEXT NOT NULL, `requiredCoreShardIdsJson` TEXT NOT NULL, `shardDescriptorsJson` TEXT NOT NULL, `authStabilityCheckpointId` TEXT, `rootHash` TEXT NOT NULL, `createdByDeviceId` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`snapshotBundleId`))",
+        "fields": [
+          {
+            "fieldPath": "snapshotBundleId",
+            "columnName": "snapshotBundleId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "snapshotClass",
+            "columnName": "snapshotClass",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "schemaVersion",
+            "columnName": "schemaVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "snapshotEpoch",
+            "columnName": "snapshotEpoch",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "crossDbCutId",
+            "columnName": "crossDbCutId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "replicationPolicyHash",
+            "columnName": "replicationPolicyHash",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "requiredCoreShardIdsJson",
+            "columnName": "requiredCoreShardIdsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "shardDescriptorsJson",
+            "columnName": "shardDescriptorsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "authStabilityCheckpointId",
+            "columnName": "authStabilityCheckpointId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "rootHash",
+            "columnName": "rootHash",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdByDeviceId",
+            "columnName": "createdByDeviceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "snapshotBundleId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sync_snapshot_bundle_syncSpaceId_createdAt",
+            "unique": false,
+            "columnNames": [
+              "syncSpaceId",
+              "createdAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_snapshot_bundle_syncSpaceId_createdAt` ON `${TABLE_NAME}` (`syncSpaceId`, `createdAt`)"
+          },
+          {
+            "name": "index_sync_snapshot_bundle_syncSpaceId_rootHash",
+            "unique": true,
+            "columnNames": [
+              "syncSpaceId",
+              "rootHash"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_sync_snapshot_bundle_syncSpaceId_rootHash` ON `${TABLE_NAME}` (`syncSpaceId`, `rootHash`)"
+          }
+        ]
+      },
+      {
+        "tableName": "sync_snapshot_shard",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`snapshotBundleId` TEXT NOT NULL, `syncSpaceId` TEXT NOT NULL, `replicationLaneId` TEXT NOT NULL, `frontierByActorJson` TEXT NOT NULL, `receivedCoverageSummaryJson` TEXT NOT NULL, `entityStateJson` TEXT NOT NULL, `fieldVersionStateJson` TEXT NOT NULL, `causalMergeMetadataJson` TEXT NOT NULL, `genesisCoverageJson` TEXT NOT NULL, `deletionSummaryJson` TEXT NOT NULL, `generationSummaryJson` TEXT NOT NULL, `blobManifestIndexJson` TEXT NOT NULL, `blobReferenceIndexJson` TEXT NOT NULL, `shardHash` TEXT NOT NULL, PRIMARY KEY(`snapshotBundleId`, `replicationLaneId`))",
+        "fields": [
+          {
+            "fieldPath": "snapshotBundleId",
+            "columnName": "snapshotBundleId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "replicationLaneId",
+            "columnName": "replicationLaneId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "frontierByActorJson",
+            "columnName": "frontierByActorJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "receivedCoverageSummaryJson",
+            "columnName": "receivedCoverageSummaryJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityStateJson",
+            "columnName": "entityStateJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fieldVersionStateJson",
+            "columnName": "fieldVersionStateJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "causalMergeMetadataJson",
+            "columnName": "causalMergeMetadataJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "genesisCoverageJson",
+            "columnName": "genesisCoverageJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deletionSummaryJson",
+            "columnName": "deletionSummaryJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "generationSummaryJson",
+            "columnName": "generationSummaryJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "blobManifestIndexJson",
+            "columnName": "blobManifestIndexJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "blobReferenceIndexJson",
+            "columnName": "blobReferenceIndexJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "shardHash",
+            "columnName": "shardHash",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "snapshotBundleId",
+            "replicationLaneId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sync_snapshot_shard_syncSpaceId_replicationLaneId",
+            "unique": false,
+            "columnNames": [
+              "syncSpaceId",
+              "replicationLaneId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_snapshot_shard_syncSpaceId_replicationLaneId` ON `${TABLE_NAME}` (`syncSpaceId`, `replicationLaneId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "sync_genesis_operation_coverage",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`operationId` TEXT NOT NULL, `genesisSessionId` TEXT NOT NULL, `includedAt` INTEGER NOT NULL, PRIMARY KEY(`operationId`))",
+        "fields": [
+          {
+            "fieldPath": "operationId",
+            "columnName": "operationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "genesisSessionId",
+            "columnName": "genesisSessionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "includedAt",
+            "columnName": "includedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "operationId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sync_genesis_operation_coverage_genesisSessionId",
+            "unique": false,
+            "columnNames": [
+              "genesisSessionId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_genesis_operation_coverage_genesisSessionId` ON `${TABLE_NAME}` (`genesisSessionId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "sync_recovery_capsule",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`capsuleId` TEXT NOT NULL, `syncSpaceId` TEXT NOT NULL, `targetSnapshotBundleId` TEXT NOT NULL, `coverageJson` TEXT NOT NULL, `operationIdsJson` TEXT NOT NULL, `pendingOutboxIdsJson` TEXT NOT NULL, `recoveryStateJson` TEXT NOT NULL, `reason` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`capsuleId`))",
+        "fields": [
+          {
+            "fieldPath": "capsuleId",
+            "columnName": "capsuleId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetSnapshotBundleId",
+            "columnName": "targetSnapshotBundleId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "coverageJson",
+            "columnName": "coverageJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "operationIdsJson",
+            "columnName": "operationIdsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pendingOutboxIdsJson",
+            "columnName": "pendingOutboxIdsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recoveryStateJson",
+            "columnName": "recoveryStateJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reason",
+            "columnName": "reason",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "capsuleId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sync_recovery_capsule_syncSpaceId_createdAt",
+            "unique": false,
+            "columnNames": [
+              "syncSpaceId",
+              "createdAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_recovery_capsule_syncSpaceId_createdAt` ON `${TABLE_NAME}` (`syncSpaceId`, `createdAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "sync_inbox_operation",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`operationId` TEXT NOT NULL, `syncSpaceId` TEXT NOT NULL, `actorIncarnationId` TEXT NOT NULL, `replicationLaneId` TEXT NOT NULL, `sequence` INTEGER NOT NULL, `state` TEXT NOT NULL, `operationJson` TEXT NOT NULL, `rejectionReason` TEXT, `rejectionDigest` TEXT, `receivedAt` INTEGER NOT NULL, `appliedAt` INTEGER, `lastError` TEXT, `authorizationState` TEXT NOT NULL, `stabilizedByAuthObjectId` TEXT, PRIMARY KEY(`operationId`))",
+        "fields": [
+          {
+            "fieldPath": "operationId",
+            "columnName": "operationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actorIncarnationId",
+            "columnName": "actorIncarnationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "replicationLaneId",
+            "columnName": "replicationLaneId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sequence",
+            "columnName": "sequence",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "operationJson",
+            "columnName": "operationJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rejectionReason",
+            "columnName": "rejectionReason",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "rejectionDigest",
+            "columnName": "rejectionDigest",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "receivedAt",
+            "columnName": "receivedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "appliedAt",
+            "columnName": "appliedAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastError",
+            "columnName": "lastError",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "authorizationState",
+            "columnName": "authorizationState",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "stabilizedByAuthObjectId",
+            "columnName": "stabilizedByAuthObjectId",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "operationId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sync_inbox_operation_actorIncarnationId_replicationLaneId_sequence",
+            "unique": true,
+            "columnNames": [
+              "actorIncarnationId",
+              "replicationLaneId",
+              "sequence"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_sync_inbox_operation_actorIncarnationId_replicationLaneId_sequence` ON `${TABLE_NAME}` (`actorIncarnationId`, `replicationLaneId`, `sequence`)"
+          },
+          {
+            "name": "index_sync_inbox_operation_syncSpaceId_state_receivedAt",
+            "unique": false,
+            "columnNames": [
+              "syncSpaceId",
+              "state",
+              "receivedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_inbox_operation_syncSpaceId_state_receivedAt` ON `${TABLE_NAME}` (`syncSpaceId`, `state`, `receivedAt`)"
+          },
+          {
+            "name": "index_sync_inbox_operation_syncSpaceId_state_authorizationState",
+            "unique": false,
+            "columnNames": [
+              "syncSpaceId",
+              "state",
+              "authorizationState"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_inbox_operation_syncSpaceId_state_authorizationState` ON `${TABLE_NAME}` (`syncSpaceId`, `state`, `authorizationState`)"
+          }
+        ]
+      },
+      {
+        "tableName": "sync_coverage",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`syncSpaceId` TEXT NOT NULL, `replicationLaneId` TEXT NOT NULL, `actorIncarnationId` TEXT NOT NULL, `receivedPrefix` INTEGER NOT NULL, `appliedPrefix` INTEGER NOT NULL, `retainedPrefix` INTEGER NOT NULL, `snapshotPrefix` INTEGER NOT NULL, `stableGcPrefix` INTEGER NOT NULL, `processedPrefix` INTEGER NOT NULL DEFAULT 0, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`syncSpaceId`, `replicationLaneId`, `actorIncarnationId`))",
+        "fields": [
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "replicationLaneId",
+            "columnName": "replicationLaneId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actorIncarnationId",
+            "columnName": "actorIncarnationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "receivedPrefix",
+            "columnName": "receivedPrefix",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "appliedPrefix",
+            "columnName": "appliedPrefix",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "retainedPrefix",
+            "columnName": "retainedPrefix",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "snapshotPrefix",
+            "columnName": "snapshotPrefix",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "stableGcPrefix",
+            "columnName": "stableGcPrefix",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "processedPrefix",
+            "columnName": "processedPrefix",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "syncSpaceId",
+            "replicationLaneId",
+            "actorIncarnationId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sync_coverage_syncSpaceId_replicationLaneId",
+            "unique": false,
+            "columnNames": [
+              "syncSpaceId",
+              "replicationLaneId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_coverage_syncSpaceId_replicationLaneId` ON `${TABLE_NAME}` (`syncSpaceId`, `replicationLaneId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "sync_actor_isolation",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`syncSpaceId` TEXT NOT NULL, `actorIncarnationId` TEXT NOT NULL, `replicationLaneId` TEXT NOT NULL, `sequence` INTEGER NOT NULL, `firstDigest` TEXT NOT NULL, `secondDigest` TEXT NOT NULL, `detectedAt` INTEGER NOT NULL, PRIMARY KEY(`syncSpaceId`, `actorIncarnationId`))",
+        "fields": [
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actorIncarnationId",
+            "columnName": "actorIncarnationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "replicationLaneId",
+            "columnName": "replicationLaneId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sequence",
+            "columnName": "sequence",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "firstDigest",
+            "columnName": "firstDigest",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "secondDigest",
+            "columnName": "secondDigest",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "detectedAt",
+            "columnName": "detectedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "syncSpaceId",
+            "actorIncarnationId"
+          ]
+        }
+      },
+      {
+        "tableName": "sync_apply_journal",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`operationId` TEXT NOT NULL, `syncSpaceId` TEXT NOT NULL, `state` TEXT NOT NULL, `startedAt` INTEGER NOT NULL, `completedAt` INTEGER, `errorMessage` TEXT, PRIMARY KEY(`operationId`))",
+        "fields": [
+          {
+            "fieldPath": "operationId",
+            "columnName": "operationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startedAt",
+            "columnName": "startedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "completedAt",
+            "columnName": "completedAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "errorMessage",
+            "columnName": "errorMessage",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "operationId"
+          ]
+        }
+      },
+      {
+        "tableName": "sync_field_version",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`syncSpaceId` TEXT NOT NULL, `entityType` TEXT NOT NULL, `entitySyncId` TEXT NOT NULL, `fieldId` TEXT NOT NULL, `entityGeneration` INTEGER NOT NULL, `versionToken` TEXT NOT NULL, `sourceOperationId` TEXT, `valueJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, `causalContextJson` TEXT, `logicalClock` INTEGER, PRIMARY KEY(`syncSpaceId`, `entityType`, `entitySyncId`, `fieldId`))",
+        "fields": [
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityType",
+            "columnName": "entityType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entitySyncId",
+            "columnName": "entitySyncId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fieldId",
+            "columnName": "fieldId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityGeneration",
+            "columnName": "entityGeneration",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "versionToken",
+            "columnName": "versionToken",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceOperationId",
+            "columnName": "sourceOperationId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "valueJson",
+            "columnName": "valueJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "causalContextJson",
+            "columnName": "causalContextJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "logicalClock",
+            "columnName": "logicalClock",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "syncSpaceId",
+            "entityType",
+            "entitySyncId",
+            "fieldId"
+          ]
+        }
+      },
+      {
+        "tableName": "sync_field_candidate",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`syncSpaceId` TEXT NOT NULL, `entityType` TEXT NOT NULL, `entitySyncId` TEXT NOT NULL, `fieldId` TEXT NOT NULL, `entityGeneration` INTEGER NOT NULL, `versionToken` TEXT NOT NULL, `sourceOperationId` TEXT, `valueJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, `causalContextJson` TEXT, `logicalClock` INTEGER, PRIMARY KEY(`syncSpaceId`, `entityType`, `entitySyncId`, `entityGeneration`, `fieldId`, `versionToken`))",
+        "fields": [
+          {
+            "fieldPath": "version.syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version.entityType",
+            "columnName": "entityType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version.entitySyncId",
+            "columnName": "entitySyncId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version.fieldId",
+            "columnName": "fieldId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version.entityGeneration",
+            "columnName": "entityGeneration",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version.versionToken",
+            "columnName": "versionToken",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version.sourceOperationId",
+            "columnName": "sourceOperationId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "version.valueJson",
+            "columnName": "valueJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version.updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version.causalContextJson",
+            "columnName": "causalContextJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "version.logicalClock",
+            "columnName": "logicalClock",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "syncSpaceId",
+            "entityType",
+            "entitySyncId",
+            "entityGeneration",
+            "fieldId",
+            "versionToken"
+          ]
+        }
+      },
+      {
+        "tableName": "sync_field_rollback_baseline",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`syncSpaceId` TEXT NOT NULL, `entityType` TEXT NOT NULL, `entitySyncId` TEXT NOT NULL, `entityGeneration` INTEGER NOT NULL, `fieldId` TEXT NOT NULL, `valueJson` TEXT NOT NULL, PRIMARY KEY(`syncSpaceId`, `entityType`, `entitySyncId`, `entityGeneration`, `fieldId`))",
+        "fields": [
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityType",
+            "columnName": "entityType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entitySyncId",
+            "columnName": "entitySyncId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityGeneration",
+            "columnName": "entityGeneration",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fieldId",
+            "columnName": "fieldId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "valueJson",
+            "columnName": "valueJson",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "syncSpaceId",
+            "entityType",
+            "entitySyncId",
+            "entityGeneration",
+            "fieldId"
+          ]
+        }
+      },
+      {
+        "tableName": "sync_tombstone",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`syncSpaceId` TEXT NOT NULL, `entityType` TEXT NOT NULL, `entitySyncId` TEXT NOT NULL, `entityGeneration` INTEGER NOT NULL, `versionToken` TEXT NOT NULL, `sourceOperationId` TEXT, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`syncSpaceId`, `entityType`, `entitySyncId`))",
+        "fields": [
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityType",
+            "columnName": "entityType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entitySyncId",
+            "columnName": "entitySyncId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityGeneration",
+            "columnName": "entityGeneration",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "versionToken",
+            "columnName": "versionToken",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceOperationId",
+            "columnName": "sourceOperationId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "syncSpaceId",
+            "entityType",
+            "entitySyncId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sync_tombstone_syncSpaceId_entityType",
+            "unique": false,
+            "columnNames": [
+              "syncSpaceId",
+              "entityType"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_tombstone_syncSpaceId_entityType` ON `${TABLE_NAME}` (`syncSpaceId`, `entityType`)"
+          }
+        ]
+      },
+      {
+        "tableName": "sync_endpoint",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`endpointId` TEXT NOT NULL, `syncSpaceId` TEXT NOT NULL, `baseUrl` TEXT NOT NULL, `accessToken` TEXT, `transport` TEXT NOT NULL, `enabled` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`endpointId`))",
+        "fields": [
+          {
+            "fieldPath": "endpointId",
+            "columnName": "endpointId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "baseUrl",
+            "columnName": "baseUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accessToken",
+            "columnName": "accessToken",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "transport",
+            "columnName": "transport",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "enabled",
+            "columnName": "enabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "endpointId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sync_endpoint_syncSpaceId_enabled",
+            "unique": false,
+            "columnNames": [
+              "syncSpaceId",
+              "enabled"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_endpoint_syncSpaceId_enabled` ON `${TABLE_NAME}` (`syncSpaceId`, `enabled`)"
+          }
+        ]
+      },
+      {
+        "tableName": "sync_auth_ledger",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`authObjectId` TEXT NOT NULL, `syncSpaceId` TEXT NOT NULL, `authEpoch` INTEGER NOT NULL, `authObjectJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`authObjectId`))",
+        "fields": [
+          {
+            "fieldPath": "authObjectId",
+            "columnName": "authObjectId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "authEpoch",
+            "columnName": "authEpoch",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "authObjectJson",
+            "columnName": "authObjectJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "authObjectId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sync_auth_ledger_syncSpaceId_authEpoch",
+            "unique": false,
+            "columnNames": [
+              "syncSpaceId",
+              "authEpoch"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_auth_ledger_syncSpaceId_authEpoch` ON `${TABLE_NAME}` (`syncSpaceId`, `authEpoch`)"
+          }
+        ]
+      },
+      {
+        "tableName": "sync_peer_cursor",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`endpointId` TEXT NOT NULL, `syncSpaceId` TEXT NOT NULL, `cursorJson` TEXT, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`endpointId`))",
+        "fields": [
+          {
+            "fieldPath": "endpointId",
+            "columnName": "endpointId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cursorJson",
+            "columnName": "cursorJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "endpointId"
+          ]
+        }
+      },
+      {
+        "tableName": "sync_alias_edge",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`syncSpaceId` TEXT NOT NULL, `entityType` TEXT NOT NULL, `leftSyncId` TEXT NOT NULL, `leftGeneration` INTEGER NOT NULL, `rightSyncId` TEXT NOT NULL, `rightGeneration` INTEGER NOT NULL, `sourceOperationId` TEXT, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`syncSpaceId`, `entityType`, `leftSyncId`, `leftGeneration`, `rightSyncId`, `rightGeneration`))",
+        "fields": [
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityType",
+            "columnName": "entityType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "leftSyncId",
+            "columnName": "leftSyncId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "leftGeneration",
+            "columnName": "leftGeneration",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rightSyncId",
+            "columnName": "rightSyncId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rightGeneration",
+            "columnName": "rightGeneration",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceOperationId",
+            "columnName": "sourceOperationId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "syncSpaceId",
+            "entityType",
+            "leftSyncId",
+            "leftGeneration",
+            "rightSyncId",
+            "rightGeneration"
+          ]
+        }
+      },
+      {
+        "tableName": "sync_entity_alias",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`syncSpaceId` TEXT NOT NULL, `entityType` TEXT NOT NULL, `aliasSyncId` TEXT NOT NULL, `canonicalSyncId` TEXT NOT NULL, `generation` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`syncSpaceId`, `entityType`, `aliasSyncId`, `generation`))",
+        "fields": [
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityType",
+            "columnName": "entityType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "aliasSyncId",
+            "columnName": "aliasSyncId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "canonicalSyncId",
+            "columnName": "canonicalSyncId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "generation",
+            "columnName": "generation",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "syncSpaceId",
+            "entityType",
+            "aliasSyncId",
+            "generation"
+          ]
+        }
+      },
+      {
+        "tableName": "sync_local_eviction",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`syncSpaceId` TEXT NOT NULL, `entityType` TEXT NOT NULL, `entitySyncId` TEXT NOT NULL, `entityGeneration` INTEGER NOT NULL, `resourceKind` TEXT NOT NULL, `evictedAt` INTEGER NOT NULL, PRIMARY KEY(`syncSpaceId`, `entityType`, `entitySyncId`, `entityGeneration`, `resourceKind`))",
+        "fields": [
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityType",
+            "columnName": "entityType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entitySyncId",
+            "columnName": "entitySyncId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityGeneration",
+            "columnName": "entityGeneration",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "resourceKind",
+            "columnName": "resourceKind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "evictedAt",
+            "columnName": "evictedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "syncSpaceId",
+            "entityType",
+            "entitySyncId",
+            "entityGeneration",
+            "resourceKind"
+          ]
+        }
+      },
+      {
+        "tableName": "sync_blob_manifest",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`hash` TEXT NOT NULL, `totalBytes` INTEGER NOT NULL, `mediaType` TEXT, `compression` TEXT, `encryptionInfoJson` TEXT, `availabilityPolicy` TEXT NOT NULL, `durability` TEXT NOT NULL, `availabilityState` TEXT NOT NULL, `failureReason` TEXT, `referenceCount` INTEGER NOT NULL, `persistedAt` INTEGER, `lastAccessedAt` INTEGER, PRIMARY KEY(`hash`))",
+        "fields": [
+          {
+            "fieldPath": "hash",
+            "columnName": "hash",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalBytes",
+            "columnName": "totalBytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mediaType",
+            "columnName": "mediaType",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "compression",
+            "columnName": "compression",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "encryptionInfoJson",
+            "columnName": "encryptionInfoJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "availabilityPolicy",
+            "columnName": "availabilityPolicy",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durability",
+            "columnName": "durability",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "availabilityState",
+            "columnName": "availabilityState",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "failureReason",
+            "columnName": "failureReason",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "referenceCount",
+            "columnName": "referenceCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "persistedAt",
+            "columnName": "persistedAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastAccessedAt",
+            "columnName": "lastAccessedAt",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "hash"
+          ]
+        }
+      },
+      {
+        "tableName": "sync_blob_reference",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`syncSpaceId` TEXT NOT NULL, `replicationLaneId` TEXT NOT NULL, `ownerEntityType` TEXT NOT NULL, `ownerEntitySyncId` TEXT NOT NULL, `ownerEntityGeneration` INTEGER NOT NULL, `referenceKind` TEXT NOT NULL, `hash` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`syncSpaceId`, `replicationLaneId`, `ownerEntityType`, `ownerEntitySyncId`, `ownerEntityGeneration`, `referenceKind`, `hash`))",
+        "fields": [
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "replicationLaneId",
+            "columnName": "replicationLaneId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ownerEntityType",
+            "columnName": "ownerEntityType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ownerEntitySyncId",
+            "columnName": "ownerEntitySyncId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ownerEntityGeneration",
+            "columnName": "ownerEntityGeneration",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "referenceKind",
+            "columnName": "referenceKind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hash",
+            "columnName": "hash",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "syncSpaceId",
+            "replicationLaneId",
+            "ownerEntityType",
+            "ownerEntitySyncId",
+            "ownerEntityGeneration",
+            "referenceKind",
+            "hash"
+          ]
+        }
+      },
+      {
+        "tableName": "sync_blob_persisted_ack",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`syncSpaceId` TEXT NOT NULL, `hash` TEXT NOT NULL, `replicaId` TEXT NOT NULL, `totalBytes` INTEGER NOT NULL, `persistedAt` INTEGER NOT NULL, `storageGeneration` TEXT, `custodyState` TEXT, PRIMARY KEY(`syncSpaceId`, `hash`, `replicaId`))",
+        "fields": [
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hash",
+            "columnName": "hash",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "replicaId",
+            "columnName": "replicaId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalBytes",
+            "columnName": "totalBytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "persistedAt",
+            "columnName": "persistedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "storageGeneration",
+            "columnName": "storageGeneration",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "custodyState",
+            "columnName": "custodyState",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "syncSpaceId",
+            "hash",
+            "replicaId"
+          ]
+        }
+      },
+      {
+        "tableName": "sync_trusted_device",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `syncSpaceId` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `staticPublicKey` TEXT NOT NULL, `fingerprint` TEXT NOT NULL, `displayName` TEXT NOT NULL, `platform` TEXT NOT NULL, `trustState` TEXT NOT NULL, `pairedAt` INTEGER NOT NULL, `lastSeenAt` INTEGER NOT NULL, `authEpoch` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deviceId",
+            "columnName": "deviceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "staticPublicKey",
+            "columnName": "staticPublicKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fingerprint",
+            "columnName": "fingerprint",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "displayName",
+            "columnName": "displayName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "platform",
+            "columnName": "platform",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "trustState",
+            "columnName": "trustState",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pairedAt",
+            "columnName": "pairedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSeenAt",
+            "columnName": "lastSeenAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "authEpoch",
+            "columnName": "authEpoch",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sync_trusted_device_syncSpaceId_deviceId",
+            "unique": true,
+            "columnNames": [
+              "syncSpaceId",
+              "deviceId"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_sync_trusted_device_syncSpaceId_deviceId` ON `${TABLE_NAME}` (`syncSpaceId`, `deviceId`)"
+          },
+          {
+            "name": "index_sync_trusted_device_syncSpaceId_trustState",
+            "unique": false,
+            "columnNames": [
+              "syncSpaceId",
+              "trustState"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_trusted_device_syncSpaceId_trustState` ON `${TABLE_NAME}` (`syncSpaceId`, `trustState`)"
+          }
+        ]
+      },
+      {
+        "tableName": "sync_peer_coverage_report",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`syncSpaceId` TEXT NOT NULL, `peerDeviceId` TEXT NOT NULL, `coverageKind` TEXT NOT NULL, `replicationLaneId` TEXT NOT NULL, `actorIncarnationId` TEXT NOT NULL, `sequence` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`syncSpaceId`, `peerDeviceId`, `coverageKind`, `replicationLaneId`, `actorIncarnationId`))",
+        "fields": [
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "peerDeviceId",
+            "columnName": "peerDeviceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "coverageKind",
+            "columnName": "coverageKind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "replicationLaneId",
+            "columnName": "replicationLaneId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actorIncarnationId",
+            "columnName": "actorIncarnationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sequence",
+            "columnName": "sequence",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "syncSpaceId",
+            "peerDeviceId",
+            "coverageKind",
+            "replicationLaneId",
+            "actorIncarnationId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sync_peer_coverage_report_syncSpaceId_peerDeviceId",
+            "unique": false,
+            "columnNames": [
+              "syncSpaceId",
+              "peerDeviceId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_peer_coverage_report_syncSpaceId_peerDeviceId` ON `${TABLE_NAME}` (`syncSpaceId`, `peerDeviceId`)"
+          },
+          {
+            "name": "index_sync_peer_coverage_report_syncSpaceId_coverageKind",
+            "unique": false,
+            "columnNames": [
+              "syncSpaceId",
+              "coverageKind"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_peer_coverage_report_syncSpaceId_coverageKind` ON `${TABLE_NAME}` (`syncSpaceId`, `coverageKind`)"
+          }
+        ]
+      },
+      {
+        "tableName": "sync_run_history",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`runId` TEXT NOT NULL, `syncSpaceId` TEXT NOT NULL, `endpointId` TEXT, `remoteDeviceId` TEXT, `transport` TEXT, `stage` TEXT NOT NULL, `status` TEXT NOT NULL, `startedAt` INTEGER NOT NULL, `finishedAt` INTEGER, `pushedOperations` INTEGER NOT NULL, `pulledOperations` INTEGER NOT NULL, `appliedOperations` INTEGER NOT NULL, `rejectedOperations` INTEGER NOT NULL, `blobBytesSent` INTEGER NOT NULL, `blobBytesReceived` INTEGER NOT NULL, `retryAttempt` INTEGER NOT NULL, `errorCode` TEXT, `errorMessage` TEXT, PRIMARY KEY(`runId`))",
+        "fields": [
+          {
+            "fieldPath": "runId",
+            "columnName": "runId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endpointId",
+            "columnName": "endpointId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "remoteDeviceId",
+            "columnName": "remoteDeviceId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "transport",
+            "columnName": "transport",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "stage",
+            "columnName": "stage",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startedAt",
+            "columnName": "startedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "finishedAt",
+            "columnName": "finishedAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "pushedOperations",
+            "columnName": "pushedOperations",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pulledOperations",
+            "columnName": "pulledOperations",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "appliedOperations",
+            "columnName": "appliedOperations",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rejectedOperations",
+            "columnName": "rejectedOperations",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "blobBytesSent",
+            "columnName": "blobBytesSent",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "blobBytesReceived",
+            "columnName": "blobBytesReceived",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "retryAttempt",
+            "columnName": "retryAttempt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "errorCode",
+            "columnName": "errorCode",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "errorMessage",
+            "columnName": "errorMessage",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "runId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sync_run_history_syncSpaceId_startedAt",
+            "unique": false,
+            "columnNames": [
+              "syncSpaceId",
+              "startedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_run_history_syncSpaceId_startedAt` ON `${TABLE_NAME}` (`syncSpaceId`, `startedAt`)"
+          },
+          {
+            "name": "index_sync_run_history_endpointId_startedAt",
+            "unique": false,
+            "columnNames": [
+              "endpointId",
+              "startedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_run_history_endpointId_startedAt` ON `${TABLE_NAME}` (`endpointId`, `startedAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "sync_snapshot_stream_stage",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`syncSpaceId` TEXT NOT NULL, `snapshotBundleId` TEXT NOT NULL, `sourceSnapshotBundleId` TEXT NOT NULL, `transportPeerDeviceId` TEXT NOT NULL, `manifestJson` TEXT NOT NULL, `state` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`syncSpaceId`, `snapshotBundleId`))",
+        "fields": [
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "snapshotBundleId",
+            "columnName": "snapshotBundleId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceSnapshotBundleId",
+            "columnName": "sourceSnapshotBundleId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "transportPeerDeviceId",
+            "columnName": "transportPeerDeviceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "manifestJson",
+            "columnName": "manifestJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "syncSpaceId",
+            "snapshotBundleId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sync_snapshot_stream_stage_syncSpaceId_updatedAt",
+            "unique": false,
+            "columnNames": [
+              "syncSpaceId",
+              "updatedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_snapshot_stream_stage_syncSpaceId_updatedAt` ON `${TABLE_NAME}` (`syncSpaceId`, `updatedAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "sync_snapshot_stream_shard",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`syncSpaceId` TEXT NOT NULL, `snapshotBundleId` TEXT NOT NULL, `replicationLaneId` TEXT NOT NULL, `contentHash` TEXT NOT NULL, `shardJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`syncSpaceId`, `snapshotBundleId`, `replicationLaneId`))",
+        "fields": [
+          {
+            "fieldPath": "syncSpaceId",
+            "columnName": "syncSpaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "snapshotBundleId",
+            "columnName": "snapshotBundleId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "replicationLaneId",
+            "columnName": "replicationLaneId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contentHash",
+            "columnName": "contentHash",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "shardJson",
+            "columnName": "shardJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "syncSpaceId",
+            "snapshotBundleId",
+            "replicationLaneId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sync_snapshot_stream_shard_syncSpaceId_snapshotBundleId",
+            "unique": false,
+            "columnNames": [
+              "syncSpaceId",
+              "snapshotBundleId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_snapshot_stream_shard_syncSpaceId_snapshotBundleId` ON `${TABLE_NAME}` (`syncSpaceId`, `snapshotBundleId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "sync_snapshot_install_progress",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`bundleId` TEXT NOT NULL, `phase` TEXT NOT NULL, `rootHash` TEXT NOT NULL, `cursor` TEXT NOT NULL, PRIMARY KEY(`bundleId`, `phase`))",
+        "fields": [
+          {
+            "fieldPath": "bundleId",
+            "columnName": "bundleId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "phase",
+            "columnName": "phase",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rootHash",
+            "columnName": "rootHash",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cursor",
+            "columnName": "cursor",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "bundleId",
+            "phase"
+          ]
+        }
+      },
+      {
+        "tableName": "sync_snapshot_authority_revision",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`space` TEXT NOT NULL, `revision` INTEGER NOT NULL, PRIMARY KEY(`space`))",
+        "fields": [
+          {
+            "fieldPath": "space",
+            "columnName": "space",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "revision",
+            "columnName": "revision",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "space"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'b4728265596eccb4f49741485962aff5')"
+    ]
+  }
+}

@@ -7,7 +7,9 @@ import javax.inject.Singleton
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import me.ash.reader.infrastructure.util.AtomicUtf8File
+import me.ash.reader.infrastructure.db.ConfigDocumentStore
+import me.ash.reader.infrastructure.db.SqliteConfigDocumentStore
+import me.ash.reader.infrastructure.db.FileConfigDocumentStore
 
 /** 单条自动 DOM 规则的来源级历史统计。 */
 @Serializable
@@ -63,9 +65,17 @@ private data class WebsiteParsePreferenceBundle(
 
 /** 使用独立 JSON 文件保存来源级解析偏好，避免为轻量配置增加数据库迁移。 */
 @Singleton
-class WebsiteParsePreferenceRepository @Inject constructor(
+class WebsiteParsePreferenceRepository private constructor(
     @ApplicationContext private val context: Context,
+    private val documents: ConfigDocumentStore,
 ) {
+    /** 生产配置权威值与 Outbox 共用 SQLite 事务。 */
+    @Inject constructor(@ApplicationContext context: Context, documents: SqliteConfigDocumentStore) :
+        this(context, documents as ConfigDocumentStore)
+
+    /** 显式独立规则文件入口，生产 Hilt 不使用该构造。 */
+    constructor(context: Context) : this(context, FileConfigDocumentStore)
+
     private companion object {
         const val MAX_AUTOMATIC_HISTORY_ITEMS = 12
         const val MAX_HISTORY_COUNTER = 10_000
@@ -328,12 +338,12 @@ class WebsiteParsePreferenceRepository @Inject constructor(
     }
 
     private fun load(): List<WebsiteParsePreference> =
-        AtomicUtf8File.readOrNull(preferenceFile)
+        documents.read(preferenceFile)
             ?.let { json.decodeFromString<WebsiteParsePreferenceBundle>(it).items }
             ?: emptyList()
 
     private fun writeAll(items: List<WebsiteParsePreference>) {
-        AtomicUtf8File.write(
+        documents.write(
             preferenceFile,
             json.encodeToString(
                 WebsiteParsePreferenceBundle(items.sortedBy(WebsiteParsePreference::feedId))

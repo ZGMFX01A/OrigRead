@@ -18,7 +18,14 @@ import javax.inject.Singleton
 class SyncLocalBlobStore @Inject constructor(
     @ApplicationContext context: Context,
 ) {
+    private val verification = SyncBlobFileVerification()
     private val root = File(context.filesDir, "origread-sync/blobs-v1").apply { mkdirs() }
+
+    /** Blob 卷的持久存储代次；丢卷重新创建后旧回执不再描述当前存储。 */
+    val storageGeneration: String = File(root, ".storage-generation").let { marker ->
+        if (!marker.exists()) me.ash.reader.infrastructure.util.AtomicUtf8File.write(marker, java.util.UUID.randomUUID().toString())
+        marker.readText().trim().also { check(it.isNotBlank()) { "Blob storage generation is corrupted" } }
+    }
 
     @Synchronized
     fun putVerified(hash: String, bytes: ByteArray) {
@@ -26,14 +33,17 @@ class SyncLocalBlobStore @Inject constructor(
         require(sha256Hex(bytes) == hash) { "Blob bytes do not match declared hash" }
         val target = File(root, hash)
         if (target.isFile) {
-            if (target.length() == bytes.size.toLong() && sha256Hex(target) == hash) return
+            if (target.length() == bytes.size.toLong() && sha256Hex(target) == hash) {
+                SyncDurableFiles.sync(target); SyncDurableFiles.syncDirectory(root)
+                return
+            }
         }
         val temp = File(root, "$hash.tmp-${System.nanoTime()}")
         try {
             temp.writeBytes(bytes)
             require(sha256Hex(temp) == hash) { "Persisted Blob verification failed" }
-            if (target.exists() && !target.delete()) error("Unable to replace corrupt local Blob $hash")
-            check(temp.renameTo(target)) { "Unable to atomically install local Blob $hash" }
+            verification.invalidate(target)
+            SyncDurableFiles.publish(temp, target)
         } finally {
             if (temp.exists()) temp.delete()
         }
@@ -61,7 +71,7 @@ class SyncLocalBlobStore @Inject constructor(
 
     fun createStagingFile(hash: String): File {
         require(hash.matches(Regex("[a-f0-9]{64}"))) { "Blob hash must be SHA-256 hex" }
-        return File(root, "$hash.fetch-${System.nanoTime()}")
+        return File(root, "$hash.fetch")
     }
 
     fun getBlobFile(hash: String): File? {
@@ -69,9 +79,9 @@ class SyncLocalBlobStore @Inject constructor(
         return if (file.isFile) file else null
     }
 
-    fun verifyFile(hash: String, file: File = File(root, hash)): Boolean {
+    fun verifyFile(hash: String, file: File = File(root, hash), force: Boolean = false): Boolean {
         if (!hash.matches(Regex("[a-f0-9]{64}")) || !file.isFile) return false
-        return sha256Hex(file) == hash
+        return verification.verify(SyncBlobFileVerification.Input(hash, file, { sha256Hex(file) }, force))
     }
 
     fun hashFile(file: File): String {
@@ -90,16 +100,12 @@ class SyncLocalBlobStore @Inject constructor(
         require(sha256Hex(stagedFile) == hash) { "Staged Blob bytes do not match declared hash" }
         val target = File(root, hash)
         if (target.isFile && verifyFile(hash, target)) {
+            SyncDurableFiles.sync(target); SyncDurableFiles.syncDirectory(root)
             if (stagedFile.absolutePath != target.absolutePath) stagedFile.delete()
             return target.length()
         }
-        if (target.exists() && !target.delete()) error("Unable to replace corrupt local Blob $hash")
-        if (!stagedFile.renameTo(target)) {
-            stagedFile.inputStream().use { input ->
-                target.outputStream().use { output -> input.copyTo(output, DEFAULT_BUFFER_SIZE) }
-            }
-            stagedFile.delete()
-        }
+        verification.invalidate(target)
+        SyncDurableFiles.publish(stagedFile, target)
         require(sha256Hex(target) == hash) { "Persisted Blob verification failed" }
         return target.length()
     }
@@ -119,7 +125,11 @@ class SyncLocalBlobStore @Inject constructor(
     }
 
     @Synchronized
-    fun remove(hash: String): Boolean = !File(root, hash).exists() || File(root, hash).delete()
+    fun remove(hash: String): Boolean {
+        val file = File(root, hash)
+        verification.invalidate(file)
+        return !file.exists() || file.delete().also { if (it) SyncDurableFiles.syncDirectory(root) }
+    }
 
     private fun sha256Hex(bytes: ByteArray): String =
         MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }

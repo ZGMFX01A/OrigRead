@@ -1,14 +1,12 @@
 package me.ash.reader.ui.page.settings.sync
 
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
-import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -134,14 +132,18 @@ fun SyncSettingsPage(
     }
 
     fun checkLocalNetworkPermission(onGranted: () -> Unit) {
-        if (Build.VERSION.SDK_INT < 37 || context.applicationInfo.targetSdkVersion < 37) {
+        if (Build.VERSION.SDK_INT < 37) {
             onGranted()
             return
         }
         val permission = "android.permission.ACCESS_LOCAL_NETWORK"
-        val granted = ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+        val granted = androidx.core.content.PermissionChecker.checkSelfPermission(context, permission) ==
+            androidx.core.content.PermissionChecker.PERMISSION_GRANTED
         if (granted) {
             onGranted()
+        } else if (context.applicationInfo.targetSdkVersion < 37) {
+            // 旧 target 不申请新运行时权限；历史拒绝或用户撤销由系统设置恢复。
+            showPermissionRationaleDialog = true
         } else {
             pendingAction = onGranted
             permissionLauncher.launch(permission)
@@ -496,6 +498,8 @@ fun SyncSettingsPage(
                                         SyncStatusPhase.SYNCING_BLOBS -> "传输媒体"
                                         SyncStatusPhase.APPLYING -> "应用中"
                                         SyncStatusPhase.COMPLETED -> "已完成"
+                                        SyncStatusPhase.MORE_WORK -> "本轮已完成，仍有内容待同步"
+                                        SyncStatusPhase.AUTH_STABILITY_PENDING -> "等待 OWNER 确认稳定历史"
                                         SyncStatusPhase.FAILED -> "异常"
                                     },
                                     style = MaterialTheme.typography.labelMedium,

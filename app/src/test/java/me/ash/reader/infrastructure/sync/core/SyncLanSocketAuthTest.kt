@@ -45,6 +45,7 @@ class SyncLanSocketAuthTest {
         `when`(database.syncTrustedDeviceDao()).thenReturn(trustedDeviceDao)
         `when`(database.localConfigStateDao()).thenReturn(localConfigStateDao)
         runBlocking {
+            `when`(trustedDeviceDao.listTrustedForSyncBindings()).thenReturn(emptyList())
             `when`(authLedgerDao.list("space-lan-test")).thenReturn(emptyList())
             `when`(inboxDao.listCoverage("space-lan-test")).thenReturn(emptyList())
             `when`(runtimeDao.findDeviceIdentity()).thenReturn(

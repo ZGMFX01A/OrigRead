@@ -69,8 +69,12 @@ private data class ArticleFilterHistoryBundle(
 @Singleton
 class ArticleFilterRepository @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val database: AndroidDatabase? = null,
+    database: AndroidDatabase? = null,
 ) {
+    private val liveDatabase = database
+    // 冻结转换只读取当前 cut 的副本，普通业务调用继续访问自身数据库。
+    private val database get() = liveDatabase?.let { me.ash.reader.infrastructure.sync.core.SyncFrozenSourceContext.database(it) }
+
     private val json = Json {
         ignoreUnknownKeys = true
         prettyPrint = true
@@ -275,8 +279,9 @@ class ArticleFilterRepository @Inject constructor(
 
     private fun write(bundle: ArticleFilterRuleBundle) {
         val content = json.encodeToString(bundle)
-        if (database == null) ruleFile.writeText(content)
-        else database.openHelper.writableDatabase.execSQL(
+        val store = database
+        if (store == null) ruleFile.writeText(content)
+        else store.openHelper.writableDatabase.execSQL(
             "INSERT OR REPLACE INTO local_config_state (`key`,value) VALUES('article-filter.rules',?)", arrayOf(content))
     }
 

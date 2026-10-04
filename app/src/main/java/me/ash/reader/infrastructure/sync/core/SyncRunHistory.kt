@@ -6,6 +6,7 @@ import androidx.room.Index
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import kotlinx.coroutines.flow.Flow
 
 @Entity(
     tableName = "sync_run_history",
@@ -37,6 +38,10 @@ data class SyncRunHistoryEntity(
 
 @Dao
 interface SyncRunHistoryDao {
+    /** 仅在新进程开始运行前结束遗留 RUNNING 行，保留原阶段、计数和签名业务历史。 */
+    @Query("UPDATE sync_run_history SET status='FAILED', finishedAt=:now, errorCode=:code, errorMessage=:message WHERE status='RUNNING'")
+    suspend fun finishInterrupted(now: Long, code: String, message: String): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(value: SyncRunHistoryEntity)
 
@@ -62,6 +67,10 @@ interface SyncRunHistoryDao {
         """,
     )
     suspend fun listForSpace(syncSpaceId: String, limit: Int = 100): List<SyncRunHistoryEntity>
+
+    /** 持久任务每次阶段或结果变更都通知界面，后台同步也沿用同一个真实记录来源。 */
+    @Query("SELECT * FROM sync_run_history WHERE syncSpaceId = :syncSpaceId ORDER BY startedAt DESC, runId DESC LIMIT :limit")
+    fun observeForSpace(syncSpaceId: String, limit: Int): Flow<List<SyncRunHistoryEntity>>
 
     @Query(
         """

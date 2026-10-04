@@ -94,6 +94,11 @@ class AndroidSnapshotInstallService @Inject constructor(
     private val projectionExtensions: Set<@JvmSuppressWildcards SyncBusinessProjectionExtension> = emptySet(),
     private val businessApplier: AndroidSyncBusinessApplier? = null,
 ) {
+    @Inject lateinit var pagedInstaller: SyncPagedSnapshotInstaller
+
+    /** 已完整验证的分页索引直接进入安装，LAN 调用方不得还原旧整包。 */
+    suspend fun installPaged(options: SyncPagedSnapshotInstaller.Options): AndroidSnapshotInstallResult = pagedInstaller.install(options)
+
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val aliasResolver =
         AndroidSyncAliasResolver(database).withFeedDeleteCleanup { localFeedId ->
@@ -736,7 +741,7 @@ class AndroidSnapshotInstallService @Inject constructor(
                             )
                         }
                 val canonicalFeedKey =
-                    SyncCanonicalIdentity.feedKey(resolvedSourceType, feedSnapshot.url)
+                    SyncCanonicalIdentity.feedCandidateKey(resolvedSourceType, feedSnapshot.url)
 
                 val localFeedId = when {
                     existingMapping != null -> {
@@ -888,8 +893,8 @@ class AndroidSnapshotInstallService @Inject constructor(
                             "Article ${articleSnapshot.syncId} missing local feed ${articleSnapshot.feedSyncId}",
                         )
                 val canonicalArticleKey =
-                    SyncCanonicalIdentity.articleKey(
-                        SyncCanonicalIdentity.feedKey(
+                    SyncCanonicalIdentity.articleCandidateKey(
+                        SyncCanonicalIdentity.feedCandidateKey(
                             targetFeed.sourceType,
                             targetFeed.url,
                         ),

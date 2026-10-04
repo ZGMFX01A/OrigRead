@@ -46,6 +46,7 @@ internal fun pairingCancelTransition(status: String, expiresAt: Long, now: Long)
 @Serializable
 data class ActivePairingSession(
     val sessionId: String,
+    val localAccountId: Int,
     val syncSpaceId: String,
     val role: String, // "INITIATOR" or "RESPONDER"
     val remoteDeviceId: String,
@@ -84,6 +85,7 @@ class AndroidSyncPairingCoordinator @Inject constructor(
     private val remoteApply: SyncRemoteApplyCoordinator,
     private val lanListenerLazy: dagger.Lazy<AndroidSyncLanSocketListener>,
     private val networkMonitor: LanNetworkMonitor,
+    private val accountBinding: SyncPairingAccountBinding,
 ) {
     private val json = Json { encodeDefaults = true; ignoreUnknownKeys = true }
     private val sessions = ConcurrentHashMap<String, ActivePairingSession>()
@@ -119,7 +121,7 @@ class AndroidSyncPairingCoordinator @Inject constructor(
             "Pairing request expired: clock skew too large"
         }
 
-        val binding = database.syncRuntimeDao().findActiveBinding()
+        val binding = accountBinding.current()
         val localDevice = database.syncRuntimeDao().findDeviceIdentity()
         requireNotNull(binding) { "No active Sync Space binding" }
         requireNotNull(localDevice) { "Sync Device Identity is not initialized" }
@@ -205,6 +207,7 @@ class AndroidSyncPairingCoordinator @Inject constructor(
 
         val session = ActivePairingSession(
             sessionId = sessionId,
+            localAccountId = binding.localAccountId,
             syncSpaceId = targetSyncSpaceId,
             role = "RESPONDER",
             remoteDeviceId = request.initiatorDeviceId,
@@ -412,9 +415,7 @@ class AndroidSyncPairingCoordinator @Inject constructor(
      * 本机作为 Initiator 发起对目标主机的配对握手。
      */
     suspend fun initiatePairing(targetHost: String, targetPort: Int): ActivePairingSession = withContext(Dispatchers.IO) {
-        val binding = requireNotNull(database.syncRuntimeDao().findActiveBinding()) {
-            "No active Sync Space binding"
-        }
+        val binding = accountBinding.current()
         val localDevice = requireNotNull(database.syncRuntimeDao().findDeviceIdentity()) {
             "Sync Device Identity is not initialized"
         }
@@ -533,6 +534,7 @@ class AndroidSyncPairingCoordinator @Inject constructor(
 
         val session = ActivePairingSession(
             sessionId = startResp.sessionId,
+            localAccountId = binding.localAccountId,
             syncSpaceId = startResp.syncSpaceId,
             role = "INITIATOR",
             remoteDeviceId = startResp.responderDeviceId,
@@ -562,6 +564,7 @@ class AndroidSyncPairingCoordinator @Inject constructor(
         pairingStateMutex.lock()
         val session = try {
             val current = sessions[sessionId] ?: error("Pairing session not found")
+            accountBinding.forSession(current.localAccountId)
             val now = System.currentTimeMillis()
             if (current.expiresAt <= now) {
                 sessions[sessionId] = current.copy(status = "EXPIRED", failureMessage = "Pairing session has expired")
@@ -938,9 +941,11 @@ class AndroidSyncPairingCoordinator @Inject constructor(
             "Sync Device Identity is not initialized"
         }
 
-        // 修复 C05: 采用数据库事务原子包裹所有落盘操作与 OWNER 授权，任意失败全部回滚
-        database.withTransaction {
+        // 先取投影锁再进入 Reader 事务，配对带回的撤销/epoch 切换不能与分页安装交错。
+        database.syncProjectionMutex.withLock { database.withTransaction {
             check(session.expiresAt > System.currentTimeMillis()) { "Pairing session expired before durable commit" }
+            val currentBinding = accountBinding.forSession(session.localAccountId)
+            accountBinding.validateTarget(session.localAccountId, session.syncSpaceId)
             if (remoteAuthObjects.isNotEmpty()) {
                 authLedgerService.appendAuthObjects(
                     syncSpaceId = session.syncSpaceId,
@@ -954,12 +959,15 @@ class AndroidSyncPairingCoordinator @Inject constructor(
                 )
             }
             // 空间切换与对齐支持 (修复 B05, U02, C06)
-            val currentBinding = requireNotNull(database.syncRuntimeDao().findActiveBinding()) {
-                "No active Sync Space binding is available for pairing"
-            }
             if (currentBinding.syncSpaceId != session.syncSpaceId) {
-                val updatedBinding = currentBinding.copy(syncSpaceId = session.syncSpaceId)
+                // 目标空间基线必须重新捕获；持久化游标使进程中断后首次同步仍会恢复。
+                val updatedBinding = currentBinding.copy(syncSpaceId = session.syncSpaceId,
+                    genesisSessionId = "join-${session.sessionId}", updatedAt = now)
                 database.syncRuntimeDao().upsertBinding(updatedBinding)
+                // 旧空间端点保留配置但停止调度，入组后不能继续按旧绑定运行或永久拖累重连退避。
+                database.syncEndpointDao().listEnabled().filter { it.syncSpaceId == currentBinding.syncSpaceId }.forEach {
+                    database.syncEndpointDao().upsert(it.copy(enabled = false, updatedAt = now))
+                }
             }
 
             // 确保本地在目标空间下的 Actor 已初始化 (B05, C06)
@@ -1004,7 +1012,7 @@ class AndroidSyncPairingCoordinator @Inject constructor(
                 )
                 endpointRegistry.save(endpointConfig, now)
             }
-        }
+        } }
 
         // 只有外层事务提交后才发布 AUTH 与 Peer 内存状态，数据库回滚不得留下缓存授权。
         authLedgerService.refreshPeerAuthorizationCache(session.syncSpaceId)

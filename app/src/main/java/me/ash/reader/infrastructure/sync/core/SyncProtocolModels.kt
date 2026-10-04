@@ -76,8 +76,14 @@ data class SyncPeerCapabilities(
     val maxBlobChunkBytes: Int = 1_048_576,
     val supportsRangeResume: Boolean = true,
     val streamingSnapshots: Boolean = false,
+    /** LAN 使用内部兼容号及分页契约，应用显示版本可以独立变化。 */
+    val pagedSnapshots: Boolean = false,
+    /** 支持短请求受理、持久化状态和真实执行器取消回执。 */
+    val snapshotCommitJobsV1: Boolean = false,
     val blobRangeRequests: Boolean = false,
     val authStabilityCheckpoints: Boolean = false,
+    val blobUploadReservations: Boolean = false,
+    val syncCompatibilityVersion: Int? = null,
 )
 
 @Serializable
@@ -295,6 +301,8 @@ data class SyncBlobPersistedAckWire(
     val replicaId: String,
     val totalBytes: Long,
     val persistedAt: Long,
+    val storageGeneration: String? = null,
+    val custodyState: String? = null,
 )
 
 interface SyncEndpointSession {
@@ -328,6 +336,27 @@ interface SyncEndpointSession {
     suspend fun commitSnapshotStream(snapshotBundleId: String) {
         throw UnsupportedOperationException("Snapshot streaming is not supported by this endpoint")
     }
+    /** LAN 按页面传输固定视图，旧非 LAN 端点必须明确声明是否支持此契约。 */
+    suspend fun getLatestPagedSnapshot(snapshotClass: String? = null, lanes: List<String> = emptyList()): SyncPagedSnapshotManifest? =
+        throw UnsupportedOperationException("Paged Snapshot is not supported by this endpoint")
+    /** 逐页读取原始字节，完整记录由持久化索引恢复。 */
+    suspend fun fetchSnapshotPage(snapshotBundleId: String, lane: String, pageIndex: Int): SyncSnapshotBytePage =
+        throw UnsupportedOperationException("Paged Snapshot is not supported by this endpoint")
+    /** 作者签名的页面清单先于业务页面提交。 */
+    suspend fun pushPagedSnapshotManifest(manifest: SyncPagedSnapshotManifest) {
+        throw UnsupportedOperationException("Paged Snapshot is not supported by this endpoint")
+    }
+    /** 页面不使用普通 Blob 预约或暂存配额。 */
+    suspend fun pushSnapshotPage(snapshotBundleId: String, page: SyncSnapshotBytePage) {
+        throw UnsupportedOperationException("Paged Snapshot is not supported by this endpoint")
+    }
+    /** 全部页面验证成功后才允许安装。 */
+    suspend fun commitPagedSnapshot(snapshotBundleId: String) {
+        throw UnsupportedOperationException("Paged Snapshot is not supported by this endpoint")
+    }
+    /** 断线后询问持久化页号；清单 root 必须和本次发送的固定视图一致。 */
+    suspend fun getSnapshotPageStatus(snapshotBundleId: String): SyncSnapshotPageStatus =
+        throw UnsupportedOperationException("Paged Snapshot is not supported by this endpoint")
     suspend fun acceptRecoverySnapshot(
         snapshotBundleId: String,
         acceptance: SyncAuthProtocolObject,
@@ -335,6 +364,9 @@ interface SyncEndpointSession {
         throw UnsupportedOperationException("Recovery Snapshot acceptance is not supported by this endpoint")
     }
     suspend fun getBlobStatus(hash: String): SyncBlobStatusWire? = null
+    suspend fun reserveBlobUpload(reservation: SyncBlobUploadReservationWire) {
+        throw UnsupportedOperationException("Blob upload reservation is not supported by this endpoint")
+    }
     suspend fun fetchBlob(hash: String, offset: Long = 0, length: Long? = null): SyncBlobChunkWire
     suspend fun pushBlob(chunk: SyncBlobChunkWire): SyncBlobPersistedAckWire?
     suspend fun acknowledgeReceived(received: SyncCoverage, rejectedDigests: List<String> = emptyList())

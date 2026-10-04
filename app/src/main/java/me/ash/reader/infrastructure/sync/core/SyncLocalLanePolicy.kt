@@ -7,6 +7,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import me.ash.reader.infrastructure.db.AndroidDatabase
 import me.ash.reader.infrastructure.db.LocalConfigStateEntity
+import kotlinx.coroutines.sync.withLock
 
 /** Device-local, Space-scoped preferences; never replicated as another peer's policy. */
 @Singleton
@@ -20,8 +21,7 @@ class SyncLocalLanePolicy @Inject constructor(private val database: AndroidDatab
 
     suspend fun read(syncSpaceId: String): Map<String, String> =
         database.localConfigStateDao().read(key(syncSpaceId))?.let {
-            runCatching { Json.decodeFromString<Map<String, String>>(it) }
-                .getOrDefault(emptyMap())
+            Json.decodeFromString<Map<String, String>>(it)
                 .filter { (lane, policy) ->
                     SyncReplicationLane.entries.any { it.wireName == lane } &&
                         policy in supportedPolicies &&
@@ -34,9 +34,12 @@ class SyncLocalLanePolicy @Inject constructor(private val database: AndroidDatab
         require(lane.wireName !in requiredCoreLanes || policy == "ENABLED") {
             "${lane.wireName} is a required Sync core lane and cannot be disabled by local policy"
         }
-        database.withTransaction {
-            database.localConfigStateDao().write(LocalConfigStateEntity(key(syncSpaceId),
-                Json.encodeToString(read(syncSpaceId) + (lane.wireName to policy))))
+        // 政策切换与当前引用补齐共用短投影屏障，不能在 Chat 提交期间改变许可。
+        database.syncProjectionMutex.withLock {
+            database.withTransaction {
+                database.localConfigStateDao().write(LocalConfigStateEntity(key(syncSpaceId),
+                    Json.encodeToString(read(syncSpaceId) + (lane.wireName to policy))))
+            }
         }
     }
 

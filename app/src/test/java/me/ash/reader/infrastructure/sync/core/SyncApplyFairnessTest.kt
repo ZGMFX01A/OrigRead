@@ -1,6 +1,7 @@
 package me.ash.reader.infrastructure.sync.core
 
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
 import me.ash.reader.infrastructure.db.AndroidDatabase
 import org.junit.Test
 import org.mockito.kotlin.*
@@ -10,6 +11,9 @@ class SyncApplyFairnessTest {
         val db: AndroidDatabase = mock()
         val inbox: SyncInboxDao = mock()
         val operations: SyncOperationDao = mock()
+        whenever(db.syncProjectionMutex).thenReturn(Mutex())
+        stubEmptySyncSql(db)
+        whenever(db.syncIntegrityDao()).thenReturn(mock())
         whenever(db.syncInboxDao()).thenReturn(inbox)
         whenever(db.syncOperationDao()).thenReturn(operations)
         val rows = listOf(

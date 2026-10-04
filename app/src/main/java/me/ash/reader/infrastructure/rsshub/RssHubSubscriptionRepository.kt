@@ -1,6 +1,9 @@
 package me.ash.reader.infrastructure.rsshub
 
 import android.content.Context
+import android.content.SharedPreferences
+import me.ash.reader.infrastructure.db.AndroidDatabase
+import me.ash.reader.infrastructure.db.SyncConfigPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -19,12 +22,18 @@ data class RssHubSubscriptionDescriptor(
  * Feed.url 仍保存本轮实际抓取地址；routePath 才是跨实例稳定的订阅身份。
  */
 @Singleton
-class RssHubSubscriptionRepository @Inject constructor(
-    @ApplicationContext context: Context,
+class RssHubSubscriptionRepository private constructor(
     private val settingsRepository: RssHubSettingsRepository,
+    private val preferences: SharedPreferences,
 ) {
-    private val preferences =
-        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+    /** 描述与来源输入同库提交，外部偏好文件不再是同步真源。 */
+    @Inject constructor(@ApplicationContext context: Context, settings: RssHubSettingsRepository, database: AndroidDatabase) : this(settings,
+        SyncConfigPreferences(SyncConfigPreferences.Options(database,
+            context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE), PREFERENCES_NAME,
+            { it.startsWith(KEY_PREFIX) || it.startsWith(DESCRIPTOR_PREFIX) })))
+
+    constructor(context: Context, settings: RssHubSettingsRepository) : this(settings,
+        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE))
 
     fun record(feedId: String, sourceUrl: String) {
         val normalized = sourceUrl.trim()

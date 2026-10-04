@@ -1509,4 +1509,6 @@
     <string name="rsshub_unsupported_format_notice">This RSSHub response uses an unsupported format, such as JSON. Use RSS or Atom output, for example format=rss.</string>
     <string name="rsshub_auth_instance_notice">This RSSHub route contains an access key or code. Enter the full HTTP/HTTPS address of its instance to keep credentials private.</string>
     <string name="rsshub_bound_instance_disabled_notice">The instance for this authenticated RSSHub subscription has been disabled or removed. Enable that instance to resume automatic recovery.</string>
+    <string name="sync_snapshot_installing">Installing synchronized data. Display resumes when complete.</string>
+    <string name="sync_snapshot_status_recovery">Sync status and recovery</string>
 </resources>

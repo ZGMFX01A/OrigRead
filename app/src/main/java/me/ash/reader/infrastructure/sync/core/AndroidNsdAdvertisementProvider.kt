@@ -13,6 +13,9 @@ import kotlin.coroutines.resume
 class AndroidNsdAdvertisementProvider(context: Context) {
     private val nsdManager = context.applicationContext.getSystemService(NsdManager::class.java)
     private var registrationListener: NsdManager.RegistrationListener? = null
+    /** 当前广播的临时标识，仅用于从附近设备列表排除本机。 */
+    var discoveryId: String? = null
+        private set
 
     suspend fun register(
         port: Int,
@@ -27,6 +30,7 @@ class AndroidNsdAdvertisementProvider(context: Context) {
         unregister()
         // 遵循 B23 规范：局域网广播仅广播匿名随机临时 discoveryId，不泄露稳定持久 deviceId 或 spaceId
         val randomDiscoveryId = "and-" + java.util.UUID.randomUUID().toString().replace("-", "").take(12)
+        discoveryId = randomDiscoveryId
         val genericName = "OrigRead Android"
         return suspendCancellableCoroutine { continuation ->
             val serviceInfo =
@@ -44,6 +48,8 @@ class AndroidNsdAdvertisementProvider(context: Context) {
                 }
 
                 override fun onRegistrationFailed(info: NsdServiceInfo, errorCode: Int) {
+                    // 保留系统错误码，区分权限、接口不可用与服务注册冲突。
+                    android.util.Log.e("OrigReadSync", "NSD registration failed: $errorCode")
                     if (registrationListener === this) registrationListener = null
                     if (continuation.isActive) continuation.resume(false)
                 }
@@ -56,10 +62,14 @@ class AndroidNsdAdvertisementProvider(context: Context) {
             registrationListener = listener
             try {
                 nsdManager.registerService(serviceInfo, NsdManager.PROTOCOL_DNS_SD, listener)
-            } catch (_: SecurityException) {
+            } catch (failure: SecurityException) {
+                // 权限失败必须保留原始原因，不能只留下笼统的注册失败提示。
+                android.util.Log.e("OrigReadSync", "NSD registration permission failure", failure)
                 registrationListener = null
                 if (continuation.isActive) continuation.resume(false)
-            } catch (_: Throwable) {
+            } catch (failure: Throwable) {
+                // 系统 API 拒绝参数或注册异常时记录完整堆栈，调用方仍收到失败。
+                android.util.Log.e("OrigReadSync", "NSD registration failure", failure)
                 registrationListener = null
                 if (continuation.isActive) continuation.resume(false)
             }
@@ -73,6 +83,7 @@ class AndroidNsdAdvertisementProvider(context: Context) {
     }
 
     fun unregister() {
+        discoveryId = null
         registrationListener?.let { listener ->
             runCatching { nsdManager.unregisterService(listener) }
         }

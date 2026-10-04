@@ -337,6 +337,8 @@ class AndroidSnapshotInstallServiceTest {
                 `when`(syncInboxDao.listTombstones(syncSpaceId)).thenReturn(emptyList())
                 `when`(syncAliasDao.listEdges(syncSpaceId)).thenReturn(emptyList())
                 `when`(filterRepo.exportRules()).thenReturn("{\"schemaVersion\":1,\"rules\":[]}")
+                `when`(rssHubSettingsRepo.current()).thenReturn(
+                    me.ash.reader.infrastructure.rsshub.RssHubSettings(instances = emptyList()))
                 `when`(
                     syncIdentityMappingDao.findBySyncId(
                         org.mockito.kotlin.eq(syncSpaceId),
@@ -424,6 +426,9 @@ class AndroidSnapshotInstallServiceTest {
                 }.`when`(syncInboxDao).upsertFieldCandidate(org.mockito.kotlin.any())
 
                 `when`(syncGenesisDao.listRecoveryCapsules(syncSpaceId)).thenAnswer { insertedRecoveryCapsules.toList() }
+                `when`(syncGenesisDao.findRecoveryCapsule(org.mockito.kotlin.eq(syncSpaceId), org.mockito.kotlin.any())).thenAnswer { call ->
+                    insertedRecoveryCapsules.firstOrNull { it.capsuleId == call.getArgument<String>(1) }
+                }
                 org.mockito.Mockito.doAnswer { invocation ->
                     val capsule = invocation.getArgument<SyncRecoveryCapsuleEntity>(0)
                     insertedRecoveryCapsules.removeAll { it.capsuleId == capsule.capsuleId }

@@ -14,10 +14,11 @@ import kotlinx.serialization.json.JsonNull
 object SyncOperationCanonicalizer {
     private val json = Json
 
+    /** 协议摘要固定为小写十六进制；直接编码字节，避免每个摘要创建 32 个格式解析器。 */
     fun sha256Hex(value: String): String =
         MessageDigest.getInstance("SHA-256")
             .digest(value.toByteArray(Charsets.UTF_8))
-            .joinToString("") { byte -> "%02x".format(byte) }
+            .toHexString()
 
     /**
      * Deterministic JSON used by payload hashes and signing material.
@@ -25,6 +26,9 @@ object SyncOperationCanonicalizer {
      */
     fun canonicalJson(value: String): String =
         canonicalize(json.parseToJsonElement(value))
+
+    /** 已解码值直接规范编码，来源片段输出不再制造 stringify/parse 的完整副本。 */
+    internal fun canonicalValue(value: JsonElement): String = canonicalize(value)
 
     fun signingDigest(operation: SyncOperationEntity): String =
         sha256Hex(signingMaterial(operation))
@@ -123,6 +127,12 @@ object SyncOperationCanonicalizer {
     private fun canonicalNumber(raw: String): String {
         val value = raw.toDouble()
         require(value.isFinite()) { "Non-finite number is not valid canonical JSON" }
+        // binary64 安全整数位于 ECMAScript 固定十进制区间；无需搜索有效位数。
+        // 只优化可精确表示的整数，不能将普通小数或大整数静默取整。
+        if (kotlin.math.abs(value) <= 9_007_199_254_740_991.0) {
+            val integer = value.toLong()
+            if (integer.toDouble() == value) return integer.toString()
+        }
         if (value == 0.0) return "0"
         val exact = BigDecimal(value)
         val shortest = (1..17).firstNotNullOf { precision ->

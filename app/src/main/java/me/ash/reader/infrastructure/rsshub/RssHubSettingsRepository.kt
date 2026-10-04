@@ -1,15 +1,20 @@
 package me.ash.reader.infrastructure.rsshub
 
 import android.content.Context
+import android.content.SharedPreferences
+import me.ash.reader.infrastructure.db.AndroidDatabase
+import me.ash.reader.infrastructure.db.SyncConfigPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.Serializable
 import org.json.JSONArray
 import org.json.JSONObject
 
+@Serializable
 data class RssHubInstance(
     val id: String,
     val url: String,
@@ -19,6 +24,7 @@ data class RssHubInstance(
     val builtIn: Boolean = true,
 )
 
+@Serializable
 data class RssHubSettings(
     val enabled: Boolean = true,
     val instances: List<RssHubInstance> = RssHubSettingsRepository.defaultInstances(),
@@ -26,18 +32,25 @@ data class RssHubSettings(
 
 /** 保存 RSSHub 总开关和实例列表，供设置页与来源发现流程共享。 */
 @Singleton
-class RssHubSettingsRepository @Inject constructor(
-    @ApplicationContext context: Context,
+class RssHubSettingsRepository private constructor(
+    context: Context,
+    private val preferences: SharedPreferences,
 ) {
-    private val preferences =
-        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+    /** 生产同步值与 Outbox 同库；旧文件只在初始化时迁移。 */
+    @Inject constructor(@ApplicationContext context: Context, database: AndroidDatabase) : this(context,
+        SyncConfigPreferences(SyncConfigPreferences.Options(database,
+            context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE), PREFERENCES_NAME,
+            { it in setOf(KEY_ENABLED, KEY_INSTANCES, KEY_LEGACY_INSTANCE_URL) })))
+
+    /** 独立文件工具/旧调用显式使用原存储，生产由 Hilt 选择 SQLite 构造。 */
+    constructor(context: Context) : this(context, context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE))
 
     private val bundledInstances = loadBundledInstances(context).ifEmpty(::defaultInstances)
 
     private val _settings = MutableStateFlow(readSettings())
     val settings: StateFlow<RssHubSettings> = _settings.asStateFlow()
 
-    fun current(): RssHubSettings = _settings.value
+    fun current(): RssHubSettings = readSettings()
 
     /**
      * Remote Sync materialization path. Network success/cooldown history stays device-local and is

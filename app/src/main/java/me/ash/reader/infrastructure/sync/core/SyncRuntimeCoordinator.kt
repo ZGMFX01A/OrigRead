@@ -4,8 +4,8 @@ import androidx.room.withTransaction
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.jsonPrimitive
 import me.ash.reader.domain.model.account.AccountType
 import me.ash.reader.infrastructure.db.AndroidDatabase
 import me.ash.reader.infrastructure.sync.identity.SyncIdentityBackfillSupport
@@ -28,7 +28,9 @@ class SyncRuntimeCoordinator @Inject constructor(
     private val database: AndroidDatabase,
     private val witnessStore: SyncRollbackWitnessStore,
 ) {
-    private val mutex = Mutex()
+    @Inject lateinit var pagedSnapshotStore: SyncPagedSnapshotStore
+    @Inject lateinit var snapshotOwners: SyncSnapshotSpaceOwner
+    private val mutex get() = database.syncProjectionMutex
 
     suspend fun prepareSpace(
         localAccountId: Int,
@@ -44,11 +46,14 @@ class SyncRuntimeCoordinator @Inject constructor(
                     "Local account $localAccountId is already bound to another Sync Space"
                 }
                 SyncIdentityBackfillSupport.ensureSpace(database.syncSpaceDao(), effectiveSyncSpaceId, now)
+                // 旧空间准备失败后仍应捕获本地意图，不能提前降为无 Outbox 的 PREPARING。
+                val lifecycle = existing?.let { SyncSpaceLifecycleState.valueOf(it.lifecycleState) }
+                    ?: SyncSpaceLifecycleState.PREPARING
                 database.syncRuntimeDao().upsertBinding(
                     SyncLocalSpaceBindingEntity(
                         localAccountId = localAccountId,
                         syncSpaceId = effectiveSyncSpaceId,
-                        lifecycleState = SyncSpaceLifecycleState.PREPARING.name,
+                        lifecycleState = lifecycle.name,
                         genesisSessionId = existing?.genesisSessionId,
                         createdAt = existing?.createdAt ?: now,
                         updatedAt = now,
@@ -57,7 +62,7 @@ class SyncRuntimeCoordinator @Inject constructor(
                 ensureWritableActorLocked(
                     localAccountId,
                     effectiveSyncSpaceId,
-                    SyncSpaceLifecycleState.PREPARING,
+                    lifecycle,
                     now,
                 )
             }
@@ -90,7 +95,13 @@ class SyncRuntimeCoordinator @Inject constructor(
                 )
                 database.syncGenesisDao().upsertSession(
                     existing?.copy(
-                        state = if (existing.state == SyncGenesisStage.FAILED.name) SyncGenesisStage.CAPTURING.name else existing.state,
+                        state = if (existing.state == SyncGenesisStage.FAILED.name && existing.snapshotBundleId != null)
+                            SyncGenesisStage.SNAPSHOT_BUILT.name else if (existing.state == SyncGenesisStage.FAILED.name)
+                            SyncGenesisStage.CAPTURING.name else existing.state,
+                        // 尚未发布的失败捕获不能继续使用旧 cut 覆盖后来出现的 mutation。
+                        crossDbCutId = if (mustRecapture(existing)) null else existing.crossDbCutId,
+                        cutFrontierJson = if (mustRecapture(existing)) null else existing.cutFrontierJson,
+                        capturedAt = if (mustRecapture(existing)) null else existing.capturedAt,
                         failureReason = null,
                         updatedAt = now,
                     )
@@ -106,6 +117,11 @@ class SyncRuntimeCoordinator @Inject constructor(
                 context
             }
         }
+
+    /** 私有完整页可以补写 Reader 发布；只有没有完整页且没有已发布 bundle 的失败才重新取 cut。 */
+    private fun mustRecapture(session: SyncGenesisSessionEntity): Boolean =
+        session.state == SyncGenesisStage.FAILED.name && session.snapshotBundleId == null &&
+            pagedSnapshotStore.find("genesis:paged:${session.genesisBaselineId}")?.state !in setOf("FROZEN", "VERIFIED")
 
     suspend fun markActive(
         localAccountId: Int,
@@ -126,6 +142,7 @@ class SyncRuntimeCoordinator @Inject constructor(
         }
 
     suspend fun pause(localAccountId: Int, now: Long = System.currentTimeMillis()) {
+        database.syncRuntimeDao().findBinding(localAccountId)?.let { snapshotOwners.requestCancel(it.syncSpaceId) }
         mutex.withLock {
             database.withTransaction {
                 val binding = checkNotNull(database.syncRuntimeDao().findBinding(localAccountId))
@@ -208,7 +225,8 @@ class SyncRuntimeCoordinator @Inject constructor(
                 val binding = database.syncRuntimeDao().findBinding(localAccountId) ?: return@withTransaction null
                 val state = runCatching { SyncSpaceLifecycleState.valueOf(binding.lifecycleState) }.getOrNull()
                     ?: return@withTransaction null
-                if (state !in setOf(SyncSpaceLifecycleState.GENESIS_CAPTURING, SyncSpaceLifecycleState.REBASE_PREPARE, SyncSpaceLifecycleState.STAGING, SyncSpaceLifecycleState.ACTIVE)) {
+                check(state != SyncSpaceLifecycleState.REBASE_PREPARE) { "SYNC_INSTALLING_RETRYABLE: Snapshot installation is in progress" }
+                if (state !in setOf(SyncSpaceLifecycleState.GENESIS_CAPTURING, SyncSpaceLifecycleState.STAGING, SyncSpaceLifecycleState.ACTIVE)) {
                     return@withTransaction null
                 }
                 ensureWritableActorLocked(localAccountId, binding.syncSpaceId, state, now)
@@ -223,19 +241,23 @@ class SyncRuntimeCoordinator @Inject constructor(
     suspend fun <T> withLocalMutation(
         localAccountId: Int,
         block: suspend (SyncWritableActorContext?) -> T,
-    ): T =
-        mutex.withLock {
+    ): T {
+        // 在等待投影屏障之前读取持久 fence，安装中的用户写入立即返回可重试错误。
+        check(database.syncRuntimeDao().findBinding(localAccountId)?.lifecycleState != SyncSpaceLifecycleState.REBASE_PREPARE.name) {
+            "SYNC_INSTALLING_RETRYABLE: Snapshot installation is in progress"
+        }
+        return mutex.withLock {
             val context =
                 database.withTransaction {
                     if (!isPhaseALocalAccount(localAccountId)) return@withTransaction null
                     val binding = database.syncRuntimeDao().findBinding(localAccountId) ?: return@withTransaction null
                     val state = runCatching { SyncSpaceLifecycleState.valueOf(binding.lifecycleState) }.getOrNull()
                         ?: return@withTransaction null
+                    check(state != SyncSpaceLifecycleState.REBASE_PREPARE) { "SYNC_INSTALLING_RETRYABLE: Snapshot installation is in progress" }
                     if (
                         state !in
                             setOf(
                                 SyncSpaceLifecycleState.GENESIS_CAPTURING,
-                                SyncSpaceLifecycleState.REBASE_PREPARE,
                                 SyncSpaceLifecycleState.STAGING,
                                 SyncSpaceLifecycleState.ACTIVE,
                             )
@@ -246,6 +268,7 @@ class SyncRuntimeCoordinator @Inject constructor(
                 }
             block(context)
         }
+    }
 
     /** Capture the durable per-lane Genesis cut. Repeating the call returns the original cut. */
     suspend fun captureGenesisCut(
@@ -323,11 +346,18 @@ class SyncRuntimeCoordinator @Inject constructor(
                         state = SyncGenesisStage.CUT_CAPTURED.name,
                         crossDbCutId = cut.crossDbCutId,
                         cutFrontierJson = SyncGenesisCodec.encodeFrontiers(cut.laneFrontiers),
+                        capturedAt = cut.capturedAt,
                         updatedAt = now,
                     )
                 )
                 cut
         }
+
+    /** 入口短核对绑定；持久围栏控制整个安装的可见性，长任务不占住政策和正文到达屏障。 */
+    suspend fun <T> withSnapshotInstallBarrier(localAccountId: Int, block: suspend (SyncLocalSpaceBindingEntity) -> T): T {
+        val binding = mutex.withLock { checkNotNull(database.syncRuntimeDao().findBinding(localAccountId)) }
+        return block(binding)
+    }
 
     /** Run a snapshot/cutover step while captured local mutation paths are paused. */
     suspend fun <T> withGenesisBarrier(
@@ -433,20 +463,30 @@ class SyncRuntimeCoordinator @Inject constructor(
         }
     }
 
+    /** 正式分页会话读取已经发布或安装的基线观察，不能把接收中的私有页算作知识。 */
+    suspend fun observedGenesisBaselines(syncSpaceId: String): Map<String, List<String>> =
+        mutex.withLock { observedGenesisBaselinesLocked(syncSpaceId) }
+
     private suspend fun observedGenesisBaselinesLocked(syncSpaceId: String): Map<String, List<String>> {
-        val session = database.syncGenesisDao().findLatestSession(syncSpaceId) ?: return emptyMap()
-        if (session.state !in setOf(
-                SyncGenesisStage.SNAPSHOT_BUILT.name,
-                SyncGenesisStage.TAIL_REPLAY.name,
-                SyncGenesisStage.ACTIVE.name,
-            )
-        ) {
-            return emptyMap()
+        val observed = linkedMapOf<String, MutableSet<String>>()
+        val session = database.syncGenesisDao().findLatestSession(syncSpaceId)
+        if (session?.state in setOf(SyncGenesisStage.SNAPSHOT_BUILT.name, SyncGenesisStage.TAIL_REPLAY.name, SyncGenesisStage.ACTIVE.name)) {
+            for (lane in GENESIS_BASELINE_LANES) observed.getOrPut(lane.wireName) { linkedSetOf() }.add(requireNotNull(session).genesisBaselineId)
         }
-        return GENESIS_BASELINE_LANES.associate { lane ->
-            lane.wireName to listOf(session.genesisBaselineId)
+        // 只读取 Reader 已发布的分页 bundle；私有接收索引尚未安装时不能抬高本机因果观察。
+        for (bundle in database.syncGenesisDao().listPagedBundleIds(syncSpaceId, PAGED_SNAPSHOT_FORMAT)) {
+            for ((lane, baselines) in pagedObservations(bundle)) observed.getOrPut(lane) { linkedSetOf() }.addAll(baselines)
         }
+        return observed.mapValues { (_, baselines) -> baselines.sorted() }
     }
+
+    /** GENESIS 记录是轻量基线身份；候选正文与页面编号不参与因果观察。 */
+    private fun pagedObservations(bundleId: String): Map<String, List<String>> =
+        GENESIS_BASELINE_LANES.associate { lane ->
+            val records = pagedSnapshotStore.records(SyncPagedSnapshotStore.RecordFilter(bundleId = bundleId,
+                lane = lane.wireName, kind = "GENESIS"))
+            lane.wireName to records.map { it.value.getValue("genesisBaselineId").jsonPrimitive.content }.distinct().toList()
+        }
 
     private fun SyncGenesisSessionEntity.toGenesisCut(): SyncGenesisCut =
         SyncGenesisCut(
@@ -454,7 +494,7 @@ class SyncRuntimeCoordinator @Inject constructor(
             genesisSessionId = genesisSessionId,
             genesisBaselineId = genesisBaselineId,
             crossDbCutId = checkNotNull(crossDbCutId),
-            capturedAt = updatedAt,
+            capturedAt = checkNotNull(capturedAt) { "SNAPSHOT_CUT_TIME_MISSING: original capture time is required" },
             laneFrontiers = SyncGenesisCodec.decodeFrontiers(checkNotNull(cutFrontierJson)),
         )
 

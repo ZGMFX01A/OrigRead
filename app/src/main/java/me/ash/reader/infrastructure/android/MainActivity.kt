@@ -59,6 +59,7 @@ class MainActivity : AppCompatActivity() {
     @Inject lateinit var workManager: WorkManager
 
     @Inject lateinit var filterUseCase: FilterStateUseCase
+    @Inject lateinit var snapshotVisibility: me.ash.reader.infrastructure.sync.core.SyncSnapshotVisibility
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -139,7 +140,11 @@ class MainActivity : AppCompatActivity() {
                             val backStack = rememberNavBackStack(*startDestination.toTypedArray())
 
                             NewIntentHandlerEffect(backStack, subscribeViewModel)
-                            AppEntry(backStack)
+                            me.ash.reader.ui.page.nav3.SnapshotInstallVisibility(
+                                me.ash.reader.ui.page.nav3.SnapshotVisibilityOptions(accountService, snapshotVisibility,
+                                    backStack.lastOrNull() == Route.SyncSettings, { backStack.add(Route.SyncSettings) })) {
+                                AppEntry(backStack)
+                            }
                         }
                     }
                 }

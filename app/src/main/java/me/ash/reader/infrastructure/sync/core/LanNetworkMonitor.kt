@@ -2,13 +2,12 @@ package me.ash.reader.infrastructure.sync.core
 
 import android.app.ActivityManager
 import android.content.Context
-import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
-import androidx.core.content.ContextCompat
+import androidx.core.content.PermissionChecker
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -108,18 +107,19 @@ class LanNetworkMonitor @Inject constructor(
 
     /**
      * 检查当前应用是否拥有局域网访问权限。
-     * 遵循官方规范：ACCESS_LOCAL_NETWORK 仅在 Android 17 (API 37)+ 且 targetSdk >= 37 时强制作为运行时权限生效。
-     * 低于 API 37 或 targetSdk < 37 的系统上直接视为具备权限，防止旧系统误判 DENIED 阻断局域网同步。
+     * Android 17 的旧 target 通常隐式授权，但用户撤销或历史错误声明仍可能留下 AppOps 拒绝状态。
+     * 同时检查权限与 AppOps；低于 API 37 没有这项权限，保持既有系统行为。
      */
     fun checkLocalNetworkPermission(): Boolean {
-        if (android.os.Build.VERSION.SDK_INT < 37 || context.applicationInfo.targetSdkVersion < 37) {
+        if (android.os.Build.VERSION.SDK_INT < 37) {
             return true
         }
         val permissionName = "android.permission.ACCESS_LOCAL_NETWORK"
         return try {
-            val result = ContextCompat.checkSelfPermission(context, permissionName)
-            result == PackageManager.PERMISSION_GRANTED
-        } catch (_: Throwable) {
+            PermissionChecker.checkSelfPermission(context, permissionName) == PermissionChecker.PERMISSION_GRANTED
+        } catch (failure: Throwable) {
+            // 系统权限检查异常明确记录，避免把检查失败伪装为已授权。
+            android.util.Log.e("OrigReadSync", "Local network permission check failed", failure)
             false
         }
     }

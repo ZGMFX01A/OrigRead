@@ -12,6 +12,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
@@ -72,6 +73,10 @@ class AndroidSyncBusinessApplier @Inject constructor(
     private val websiteParsePreferenceRepository: WebsiteParsePreferenceRepository,
     private val projectionExtensions: Set<@JvmSuppressWildcards SyncBusinessProjectionExtension> = emptySet(),
 ) : SyncRemoteApplyHandler {
+    @Inject lateinit var boundedArticles: SyncBoundedArticleRows
+    @Inject lateinit var fieldRows: SyncFieldStateRows
+    @Inject lateinit var retainedFields: SyncRetainedFieldMerge
+    @Inject lateinit var nullableFeedIcon: SyncNullableFeedIcon
     private val json = Json { ignoreUnknownKeys = true }
     private val aliasResolver =
         AndroidSyncAliasResolver(database).withFeedDeleteCleanup { localFeedId ->
@@ -86,13 +91,16 @@ class AndroidSyncBusinessApplier @Inject constructor(
         feedGeneration: Long?,
         label: String,
     ): String? {
-        val feedMapping =
+        // 精确父代次先解析别名，原身份代次仍用于等待未来或拒绝过期引用。
+        val direct =
             database.syncIdentityMappingDao()
                 .findBySyncId(
                     syncSpaceId,
                     SyncEntityType.FEED.wireName,
                     feedSyncId,
-                ) ?: throw SyncApplyDeferredException("$label is waiting for feed $feedSyncId")
+                )
+        val feedMapping = feedGeneration?.let { aliasResolver.resolveMapping(syncSpaceId, "feed", feedSyncId, it) }
+            ?: direct ?: throw SyncApplyDeferredException("$label is waiting for feed $feedSyncId")
 
         if (feedGeneration != null) {
             if (feedGeneration < 0L) {
@@ -175,15 +183,7 @@ class AndroidSyncBusinessApplier @Inject constructor(
         generationField: String,
         winnerToken: String,
     ): Long? {
-        val paired =
-            database.syncInboxDao().listFieldCandidates(operation.syncSpaceId)
-                .firstOrNull {
-                    it.entityType == operation.entityType &&
-                        it.entitySyncId == operation.entitySyncId &&
-                        it.entityGeneration == operation.entityGeneration &&
-                        it.fieldId == generationField &&
-                        sameRelationVersionOrigin(it.versionToken, winnerToken)
-                }
+        val paired = fieldRows.findPaired(SyncFieldStateRows.Candidates(SyncFieldStateRows.Field(operation.syncSpaceId, operation.entityType, operation.entitySyncId, generationField), operation.entityGeneration), winnerToken)
         val value = paired?.valueJson ?: return null
         val parsed =
             runCatching { json.parseToJsonElement(value).jsonPrimitive.longOrNull }.getOrNull()
@@ -198,21 +198,6 @@ class AndroidSyncBusinessApplier @Inject constructor(
         return parsed
     }
 
-    private fun sameRelationVersionOrigin(leftToken: String, rightToken: String): Boolean {
-        if (leftToken == rightToken) return true
-        if (!leftToken.startsWith("GENESIS_V1|") || !rightToken.startsWith("GENESIS_V1|")) {
-            return false
-        }
-        val left = leftToken.split('|')
-        val right = rightToken.split('|')
-        return left.size == 6 &&
-            right.size == 6 &&
-            left[0] == right[0] &&
-            left[1] == right[1] &&
-            left[2] == right[2] &&
-            left[3] == right[3]
-    }
-
     private suspend fun pairedGenerationForProjectedField(
         syncSpaceId: String,
         entityType: String,
@@ -222,12 +207,12 @@ class AndroidSyncBusinessApplier @Inject constructor(
         generationField: String,
     ): Long? {
         val idWinner =
-            database.syncInboxDao().findFieldVersion(
+            fieldRows.find(SyncFieldStateRows.Field(
                 syncSpaceId,
                 entityType,
                 entitySyncId,
                 idField,
-            )?.takeIf { it.entityGeneration == entityGeneration }
+            ))?.takeIf { it.entityGeneration == entityGeneration }
         if (idWinner == null) {
             return rollbackBaselineGeneration(
                 syncSpaceId,
@@ -238,19 +223,11 @@ class AndroidSyncBusinessApplier @Inject constructor(
             )
         }
 
-        val paired =
-            database.syncInboxDao().listFieldCandidates(syncSpaceId)
-                .firstOrNull {
-                    it.entityType == entityType &&
-                        it.entitySyncId == entitySyncId &&
-                        it.entityGeneration == entityGeneration &&
-                        it.fieldId == generationField &&
-                        sameRelationVersionOrigin(it.versionToken, idWinner.versionToken)
-                }
+        val paired = fieldRows.findPaired(SyncFieldStateRows.Candidates(SyncFieldStateRows.Field(syncSpaceId, entityType, entitySyncId, generationField), entityGeneration), idWinner.versionToken)
         if (paired == null) {
             val revoked =
                 idWinner.sourceOperationId
-                    ?.let { database.syncInboxDao().find(it)?.state == "REJECTED" }
+                    ?.let { database.syncInboxDao().findState(it) == "REJECTED" }
                     ?: false
             if (revoked) {
                 return rollbackBaselineGeneration(
@@ -286,15 +263,7 @@ class AndroidSyncBusinessApplier @Inject constructor(
         generationField: String,
         winnerToken: String,
     ): Long? {
-        val paired =
-            database.syncInboxDao().listFieldCandidates(syncSpaceId)
-                .firstOrNull {
-                    it.entityType == entityType &&
-                        it.entitySyncId == entitySyncId &&
-                        it.entityGeneration == entityGeneration &&
-                        it.fieldId == generationField &&
-                        sameRelationVersionOrigin(it.versionToken, winnerToken)
-                } ?: return null
+        val paired = fieldRows.findPaired(SyncFieldStateRows.Candidates(SyncFieldStateRows.Field(syncSpaceId, entityType, entitySyncId, generationField), entityGeneration), winnerToken) ?: return null
         val parsed =
             runCatching { json.parseToJsonElement(paired.valueJson).jsonPrimitive.longOrNull }
                 .getOrNull()
@@ -347,12 +316,12 @@ class AndroidSyncBusinessApplier @Inject constructor(
         baselineGeneration: Long,
     ) {
         val current =
-            database.syncInboxDao().findFieldVersion(
+            fieldRows.find(SyncFieldStateRows.Field(
                 operation.syncSpaceId,
                 operation.entityType,
                 operation.entitySyncId,
                 field,
-            )
+            ))
         if (current == null || shouldRefreshProvisionalBaseline(operation, current)) {
             captureRollbackBaseline(
                 operation,
@@ -624,6 +593,9 @@ class AndroidSyncBusinessApplier @Inject constructor(
      * @param operation 待应用的同步操作记录
      * @throws SyncApplyDeferredException 当依赖的本地数据或映射不存在时抛出，以便稍后重试
      */
+    /** Edition 投影可能提交 Chat，快照尾部必须在 Reader 事务退出后调用。 */
+    internal fun hasExternalProjection(entityType: String): Boolean = projectionExtensions.any { it.owns(entityType) }
+
     override suspend fun apply(operation: SyncOperationEntity) {
         if (operation.schemaVersion != 1 || operation.payloadSchemaVersion != 1) {
             throw SyncApplyDeferredException("Unsupported operation schema; retained for a compatible client")
@@ -706,7 +678,7 @@ class AndroidSyncBusinessApplier @Inject constructor(
         }
         val existing = articleFilterRepository.getAll().find { it.id == activeMapping.localId }
         val resolvedWinners = fields.mapValues { (field, value) ->
-            val current = database.syncInboxDao().findFieldVersion(operation.syncSpaceId, operation.entityType, operation.entitySyncId, field)
+            val current = fieldRows.find(SyncFieldStateRows.Field(operation.syncSpaceId, operation.entityType, operation.entitySyncId, field))
             if (
                 existing != null &&
                 (current == null || shouldRefreshProvisionalBaseline(operation, current))
@@ -764,13 +736,12 @@ class AndroidSyncBusinessApplier @Inject constructor(
             }
         suspend fun retained(field: String): JsonElement? =
             resolved[field]
-                ?: database.syncInboxDao()
-                    .findFieldVersion(
+                ?: fieldRows.find(SyncFieldStateRows.Field(
                         operation.syncSpaceId,
                         operation.entityType,
                         operation.entitySyncId,
                         field,
-                    )
+                    ))
                     ?.takeIf { it.entityGeneration == activeMapping.generation }
                     ?.let { json.parseToJsonElement(it.valueJson) }
         suspend fun text(field: String, fallback: String?): String? =
@@ -782,13 +753,12 @@ class AndroidSyncBusinessApplier @Inject constructor(
             if (feedSyncId == null) {
                 null
             } else {
-                database.syncInboxDao()
-                    .findFieldVersion(
+                fieldRows.find(SyncFieldStateRows.Field(
                         operation.syncSpaceId,
                         operation.entityType,
                         operation.entitySyncId,
                         "feedSyncId",
-                    )
+                    ))
                     ?.takeIf { it.entityGeneration == activeMapping.generation }
                     ?.let { winner ->
                         pairedGenerationForWinner(
@@ -917,12 +887,12 @@ class AndroidSyncBusinessApplier @Inject constructor(
             fields["rule"]
                 ?: throw SyncApplyDeferredException("CONFIG rule operation has no rule field")
         val current =
-            database.syncInboxDao().findFieldVersion(
+            fieldRows.find(SyncFieldStateRows.Field(
                 operation.syncSpaceId,
                 entityType.wireName,
                 operation.entitySyncId,
                 "rule",
-            )
+            ))
         val existingRule =
             mapping
                 ?.takeIf { it.generation == operation.entityGeneration }
@@ -1055,12 +1025,12 @@ class AndroidSyncBusinessApplier @Inject constructor(
             fields["settings"]
                 ?: throw SyncApplyDeferredException("RSSHub settings operation has no settings field")
         val current =
-            database.syncInboxDao().findFieldVersion(
+            fieldRows.find(SyncFieldStateRows.Field(
                 operation.syncSpaceId,
                 entityType.wireName,
                 operation.entitySyncId,
                 "settings",
-            )
+            ))
         if (
             baselineEligible &&
             (current == null || shouldRefreshProvisionalBaseline(operation, current))
@@ -1167,12 +1137,12 @@ class AndroidSyncBusinessApplier @Inject constructor(
                     "Website parse preference operation has no preference field"
                 )
         val current =
-            database.syncInboxDao().findFieldVersion(
+            fieldRows.find(SyncFieldStateRows.Field(
                 operation.syncSpaceId,
                 entityType.wireName,
                 operation.entitySyncId,
                 "preference",
-            )
+            ))
         val baselineMapping =
             mapping?.takeIf { it.generation == operation.entityGeneration }
         if (
@@ -1381,12 +1351,12 @@ class AndroidSyncBusinessApplier @Inject constructor(
                     "RSSHub subscription source operation has no source field"
                 )
         val current =
-            database.syncInboxDao().findFieldVersion(
+            fieldRows.find(SyncFieldStateRows.Field(
                 operation.syncSpaceId,
                 entityType.wireName,
                 operation.entitySyncId,
                 "source",
-            )
+            ))
         val baselineMapping =
             mapping?.takeIf { it.generation == operation.entityGeneration }
         if (
@@ -1545,6 +1515,11 @@ class AndroidSyncBusinessApplier @Inject constructor(
     private suspend fun applyGroup(operation: SyncOperationEntity) {
         val binding = database.syncRuntimeDao().findBindingBySpace(operation.syncSpaceId)
             ?: throw SyncApplyDeferredException("Missing local Space binding")
+        val identity = database.syncIdentityMappingDao()
+            .findBySyncId(operation.syncSpaceId, operation.entityType, operation.entitySyncId)
+        // 复活后的旧代次更新只能保留历史，不能重新覆盖新代次实体。
+        if (identity != null && identity.generation > operation.entityGeneration &&
+            operation.operationType != SyncMutationType.GLOBAL_DELETE.name) return
 
         val tombstone = database.syncInboxDao().findTombstone(operation.syncSpaceId, operation.entityType, operation.entitySyncId)
         if (tombstone != null && operation.entityGeneration <= tombstone.entityGeneration) {
@@ -1595,7 +1570,7 @@ class AndroidSyncBusinessApplier @Inject constructor(
             operation.entityType,
             operation.entitySyncId,
             operation.entityGeneration,
-        )
+        ) ?: restoreGroupMappingGeneration(database, GroupGenerationRestore(operation, binding.localAccountId))
         val group = mapping?.let { database.groupDao().queryById(it.localId) }
         if (group != null) check(group.accountId == binding.localAccountId) { "Group belongs to another account" }
         if (group == null && operation.operationType != SyncMutationType.UPSERT.name) {
@@ -1604,7 +1579,7 @@ class AndroidSyncBusinessApplier @Inject constructor(
 
         val token = SyncVersionToken.operation(operation.actorIncarnationId, operation.replicationLaneId, operation.sequence)
         val valueJson = nameValue.toString()
-        val current = database.syncInboxDao().findFieldVersion(operation.syncSpaceId, operation.entityType, operation.entitySyncId, "name")
+        val current = fieldRows.find(SyncFieldStateRows.Field(operation.syncSpaceId, operation.entityType, operation.entitySyncId, "name"))
         if (
             group != null &&
             (current == null || shouldRefreshProvisionalBaseline(operation, current))
@@ -1770,8 +1745,8 @@ class AndroidSyncBusinessApplier @Inject constructor(
                     baselineGeneration = baselineGeneration,
                 )
             }
-            val current = database.syncInboxDao().findFieldVersion(operation.syncSpaceId, operation.entityType,
-                operation.entitySyncId, "groupSyncId")
+            val current = fieldRows.find(SyncFieldStateRows.Field(operation.syncSpaceId, operation.entityType,
+                operation.entitySyncId, "groupSyncId"))
             val winner = resolveRetainedField(operation, "groupSyncId", JsonPrimitive(groupSyncId).toString(),
                 current, SyncGenesisMergePolicy.DETERMINISTIC)
             val winningGroupSyncId =
@@ -1802,7 +1777,9 @@ class AndroidSyncBusinessApplier @Inject constructor(
         // 裁决各字段胜出者
         val feedName = resolveStringField(operation, "name", fieldMap["name"]?.jsonPrimitive?.content ?: fieldMap["title"]?.jsonPrimitive?.content, existingFeed?.name, token)
         val feedUrl = resolveStringField(operation, "url", fieldMap["url"]?.jsonPrimitive?.content, existingFeed?.url, token)
-        val icon = resolveStringField(operation, "icon", fieldMap["icon"]?.jsonPrimitive?.content, existingFeed?.icon, token)
+        val icon = if (fieldMap.containsKey("icon")) nullableFeedIcon.resolve(SyncNullableFeedIcon.Input(operation, fieldMap.getValue("icon"), existingFeed?.icon) { current ->
+            captureFeedIconBaseline(operation, current, existingFeed?.icon)
+        }) else existingFeed?.icon
         val incomingSourceType =
             fieldMap["sourceType"]?.jsonPrimitive?.content?.trim()?.lowercase()
         val sourceTypeWire =
@@ -1830,7 +1807,7 @@ class AndroidSyncBusinessApplier @Inject constructor(
             val newFeed = Feed(
                 id = localId,
                 name = feedName.ifBlank { "Feed" },
-                icon = icon.takeIf { it.isNotBlank() },
+                icon = icon,
                 url = feedUrl.ifBlank { "about:blank" },
                 groupId = targetLocalGroupId,
                 accountId = binding.localAccountId,
@@ -1847,7 +1824,7 @@ class AndroidSyncBusinessApplier @Inject constructor(
                         entityType = operation.entityType,
                         localId = localId,
                         syncId = operation.entitySyncId,
-                        canonicalKey = SyncCanonicalIdentity.feedKey(resolvedSourceType, newFeed.url),
+                        canonicalKey = SyncCanonicalIdentity.feedCandidateKey(resolvedSourceType, newFeed.url),
                         generation = operation.entityGeneration,
                         createdAt = now,
                         updatedAt = now,
@@ -1857,7 +1834,7 @@ class AndroidSyncBusinessApplier @Inject constructor(
         } else {
             val updatedFeed = existingFeed.copy(
                 name = feedName.ifBlank { existingFeed.name },
-                icon = if (icon.isNotBlank()) icon else existingFeed.icon,
+                icon = icon,
                 url = feedUrl.ifBlank { existingFeed.url },
                 groupId = targetLocalGroupId,
                 isNotification = isNotification,
@@ -1868,7 +1845,7 @@ class AndroidSyncBusinessApplier @Inject constructor(
             database.feedDao().updateAll(listOf(updatedFeed))
             if (mapping != null) {
                 val canonicalKey =
-                    SyncCanonicalIdentity.feedKey(updatedFeed.sourceType, updatedFeed.url)
+                    SyncCanonicalIdentity.feedCandidateKey(updatedFeed.sourceType, updatedFeed.url)
                 if (mapping.canonicalKey != canonicalKey) {
                     database.syncIdentityMappingDao().update(
                         mapping.copy(
@@ -1933,7 +1910,7 @@ class AndroidSyncBusinessApplier @Inject constructor(
                 operation.entitySyncId,
                 operation.entityGeneration,
             )
-        var articleWithFeed = mapping?.let { database.articleDao().queryById(it.localId) }
+        var articleWithFeed = mapping?.let { boundedArticles.queryById(it.localId) }
         var createdArticle = false
         if (articleWithFeed != null) {
             check(articleWithFeed.article.accountId == binding.localAccountId) {
@@ -1983,10 +1960,10 @@ class AndroidSyncBusinessApplier @Inject constructor(
                 ) ?: return
             val feedMapping =
                 database.syncIdentityMappingDao()
-                    .findBySyncId(
+                    .findByLocalId(
                         operation.syncSpaceId,
                         SyncEntityType.FEED.wireName,
-                        feedSyncId,
+                        localFeedId,
                     )
                     ?: throw SyncApplyDeferredException(
                         "Missing dependent feed mapping for Article ${operation.entitySyncId}"
@@ -2036,7 +2013,7 @@ class AndroidSyncBusinessApplier @Inject constructor(
                         localId = localId,
                         syncId = operation.entitySyncId,
                         canonicalKey =
-                            SyncCanonicalIdentity.articleKey(
+                            SyncCanonicalIdentity.articleCandidateKey(
                                 feedCanonicalKey = feedMapping.canonicalKey,
                                 articleLink = article.link,
                             ),
@@ -2047,7 +2024,7 @@ class AndroidSyncBusinessApplier @Inject constructor(
                 )
             }
             articleWithFeed =
-                database.articleDao().queryById(localId)
+                boundedArticles.queryById(localId)
                     ?: throw SyncApplyDeferredException("Unable to materialize Article row")
             createdArticle = true
         }
@@ -2063,7 +2040,7 @@ class AndroidSyncBusinessApplier @Inject constructor(
             }
         }
         if (mapping != null) {
-            database.articleDao().queryById(mapping.localId)?.let { current ->
+            boundedArticles.queryById(mapping.localId)?.let { current ->
                 val feedMapping =
                     database.syncIdentityMappingDao().findByLocalId(
                         operation.syncSpaceId,
@@ -2071,7 +2048,7 @@ class AndroidSyncBusinessApplier @Inject constructor(
                         current.feed.id,
                     )
                 val canonicalKey =
-                    SyncCanonicalIdentity.articleKey(
+                    SyncCanonicalIdentity.articleCandidateKey(
                         feedCanonicalKey = feedMapping?.canonicalKey,
                         articleLink = current.article.link,
                     )
@@ -2116,7 +2093,7 @@ class AndroidSyncBusinessApplier @Inject constructor(
                 operation.entityGeneration,
             ) ?: throw SyncApplyDeferredException("Missing article identity mapping")
         val article =
-            database.articleDao().queryById(mapping.localId)?.article
+            boundedArticles.queryById(mapping.localId)?.article
                 ?: throw SyncApplyDeferredException("Missing article row")
         check(article.accountId == binding.localAccountId) { "Article belongs to another account" }
 
@@ -2142,12 +2119,12 @@ class AndroidSyncBusinessApplier @Inject constructor(
                 operation.sequence,
             )
         val current =
-            database.syncInboxDao().findFieldVersion(
+            fieldRows.find(SyncFieldStateRows.Field(
                 operation.syncSpaceId,
                 operation.entityType,
                 operation.entitySyncId,
                 SYNC_ARTICLE_FULL_CONTENT_FIELD,
-            )
+            ))
         val winner =
             resolveRetainedField(
                 operation,
@@ -2253,7 +2230,7 @@ class AndroidSyncBusinessApplier @Inject constructor(
             operation.entitySyncId,
             operation.entityGeneration,
         ) ?: throw SyncApplyDeferredException("Missing article identity mapping")
-        val articleWithFeed = database.articleDao().queryById(mapping.localId)
+        val articleWithFeed = boundedArticles.queryById(mapping.localId)
             ?: throw SyncApplyDeferredException("Missing article row")
         check(articleWithFeed.article.accountId == binding.localAccountId) { "Article belongs to another account" }
 
@@ -2263,12 +2240,12 @@ class AndroidSyncBusinessApplier @Inject constructor(
             operation.replicationLaneId,
             operation.sequence,
         )
-        val current = database.syncInboxDao().findFieldVersion(
+        val current = fieldRows.find(SyncFieldStateRows.Field(
             operation.syncSpaceId,
             operation.entityType,
             operation.entitySyncId,
             field,
-        )
+        ))
         if (
             captureBaseline &&
             (current == null || shouldRefreshProvisionalBaseline(operation, current))
@@ -2405,7 +2382,7 @@ class AndroidSyncBusinessApplier @Inject constructor(
                 baselineGeneration = currentGroupMapping?.generation ?: groupGeneration,
             )
         }
-        val current = database.syncInboxDao().findFieldVersion(operation.syncSpaceId, SyncEntityType.FEED.wireName, feedSyncId, "groupSyncId")
+        val current = fieldRows.find(SyncFieldStateRows.Field(operation.syncSpaceId, SyncEntityType.FEED.wireName, feedSyncId, "groupSyncId"))
         if (current == null || shouldRefreshProvisionalBaseline(fieldOperation, current)) {
             if (currentGroupMapping != null) {
                 captureRollbackBaseline(
@@ -2447,6 +2424,12 @@ class AndroidSyncBusinessApplier @Inject constructor(
         aliasResolver.applyGlobalDelete(operation)
     }
 
+    /** 可空图标的真实旧值同样参与撤销，保留既有 provisional baseline 刷新条件。 */
+    private suspend fun captureFeedIconBaseline(operation: SyncOperationEntity, current: SyncFieldVersionEntity?, icon: String?) {
+        if (current != null && !shouldRefreshProvisionalBaseline(operation, current)) return
+        captureRollbackBaseline(operation, "icon", (icon?.let(::JsonPrimitive) ?: JsonNull).toString(), replace = current != null)
+    }
+
     private suspend fun resolveStringField(
         operation: SyncOperationEntity,
         field: String,
@@ -2455,7 +2438,7 @@ class AndroidSyncBusinessApplier @Inject constructor(
         token: String,
     ): String {
         if (incomingValue == null) return currentValue.orEmpty()
-        val current = database.syncInboxDao().findFieldVersion(operation.syncSpaceId, operation.entityType, operation.entitySyncId, field)
+        val current = fieldRows.find(SyncFieldStateRows.Field(operation.syncSpaceId, operation.entityType, operation.entitySyncId, field))
         val valueJson = SyncOperationCanonicalizer.canonicalJson(JsonPrimitive(incomingValue).toString())
         if (
             currentValue != null &&
@@ -2499,7 +2482,7 @@ class AndroidSyncBusinessApplier @Inject constructor(
         policy: SyncGenesisMergePolicy = SyncGenesisMergePolicy.DETERMINISTIC,
     ): Boolean {
         if (incomingValue == null) return currentValue ?: false
-        val current = database.syncInboxDao().findFieldVersion(operation.syncSpaceId, operation.entityType, operation.entitySyncId, field)
+        val current = fieldRows.find(SyncFieldStateRows.Field(operation.syncSpaceId, operation.entityType, operation.entitySyncId, field))
         val valueJson = incomingValue.toString()
         if (
             currentValue != null &&
@@ -2549,12 +2532,12 @@ class AndroidSyncBusinessApplier @Inject constructor(
     ) {
         val predecessor =
             if (replace) {
-                database.syncInboxDao().findFieldVersion(
+                fieldRows.find(SyncFieldStateRows.Field(
                     operation.syncSpaceId,
                     operation.entityType,
                     operation.entitySyncId,
                     field,
-                )
+                ))
             } else {
                 null
             }
@@ -2591,7 +2574,7 @@ class AndroidSyncBusinessApplier @Inject constructor(
         current: SyncFieldVersionEntity,
     ): Boolean =
         current.sourceOperationId == null &&
-            database.syncInboxDao().find(operation.operationId)?.authorizationState ==
+            database.syncInboxDao().findAuthorizationState(operation.operationId) ==
                 "PROVISIONAL_AUTHORIZED"
 
     /**
@@ -2610,7 +2593,7 @@ class AndroidSyncBusinessApplier @Inject constructor(
         field: String,
         revokedOperationId: String,
     ) {
-        val current = database.syncInboxDao().findFieldVersion(syncSpaceId, entityType, entitySyncId, field)
+        val current = fieldRows.find(SyncFieldStateRows.Field(syncSpaceId, entityType, entitySyncId, field))
         if (current == null || current.sourceOperationId != revokedOperationId) return
 
         val appliedInbox = database.syncInboxDao().listAppliedInbox(syncSpaceId)
@@ -2658,6 +2641,17 @@ class AndroidSyncBusinessApplier @Inject constructor(
             }
         }
 
+        // 快照保留的 Genesis/稳定 GC 候选没有原日志，撤销必须把它们纳入同一因果裁决。
+        val retained = fieldRows.candidates(SyncFieldStateRows.Candidates(
+            SyncFieldStateRows.Field(syncSpaceId, entityType, entitySyncId, field), current.entityGeneration))
+        for (record in retained) {
+            val value = record.value
+            val token = value.getValue("versionToken").jsonPrimitive.content
+            if (value["sourceOperationId"]?.jsonPrimitive?.content == revokedOperationId || candidates.any { it.token == token }) continue
+            candidates.add(SyncFieldCandidate(field, value.getValue("valueJson").jsonPrimitive.content, token,
+                SyncVersionToken.source(token), causalContextJson = value["causalContextJson"]?.takeUnless { it == JsonNull }?.jsonPrimitive?.content,
+                logicalClock = value["logicalClock"]?.jsonPrimitive?.longOrNull ?: 0L))
+        }
         val policy = when (field) {
             "isStarred" -> SyncGenesisMergePolicy.STARRED_WINS
             "isUnread" -> SyncGenesisMergePolicy.READ_WINS
@@ -2744,107 +2738,14 @@ class AndroidSyncBusinessApplier @Inject constructor(
         return valueJson to versionToken
     }
 
-    /** Keep losing concurrent candidates available: a later causal successor can change the winner. */
+    /** 当前字段完整历史保存在磁盘，增量和分页 tail 不再读取全空间候选正文。 */
     private suspend fun resolveRetainedField(
-        operation: SyncOperationEntity,
-        field: String,
-        valueJson: String,
-        current: SyncFieldVersionEntity?,
-        policy: SyncGenesisMergePolicy,
-    ): SyncFieldCandidate {
-        val candidates = linkedMapOf<String, SyncFieldCandidate>()
-        database.syncInboxDao().listFieldCandidates(operation.syncSpaceId).filter {
-            it.entityType == operation.entityType && it.entitySyncId == operation.entitySyncId &&
-                it.entityGeneration == operation.entityGeneration && it.fieldId == field
-        }.forEach { candidates[it.versionToken] = fieldCandidate(it) }
-        current?.takeIf { it.entityGeneration == operation.entityGeneration }?.let {
-            candidates[it.versionToken] = fieldCandidate(it)
-        }
-        fun addPayload(type: String, payloadJson: String, token: String, context: String, clock: Long) {
-            val payload = parsePayload(payloadJson)
-            val value = when (type) {
-                SyncMutationType.FIELD_SET.name -> if (payload["field"]?.jsonPrimitive?.content == field) payload["value"] else null
-                SyncMutationType.UPSERT.name -> ((payload["fields"] as? JsonObject) ?: payload)[field]
-                SyncMutationType.RELATION_SET.name ->
-                    when (field) {
-                        "groupSyncId" ->
-                            payload["groupSyncId"] ?: payload["targetGroupId"] ?: payload["toSyncId"]
-                        "groupGeneration" ->
-                            payload["groupGeneration"] ?: payload["targetGroupGeneration"]
-                        else -> null
-                    }
-                else -> null
-            } ?: return
-            candidates[token] = SyncFieldCandidate(field, SyncOperationCanonicalizer.canonicalJson(value.toString()),
-                token, SyncVersionSource.OPERATION, causalContextJson = context, logicalClock = clock)
-        }
-        database.syncOperationDao().listAppliedEntityOperations(operation.syncSpaceId, operation.entityType,
-            operation.entitySyncId, operation.entityGeneration).forEach { prior ->
-            addPayload(prior.operationType, prior.payloadJson,
-                SyncVersionToken.operation(prior.actorIncarnationId, prior.replicationLaneId, prior.sequence),
-                prior.causalContextJson, prior.logicalClock)
-        }
-        database.syncOperationDao().listPendingEntityOutbox(operation.syncSpaceId, operation.entityType,
-            operation.entitySyncId, operation.entityGeneration).forEach { pending ->
-            addPayload(pending.mutationType, pending.payloadJson,
-                SyncVersionToken.operation(pending.actorIncarnationId, pending.replicationLaneId, pending.sequence),
-                pending.causalContextJson, pending.sequence)
-        }
-        val incoming = SyncVersionToken.operation(operation.actorIncarnationId, operation.replicationLaneId, operation.sequence)
-        candidates[incoming] = SyncFieldCandidate(field, valueJson, incoming, SyncVersionSource.OPERATION,
-            causalContextJson = operation.causalContextJson, logicalClock = operation.logicalClock)
-        candidates.values.forEach { candidate ->
-            val dot = SyncVersionToken.parseOperationDot(candidate.token)
-            database.syncInboxDao().upsertFieldCandidate(SyncFieldCandidateEntity(SyncFieldVersionEntity(
-                operation.syncSpaceId, operation.entityType, operation.entitySyncId, field,
-                operation.entityGeneration, candidate.token,
-                dot?.let { SyncOperationCanonicalizer.operationId(operation.syncSpaceId, it.actorIncarnationId, it.replicationLaneId, it.sequence) },
-                candidate.valueJson, System.currentTimeMillis(), candidate.causalContextJson, candidate.logicalClock,
-            )))
-        }
-        val winner = SyncVersionResolver.resolve(candidates.values.toList(), policy)
-        val dot = SyncVersionToken.parseOperationDot(winner.token)
-        database.syncInboxDao().upsertFieldVersion(
-            SyncFieldVersionEntity(
-                syncSpaceId = operation.syncSpaceId,
-                entityType = operation.entityType,
-                entitySyncId = operation.entitySyncId,
-                fieldId = field,
-                entityGeneration = operation.entityGeneration,
-                versionToken = winner.token,
-                sourceOperationId =
-                    dot?.let {
-                        SyncOperationCanonicalizer.operationId(
-                            operation.syncSpaceId,
-                            it.actorIncarnationId,
-                            it.replicationLaneId,
-                            it.sequence,
-                        )
-                    },
-                valueJson = winner.valueJson,
-                updatedAt = System.currentTimeMillis(),
-                causalContextJson = winner.causalContextJson,
-                logicalClock = winner.logicalClock,
-            )
-        )
-        return winner
-    }
+        operation: SyncOperationEntity, field: String, valueJson: String,
+        current: SyncFieldVersionEntity?, policy: SyncGenesisMergePolicy,
+    ): SyncFieldCandidate = retainedFields.resolve(SyncRetainedFieldMerge.Options(operation, field, valueJson, current, policy))
 
-    private suspend fun fieldCandidate(value: SyncFieldVersionEntity): SyncFieldCandidate {
-        val source = value.sourceOperationId?.let { database.syncOperationDao().findById(it) }
-        val dot = SyncVersionToken.parseOperationDot(value.versionToken)
-        val pending = if (source == null && dot != null) database.syncOperationDao()
-            .findLocalOutboxByDot(value.syncSpaceId, dot.actorIncarnationId, dot.replicationLaneId, dot.sequence) else null
-        return SyncFieldCandidate(
-            value.fieldId,
-            value.valueJson,
-            value.versionToken,
-            SyncVersionToken.source(value.versionToken),
-            causalContextJson =
-                source?.causalContextJson ?: pending?.causalContextJson ?: value.causalContextJson,
-            logicalClock = source?.logicalClock ?: pending?.sequence ?: value.logicalClock ?: 0L,
-        )
-    }
+    /** 字段证据只读取操作元数据，不能为了小字段再读巨型签名载荷。 */
+    private fun fieldCandidate(value: SyncFieldVersionEntity): SyncFieldCandidate = fieldRows.candidate(value)
 
     private suspend fun updateProjectedTable(
         syncSpaceId: String,
@@ -2860,7 +2761,7 @@ class AndroidSyncBusinessApplier @Inject constructor(
         when (entityType) {
             SyncEntityType.ARTICLE.wireName -> {
                 if (field == "feedGeneration") return
-                val articleWithFeed = database.articleDao().queryById(mapping.localId) ?: return
+                val articleWithFeed = boundedArticles.queryById(mapping.localId) ?: return
                 val article = articleWithFeed.article
                 if (article.accountId != binding.localAccountId) return
                 val element = runCatching { json.parseToJsonElement(valueJson) }.getOrNull()
@@ -2963,7 +2864,7 @@ class AndroidSyncBusinessApplier @Inject constructor(
                         updated.feedId,
                     )
                 val canonicalKey =
-                    SyncCanonicalIdentity.articleKey(feedMapping?.canonicalKey, updated.link)
+                    SyncCanonicalIdentity.articleCandidateKey(feedMapping?.canonicalKey, updated.link)
                 if (mapping.canonicalKey != canonicalKey) {
                     database.syncIdentityMappingDao().update(
                         mapping.copy(
@@ -3027,7 +2928,7 @@ class AndroidSyncBusinessApplier @Inject constructor(
                     }
                     "name" -> feed.copy(name = primitive?.content ?: valueJson)
                     "url" -> feed.copy(url = primitive?.content ?: valueJson)
-                    "icon" -> feed.copy(icon = primitive?.content?.takeIf { it.isNotBlank() })
+                    "icon" -> feed.copy(icon = primitive?.contentOrNull)
                     "sourceType" -> {
                         val sourceTypeWire =
                             primitive?.content?.trim()?.takeIf(String::isNotBlank)
@@ -3049,7 +2950,7 @@ class AndroidSyncBusinessApplier @Inject constructor(
                     else -> throw SyncRebaseUnsafeException("REBASE_UNSAFE: unsupported feed rollback field $field")
                 }
                 database.feedDao().updateAll(listOf(updated))
-                val canonicalKey = SyncCanonicalIdentity.feedKey(updated.sourceType, updated.url)
+                val canonicalKey = SyncCanonicalIdentity.feedCandidateKey(updated.sourceType, updated.url)
                 if (mapping.canonicalKey != canonicalKey) {
                     database.syncIdentityMappingDao().update(
                         mapping.copy(

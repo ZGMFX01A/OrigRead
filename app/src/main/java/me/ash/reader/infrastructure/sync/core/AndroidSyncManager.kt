@@ -8,7 +8,19 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,6 +56,10 @@ enum class SyncStatusPhase {
     SYNCING_BLOBS,
     APPLYING,
     COMPLETED,
+    /** 正常完成有限批次，后续轮次继续处理积压。 */
+    MORE_WORK,
+    /** 业务交换完成，等待 OWNER 提供稳定授权历史以允许维护压缩。 */
+    AUTH_STABILITY_PENDING,
     FAILED,
 }
 
@@ -65,6 +81,7 @@ enum class SyncStatusPhase {
  * @property activePairingSession 当前正在进行的配对会话（若有）
  */
 data class SyncManagerState(
+    val localAccountId: Int? = null,
     val isLanRequested: Boolean = false,
     val isLanEnabled: Boolean = false,
     val lanPort: Int? = null,
@@ -97,13 +114,14 @@ class AndroidSyncManager @Inject constructor(
     private val lanListener: AndroidSyncLanSocketListener,
     private val registry: AndroidSyncEndpointRegistry,
     private val keyStore: SyncDeviceSigningKeyStore,
+    // 构造期间的身份加载协程必须先拥有账户依赖，字段注入会与协程启动竞争。
+    private val accountService: AccountService,
     val networkMonitor: LanNetworkMonitor? = null,
     private val pairingCoordinator: AndroidSyncPairingCoordinator? = null,
     private val authLedgerService: AndroidSyncAuthLedgerService? = null,
     private val httpClient: OkHttpClient? = null,
 ) {
     @Inject lateinit var genesisSnapshotService: SyncGenesisSnapshotService
-    @Inject lateinit var accountService: AccountService
 
     constructor(
         context: Context,
@@ -111,7 +129,8 @@ class AndroidSyncManager @Inject constructor(
         lanListener: AndroidSyncLanSocketListener,
         registry: AndroidSyncEndpointRegistry,
         keyStore: SyncDeviceSigningKeyStore,
-    ) : this(context, database, lanListener, registry, keyStore, null, null, null, null)
+        accountService: AccountService,
+    ) : this(context, database, lanListener, registry, keyStore, accountService, null, null, null, null)
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     internal var advertisementProvider: AndroidNsdAdvertisementProvider? = null
@@ -145,6 +164,7 @@ class AndroidSyncManager @Inject constructor(
     private val lanRequested = AtomicBoolean(initialLanRequested)
     private val lanLifecycleMutex = Mutex()
     private var lastLanNetworkSignature: String? = null
+    private var reconnectJob: Job? = null
 
     init {
         scope.launch {
@@ -175,28 +195,38 @@ class AndroidSyncManager @Inject constructor(
         // 监听配对会话流
         pairingCoordinator?.let { coordinator ->
             scope.launch {
-                coordinator.activeSessionsFlow.collect { sessions ->
-                    val failure = sessions.firstOrNull { !it.failureMessage.isNullOrBlank() }?.failureMessage
-                    val active = sessions.firstOrNull { it.status in setOf("WAITING_CONFIRMATION", "WAITING_PEER") }
-                        ?: sessions.firstOrNull { it.status == "CONFIRMED" }
-                    _syncState.update {
-                        it.copy(
-                            activePairingSession = active,
-                            lastError = failure ?: if (active?.status == "CONFIRMED") null else it.lastError,
-                            phase = when {
-                                active != null && active.status in setOf("WAITING_CONFIRMATION", "WAITING_PEER") -> SyncStatusPhase.WAITING_CONFIRMATION
-                                active != null && active.status == "CONFIRMED" -> SyncStatusPhase.COMPLETED
-                                it.isSyncing -> it.phase
-                                it.isDiscovering -> SyncStatusPhase.DISCOVERING
-                                else -> SyncStatusPhase.IDLE
-                            }
-                        )
-                    }
-                    if (active?.status == "CONFIRMED") {
+                // 账户变化也会重选会话；旧账户迟到的确认不能覆盖当前账户页面。
+                combine(accountService.currentAccountIdFlow, coordinator.activeSessionsFlow) { accountId, sessions ->
+                    accountId to sessions
+                }.collect { (accountId, sessions) ->
+                    if (accountId != null) {
+                        loadDeviceIdentity()
+                        publishPairingSessions(accountId, sessions)
                         refreshTrustedDevices()
                     }
                 }
             }
+        }
+    }
+
+    /** 仅发布当前账户的配对状态，并在状态写入时复核账户未切换。 */
+    private fun publishPairingSessions(accountId: Int, sessions: List<ActivePairingSession>) {
+        val localSessions = sessions.filter { it.localAccountId == accountId }
+        val active = localSessions.firstOrNull { it.status in setOf("WAITING_CONFIRMATION", "WAITING_PEER") }
+            ?: localSessions.firstOrNull { it.status == "CONFIRMED" }
+        val failure = localSessions.firstOrNull { !it.failureMessage.isNullOrBlank() }?.failureMessage
+        _syncState.update { current ->
+            if (current.localAccountId != accountId || accountService.getCurrentAccountId() != accountId) current
+            else current.copy(
+                activePairingSession = active,
+                lastError = failure ?: if (active?.status == "CONFIRMED") null else current.lastError,
+                phase = when {
+                    active?.status in setOf("WAITING_CONFIRMATION", "WAITING_PEER") -> SyncStatusPhase.WAITING_CONFIRMATION
+                    active?.status == "CONFIRMED" -> SyncStatusPhase.COMPLETED
+                    current.isSyncing || current.isDiscovering -> current.phase
+                    else -> SyncStatusPhase.IDLE
+                },
+            )
         }
     }
 
@@ -205,11 +235,19 @@ class AndroidSyncManager @Inject constructor(
      */
     suspend fun loadDeviceIdentity() {
         val device = database.syncRuntimeDao().findDeviceIdentity()
-        val binding = database.syncRuntimeDao().findActiveBinding()
+        // 首次安装后的 STAGING 仍是当前账户的真实绑定，必须展示以便继续 tail 恢复。
+        val accountId = accountService.getCurrentAccountId()
+        val binding = database.syncRuntimeDao().findBinding(accountId)
         _syncState.update {
+            // 查询期间可能已切换账户，迟到结果不能回退当前空间。
+            if (accountService.getCurrentAccountId() != accountId) return@update it
             it.copy(
+                localAccountId = accountId,
                 deviceId = device?.deviceId,
                 syncSpaceId = binding?.syncSpaceId,
+                trustedDevices = if (it.localAccountId == accountId && it.syncSpaceId == binding?.syncSpaceId) it.trustedDevices else emptyList(),
+                activePairingSession = if (it.localAccountId == accountId && it.syncSpaceId == binding?.syncSpaceId) it.activePairingSession else null,
+                lastError = if (it.localAccountId == accountId && it.syncSpaceId == binding?.syncSpaceId) it.lastError else null,
             )
         }
     }
@@ -228,12 +266,14 @@ class AndroidSyncManager @Inject constructor(
             require(account.type.id == AccountType.Local.id) {
                 "Multi-device Sync can only be activated for a Local Account"
             }
-            val result = genesisSnapshotService.run(localAccountId = accountId)
+            val result = genesisSnapshotService.runPaged(SyncGenesisSnapshotService.PagedRunOptions(localAccountId = accountId))
             loadDeviceIdentity()
             refreshTrustedDevices()
             _syncState.update { it.copy(phase = SyncStatusPhase.COMPLETED, lastError = null) }
             result
         } catch (failure: Throwable) {
+            // 初始化失败保留完整堆栈；UI 的短错误信息不足以定位数据库/密钥/固定视图阶段。
+            android.util.Log.e("OrigReadSync", "Genesis activation failed", failure)
             _syncState.update {
                 it.copy(
                     phase = SyncStatusPhase.FAILED,
@@ -248,13 +288,12 @@ class AndroidSyncManager @Inject constructor(
      * 刷新已受信任设备列表。
      */
     suspend fun refreshTrustedDevices(): List<SyncTrustedDeviceEntity> {
-        val spaceId = _syncState.value.syncSpaceId ?: return emptyList()
-        val list = try {
-            database.syncTrustedDeviceDao().listBySpace(spaceId)
-        } catch (_: Throwable) {
-            emptyList()
+        val before = _syncState.value
+        val spaceId = before.syncSpaceId
+        val list = if (spaceId == null) emptyList() else database.syncTrustedDeviceDao().listBySpace(spaceId)
+        _syncState.update {
+            if (it.localAccountId == before.localAccountId && it.syncSpaceId == spaceId) it.copy(trustedDevices = list) else it
         }
-        _syncState.update { it.copy(trustedDevices = list) }
         return list
     }
 
@@ -271,6 +310,11 @@ class AndroidSyncManager @Inject constructor(
             lanPreferences.edit().putBoolean(PREF_LAN_REQUESTED, enabled).apply()
             lanRequested.set(enabled)
             _syncState.update { it.copy(isLanRequested = enabled) }
+            if (!enabled) {
+                try { registry.pauseLanSnapshots() }
+                finally { lanLifecycleMutex.withLock { stopLanRuntime(null) } }
+                return@launch
+            }
             if (networkMonitor == null) {
                 lanLifecycleMutex.withLock {
                     if (enabled) startLanRuntime(null) else stopLanRuntime(null)
@@ -351,9 +395,41 @@ class AndroidSyncManager @Inject constructor(
                 lastError = if (registered) null else "NSD advertisement registration failed",
             )
         }
+        startLanReconnect()
+    }
+
+    /** 回前台/换网后先重查已信任设备地址，再同步；离线或停止 listener 时取消整个轮次。 */
+    private fun startLanReconnect() {
+        reconnectJob?.cancel()
+        reconnectJob = scope.launch {
+            var retryMs = RECONNECT_INITIAL_MS
+            while (isActive && _syncState.value.isLanEnabled) {
+                var nextDelay = RECONNECT_INTERVAL_MS
+                try {
+                    refreshTrustedDevices()
+                    if (_syncState.value.trustedDevices.any { it.trustState == "TRUSTED" }) {
+                        discoverLanPeers()
+                        val summary = registry.syncLan()
+                        check(summary.completed) { "LAN automatic sync failed" }
+                        if (summary.moreWork) nextDelay = RECONNECT_INITIAL_MS
+                    }
+                    retryMs = RECONNECT_INITIAL_MS
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Throwable) {
+                    // 重连失败明确显示在诊断状态，使用退避避免离线设备造成发现风暴。
+                    _syncState.update { it.copy(lastError = failure.message) }
+                    nextDelay = retryMs
+                    retryMs = minOf(RECONNECT_MAX_MS, retryMs * 2)
+                }
+                delay(nextDelay)
+            }
+        }
     }
 
     private suspend fun stopLanRuntime(reason: String?) {
+        reconnectJob?.cancel()
+        reconnectJob = null
         runCatching { getAdvertisement().unregister() }
         lanListener.stop()
         _syncState.update {
@@ -368,7 +444,12 @@ class AndroidSyncManager @Inject constructor(
     }
 
     private companion object {
+        // 保存用户开启 LAN 同步的意图，生命周期暂停不会取消该意图。
         const val PREF_LAN_REQUESTED = "lan_requested"
+        // 自动发现与反熵间隔、失败退避范围，限制离线重试对局域网的负担。
+        const val RECONNECT_INITIAL_MS = 5_000L
+        const val RECONNECT_MAX_MS = 60_000L
+        const val RECONNECT_INTERVAL_MS = 30_000L
     }
 
     /**
@@ -379,9 +460,12 @@ class AndroidSyncManager @Inject constructor(
      */
     suspend fun discoverLanPeers(timeoutMs: Long = 2_000L): List<AndroidSyncDiscoveredPeer> {
         _syncState.update { it.copy(isDiscovering = true, phase = SyncStatusPhase.DISCOVERING) }
-        val result = try {
+        val discovered = try {
             getDiscovery().discover(timeoutMs)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (error: Throwable) {
+            // 手动发现显示诊断；生命周期取消必须传播，不能进入旧轮次的后续同步。
             AndroidSyncDiscoveryResult(peers = emptyList(), diagnosticMessage = error.message)
         } finally {
             _syncState.update {
@@ -392,6 +476,10 @@ class AndroidSyncManager @Inject constructor(
             }
         }
 
+        // 临时发现标识只排除本机广播，对端授权仍由后续签名挑战与 AUTH 决定。
+        val result = discovered.copy(peers = discovered.peers.filterNot {
+            it.deviceId == advertisementProvider?.discoveryId
+        })
         _syncState.update {
             it.copy(
                 discoveredPeers = result.peers,
@@ -406,6 +494,7 @@ class AndroidSyncManager @Inject constructor(
         if (result.peers.isNotEmpty()) withContext(Dispatchers.IO) {
             val rawClient = httpClient ?: OkHttpClient()
             for (peer in result.peers) {
+                currentCoroutineContext().ensureActive()
                 var tlsPeer: AndroidSyncPinnedLanClient? = null
                 try {
                     val client = networkMonitor?.bindLanClient(rawClient, peer.host) ?: rawClient
@@ -418,7 +507,7 @@ class AndroidSyncManager @Inject constructor(
                         }
                     }
                     val healthUrl = "${tlsPeer.baseUrl}/healthz"
-                    tlsPeer.client.newCall(Request.Builder().url(healthUrl).get().build()).execute().use { response ->
+                    tlsPeer.client.consumeSyncResponse(Request.Builder().url(healthUrl).get().build()) { response ->
                         val body = response.body?.string().orEmpty()
                         check(response.isSuccessful) { "LAN health check failed: HTTP ${response.code} $body" }
                         val health = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
@@ -432,14 +521,14 @@ class AndroidSyncManager @Inject constructor(
                         val endpointId = "lan:${matched.deviceId}"
                         val existing = registry.list().firstOrNull { it.endpointId == endpointId }
                         val newUrl = SyncPairing.formatLanTlsUrl(peer.host, peer.port)
-                        if (existing == null || existing.baseUrl != newUrl || !existing.enabled) {
+                        if (existing == null || existing.baseUrl != newUrl || existing.syncSpaceId != matched.syncSpaceId) {
                             registry.save(
                                 AndroidSyncEndpointConfig(
                                     endpointId = endpointId,
                                     syncSpaceId = matched.syncSpaceId,
                                     baseUrl = newUrl,
                                     transport = "LAN",
-                                    enabled = true,
+                                    enabled = existing?.enabled ?: true,
                                 )
                             )
                         }
@@ -545,12 +634,8 @@ class AndroidSyncManager @Inject constructor(
         }
         tlsPeer.close()
         if (!isTrusted && pairingCoordinator != null) {
-            try {
-                pairingCoordinator.initiatePairing(host, port)
-            } catch (failure: Throwable) {
-                _syncState.update { it.copy(lastError = "Pairing failed: ${failure.message ?: failure.javaClass.simpleName}") }
-                throw failure
-            }
+            // 配对入口负责按账户发布错误，外层不得把迟到错误重新写入另一账户。
+            initiatePairing(host, port)
         }
 
         peer
@@ -561,18 +646,17 @@ class AndroidSyncManager @Inject constructor(
      */
     suspend fun initiatePairing(host: String, port: Int): ActivePairingSession? {
         val coordinator = pairingCoordinator ?: error("Pairing coordinator is not available")
+        val accountId = accountService.getCurrentAccountId()
         _syncState.update { it.copy(phase = SyncStatusPhase.PAIRING, lastError = null) }
         return try {
             val session = coordinator.initiatePairing(host, port)
-            _syncState.update {
-                it.copy(
-                    activePairingSession = session,
-                    phase = SyncStatusPhase.WAITING_CONFIRMATION,
-                )
-            }
+            // 网络握手返回时账户可能已改变，统一通过隔离后的会话发布入口。
+            publishPairingSessions(accountId, listOf(session))
             session
         } catch (t: Throwable) {
+            // 失败归属握手发起账户，保留原始异常但不污染新账户的状态。
             _syncState.update {
+                if (accountService.getCurrentAccountId() != accountId) return@update it
                 it.copy(
                     phase = SyncStatusPhase.FAILED,
                     lastError = "Pairing failed: ${t.message}",
@@ -587,12 +671,16 @@ class AndroidSyncManager @Inject constructor(
      */
     suspend fun confirmPairing(sessionId: String): ActivePairingSession? {
         val coordinator = pairingCoordinator ?: return null
+        val accountId = accountService.getCurrentAccountId()
         return try {
             val session = coordinator.confirmSession(sessionId)
             refreshTrustedDevices()
             session
         } catch (t: Throwable) {
-            _syncState.update { it.copy(lastError = "Confirm failed: ${t.message}") }
+            // 确认失败的迟到响应只更新原账户，异常仍向调用者暴露。
+            _syncState.update {
+                if (accountService.getCurrentAccountId() == accountId) it.copy(lastError = "Confirm failed: ${t.message}") else it
+            }
             throw t
         }
     }
@@ -601,8 +689,10 @@ class AndroidSyncManager @Inject constructor(
      * 用户取消配对。
      */
     suspend fun cancelPairing(sessionId: String, reason: String = "USER_CANCELLED") {
+        val accountId = accountService.getCurrentAccountId()
         pairingCoordinator?.cancelSession(sessionId, reason)
         _syncState.update {
+            if (accountService.getCurrentAccountId() != accountId) return@update it
             it.copy(
                 activePairingSession = null,
                 phase = SyncStatusPhase.IDLE,
@@ -740,7 +830,12 @@ class AndroidSyncManager @Inject constructor(
             _syncState.update {
                 it.copy(
                     lastSyncSummary = summary,
-                    phase = if (summary.completed) SyncStatusPhase.COMPLETED else SyncStatusPhase.FAILED,
+                    phase = when {
+                        !summary.completed -> SyncStatusPhase.FAILED
+                        summary.moreWork -> SyncStatusPhase.MORE_WORK
+                        summary.authStabilityPending -> SyncStatusPhase.AUTH_STABILITY_PENDING
+                        else -> SyncStatusPhase.COMPLETED
+                    },
                     lastError = if (summary.completed) null else "Sync partially failed: ${summary.failedEndpointIds}",
                 )
             }
@@ -772,9 +867,31 @@ class AndroidSyncManager @Inject constructor(
      */
     suspend fun listEndpoints(): List<AndroidSyncEndpointConfig> = registry.list()
 
+    /** 跟随当前账户和持久绑定观察历史；切换时先清除旧账户显示，再接收新空间查询。 */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun observeRunHistory(limit: Int): Flow<List<SyncRunHistoryEntity>> =
+        accountService.currentAccountIdFlow.flatMapLatest { accountId -> observeHistoryForAccount(accountId, limit) }
+
+    /** 账户变化会取消旧绑定查询，只有同步空间身份变化才重建历史订阅。 */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private fun observeHistoryForAccount(accountId: Int?, limit: Int): Flow<List<SyncRunHistoryEntity>> = flow {
+        emit(emptyList())
+        if (accountId == null) return@flow
+        val spaces = database.syncRuntimeDao().observeBinding(accountId)
+            .map { it?.syncSpaceId }.distinctUntilChanged()
+        emitAll(spaces.flatMapLatest { space -> observeHistoryForSpace(space, limit) })
+    }
+
+    /** 新空间首次读取前清除旧列表；没有绑定时明确显示空历史。 */
+    private fun observeHistoryForSpace(space: String?, limit: Int): Flow<List<SyncRunHistoryEntity>> =
+        if (space == null) flowOf(emptyList()) else flow {
+            emit(emptyList())
+            emitAll(registry.observeRunHistory(space, limit).distinctUntilChanged())
+        }
+
     suspend fun listRunHistory(limit: Int = 100): List<SyncRunHistoryEntity> {
         val syncSpaceId = _syncState.value.syncSpaceId
-            ?: database.syncRuntimeDao().findActiveBinding()?.syncSpaceId
+            ?: database.syncRuntimeDao().findBinding(accountService.getCurrentAccountId())?.syncSpaceId
             ?: return emptyList()
         return registry.listRunHistory(syncSpaceId, limit)
     }

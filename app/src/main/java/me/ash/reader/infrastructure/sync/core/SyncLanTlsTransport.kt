@@ -73,7 +73,7 @@ object SyncLanTlsTransport {
             .header("accept", "application/json")
             .build()
 
-        val responseBody = baseClient.newCall(bootstrapRequest).execute().use { response ->
+        val responseBody = baseClient.consumeSyncResponse(bootstrapRequest) { response ->
             val bytes = response.body?.bytes() ?: ByteArray(0)
             require(bytes.size <= 64 * 1024) { "LAN identity challenge response exceeds the size limit" }
             check(response.isSuccessful) {

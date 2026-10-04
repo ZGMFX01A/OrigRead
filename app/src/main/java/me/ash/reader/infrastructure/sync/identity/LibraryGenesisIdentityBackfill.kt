@@ -72,7 +72,9 @@ class LibraryGenesisIdentityBackfill @Inject constructor(
                         feeds.map { feed ->
                             SyncIdentitySeed(
                                 localId = feed.id,
-                                canonicalKey = SyncCanonicalIdentity.feedKey(feed.sourceType, feed.url),
+                                // 地址编辑不改变原始身份输入，也不制造新的恢复冲突。
+                                canonicalKey = mappingDao.findByLocalId(syncSpaceId, SyncEntityType.FEED.wireName, feed.id)?.canonicalKey
+                                    ?: SyncCanonicalIdentity.feedCandidateKey(feed.sourceType, feed.url),
                             )
                         },
                     now = now,
@@ -95,7 +97,8 @@ class LibraryGenesisIdentityBackfill @Inject constructor(
                             SyncIdentitySeed(
                                 localId = article.id,
                                 canonicalKey =
-                                    SyncCanonicalIdentity.articleKey(
+                                    mappingDao.findByLocalId(syncSpaceId, SyncEntityType.ARTICLE.wireName, article.id)?.canonicalKey
+                                    ?: SyncCanonicalIdentity.articleCandidateKey(
                                         effectiveFeedCanonicalKeys[article.feedId],
                                         article.link,
                                     ),

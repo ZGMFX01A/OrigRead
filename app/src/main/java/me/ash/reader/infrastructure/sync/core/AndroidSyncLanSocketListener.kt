@@ -8,14 +8,14 @@ import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
 import java.io.IOException
 import javax.net.ssl.SSLServerSocket
 import javax.net.ssl.SSLSocket
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.abs
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.MapSerializer
@@ -25,6 +25,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 import me.ash.reader.infrastructure.db.AndroidDatabase
 
@@ -55,6 +56,7 @@ class AndroidSyncLanSocketListener @Inject constructor(
     private val snapshotInstaller: AndroidSnapshotInstallService? = null,
     private val genesisSnapshotService: SyncGenesisSnapshotService? = null,
 ) {
+    @Inject lateinit var pagedRoutes: SyncPagedSnapshotRoutes
     constructor(
         database: AndroidDatabase,
         remoteApply: SyncRemoteApplyCoordinator,
@@ -65,9 +67,12 @@ class AndroidSyncLanSocketListener @Inject constructor(
     private val json = Json { encodeDefaults = true; ignoreUnknownKeys = true; explicitNulls = true }
     private val trustedPeers = ConcurrentHashMap<String, TrustedPeer>()
     private val nonceCache = SyncHttpAuthCanonicalizer.NonceCache()
+    private val peerAdmission = SyncLanPeerAdmission()
+    // 预约、全局 quota 与块文件必须在同一临界区检查和落盘，防止多个 Socket 抢占同一 hash。
+    private val blobUploadMutex = Mutex()
     private var bootstrapServer: ServerSocket? = null
     private var tlsServer: SSLServerSocket? = null
-    private var executor: ExecutorService? = null
+    private var connections: SyncLanConnectionPool? = null
     @Volatile private var tlsServerIdentity: AndroidSyncLanServerIdentity? = null
     internal var tlsServerIdentityProvider: ((String) -> AndroidSyncLanServerIdentity)? = null
 
@@ -90,15 +95,16 @@ class AndroidSyncLanSocketListener @Inject constructor(
         if (bootstrapServer != null) return checkNotNull(bootstrapServer).localPort
         val localDeviceId = kotlinx.coroutines.runBlocking { localDeviceId() }
         val identity = tlsServerIdentityProvider?.invoke(localDeviceId) ?: signingKeys.lanTlsServerIdentity(localDeviceId)
+        // 加载失败时尚未绑定端口，下一次启动必须重新执行完整信任恢复。
+        kotlinx.coroutines.runBlocking { warmUpTrustedPeers() }
         val (bootstrapSocket, tlsSocket) = bindPortPair(port, identity.sslContext)
         tlsServerIdentity = identity
         bootstrapServer = bootstrapSocket
         tlsServer = tlsSocket
-        val workers = Executors.newCachedThreadPool()
-        executor = workers
-        workers.execute { runCatching { kotlinx.coroutines.runBlocking { warmUpTrustedPeers() } } }
-        workers.execute { acceptConnections(bootstrapSocket, isTls = false, workers = workers) }
-        workers.execute { acceptConnections(tlsSocket, isTls = true, workers = workers) }
+        val pool = SyncLanConnectionPool(::handle)
+        connections = pool
+        pool.listen(bootstrapSocket, tls = false)
+        pool.listen(tlsSocket, tls = true)
         return bootstrapSocket.localPort
     }
 
@@ -125,17 +131,9 @@ class AndroidSyncLanSocketListener @Inject constructor(
         runCatching { tlsServer?.close() }
         bootstrapServer = null
         tlsServer = null
-        executor?.shutdownNow()
-        executor = null
+        connections?.close()
+        connections = null
         tlsServerIdentity = null
-    }
-
-    private fun acceptConnections(listener: ServerSocket, isTls: Boolean, workers: ExecutorService) {
-        while (!listener.isClosed) {
-            runCatching { listener.accept() }
-                .onSuccess { client -> workers.execute { handle(client, isTls) } }
-                .onFailure { if (!listener.isClosed) Unit }
-        }
     }
 
     private fun handle(socket: Socket, isTls: Boolean) {
@@ -190,10 +188,17 @@ class AndroidSyncLanSocketListener @Inject constructor(
     }
 
     private fun processHttpRequest(socket: Socket, input: InputStream, isTls: Boolean) {
+        var admittedPeer: String? = null
         try {
             val remoteHost = socket.inetAddress?.hostAddress ?: "127.0.0.1"
             val remotePort = socket.port
-            val request = SyncHttpRequestReader.read(input)
+            val request = SyncHttpRequestReader.read(input) { head ->
+                val peer = kotlinx.coroutines.runBlocking { authorizeRequestHeaders(head, isTls) }
+                if (peer != null) {
+                    check(peerAdmission.acquire(peer)) { "OVERLOADED: Peer concurrent request limit reached" }
+                    admittedPeer = peer
+                }
+            }
             val (response, localDevId) = kotlinx.coroutines.runBlocking {
                 val devId = localDeviceId()
                 val bootstrapAllowed =
@@ -208,20 +213,59 @@ class AndroidSyncLanSocketListener @Inject constructor(
             }
             writeResponse(socket, response, localDevId)
         } catch (error: Throwable) {
-            val escapedMsg = (error.message ?: error.toString()).replace("\"", "\\\"")
+            // 鉴权/准入失败直接返回明确错误，正文仍未读取；使用序列化避免异常文本破坏 JSON。
+            val message = error.message ?: error.toString()
+            val code = message.substringBefore(':')
+            val status = when (code) {
+                "OVERLOADED" -> 503
+                "AUTH_FAILED", "AUTH_REVOKED", "INVALID_SIGNATURE", "REQUEST_EXPIRED" -> 403
+                "UPGRADE_REQUIRED" -> 426
+                "SYNC_VERSION_MISMATCH" -> 409
+                else -> 400
+            }
             runCatching {
                 writeResponse(
                     socket,
-                    HttpResponse(400, "application/json", "{\"error\":\"INVALID_REQUEST\",\"message\":\"$escapedMsg\"}"),
+                    jsonResponse(status, ErrorResponse(code, message)),
                     runCatching { kotlinx.coroutines.runBlocking { localDeviceId() } }.getOrNull(),
                 )
             }
+        } finally {
+            admittedPeer?.let(peerAdmission::release)
         }
     }
 
-    /**
-     * HTTP 路由调度与鉴权拦截。
-     */
+    /** 正文尚未分配时验证 TLS、当前成员和已签名的正文摘要；路由再核对真实字节。 */
+    private suspend fun authorizeRequestHeaders(request: SyncHttpRequest, isTls: Boolean): String? {
+        val path = request.target.substringBefore('?')
+        if ((request.method == "GET" && path == "/healthz") ||
+            (request.method == "POST" && path == "/v1/auth/challenge")) return null
+        check(isTls) { "UPGRADE_REQUIRED: LAN business routes require TLS" }
+        if (path.startsWith("/v1/pairing/")) return null
+        val segments = URI(request.target).path.split('/').filter(String::isNotBlank)
+        check(segments.size >= 3 && segments[0] == "v1" && segments[1] == "spaces") { "UNKNOWN_ROUTE" }
+        requireSyncCompatibilityHeader(request.headers[SYNC_COMPATIBILITY_HEADER])
+        val space = segments[2]
+        val device = checkNotNull(request.headers[SyncHttpAuthCanonicalizer.HEADER_DEVICE_ID]) { "AUTH_FAILED" }
+        val peer = checkNotNull(trustedPeers["$space\u0000$device"]) { "AUTH_FAILED" }
+        check(peer.key.status == "ACTIVE") { "AUTH_REVOKED" }
+        val history = authLedgerService.getAuthLedger(space).objects
+        check(history.isEmpty() || AndroidSyncAuthLedgerService.computeActiveGrant(history, device) != null) { "AUTH_REVOKED" }
+        val timestamp = checkNotNull(request.headers[SyncHttpAuthCanonicalizer.HEADER_TIMESTAMP]) { "AUTH_FAILED" }
+        val now = System.currentTimeMillis()
+        check(checkNotNull(timestamp.toLongOrNull()) in (now - SyncHttpAuthCanonicalizer.MAX_CLOCK_SKEW_MS)..
+            (now + SyncHttpAuthCanonicalizer.MAX_CLOCK_SKEW_MS)) { "REQUEST_EXPIRED" }
+        val nonce = checkNotNull(request.headers[SyncHttpAuthCanonicalizer.HEADER_NONCE]) { "AUTH_FAILED" }
+        check(CHALLENGE_NONCE.matches(nonce)) { "AUTH_FAILED" }
+        val digest = checkNotNull(request.headers["x-sync-body-sha256"]) { "AUTH_FAILED: Missing signed body digest" }
+        check(sha256HexRegex.matches(digest)) { "AUTH_FAILED: Invalid body digest" }
+        val material = SyncHttpAuthCanonicalizer.canonicalSigningMaterial(request.method, request.target, timestamp, nonce, digest)
+        check(signingKeys.verifyBase64(peer.key.publicKeySpkiBase64, material.toByteArray(StandardCharsets.UTF_8),
+            checkNotNull(request.headers[SyncHttpAuthCanonicalizer.HEADER_SIGNATURE]))) { "INVALID_SIGNATURE" }
+        return "$space\u0000$device"
+    }
+
+    /** HTTP 路由调度与完整正文验签。 */
     private suspend fun route(request: SyncHttpRequest, remoteHost: String = "127.0.0.1", remotePort: Int = 0): HttpResponse {
         // 健康检查不公开设备稳定身份；身份映射必须走签名挑战。
         if (request.method == "GET" && request.target == "/healthz") {
@@ -322,6 +366,22 @@ class AndroidSyncLanSocketListener @Inject constructor(
         }
 
         val trustedDeviceId = remoteDeviceId
+        // 握手版本同时绑定请求正文签名，不能只靠请求头接受旧握手。
+        if (request.method == "POST" && segments.getOrNull(3) == "session") {
+            val version = json.parseToJsonElement(request.body).jsonObject["syncCompatibilityVersion"]?.jsonPrimitive
+            requireSyncCompatibility(version?.takeUnless { it.isString }?.intOrNull)
+        }
+
+        if (segments.getOrNull(3) == "snapshots" && segments.getOrNull(5) == "pages") {
+            val response = pagedRoutes.handle(SyncPagedSnapshotRoutes.Request(syncSpaceId, trustedDeviceId,
+                request.method, segments, uri.query, request.body))
+            return HttpResponse(response.status, "application/json; charset=utf-8", response.body)
+        }
+
+        // LAN 兼容号 2 仅支持分页快照；OWNER acceptance 保留独立授权契约。
+        if (segments.getOrNull(3) == "snapshots" && segments.getOrNull(5) != "accept") {
+            return jsonResponse(409, ErrorResponse("SNAPSHOT_INCOMPATIBLE", "LAN requires paged Snapshot routes"))
+        }
 
         return when {
             request.method == "POST" && segments.getOrNull(3) == "session" ->
@@ -332,9 +392,13 @@ class AndroidSyncLanSocketListener @Inject constructor(
                         localDeviceId = trustedDeviceId,
                         remoteDeviceId = localDeviceId(),
                         capabilities = SyncPeerCapabilities(
+                            syncCompatibilityVersion = SYNC_COMPATIBILITY_VERSION,
                             streamingSnapshots = true,
+                            pagedSnapshots = true,
+                            snapshotCommitJobsV1 = true,
                             blobRangeRequests = true,
                             authStabilityCheckpoints = true,
+                            blobUploadReservations = true,
                         ),
                     ),
                 )
@@ -409,12 +473,14 @@ class AndroidSyncLanSocketListener @Inject constructor(
                 handleCoverageRetained(syncSpaceId, trustedDeviceId, request.body)
                 HttpResponse(204, "", "")
             }
+            request.method == "POST" && segments.getOrNull(3) == "blobs" && segments.getOrNull(5) == "reserve" ->
+                blobUploadMutex.withLock { reserveBlobUpload(BlobReservationRequest(space = syncSpaceId, hash = segments[4], request = request, peer = trustedDeviceId)) }
             request.method == "GET" && segments.getOrNull(3) == "blobs" && segments.getOrNull(5) == "status" ->
-                handleBlobStatus(syncSpaceId, segments[4], trustedDeviceId)
+                blobUploadMutex.withLock { handleBlobStatus(syncSpaceId, segments[4], trustedDeviceId) }
             request.method == "GET" && segments.getOrNull(3) == "blobs" && segments.size == 5 ->
                 handleBlobFetch(syncSpaceId, segments[4], request.headers["range"])
             request.method == "PUT" && segments.getOrNull(3) == "blobs" && segments.size == 5 ->
-                handleBlobPush(syncSpaceId, segments[4], request, trustedDeviceId)
+                blobUploadMutex.withLock { handleBlobPush(syncSpaceId, segments[4], request, trustedDeviceId) }
             else -> HttpResponse(404, "application/json", "{}")
         }
     }
@@ -448,7 +514,7 @@ class AndroidSyncLanSocketListener @Inject constructor(
     }
 
     private suspend fun pushOperations(syncSpaceId: String, body: String): HttpResponse {
-        val request = json.decodeFromString(OperationBatch.serializer(), body)
+        val request = json.decodeFromJsonElement(OperationBatch.serializer(), SyncStrictJson.parse(body))
         require(request.operations.size <= 500) { "Too many operations" }
         val localPolicy = policy(syncSpaceId)
         val earlyRejected = mutableListOf<SyncRejectedOperation>()
@@ -1178,11 +1244,30 @@ class AndroidSyncLanSocketListener @Inject constructor(
         }
     }
 
-    private suspend fun verifyBlobSpaceAndLane(syncSpaceId: String, hash: String, isUpload: Boolean = false) {
+    /** 首块前持久化已认证引用预约，避免 status 与首次 PUT 互相等待。 */
+    private data class BlobReservationRequest(val space: String, val hash: String, val request: SyncHttpRequest, val peer: String)
+
+    private suspend fun reserveBlobUpload(options: BlobReservationRequest): HttpResponse {
+        val (space, hash, request, peer) = options
+        val store = checkNotNull(localBlobStore) { "BLOB_STORE_UNAVAILABLE" }
+        val value = json.decodeFromString<SyncBlobUploadReservationWire>(request.body)
+        require(value.manifest.hash == hash) { "INVALID_BLOB_RESERVATION" }
+        SyncBlobUploadReservations.validate(value, policy(space))
+        val now = System.currentTimeMillis()
+        val error = enforceStagingBudget(store, space, hash, peer, value.manifest.totalBytes, now)
+        if (error != null) return jsonResponse(507, ErrorResponse("BLOB_STAGING_LIMIT", error))
+        SyncBlobUploadReservations.save(store.getRoot(),
+            SyncBlobUploadReservations.ReservationContext(space = space, peer = peer, value = value, policy = policy(space)))
+        val marker = File(store.getRoot(), "$hash.stage")
+        if (!marker.isFile) marker.writeText(listOf(peer, space, value.manifest.totalBytes.toString(), now.toString()).joinToString("\n"))
+        return HttpResponse(204, "", "")
+    }
+
+    private suspend fun verifyBlobSpaceAndLane(syncSpaceId: String, hash: String, isUpload: Boolean = false,
+        remoteDeviceId: String? = null) {
         val localPolicy = policy(syncSpaceId)
         val references = database.syncBlobDao().listReferencesForBlob(syncSpaceId, hash)
         if (references.isNotEmpty()) {
-            localBlobStore?.let { File(it.getRoot(), "$hash.stage").delete() }
             val hasEnabledReference = references.any { reference ->
                 localPolicy[reference.replicationLaneId] !in setOf("PAUSED", "LOCAL_PURGE", "UNSUPPORTED")
             }
@@ -1194,6 +1279,8 @@ class AndroidSyncLanSocketListener @Inject constructor(
         if (!isUpload) {
             throw IllegalStateException("AUTH_FORBIDDEN: Blob $hash has no structured reference in space $syncSpaceId")
         }
+        SyncBlobUploadReservations.require(checkNotNull(localBlobStore).getRoot(),
+            SyncBlobUploadReservations.ReservationCheck(space = syncSpaceId, peer = checkNotNull(remoteDeviceId), hash = hash, policy = localPolicy))
     }
 
     private val sha256HexRegex = Regex("^[0-9a-f]{64}$")
@@ -1206,7 +1293,7 @@ class AndroidSyncLanSocketListener @Inject constructor(
             return jsonResponse(400, ErrorResponse("INVALID_HASH", "Hash must be 64-char lowercase hex"))
         }
 
-        runCatching { verifyBlobSpaceAndLane(syncSpaceId, declaredHash, isUpload = true) }.onFailure {
+        runCatching { verifyBlobSpaceAndLane(syncSpaceId, declaredHash, isUpload = true, remoteDeviceId = remoteDeviceId) }.onFailure {
             return HttpResponse(403, "application/json", "{\"error\":\"AUTH_FORBIDDEN\",\"message\":\"${it.message}\"}")
         }
 
@@ -1235,7 +1322,7 @@ class AndroidSyncLanSocketListener @Inject constructor(
         // 修复 C15: 准确判断 0 字节 Blob 与空串哈希
         val emptyBlobHash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         if (blobFile != null && blobFile.isFile) {
-            if ((blobFile.length() > 0 || declaredHash == emptyBlobHash) && store.verifyFile(declaredHash, blobFile)) {
+            if ((blobFile.length() > 0 || declaredHash == emptyBlobHash) && store.verifyFile(declaredHash, blobFile, true)) {
                 val localDev = localDeviceId()
                 val status = SyncBlobStatusWire(
                     hash = declaredHash,
@@ -1292,7 +1379,7 @@ class AndroidSyncLanSocketListener @Inject constructor(
         }
 
         val blobFile = store.getBlobFile(declaredHash) ?: return HttpResponse(404, "application/json", "{\"error\":\"NOT_FOUND\"}")
-        if (!store.verifyFile(declaredHash, blobFile)) {
+        if (!store.verifyFile(declaredHash, blobFile, rangeHeader.isNullOrBlank() || rangeHeader.startsWith("bytes=0-"))) {
             blobFile.delete()
             return HttpResponse(409, "application/json", "{\"error\":\"BLOB_CORRUPTED\"}")
         }
@@ -1384,7 +1471,7 @@ class AndroidSyncLanSocketListener @Inject constructor(
             return jsonResponse(400, ErrorResponse("INVALID_HASH", "Hash must be 64-char lowercase hex"))
         }
 
-        runCatching { verifyBlobSpaceAndLane(syncSpaceId, declaredHash, isUpload = true) }.onFailure {
+        runCatching { verifyBlobSpaceAndLane(syncSpaceId, declaredHash, isUpload = true, remoteDeviceId = remoteDeviceId) }.onFailure {
             return HttpResponse(403, "application/json", "{\"error\":\"AUTH_FORBIDDEN\",\"message\":\"${it.message}\"}")
         }
 
@@ -1402,6 +1489,9 @@ class AndroidSyncLanSocketListener @Inject constructor(
         val references = database.syncBlobDao().listReferencesForBlob(syncSpaceId, declaredHash)
         if (references.isEmpty()) {
             var stageCreatedAt = now
+            SyncBlobUploadReservations.require(store.getRoot(),
+                SyncBlobUploadReservations.ReservationCheck(space = syncSpaceId, peer = remoteDeviceId, hash = declaredHash,
+                    policy = policy(syncSpaceId), totalBytes = totalBytes))
             if (stageMarker.isFile) {
                 val fields = runCatching { stageMarker.readLines() }.getOrDefault(emptyList())
                 if (fields.size < 4) {
@@ -1478,6 +1568,8 @@ class AndroidSyncLanSocketListener @Inject constructor(
                     replicaId = replicaId,
                     totalBytes = totalBytes,
                     persistedAt = now,
+                    storageGeneration = store.storageGeneration,
+                    custodyState = "HOLDING",
                 )
             )
             val ack = SyncBlobPersistedAckWire(
@@ -1486,6 +1578,8 @@ class AndroidSyncLanSocketListener @Inject constructor(
                 replicaId = replicaId,
                 totalBytes = totalBytes,
                 persistedAt = now,
+                    storageGeneration = store.storageGeneration,
+                    custodyState = "HOLDING",
             )
             return jsonResponse(200, ack)
         }
@@ -1528,6 +1622,8 @@ class AndroidSyncLanSocketListener @Inject constructor(
                     replicaId = replicaId,
                     totalBytes = installedBytes,
                     persistedAt = now,
+                    storageGeneration = store.storageGeneration,
+                    custodyState = "HOLDING",
                 )
             )
             val ack = SyncBlobPersistedAckWire(
@@ -1536,6 +1632,8 @@ class AndroidSyncLanSocketListener @Inject constructor(
                 replicaId = replicaId,
                 totalBytes = installedBytes,
                 persistedAt = now,
+                    storageGeneration = store.storageGeneration,
+                    custodyState = "HOLDING",
             )
             return jsonResponse(200, ack)
         }
@@ -1574,12 +1672,14 @@ class AndroidSyncLanSocketListener @Inject constructor(
                     database.syncBlobDao().listReferencesForBlob(stagedSpace, stagedHash).isNotEmpty()
             if (hasReference) {
                 marker.delete()
+                File(store.getRoot(), "$stagedHash.reservation").delete()
                 return@forEach
             }
             if (createdAt <= 0L || now - createdAt > STAGED_BLOB_TTL_MS) {
                 File(store.getRoot(), stagedHash).delete()
                 File(store.getRoot(), "$stagedHash.part").delete()
                 File(store.getRoot(), "$stagedHash.meta").delete()
+                File(store.getRoot(), "$stagedHash.reservation").delete()
                 marker.delete()
                 return@forEach
             }
@@ -1596,17 +1696,16 @@ class AndroidSyncLanSocketListener @Inject constructor(
         return null
     }
 
+    /** 进程重启后恢复每个有效空间的持久信任，数据库失败必须使监听启动显式失败。 */
     suspend fun warmUpTrustedPeers() {
-        runCatching {
-            val binding = database.syncRuntimeDao().findActiveBinding() ?: return@runCatching
-            val devices = database.syncTrustedDeviceDao().listBySpace(binding.syncSpaceId)
-            devices.filter { it.trustState == "TRUSTED" }.forEach { dev ->
-                registerPeer(
-                    syncSpaceId = dev.syncSpaceId,
-                    deviceId = dev.deviceId,
-                    key = SyncPeerKey(publicKeySpkiBase64 = dev.staticPublicKey, status = "ACTIVE", authEpoch = dev.authEpoch)
-                )
-            }
+        val devices = database.syncTrustedDeviceDao().listTrustedForSyncBindings()
+        trustedPeers.clear()
+        devices.forEach { dev ->
+            registerPeer(
+                syncSpaceId = dev.syncSpaceId,
+                deviceId = dev.deviceId,
+                key = SyncPeerKey(publicKeySpkiBase64 = dev.staticPublicKey, status = "ACTIVE", authEpoch = dev.authEpoch)
+            )
         }
     }
 

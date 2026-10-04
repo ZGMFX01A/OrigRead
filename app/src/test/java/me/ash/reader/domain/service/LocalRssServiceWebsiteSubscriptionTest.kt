@@ -84,9 +84,9 @@ class LocalRssServiceWebsiteSubscriptionTest {
                 )
             )
         }
-        whenever(syncMutations.captureLibraryMutation<Unit>(eq(accountId), any())).thenAnswer { invocation ->
+        whenever(syncMutations.captureLibraryMutation<Unit>(eq(accountId), any(), any())).thenAnswer { invocation ->
             runBlocking {
-                invocation.getArgument<suspend () -> Unit>(1).invoke()
+                invocation.getArgument<suspend () -> Unit>(2).invoke()
             }
         }
 

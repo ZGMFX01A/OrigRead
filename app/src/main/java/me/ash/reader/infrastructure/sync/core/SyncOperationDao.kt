@@ -5,9 +5,17 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import androidx.room.RawQuery
+import androidx.sqlite.db.SupportSQLiteQuery
 
 @Dao
 interface SyncOperationDao {
+    /** 只枚举轻量 actor/lane 键，具体待推送范围由对端 frontier 下推到 SQL。 */
+    @Query("SELECT DISTINCT replicationLaneId,actorIncarnationId FROM sync_operation_log WHERE syncSpaceId=:space AND buildStatus='SIGNED' ORDER BY replicationLaneId,actorIncarnationId")
+    suspend fun pushActors(space: String): List<SyncPushActor>
+
+    @RawQuery
+    suspend fun pushRange(query: SupportSQLiteQuery): List<SyncOperationEntity>
     @Query("""
         SELECT operation.* FROM sync_operation_log operation
         LEFT JOIN sync_inbox_operation inbox ON inbox.operationId = operation.operationId
@@ -213,3 +221,5 @@ interface SyncOperationDao {
         updatedAt: Long,
     ): Int
 }
+
+data class SyncPushActor(val replicationLaneId: String, val actorIncarnationId: String)

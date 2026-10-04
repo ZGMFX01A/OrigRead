@@ -22,6 +22,9 @@ data class SyncAuthLedgerEntity(
 
 @Dao
 interface SyncAuthLedgerDao {
+    /** Snapshot AUTH 按已验签对象身份核对，禁止读取整套账本正文。 */
+    @Query("SELECT * FROM sync_auth_ledger WHERE syncSpaceId=:space AND authObjectId=:id")
+    suspend fun find(space: String, id: String): SyncAuthLedgerEntity?
     @Query(
         """
         SELECT * FROM sync_auth_ledger

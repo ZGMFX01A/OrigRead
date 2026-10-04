@@ -11,6 +11,8 @@ import org.junit.Test
 import org.mockito.Answers.RETURNS_DEEP_STUBS
 import org.mockito.Mockito.mock
 import org.mockito.kotlin.whenever
+import org.mockito.kotlin.any
+import android.database.Cursor
 
 class SyncAliasProtocolTest {
     @Test
@@ -38,17 +40,17 @@ class SyncAliasProtocolTest {
         runBlocking {
             val database = mock(AndroidDatabase::class.java, RETURNS_DEEP_STUBS)
             val resolver = AndroidSyncAliasResolver(database)
-            val edge =
-                SyncAliasEdgeEntity(
-                    syncSpaceId = "space",
-                    entityType = SyncEntityType.GROUP.wireName,
-                    leftSyncId = "a",
-                    leftGeneration = 0,
-                    rightSyncId = "b",
-                    rightGeneration = 0,
-                    sourceOperationId = "edge-op",
-                    createdAt = 1,
-                )
+            val sql = stubEmptySyncSql(database)
+            // 已验证的 Alias edge 已投影为当前代次成员；跨代查询必须返回空集合。
+            whenever(sql.query(any<String>(), any<Array<out Any?>>())).thenAnswer { call ->
+                val arguments = call.getArgument<Array<out Any?>>(1)
+                mock(Cursor::class.java).also { cursor ->
+                    if (arguments[2] == 0L) {
+                        whenever(cursor.moveToNext()).thenReturn(true, true, false)
+                        whenever(cursor.getString(0)).thenReturn("a", "b")
+                    }
+                }
+            }
             val mapping =
                 SyncIdentityMappingEntity(
                     syncSpaceId = "space",
@@ -60,8 +62,6 @@ class SyncAliasProtocolTest {
                     createdAt = 1,
                     updatedAt = 1,
                 )
-            whenever(database.syncAliasDao().listEdges("space", SyncEntityType.GROUP.wireName))
-                .thenReturn(listOf(edge))
             whenever(database.syncIdentityMappingDao().findBySyncId("space", SyncEntityType.GROUP.wireName, "b"))
                 .thenReturn(null)
             whenever(database.syncIdentityMappingDao().findBySyncId("space", SyncEntityType.GROUP.wireName, "a"))

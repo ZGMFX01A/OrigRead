@@ -67,8 +67,53 @@ class AndroidSyncBusinessApplierTest {
                 mock(me.ash.reader.infrastructure.rsshub.RssHubSubscriptionRepository::class.java),
             websiteParsePreferenceRepository =
                 mock(me.ash.reader.infrastructure.website.WebsiteParsePreferenceRepository::class.java),
-        )
+        ).also { wireRowFixtures(it, database) }
     }
+
+    /** 手动构造投影器时显式接入 Hilt 在生产中提供的三个行读取依赖。 */
+    private fun wireRowFixtures(applier: AndroidSyncBusinessApplier, database: AndroidDatabase) {
+        applier.fieldRows = fieldRowsFixture(database)
+        applier.retainedFields = retainedFieldsFixture(applier.fieldRows)
+        applier.boundedArticles = mock(SyncBoundedArticleRows::class.java).also { articles ->
+            runBlocking {
+                org.mockito.kotlin.whenever(articles.queryById(org.mockito.kotlin.any())).thenAnswer { call ->
+                    runBlocking { database.articleDao().queryById(call.getArgument(0)) }
+                }
+            }
+        }
+    }
+
+    /** 业务投影测试没有额外磁盘历史，使用原版本裁决器保持当前值与新值的合并语义。 */
+    private fun retainedFieldsFixture(fields: SyncFieldStateRows): SyncRetainedFieldMerge =
+        mock(SyncRetainedFieldMerge::class.java).also { merge ->
+            runBlocking {
+                org.mockito.kotlin.whenever(merge.resolve(org.mockito.kotlin.any())).thenAnswer { call ->
+                    val input = call.getArgument<SyncRetainedFieldMerge.Options>(0)
+                    val operation = input.operation
+                    val incoming = SyncFieldCandidate(input.field, input.valueJson,
+                        SyncVersionToken.operation(operation.actorIncarnationId, operation.replicationLaneId, operation.sequence),
+                        SyncVersionSource.OPERATION, causalContextJson = operation.causalContextJson,
+                        logicalClock = operation.logicalClock)
+                    SyncVersionResolver.resolve(listOfNotNull(input.current?.let(fields::candidate), incoming), input.policy)
+                }
+            }
+        }
+
+    /** 原 DAO 夹具仍描述相同寄存器，通过新的分段读取依赖接入原数据。 */
+    private fun fieldRowsFixture(database: AndroidDatabase): SyncFieldStateRows =
+        mock(SyncFieldStateRows::class.java).also { rows ->
+            org.mockito.kotlin.whenever(rows.find(org.mockito.kotlin.any())).thenAnswer { call ->
+                val field = call.getArgument<SyncFieldStateRows.Field>(0)
+                runBlocking { database.syncInboxDao().findFieldVersion(field.syncSpaceId, field.entityType, field.entitySyncId, field.fieldId) }
+            }
+            org.mockito.kotlin.whenever(rows.candidates(org.mockito.kotlin.any())).thenReturn(emptySequence())
+            org.mockito.kotlin.whenever(rows.candidate(org.mockito.kotlin.any())).thenAnswer { call ->
+                val value = call.getArgument<SyncFieldVersionEntity>(0)
+                SyncFieldCandidate(value.fieldId, value.valueJson, value.versionToken,
+                    SyncVersionToken.source(value.versionToken), causalContextJson = value.causalContextJson,
+                    logicalClock = value.logicalClock ?: 0L)
+            }
+        }
 
     @Test
     fun groupCreationAllocatesLocalIdentity() {

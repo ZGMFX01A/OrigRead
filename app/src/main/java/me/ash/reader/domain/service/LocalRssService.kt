@@ -35,6 +35,7 @@ import me.ash.reader.infrastructure.rss.RssHttpCacheDao
 import me.ash.reader.infrastructure.rsshub.RssHubSubscriptionDescriptor
 import me.ash.reader.infrastructure.rsshub.RssHubSubscriptionRepository
 import me.ash.reader.infrastructure.sync.core.LibrarySyncMutationCapture
+import me.ash.reader.infrastructure.sync.core.SyncLibrarySelection
 import me.ash.reader.infrastructure.website.WebsiteHelper
 import me.ash.reader.infrastructure.website.WebsiteParsePreferenceRepository
 import me.ash.reader.ui.ext.decodeHTML
@@ -84,8 +85,8 @@ constructor(
         accountService,
     ) {
 
-    override suspend fun <T> withLibraryMutation(accountId: Int, block: suspend () -> T): T =
-        syncMutations.captureLibraryMutation(accountId, block)
+    override suspend fun <T> withLibraryMutation(accountId: Int, scope: me.ash.reader.infrastructure.sync.core.SyncLibrarySelection, block: suspend () -> T): T =
+        syncMutations.captureLibraryMutation(accountId, scope, block)
 
     override suspend fun markAsRead(
         groupId: String?,
@@ -476,7 +477,8 @@ constructor(
         feed: Feed,
         articles: List<me.ash.reader.domain.model.article.Article>,
     ) {
-        withLibraryMutation(feed.accountId) {
+        // 首次订阅的文章与来源一同进入 Outbox，避免只同步空来源。
+        withLibraryMutation(feed.accountId, SyncLibrarySelection(articleFeedIds = setOf(feed.id))) {
             localSubscriptionDao.insertFeedWithArticles(feed, articles)
         }
     }
@@ -514,7 +516,11 @@ constructor(
                                 ))
                                 return@withPermit
                             }
-                            if (syncFetch.notModified) return@withPermit
+                            if (syncFetch.notModified) {
+                                // HTTP 304 只代表远端正文未变；旧版本漏掉的本地身份仍需进入同步队列。
+                                withLibraryMutation(accountId, SyncLibrarySelection(articleFeedIds = setOf(currentFeed.id))) { }
+                                return@withPermit
+                            }
                             val fetchedFeed = syncFetch.feedWithArticle
                             // 来源抓取阶段可能完成 RSSHub URL 恢复，或把旧版误存的空 Website
                             // 原地恢复成 RSS。后续清理/入库/通知必须使用本轮实际生效的 Feed，
@@ -526,19 +532,6 @@ constructor(
                                     .queryArchivedArticles(effectiveFeed.id)
                                     .map { it.link }
                                     .toSet()
-                            if (effectiveFeed.sourceType == SourceType.WEBSITE) {
-                                val existingArticles =
-                                    articleDao.queryAllByFeedId(accountId, effectiveFeed.id)
-                                val obsoleteArticleIds =
-                                    websiteHelper.findObsoleteArticleIds(
-                                        feed = effectiveFeed,
-                                        existingArticles = existingArticles,
-                                        fetchedArticles = fetchedFeed.articles,
-                                    )
-                                if (obsoleteArticleIds.isNotEmpty()) {
-                                    articleDao.deleteByIds(obsoleteArticleIds)
-                                }
-                            }
                             val fetchedArticles =
                                 articleFilterEngine.filterBeforeInsert(
                                     articles =
@@ -549,7 +542,9 @@ constructor(
                                 )
 
                             val newArticles =
-                                withLibraryMutation(accountId) {
+                                // 捕获本来源的文章差异，新增、内容更新及网站清理共用业务事务。
+                                withLibraryMutation(accountId, SyncLibrarySelection(articleFeedIds = setOf(effectiveFeed.id))) {
+                                    removeObsoleteWebsiteArticles(effectiveFeed, fetchedFeed.articles)
                                     feedDao.queryById(currentFeed.id)?.let { latestFeed ->
                                         val mergedFeed =
                                             mergeDetectedFeedChanges(
@@ -606,13 +601,28 @@ constructor(
             .queryAllByFeedId(feed.accountId, feed.id)
             .mapTo(hashSetOf(), me.ash.reader.domain.model.article.Article::link)
         val matchedArticles = fetchedArticles.filter { it.link in existingLinks }
-        withLibraryMutation(feed.accountId) {
+        // 重新解析修改正文和元数据，也必须同步文章而非仅捕获订阅配置。
+        withLibraryMutation(feed.accountId, SyncLibrarySelection(articleFeedIds = setOf(feed.id))) {
             updateWebsiteArticlesAndInsertNew(feed = feed, fetchedArticles = matchedArticles)
         }
         return WebsiteReparseResult(
             fetchedCount = fetchedArticles.size,
             updatedCount = matchedArticles.size,
         )
+    }
+
+    /** 网站列表移除文章时，在刷新捕获事务内删除，保证远端也收到对应 Tombstone。 */
+    private suspend fun removeObsoleteWebsiteArticles(
+        feed: Feed,
+        fetchedArticles: List<me.ash.reader.domain.model.article.Article>,
+    ) {
+        if (feed.sourceType != SourceType.WEBSITE) return
+        val obsoleteArticleIds = websiteHelper.findObsoleteArticleIds(
+            feed = feed,
+            existingArticles = articleDao.queryAllByFeedId(feed.accountId, feed.id),
+            fetchedArticles = fetchedArticles,
+        )
+        if (obsoleteArticleIds.isNotEmpty()) articleDao.deleteByIds(obsoleteArticleIds)
     }
 
     /**

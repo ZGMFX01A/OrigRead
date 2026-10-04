@@ -152,8 +152,12 @@ interface SyncAliasDao {
 
 @Singleton
 class AndroidSyncAliasResolver @Inject constructor(
-    private val database: AndroidDatabase,
+    database: AndroidDatabase,
 ) {
+    private val liveDatabase = database
+    // 冻结转换只读取当前 cut 的副本，普通业务调用继续访问自身数据库。
+    private val database get() = me.ash.reader.infrastructure.sync.core.SyncFrozenSourceContext.database(liveDatabase)
+
     private val json = Json { encodeDefaults = true; ignoreUnknownKeys = true }
     private val blobState = SyncBlobStateService(database)
     private var onFeedDeleted: suspend (String) -> Unit = {}
@@ -167,6 +171,15 @@ class AndroidSyncAliasResolver @Inject constructor(
         sourceOperationId: String? = null,
         now: Long = System.currentTimeMillis(),
     ) {
+        recordSnapshotEdge(SnapshotEdge(syncSpaceId, payload, sourceOperationId, now))
+        reconcileDeleteWins(syncSpaceId, payload.targetEntityType, payload.leftSyncId, payload.leftGeneration, now)
+    }
+
+    data class SnapshotEdge(val space: String, val payload: SyncAliasEdgePayloadV1, val sourceOperationId: String?, val now: Long, val deferProjection: Boolean = false)
+
+    /** 快照先恢复身份图，再逆序删除业务行；建图阶段不能提前触发父实体删除。 */
+    suspend fun recordSnapshotEdge(options: SnapshotEdge) {
+        val (syncSpaceId, payload, sourceOperationId, now) = options
         validate(payload)
         val (left, right) = normalizedEndpoints(payload)
         database.syncAliasDao().insertEdgeIgnore(
@@ -181,8 +194,7 @@ class AndroidSyncAliasResolver @Inject constructor(
                 createdAt = now,
             )
         )
-        rebuild(syncSpaceId, payload.targetEntityType, now)
-        reconcileDeleteWins(syncSpaceId, payload.targetEntityType, left.first, left.second, now)
+        if (!options.deferProjection) rebuild(syncSpaceId, payload.targetEntityType, now)
     }
 
     suspend fun rebuild(syncSpaceId: String, entityType: String, now: Long = System.currentTimeMillis()) {
@@ -231,21 +243,13 @@ class AndroidSyncAliasResolver @Inject constructor(
         syncId: String,
         generation: Long,
     ): Set<String> {
-        val edges = database.syncAliasDao().listEdges(syncSpaceId, entityType)
-            .filter { it.leftGeneration == generation && it.rightGeneration == generation }
-        val graph = mutableMapOf<String, MutableSet<String>>()
-        edges.forEach { edge ->
-            graph.getOrPut(edge.leftSyncId) { linkedSetOf() }.add(edge.rightSyncId)
-            graph.getOrPut(edge.rightSyncId) { linkedSetOf() }.add(edge.leftSyncId)
+        val sql = database.openHelper.writableDatabase
+        return sql.query("""SELECT aliasSyncId FROM sync_entity_alias
+            WHERE syncSpaceId=? AND entityType=? AND generation=? AND canonicalSyncId=(
+              SELECT canonicalSyncId FROM sync_entity_alias WHERE syncSpaceId=? AND entityType=? AND generation=? AND aliasSyncId=?)""",
+            arrayOf(syncSpaceId, entityType, generation, syncSpaceId, entityType, generation, syncId)).use { cursor ->
+            buildSet { while (cursor.moveToNext()) add(cursor.getString(0)) }.ifEmpty { setOf(syncId) }
         }
-        val result = linkedSetOf(syncId)
-        val queue = ArrayDeque<String>().apply { add(syncId) }
-        while (queue.isNotEmpty()) {
-            graph[queue.removeFirst()].orEmpty().sorted().forEach { next ->
-                if (result.add(next)) queue.add(next)
-            }
-        }
-        return result
     }
 
     suspend fun resolveMapping(
@@ -313,8 +317,7 @@ class AndroidSyncAliasResolver @Inject constructor(
                 mapping.localId,
             )
             when (operation.entityType) {
-                SyncEntityType.ARTICLE.wireName -> database.articleDao().queryById(mapping.localId)?.article
-                    ?.takeIf { it.accountId == binding.localAccountId }?.let { database.articleDao().deleteByIds(listOf(it.id)) }
+                SyncEntityType.ARTICLE.wireName -> deleteArticleIdentity(mapping.localId, binding.localAccountId)
                 SyncEntityType.FEED.wireName -> {
                     val feed = database.feedDao().queryById(mapping.localId)
                     if (feed == null) {
@@ -380,8 +383,7 @@ class AndroidSyncAliasResolver @Inject constructor(
                 mapping.localId,
             )
             when (entityType) {
-                SyncEntityType.ARTICLE.wireName -> database.articleDao().queryById(mapping.localId)?.article
-                    ?.takeIf { it.accountId == binding.localAccountId }?.let { database.articleDao().deleteByIds(listOf(it.id)) }
+                SyncEntityType.ARTICLE.wireName -> deleteArticleIdentity(mapping.localId, binding.localAccountId)
                 SyncEntityType.FEED.wireName -> {
                     val feed = database.feedDao().queryById(mapping.localId)
                     if (feed == null) {
@@ -395,6 +397,11 @@ class AndroidSyncAliasResolver @Inject constructor(
                     ?.takeIf { it.accountId == binding.localAccountId }?.let { database.groupDao().delete(it) }
             }
         }
+    }
+
+    /** 删除仅依赖本地身份和账户，不读取可能超过 CursorWindow 的文章正文。 */
+    private fun deleteArticleIdentity(localId: String, accountId: Int) {
+        database.openHelper.writableDatabase.execSQL("DELETE FROM article WHERE id=? AND accountId=?", arrayOf(localId, accountId))
     }
 
     private suspend fun ensureDeleteDependenciesCleared(

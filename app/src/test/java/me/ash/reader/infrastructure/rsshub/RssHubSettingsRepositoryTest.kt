@@ -49,18 +49,20 @@ class RssHubSettingsRepositoryTest {
         val enabled = "https://enabled.example.com"
         val removed = "https://removed.example.com"
         val disabled = "https://disabled.example.com"
+        val values = mutableMapOf(
+            "instances" to """[{"id":"enabled","url":"$enabled","enabled":true},{"id":"disabled","url":"$disabled","enabled":false}]""",
+            "last_success_instance" to removed,
+            "route_last_success_${"zhihu/hot".hashCode()}" to disabled,
+        )
         val preferences = mock<SharedPreferences>()
         val editor = mock<SharedPreferences.Editor>()
         whenever(preferences.edit()).thenReturn(editor)
         whenever(editor.commit()).thenReturn(true)
-        whenever(editor.putString(any(), any())).thenReturn(editor)
+        whenever(editor.putString(any(), any())).thenAnswer { invocation ->
+            values[invocation.getArgument<String>(0)] = invocation.getArgument<String>(1); editor
+        }
         whenever(preferences.getString(any(), anyOrNull())).thenAnswer { invocation ->
-            when (invocation.getArgument<String>(0)) {
-                "instances" -> """[{"id":"enabled","url":"$enabled","enabled":true},{"id":"disabled","url":"$disabled","enabled":false}]"""
-                "last_success_instance" -> removed
-                "route_last_success_${"zhihu/hot".hashCode()}" -> disabled
-                else -> invocation.getArgument<String?>(1)
-            }
+            values[invocation.getArgument<String>(0)] ?: invocation.getArgument<String?>(1)
         }
         val context = mock<Context>()
         whenever(context.getSharedPreferences(any(), any())).thenReturn(preferences)

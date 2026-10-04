@@ -12,7 +12,9 @@ import javax.inject.Singleton
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.asContextElement
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -55,12 +57,24 @@ import me.ash.reader.llm.search.WebSearchRequestStatus
 
 @Singleton
 class LlmSyncBusinessProjection @Inject constructor(
-    private val readerDatabase: AndroidDatabase,
-    private val chatDatabase: LlmChatDatabase,
+    readerDatabase: AndroidDatabase,
+    chatDatabase: LlmChatDatabase,
     private val localBlobStore: SyncLocalBlobStore,
     private val identityBackfill: LlmGenesisIdentityBackfill,
     private val operationBuilder: LlmOperationBuilder,
 ) : SyncBusinessProjectionExtension {
+    private val liveReaderDatabase = readerDatabase
+    private val liveChatDatabase = chatDatabase
+    private val readerDatabase get() = me.ash.reader.infrastructure.sync.core.SyncFrozenSourceContext.database(liveReaderDatabase)
+    private val chatDatabase get() = me.ash.reader.infrastructure.sync.core.SyncFrozenSourceContext.database(liveChatDatabase, "chat")
+    @Inject internal lateinit var frozenGenesis: LlmFrozenGenesis
+    @Inject internal lateinit var pagedOperationMerge: LlmPagedOperationMerge
+    @Inject internal lateinit var pagedDeletion: LlmPagedDeletion
+    @Inject internal lateinit var smallFieldUpdate: LlmSmallFieldUpdate
+    @Inject lateinit var pagedGenesisSource: LlmGenesisPayloadSource
+    @Inject lateinit var pagedGenesisInclusion: LlmPagedGenesisInclusion
+    @Inject internal lateinit var snapshotBodies: LlmSnapshotBodies
+    @Inject lateinit var joinOutboxAllocator: me.ash.reader.infrastructure.sync.core.SyncOutboxAllocator
     private val json = Json { ignoreUnknownKeys = true }
     private val blobState = SyncBlobStateService(readerDatabase)
     private val ownedTypes =
@@ -78,6 +92,39 @@ class LlmSyncBusinessProjection @Inject constructor(
 
     override fun owns(entityType: String): Boolean =
         SyncEntityType.fromWireName(entityType) in ownedTypes
+
+    override suspend fun prepareRawGenesis(space: String, now: Long) { identityBackfill.backfill(space, now) }
+    override suspend fun freezeRawGenesis(cut: me.ash.reader.infrastructure.sync.core.SyncGenesisCut) = frozenGenesis.freeze(cut.crossDbCutId)
+    override fun rawGenesisReady(cut: String): Boolean = frozenGenesis.ready(cut)
+
+    /** 已有 Chat 写入完成后围栏才开始破坏性安装，Reader 事务不会跨库等待。 */
+    override suspend fun drainSnapshotWriters() = chatDatabase.withTransaction { Unit }
+    override suspend fun retireRawGenesis(cut: String) = frozenGenesis.retire(cut)
+    override suspend fun openFrozenGenesis(cut: String, progress: me.ash.reader.infrastructure.sync.core.SyncSourceCopyProgress?): Pair<String, androidx.room.RoomDatabase> =
+        "chat" to frozenGenesis.open(cut, progress)
+
+    /** AI 入组基线在 Chat DB 原子分配，保持后续 Chat mutation 的序列 authority。 */
+    override suspend fun captureJoinBaseline(input: me.ash.reader.infrastructure.sync.core.SyncJoinBaselineInput) {
+        val (context, drafts, baselineId, observed) = input
+        chatDatabase.withTransaction {
+            // 与 AI Outbox 同库提交的完成记录：Reader 回滚/重试不能重复分配已提交的 AI 基线。
+            // 使用独立命名空间，不与普通 Genesis 的 crossDbCutId 混用。
+            val journalId = "join-baseline:$baselineId"
+            val journal = chatDatabase.syncProjectionGenesisCutDao()
+            if (journal.listForCut(context.syncSpaceId, journalId).isNotEmpty()) return@withTransaction
+            drafts.forEach { draft ->
+                check(owns(draft.entityType)) { "Join baseline entity is outside AI_HISTORY" }
+                joinOutboxAllocator.allocate(dao = chatDatabase.syncOutboxDao(), context = context,
+                    lane = me.ash.reader.infrastructure.sync.core.SyncReplicationLane.AI_HISTORY, draft = draft,
+                    additionalObservedFrontiers = observed)
+            }
+            val writer = checkNotNull(chatDatabase.syncOutboxDao().findWriterState(
+                context.syncSpaceId, context.actorIncarnationId, "AI_HISTORY"))
+            journal.insertAll(listOf(SyncProjectionGenesisCutEntity(syncSpaceId = context.syncSpaceId,
+                crossDbCutId = journalId, replicationLaneId = "AI_HISTORY", actorIncarnationId = context.actorIncarnationId,
+                sequence = writer.lastSequence, capturedAt = System.currentTimeMillis())))
+        }
+    }
 
     override fun canApplyWithoutBlob(entityType: String, referenceKind: String): Boolean =
         isMetadataFirstAttachment(entityType, referenceKind)
@@ -98,40 +145,12 @@ class LlmSyncBusinessProjection @Inject constructor(
         bytes: ByteArray,
     ) {
         localBlobStore.putVerified(manifest.hash, bytes)
+        check(bytes.size.toLong() == manifest.totalBytes) { "BLOB_LENGTH_MISMATCH" }
         if (!isMetadataFirstAttachment(entityType, referenceKind)) return
-        if (readerDatabase.syncBlobDao().listReferencesForOwner(syncSpaceId, "AI_HISTORY", entityType,
-                entitySyncId, entityGeneration).none { it.referenceKind == referenceKind && it.hash == manifest.hash }) return
-        val type = SyncEntityType.fromWireName(entityType) ?: return
-        val mapping =
-            chatDatabase.syncIdentityMappingDao()
-                .findBySyncId(syncSpaceId, entityType, entitySyncId)
-                ?.takeIf { it.generation == entityGeneration }
-                ?: return
-        val text = bytes.toString(Charsets.UTF_8)
-        val dao = chatDatabase.chatDao()
-        chatDatabase.withTransaction {
-            when (type) {
-                SyncEntityType.CONTEXT_REF -> {
-                    val row = dao.getContextRefById(mapping.localId) ?: return@withTransaction
-                    when (referenceKind) {
-                        "context_snapshot" -> dao.updateContextRef(row.copy(contentSnapshot = text))
-                        "context_prompt_snapshot" -> dao.updateContextRef(row.copy(promptContentSnapshot = text))
-                    }
-                }
-                SyncEntityType.EVIDENCE_BLOCK -> {
-                    if (referenceKind == "evidence_text") {
-                        dao.getEvidenceBlockById(mapping.localId)
-                            ?.let { dao.updateEvidenceBlock(it.copy(textSnapshot = text)) }
-                    }
-                }
-                SyncEntityType.CITATION_REF -> {
-                    if (referenceKind == "citation_quote") {
-                        dao.getCitationRefById(mapping.localId)
-                            ?.let { dao.updateCitationRef(it.copy(quoteSnapshot = text)) }
-                    }
-                }
-                else -> Unit
-            }
+        // 文件准备不占用共同投影屏障；回填器在短临界区重新核对当前义务。
+        withContext(me.ash.reader.infrastructure.sync.core.SyncSnapshotAccess.ownedSpace.asContextElement(syncSpaceId)) {
+            snapshotBodies.downloaded(LlmSnapshotBodies.Arrival(syncSpaceId, entityType, entitySyncId,
+                entityGeneration, referenceKind, manifest.hash, manifest.totalBytes))
         }
     }
 
@@ -278,6 +297,45 @@ class LlmSyncBusinessProjection @Inject constructor(
         )
     }
 
+    /** 分页捕获在既有 Genesis barrier 内逐条输出，不读取全库消息和引用数组。 */
+    override suspend fun streamGenesis(options: me.ash.reader.infrastructure.sync.core.SyncProjectionGenesisStream) {
+        identityBackfill.backfill(options.syncSpaceId, options.now)
+        pagedGenesisSource.forEach { seed ->
+            options.consume(prepareGenesisEntity(seed, options))
+        }
+    }
+
+    /** 分页固定视图 inclusion 使用 Chat DB 的前缀更新，不加载旧全量 Outbox 集合。 */
+    override suspend fun markPagedGenesisIncluded(options: me.ash.reader.infrastructure.sync.core.SyncProjectionGenesisInclusion) {
+        pagedGenesisInclusion.mark(options)
+    }
+
+    /** 引用仍由正式 Sync ID 解析器处理；耐久 Blob 通过文件摘要验证，不复制全部字节。 */
+    private suspend fun prepareGenesisEntity(seed: LlmGenesisPayloadSeed,
+        options: me.ash.reader.infrastructure.sync.core.SyncProjectionGenesisStream): SyncGenesisProjectionEntity {
+        val mapping = chatDatabase.syncIdentityMappingDao().findByLocalId(options.syncSpaceId, seed.type.wireName, seed.localId)
+            ?: error("Missing Genesis AI_HISTORY mapping for ${seed.type.wireName}/${seed.localId}")
+        val resolved = resolvePayloadReferences(options.syncSpaceId, seed.payloadJson)
+        for (ref in SyncBlobPayloadCodec.references(resolved)) {
+            // 生产固定捕获只登记引用，发布阶段再沿冻结索引验证全部必需文件。
+            if (!options.deferBlobVerification) {
+            val file = localBlobStore.getBlobFile(ref.manifest.hash)
+                ?: error("Genesis AI_HISTORY Blob is missing: ${ref.manifest.hash}")
+            require(file.length() == ref.manifest.totalBytes && localBlobStore.verifyFile(ref.manifest.hash, file)) {
+                "Genesis AI_HISTORY Blob size or digest mismatch: ${ref.manifest.hash}"
+            }
+            }
+            blobState.registerManifest(ref.manifest, SyncBlobAvailabilityState.READY, options.now)
+            blobState.markReadyVerified(ref.manifest.hash, ref.manifest.totalBytes, options.now)
+            blobState.replaceOwnerReference(syncSpaceId = options.syncSpaceId, lane = "AI_HISTORY",
+                ownerEntityType = seed.type.wireName, ownerEntitySyncId = mapping.syncId,
+                ownerEntityGeneration = mapping.generation, referenceKind = ref.referenceKind,
+                hash = ref.manifest.hash, now = options.now)
+        }
+        return SyncGenesisProjectionEntity(seed.type.wireName, mapping.syncId, mapping.generation,
+            SyncOperationCanonicalizer.canonicalJson(resolved))
+    }
+
     override suspend fun genesisLaneFrontiers(
         syncSpaceId: String,
         crossDbCutId: String,
@@ -409,6 +467,49 @@ class LlmSyncBusinessProjection @Inject constructor(
         return true
     }
 
+    /** 分页实体使用真实业务身份和跨库完成记录，Reader 回滚后可重建 Blob 图而不重复覆盖 Chat。 */
+    override suspend fun materializePagedEntity(options: me.ash.reader.infrastructure.sync.core.SyncPagedProjectionEntity): Boolean {
+        val entity = options.entity
+        if (!owns(entity.entityType)) return false
+        validateSnapshotEntity(options.space, entity)
+        val subject = LlmProjectionSubject.snapshot(options.space, entity)
+        val payload = materializeSubjectPayload(subject, entity.fieldsJson)
+        val receiptId = "snapshot-paged:" + SyncOperationCanonicalizer.sha256Hex(
+            "${options.bundleId}\n${options.rootHash}\n${options.recordKey}")
+        withContext(prepareReaderReferences(options.space, payload)) {
+            chatDatabase.withTransaction {
+                val journal = chatDatabase.syncApplyJournalDao()
+                snapshotBodies.register(options)
+                if (journal.find(receiptId) != null) return@withTransaction
+                materializeSubject(subject, payload)
+                journal.resetMaterialization(options.space, entity.entityType, entity.entitySyncId)
+                journal.insert(LlmSyncApplyJournalEntity(receiptId, options.space, entity.entityType,
+                    entity.entitySyncId, entity.generation, "{}"))
+            }
+        }
+        // 实体批次只登记正文义务，屏障外的统一正文阶段负责读取文件并提交实际回填。
+        return true
+    }
+
+    /** 旧实体 receipt 不代表正文完成，始终复核真实拥有者的字节承诺。 */
+    override suspend fun requirePagedBodies(syncSpaceId: String, snapshotBundleId: String) = snapshotBodies.requireComplete(syncSpaceId, snapshotBundleId)
+
+    /** 完整 ENTITY 直接进入正式类型投影，签名与字段候选由 Reader 的分页安装事务恢复。 */
+    private suspend fun materializeSubject(subject: LlmProjectionSubject, payload: JsonObject) {
+        when (SyncEntityType.fromWireName(subject.entityType)) {
+            SyncEntityType.CONVERSATION -> applyConversation(subject, payload)
+            SyncEntityType.CONVERSATION_ARTICLE -> applyConversationArticle(subject, payload)
+            SyncEntityType.MESSAGE -> applyMessage(subject, payload)
+            SyncEntityType.TOOL_CALL -> applyToolCall(subject, payload)
+            SyncEntityType.CONTEXT_REF -> applyContextRef(subject, payload)
+            SyncEntityType.EVIDENCE_BLOCK -> applyEvidenceBlock(subject, payload)
+            SyncEntityType.CITATION_REF -> applyCitationRef(subject, payload)
+            SyncEntityType.CITATION_ANNOTATION -> applyCitationAnnotation(subject, payload)
+            SyncEntityType.CITATION_ANNOTATION_REF -> applyCitationAnnotationRef(subject, payload)
+            else -> throw SyncApplyDeferredException("Unsupported AI_HISTORY Snapshot entity")
+        }
+    }
+
     override suspend fun validateSnapshotEntity(
         syncSpaceId: String,
         entity: SyncGenesisProjectionEntity,
@@ -438,42 +539,8 @@ class LlmSyncBusinessProjection @Inject constructor(
         val type =
             SyncEntityType.fromWireName(entityType)
                 ?: throw SyncApplyDeferredException("Unsupported AI_HISTORY tombstone entity")
-        val payloadHash = SyncOperationCanonicalizer.sha256Hex("{}")
-        applyDelete(
-            operation =
-                SyncOperationEntity(
-                    operationId =
-                        "snapshot-delete:" +
-                            SyncOperationCanonicalizer.sha256Hex(
-                                "$syncSpaceId\n$entityType\n$entitySyncId\n$generation"
-                            ),
-                    syncSpaceId = syncSpaceId,
-                    authorDeviceId = "snapshot",
-                    actorIncarnationId = "snapshot",
-                    replicationLaneId = "AI_HISTORY",
-                    sequence = 1L,
-                    logicalClock = 1L,
-                    causalContextJson = "{}",
-                    dependencyDotsJson = "[]",
-                    entityType = entityType,
-                    entitySyncId = entitySyncId,
-                    entityGeneration = generation,
-                    operationType = SyncMutationType.GLOBAL_DELETE.name,
-                    payloadSchemaVersion = 1,
-                    payloadJson = "{}",
-                    schemaVersion = 1,
-                    createdWallClock = deletedAt,
-                    payloadHash = payloadHash,
-                    signingDigest = payloadHash,
-                    authorSignature = null,
-                    buildStatus = SyncOperationBuildStatus.SIGNED.name,
-                    createdAt = deletedAt,
-                    updatedAt = deletedAt,
-                ),
-            type = type,
-            versionTokenOverride = versionToken,
-            deletedAtOverride = deletedAt,
-        )
+        val subject = LlmProjectionSubject(syncSpaceId, entityType, entitySyncId, generation, SyncMutationType.GLOBAL_DELETE.name)
+        pagedDeletion.delete(LlmPagedDeletion.Options(subject, versionToken, deletedAt))
         return true
     }
 
@@ -513,50 +580,16 @@ class LlmSyncBusinessProjection @Inject constructor(
 
         val isSnapshot = operation.operationId.startsWith("snapshot-")
         val journal = chatDatabase.syncApplyJournalDao()
-        val previous = if (isSnapshot) null else journal.find(operation.operationId)
+        val previous = if (isSnapshot) null else pagedOperationMerge.journal(operation.operationId)
         val encoded = if (isSnapshot) null else SyncOperationWireCodec.encode(SyncOperationWireCodec.toWire(operation))
         check(previous == null || previous.operationJson == encoded) { "DOT_COLLISION in Chat apply journal" }
         if (operation.operationType == SyncMutationType.GLOBAL_DELETE.name) {
             // The Reader tombstone must be recreated even when Chat already committed before a crash.
-            applyDelete(operation, type)
+            pagedDeletion.operation(operation)
             return
         }
 
-        val retained = if (isSnapshot) emptyList() else journal.listEntity(operation.syncSpaceId,
-            operation.entityType, operation.entitySyncId, operation.entityGeneration).filterNot {
-                it.operationId.startsWith("snapshot-")
-            }.map {
-                SyncOperationWireCodec.fromWire(SyncOperationWireCodec.decode(it.operationJson))
-            }
-        val local = if (isSnapshot) emptyList() else chatDatabase.syncOutboxDao()
-            .listGenesisCandidates(operation.syncSpaceId).filter {
-                it.entityType == operation.entityType && it.entitySyncId == operation.entitySyncId &&
-                    it.entityGeneration == operation.entityGeneration
-            }.map { outbox -> operation.copy(
-                actorIncarnationId = outbox.actorIncarnationId, replicationLaneId = outbox.replicationLaneId,
-                sequence = outbox.sequence, logicalClock = outbox.sequence, operationType = outbox.mutationType,
-                causalContextJson = outbox.causalContextJson,
-                payloadJson = operationBuilder.resolvePayloadReferences(outbox.syncSpaceId, outbox.payloadJson),
-            ) }
-        val storedCandidates = if (isSnapshot) emptyList() else readerDatabase.syncInboxDao()
-            .listFieldCandidates(operation.syncSpaceId).filter {
-                it.entityType == operation.entityType && it.entitySyncId == operation.entitySyncId &&
-                    it.entityGeneration == operation.entityGeneration
-            }.map { me.ash.reader.infrastructure.sync.core.SyncFieldCandidate(
-                it.fieldId, it.valueJson, it.versionToken, SyncVersionToken.source(it.versionToken),
-                causalContextJson = it.causalContextJson, logicalClock = it.logicalClock ?: 0L,
-            ) }
-        if (!isSnapshot) SyncPayloadMerge.candidates(retained + local + operation).forEach { (field, candidates) ->
-            candidates.forEach { candidate ->
-                val dot = checkNotNull(SyncVersionToken.parseOperationDot(candidate.token))
-                readerDatabase.syncInboxDao().upsertFieldCandidate(me.ash.reader.infrastructure.sync.core.SyncFieldCandidateEntity(
-                    SyncFieldVersionEntity(operation.syncSpaceId, operation.entityType, operation.entitySyncId, field,
-                        operation.entityGeneration, candidate.token,
-                        SyncOperationCanonicalizer.operationId(operation.syncSpaceId, dot.actorIncarnationId, dot.replicationLaneId, dot.sequence),
-                        candidate.valueJson, System.currentTimeMillis(), candidate.causalContextJson, candidate.logicalClock)))
-            }
-        }
-        val winners = if (isSnapshot) emptyMap() else SyncPayloadMerge.resolve(retained + local + operation, storedCandidates)
+        val winners = if (isSnapshot) emptyMap() else pagedOperationMerge.resolve(operation)
         winners.forEach { (field, winner) ->
             val dot = SyncVersionToken.parseOperationDot(winner.token)
             readerDatabase.syncInboxDao().upsertFieldVersion(SyncFieldVersionEntity(
@@ -584,15 +617,15 @@ class LlmSyncBusinessProjection @Inject constructor(
         withContext(prepareReaderReferences(operation.syncSpaceId, payload)) {
             chatDatabase.withTransaction {
                 when (type) {
-                    SyncEntityType.CONVERSATION -> applyConversation(operation, payload)
-                    SyncEntityType.CONVERSATION_ARTICLE -> applyConversationArticle(operation, payload)
-                    SyncEntityType.MESSAGE -> applyMessage(operation, payload)
-                    SyncEntityType.TOOL_CALL -> applyToolCall(operation, payload)
-                    SyncEntityType.CONTEXT_REF -> applyContextRef(operation, payload)
-                    SyncEntityType.EVIDENCE_BLOCK -> applyEvidenceBlock(operation, payload)
-                    SyncEntityType.CITATION_REF -> applyCitationRef(operation, payload)
-                    SyncEntityType.CITATION_ANNOTATION -> applyCitationAnnotation(operation, payload)
-                    SyncEntityType.CITATION_ANNOTATION_REF -> applyCitationAnnotationRef(operation, payload)
+                    SyncEntityType.CONVERSATION -> applyConversation(LlmProjectionSubject.operation(operation), payload)
+                    SyncEntityType.CONVERSATION_ARTICLE -> applyConversationArticle(LlmProjectionSubject.operation(operation), payload)
+                    SyncEntityType.MESSAGE -> applyMessage(LlmProjectionSubject.operation(operation), payload)
+                    SyncEntityType.TOOL_CALL -> applyToolCall(LlmProjectionSubject.operation(operation), payload)
+                    SyncEntityType.CONTEXT_REF -> applyContextRef(LlmProjectionSubject.operation(operation), payload)
+                    SyncEntityType.EVIDENCE_BLOCK -> applyEvidenceBlock(LlmProjectionSubject.operation(operation), payload)
+                    SyncEntityType.CITATION_REF -> applyCitationRef(LlmProjectionSubject.operation(operation), payload)
+                    SyncEntityType.CITATION_ANNOTATION -> applyCitationAnnotation(LlmProjectionSubject.operation(operation), payload)
+                    SyncEntityType.CITATION_ANNOTATION_REF -> applyCitationAnnotationRef(LlmProjectionSubject.operation(operation), payload)
                     else -> throw SyncApplyDeferredException("Unsupported AI_HISTORY entity")
                 }
                 if (!isSnapshot) journal.insert(LlmSyncApplyJournalEntity(operation.operationId, operation.syncSpaceId,
@@ -603,23 +636,13 @@ class LlmSyncBusinessProjection @Inject constructor(
     }
 
     private suspend fun applyConversation(
-        operation: SyncOperationEntity,
+        operation: LlmProjectionSubject,
         payload: JsonObject,
     ) {
         val mapping = ensureOwnerMapping(operation)
         val dao = chatDatabase.chatDao()
         if (operation.operationType == SyncMutationType.FIELD_SET.name) {
-            val existing = dao.getConversation(mapping.localId)
-                ?: throw SyncApplyDeferredException("Missing Conversation row for FIELD_SET")
-            val value = payload.string("value")
-            val updated = when (payload.string("field")) {
-                "title" -> existing.copy(title = value ?: "New chat")
-                "providerId" -> existing.copy(providerId = value)
-                "model" -> existing.copy(model = value)
-                "skillId" -> existing.copy(skillId = value)
-                else -> throw SyncApplyDeferredException("Unsupported Conversation FIELD_SET")
-            }
-            dao.updateConversation(updated)
+            smallFieldUpdate.apply(LlmSmallFieldUpdate.Options("conversation", mapping.localId, payload))
             return
         }
         requireMutation(operation, SyncMutationType.UPSERT)
@@ -636,7 +659,7 @@ class LlmSyncBusinessProjection @Inject constructor(
                 createdAt = payload.long("createdAt") ?: System.currentTimeMillis(),
                 updatedAt = payload.long("updatedAt") ?: System.currentTimeMillis(),
             )
-        if (dao.getConversation(mapping.localId) == null) {
+        if (!snapshotRowExists("llm_conversations", mapping.localId)) {
             dao.insertConversation(incoming)
         } else {
             dao.updateConversation(incoming)
@@ -644,22 +667,13 @@ class LlmSyncBusinessProjection @Inject constructor(
     }
 
     private suspend fun applyMessage(
-        operation: SyncOperationEntity,
+        operation: LlmProjectionSubject,
         payload: JsonObject,
     ) {
         val mapping = ensureOwnerMapping(operation)
         val dao = chatDatabase.chatDao()
         if (operation.operationType == SyncMutationType.FIELD_SET.name) {
-            require(payload.string("field") == "historyActive") { "Unsupported Message FIELD_SET" }
-            val existing =
-                dao.getMessageById(mapping.localId)
-                    ?: throw SyncApplyDeferredException("Missing Message row for FIELD_SET")
-            dao.updateMessage(
-                existing.copy(
-                    historyActive = payload.boolean("value") ?: existing.historyActive,
-                    updatedAt = System.currentTimeMillis(),
-                )
-            )
+            smallFieldUpdate.apply(LlmSmallFieldUpdate.Options("message", mapping.localId, payload))
             return
         }
         requireMutation(operation, SyncMutationType.UPSERT)
@@ -687,7 +701,7 @@ class LlmSyncBusinessProjection @Inject constructor(
                 createdAt = payload.long("createdAt") ?: System.currentTimeMillis(),
                 updatedAt = payload.long("updatedAt") ?: System.currentTimeMillis(),
             )
-        if (dao.getMessageById(mapping.localId) == null) {
+        if (!snapshotRowExists("llm_messages", mapping.localId)) {
             dao.insertMessage(incoming)
         } else {
             dao.updateMessage(incoming)
@@ -695,7 +709,7 @@ class LlmSyncBusinessProjection @Inject constructor(
     }
 
     private suspend fun applyToolCall(
-        operation: SyncOperationEntity,
+        operation: LlmProjectionSubject,
         payload: JsonObject,
     ) {
         requireMutation(operation, SyncMutationType.UPSERT)
@@ -728,7 +742,7 @@ class LlmSyncBusinessProjection @Inject constructor(
                 createdAt = payload.long("createdAt") ?: System.currentTimeMillis(),
                 updatedAt = payload.long("updatedAt") ?: System.currentTimeMillis(),
             )
-        if (dao.getToolCallById(mapping.localId) == null) {
+        if (!snapshotRowExists("llm_tool_calls", mapping.localId)) {
             dao.insertToolCalls(listOf(incoming))
         } else {
             dao.updateToolCall(incoming)
@@ -736,7 +750,7 @@ class LlmSyncBusinessProjection @Inject constructor(
     }
 
     private suspend fun applyContextRef(
-        operation: SyncOperationEntity,
+        operation: LlmProjectionSubject,
         payload: JsonObject,
     ) {
         requireMutation(operation, SyncMutationType.UPSERT)
@@ -772,7 +786,7 @@ class LlmSyncBusinessProjection @Inject constructor(
                 citationIndex = payload.int("citationIndex"),
                 createdAt = payload.long("createdAt") ?: System.currentTimeMillis(),
             )
-        if (dao.getContextRefById(mapping.localId) == null) {
+        if (!snapshotRowExists("llm_context_refs", mapping.localId)) {
             dao.insertContextRefs(listOf(incoming))
         } else {
             dao.updateContextRef(incoming)
@@ -780,7 +794,7 @@ class LlmSyncBusinessProjection @Inject constructor(
     }
 
     private suspend fun applyEvidenceBlock(
-        operation: SyncOperationEntity,
+        operation: LlmProjectionSubject,
         payload: JsonObject,
     ) {
         requireMutation(operation, SyncMutationType.UPSERT)
@@ -804,7 +818,7 @@ class LlmSyncBusinessProjection @Inject constructor(
                 schemaVersion = payload.int("schemaVersion") ?: LLM_EVIDENCE_SCHEMA_VERSION,
                 createdAt = payload.long("createdAt") ?: System.currentTimeMillis(),
             )
-        if (dao.getEvidenceBlockById(mapping.localId) == null) {
+        if (!snapshotRowExists("llm_evidence_blocks", mapping.localId)) {
             dao.insertEvidenceBlocks(listOf(incoming))
         } else {
             dao.updateEvidenceBlock(incoming)
@@ -812,7 +826,7 @@ class LlmSyncBusinessProjection @Inject constructor(
     }
 
     private suspend fun applyCitationRef(
-        operation: SyncOperationEntity,
+        operation: LlmProjectionSubject,
         payload: JsonObject,
     ) {
         requireMutation(operation, SyncMutationType.UPSERT)
@@ -863,7 +877,7 @@ class LlmSyncBusinessProjection @Inject constructor(
                 schemaVersion = payload.int("schemaVersion") ?: LLM_CITATION_SCHEMA_VERSION,
                 createdAt = payload.long("createdAt") ?: System.currentTimeMillis(),
             )
-        if (dao.getCitationRefById(mapping.localId) == null) {
+        if (!snapshotRowExists("llm_citation_refs", mapping.localId)) {
             dao.insertCitationRefs(listOf(incoming))
         } else {
             dao.updateCitationRef(incoming)
@@ -871,7 +885,7 @@ class LlmSyncBusinessProjection @Inject constructor(
     }
 
     private suspend fun applyCitationAnnotation(
-        operation: SyncOperationEntity,
+        operation: LlmProjectionSubject,
         payload: JsonObject,
     ) {
         requireMutation(operation, SyncMutationType.UPSERT)
@@ -897,7 +911,7 @@ class LlmSyncBusinessProjection @Inject constructor(
                 schemaVersion = payload.int("schemaVersion") ?: LLM_CITATION_ANNOTATION_SCHEMA_VERSION,
                 createdAt = payload.long("createdAt") ?: System.currentTimeMillis(),
             )
-        if (dao.getCitationAnnotationById(mapping.localId) == null) {
+        if (!snapshotRowExists("llm_citation_annotations", mapping.localId)) {
             dao.insertCitationAnnotations(listOf(incoming))
         } else {
             dao.updateCitationAnnotation(incoming)
@@ -905,7 +919,7 @@ class LlmSyncBusinessProjection @Inject constructor(
     }
 
     private suspend fun applyConversationArticle(
-        operation: SyncOperationEntity,
+        operation: LlmProjectionSubject,
         payload: JsonObject,
     ) {
         requireMutation(operation, SyncMutationType.RELATION_SET)
@@ -938,7 +952,7 @@ class LlmSyncBusinessProjection @Inject constructor(
     }
 
     private suspend fun applyCitationAnnotationRef(
-        operation: SyncOperationEntity,
+        operation: LlmProjectionSubject,
         payload: JsonObject,
     ) {
         requireMutation(operation, SyncMutationType.RELATION_SET)
@@ -971,104 +985,13 @@ class LlmSyncBusinessProjection @Inject constructor(
         )
     }
 
-    private suspend fun applyDelete(
-        operation: SyncOperationEntity,
-        type: SyncEntityType,
-        versionTokenOverride: String? = null,
-        deletedAtOverride: Long? = null,
-    ) {
-        val mapping =
-            chatDatabase.syncIdentityMappingDao()
-                .findBySyncId(operation.syncSpaceId, type.wireName, operation.entitySyncId)
-        if (mapping != null && mapping.generation > operation.entityGeneration) return
-        readerDatabase.syncInboxDao().upsertTombstone(
-            SyncTombstoneEntity(
-                syncSpaceId = operation.syncSpaceId,
-                entityType = operation.entityType,
-                entitySyncId = operation.entitySyncId,
-                entityGeneration = operation.entityGeneration,
-                versionToken =
-                    versionTokenOverride
-                        ?: SyncVersionToken.operation(
-                            operation.actorIncarnationId,
-                            operation.replicationLaneId,
-                            operation.sequence,
-                        ),
-                sourceOperationId = operation.operationId,
-                updatedAt = deletedAtOverride ?: System.currentTimeMillis(),
-            )
-        )
-        blobState.removeOwnerReferences(
-            syncSpaceId = operation.syncSpaceId,
-            lane = operation.replicationLaneId,
-            ownerEntityType = operation.entityType,
-            ownerEntitySyncId = operation.entitySyncId,
-            ownerEntityGeneration = operation.entityGeneration,
-        )
-        if (mapping == null) return
-        val cleanup = BlobCleanupPlan()
-        withContext(cleanup) {
-            chatDatabase.withTransaction {
-                val receipt = chatDatabase.syncApplyJournalDao().find(operation.operationId)
-                if (receipt != null) cleanup.owners += json.decodeFromString<List<BlobCleanupOwner>>(receipt.readerBlobCleanupJson)
-                when (type) {
-                    SyncEntityType.CONVERSATION -> removeConversationBlobReferences(operation.syncSpaceId, mapping.localId)
-                    SyncEntityType.MESSAGE -> removeMessageBlobReferences(operation.syncSpaceId, mapping.localId)
-                    SyncEntityType.CONTEXT_REF -> {
-                        chatDatabase.chatDao().getEvidenceBlocksForContextRef(mapping.localId).forEach {
-                            removeMappedBlobReferences(operation.syncSpaceId, SyncEntityType.EVIDENCE_BLOCK, it.id)
-                        }
-                        chatDatabase.chatDao().getCitationRefsForContext(mapping.localId).forEach {
-                            removeMappedBlobReferences(operation.syncSpaceId, SyncEntityType.CITATION_REF, it.id)
-                        }
-                    }
-                    SyncEntityType.EVIDENCE_BLOCK -> chatDatabase.chatDao().getCitationRefsForEvidence(mapping.localId).forEach {
-                        removeMappedBlobReferences(operation.syncSpaceId, SyncEntityType.CITATION_REF, it.id)
-                    }
-                    else -> Unit
-                }
-                val dao = chatDatabase.chatDao()
-                when (type) {
-                    SyncEntityType.CONVERSATION -> {
-                        dao.getConversation(mapping.localId)?.let { dao.deleteConversation(it) }
-                    }
-                    SyncEntityType.MESSAGE -> {
-                        dao.deleteMessage(mapping.localId)
-                    }
-                    SyncEntityType.TOOL_CALL -> dao.deleteToolCallById(mapping.localId)
-                    SyncEntityType.CONTEXT_REF -> dao.deleteContextRefById(mapping.localId)
-                    SyncEntityType.EVIDENCE_BLOCK -> dao.deleteEvidenceBlockById(mapping.localId)
-                    SyncEntityType.CITATION_REF -> dao.deleteCitationRefById(mapping.localId)
-                    SyncEntityType.CITATION_ANNOTATION -> dao.deleteCitationAnnotationById(mapping.localId)
-                    SyncEntityType.CONVERSATION_ARTICLE -> deleteConversationArticle(mapping.localId)
-                    SyncEntityType.CITATION_ANNOTATION_REF -> deleteAnnotationRef(mapping.localId)
-                    else -> Unit
-                }
-                val wire = if (operation.operationId.startsWith("snapshot-")) "{}"
-                    else SyncOperationWireCodec.encode(SyncOperationWireCodec.toWire(operation))
-                chatDatabase.syncApplyJournalDao().insert(LlmSyncApplyJournalEntity(operation.operationId,
-                    operation.syncSpaceId, operation.entityType, operation.entitySyncId, operation.entityGeneration,
-                    wire, readerBlobCleanupJson = json.encodeToString(cleanup.owners.distinct())))
-            }
-        }
-        // The receipt survives Chat commit. If Reader rolls back, retry repeats this exact plan
-        // even though cascading deletes have already removed the rows used to discover it.
-        cleanup.owners.distinct().forEach { owner ->
-            blobState.removeOwnerReferences(operation.syncSpaceId, "AI_HISTORY", owner.type, owner.syncId, owner.generation)
-        }
-    }
+    private suspend fun materializePayload(operation: SyncOperationEntity): JsonObject =
+        materializeSubjectPayload(LlmProjectionSubject.operation(operation), operation.payloadJson)
 
-    @Serializable
-    private data class BlobCleanupOwner(val type: String, val syncId: String, val generation: Long)
-
-    private class BlobCleanupPlan : AbstractCoroutineContextElement(Key) {
-        val owners = mutableListOf<BlobCleanupOwner>()
-        companion object Key : CoroutineContext.Key<BlobCleanupPlan>
-    }
-
-    private suspend fun materializePayload(operation: SyncOperationEntity): JsonObject {
-        val payload = json.parseToJsonElement(operation.payloadJson).jsonObject.toMutableMap()
-        SyncBlobPayloadCodec.references(operation.payloadJson).forEach { ref ->
+    /** Blob 物化只需要真实 owner 身份，Snapshot 不补造任何操作因果信息。 */
+    private suspend fun materializeSubjectPayload(operation: LlmProjectionSubject, payloadJson: String): JsonObject {
+        val payload = json.parseToJsonElement(payloadJson).jsonObject.toMutableMap()
+        SyncBlobPayloadCodec.references(payloadJson).forEach { ref ->
             val bytes = localBlobStore.readVerified(ref.manifest.hash)
             blobState.registerManifest(
                 ref.manifest,
@@ -1076,7 +999,7 @@ class LlmSyncBusinessProjection @Inject constructor(
             )
             blobState.replaceOwnerReference(
                 syncSpaceId = operation.syncSpaceId,
-                lane = operation.replicationLaneId,
+                lane = "AI_HISTORY",
                 ownerEntityType = operation.entityType,
                 ownerEntitySyncId = operation.entitySyncId,
                 ownerEntityGeneration = operation.entityGeneration,
@@ -1108,7 +1031,7 @@ class LlmSyncBusinessProjection @Inject constructor(
         }
 
     private suspend fun ensureOwnerMapping(
-        operation: SyncOperationEntity,
+        operation: LlmProjectionSubject,
         preferredLocalId: String? = null,
     ): SyncIdentityMappingEntity {
         val dao = chatDatabase.syncIdentityMappingDao()
@@ -1280,86 +1203,8 @@ class LlmSyncBusinessProjection @Inject constructor(
             normalizedHash = value.string("normalizedHash").orEmpty(),
         )
 
-    private suspend fun removeConversationBlobReferences(
-        syncSpaceId: String,
-        conversationId: String,
-    ) {
-        chatDatabase.chatDao().getMessages(conversationId).forEach { message ->
-            removeMessageBlobReferences(syncSpaceId, message.id)
-        }
-        chatDatabase.chatDao().getConversationArticles(conversationId).forEach { relation ->
-            removeMappedBlobReferences(
-                syncSpaceId,
-                SyncEntityType.CONVERSATION_ARTICLE,
-                SyncCanonicalIdentity.relationLocalId(
-                    SyncEntityType.CONVERSATION_ARTICLE,
-                    relation.conversationId,
-                    relation.articleId,
-                ),
-            )
-        }
-    }
-
-    private suspend fun removeMessageBlobReferences(
-        syncSpaceId: String,
-        messageId: String,
-    ) {
-        val dao = chatDatabase.chatDao()
-        removeMappedBlobReferences(syncSpaceId, SyncEntityType.MESSAGE, messageId)
-        dao.getCitationRefsForAssistant(messageId).forEach {
-            removeMappedBlobReferences(syncSpaceId, SyncEntityType.CITATION_REF, it.id)
-        }
-        dao.getContextRefsForAssistant(messageId).forEach { context ->
-            removeMappedBlobReferences(syncSpaceId, SyncEntityType.CONTEXT_REF, context.id)
-            dao.getEvidenceBlocksForContextRef(context.id).forEach { evidence ->
-                removeMappedBlobReferences(syncSpaceId, SyncEntityType.EVIDENCE_BLOCK, evidence.id)
-            }
-        }
-        val conversationId = dao.getMessageById(messageId)?.conversationId
-        if (conversationId != null) {
-            dao.getToolCalls(conversationId)
-                .filter { it.assistantMessageId == messageId }
-                .forEach { removeMappedBlobReferences(syncSpaceId, SyncEntityType.TOOL_CALL, it.id) }
-        }
-    }
-
-    private suspend fun removeMappedBlobReferences(
-        syncSpaceId: String,
-        type: SyncEntityType,
-        localId: String,
-    ) {
-        val mapping =
-            chatDatabase.syncIdentityMappingDao()
-                .findByLocalId(syncSpaceId, type.wireName, localId)
-                ?: return
-        checkNotNull(currentCoroutineContext()[BlobCleanupPlan]).owners +=
-            BlobCleanupOwner(type.wireName, mapping.syncId, mapping.generation)
-    }
-
-    private suspend fun deleteConversationArticle(relationLocalId: String) {
-        chatDatabase.chatDao().getAllConversationArticles().firstOrNull { relation ->
-            SyncCanonicalIdentity.relationLocalId(
-                SyncEntityType.CONVERSATION_ARTICLE,
-                relation.conversationId,
-                relation.articleId,
-            ) == relationLocalId
-        }?.let { chatDatabase.chatDao().deleteConversationArticle(it.conversationId, it.articleId) }
-    }
-
-    private suspend fun deleteAnnotationRef(relationLocalId: String) {
-        chatDatabase.chatDao().getAllCitationAnnotationRefs().firstOrNull { relation ->
-            SyncCanonicalIdentity.relationLocalId(
-                SyncEntityType.CITATION_ANNOTATION_REF,
-                relation.annotationId,
-                relation.citationRefId,
-            ) == relationLocalId
-        }?.let {
-            chatDatabase.chatDao().deleteCitationAnnotationRef(it.annotationId, it.citationRefId)
-        }
-    }
-
     private fun requireMutation(
-        operation: SyncOperationEntity,
+        operation: LlmProjectionSubject,
         expected: SyncMutationType,
     ) {
         if (operation.operationType != expected.name) {
@@ -1368,6 +1213,10 @@ class LlmSyncBusinessProjection @Inject constructor(
             )
         }
     }
+
+    /** 表名全部来自本类静态调用；存在性检查不读回可能巨大的消息、工具结果或 Evidence 文本。 */
+    private fun snapshotRowExists(table: String, id: String): Boolean =
+        chatDatabase.openHelper.writableDatabase.query("SELECT 1 FROM $table WHERE id=?", arrayOf(id)).use { it.moveToFirst() }
 }
 
 private fun JsonObject.string(key: String): String? =

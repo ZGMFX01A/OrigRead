@@ -1,14 +1,14 @@
 package me.ash.reader.infrastructure.source
 
 import java.net.URI
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import me.ash.reader.domain.model.feed.Feed
 
 /**
  * 来源 URL 的比较键。仅用于查重/候选去重，不改写真正保存和请求的 URL。
  *
- * 这里刻意只做不会改变来源语义的保守归一化：scheme/host 大小写、默认端口、fragment、
- * 末尾斜杠以及明确的广告追踪参数。业务查询参数保持原样和原顺序，避免误把两个 API
- * endpoint 合并成同一个来源。
+ * 新候选只归一化 scheme/host、默认端口和 fragment，路径与 query 保留来源语义。
+ * 历史 v1 算法独立保存，已持久化 key 不因升级而漂移。
  */
 object SourceUrlNormalizer {
     private val trackingQueryKeys =
@@ -22,7 +22,15 @@ object SourceUrlNormalizer {
             "spm",
         )
 
+    /** 新候选保留业务 query、路径尾斜杠及原转义；HttpUrl 统一 Unicode/空格编码。 */
     fun comparisonKey(value: String): String {
+        val trimmed = value.trim()
+        val url = trimmed.toHttpUrlOrNull() ?: return trimmed
+        return url.newBuilder().fragment(null).build().toString()
+    }
+
+    /** 已签名 v1 身份的历史算法；仅用于读取和核对旧 key，不用于创建新映射。 */
+    fun legacyComparisonKey(value: String): String {
         val trimmed = value.trim()
         val uri = runCatching { URI(trimmed) }.getOrNull() ?: return trimmed
         val scheme = uri.scheme?.lowercase() ?: return trimmed

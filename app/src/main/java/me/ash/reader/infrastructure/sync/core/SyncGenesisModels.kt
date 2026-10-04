@@ -53,6 +53,8 @@ data class SyncGenesisSessionEntity(
     val failureReason: String? = null,
     val createdAt: Long,
     val updatedAt: Long,
+    /** 原始共同 cut 的时间；状态更新不能改写同一快照的承诺时间。 */
+    val capturedAt: Long? = null,
 )
 
 @Entity(

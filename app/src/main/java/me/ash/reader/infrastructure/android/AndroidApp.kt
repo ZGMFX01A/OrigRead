@@ -30,6 +30,7 @@ import me.ash.reader.infrastructure.preference.SettingsProvider
 import me.ash.reader.infrastructure.rss.OPMLDataSource
 import me.ash.reader.infrastructure.rss.RssHelper
 import me.ash.reader.infrastructure.sync.core.AndroidSyncEndpointRegistry
+import me.ash.reader.infrastructure.sync.core.AndroidSyncManager
 import me.ash.reader.infrastructure.sync.core.SyncBackgroundScheduler
 import me.ash.reader.ui.ext.del
 import me.ash.reader.ui.ext.getLatestApk
@@ -92,6 +93,10 @@ class AndroidApp : Application(), Configuration.Provider {
     @Inject lateinit var diffMapHolder: DiffMapHolder
 
     @Inject lateinit var syncEndpointRegistry: AndroidSyncEndpointRegistry
+
+    // 启动即创建同步管理器，按已保存的开关、前台状态和网络权限恢复局域网服务。
+    // 不能依赖同步设置页首次注入，否则普通阅读期间重启后的设备无法接收同步。
+    @Inject lateinit var syncManager: AndroidSyncManager
 
     /**
      * When the application startup.

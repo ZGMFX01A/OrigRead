@@ -149,7 +149,7 @@ constructor(
                     url = "https://github.com/ReadYouApp/ReadYou/releases.atom",
                 )
             if (feedsToMigrate.isNotEmpty()) {
-                syncMutations.captureLibraryMutation(accountId) {
+                syncMutations.captureLibraryMutation(accountId, me.ash.reader.infrastructure.sync.core.SyncLibrarySelection(feedIds = feedsToMigrate.map { it.id }.toSet())) {
                     feedsToMigrate.forEach { feed ->
                         feedDao.update(
                             feed.copy(
@@ -187,7 +187,7 @@ constructor(
                 .map(Feed::normalizeRssReadingMode)
 
         feedsToNormalize.groupBy(Feed::accountId).forEach { (accountId, feeds) ->
-            syncMutations.captureLibraryMutation(accountId) {
+            syncMutations.captureLibraryMutation(accountId, me.ash.reader.infrastructure.sync.core.SyncLibrarySelection(feedIds = feeds.map { it.id }.toSet())) {
                 feedDao.updateAll(feeds)
             }
         }

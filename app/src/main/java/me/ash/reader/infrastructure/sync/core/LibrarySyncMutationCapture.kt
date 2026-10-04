@@ -5,6 +5,7 @@ import androidx.room.withTransaction
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import java.util.Locale
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -16,6 +17,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import me.ash.reader.infrastructure.db.AndroidDatabase
+import me.ash.reader.domain.model.feed.SourceType
 import me.ash.reader.infrastructure.filter.ArticleFilterRule
 import me.ash.reader.infrastructure.json.JsonRule
 import me.ash.reader.infrastructure.rsshub.RssHubInstance
@@ -44,14 +46,19 @@ class LibrarySyncMutationCapture @Inject constructor(
 ) {
     private val json = Json { encodeDefaults = true }
 
+    /** 旧显式 block 调用保持导入语义；普通编辑使用带 scope 的捕获入口。 */
+    suspend fun <T> captureLibraryMutation(accountId: Int, mutate: suspend () -> T): T =
+        captureLibraryMutation(accountId, null, mutate)
+
     /** Captures subscription changes in the same Room transaction as the business write. */
-    suspend fun <T> captureLibraryMutation(accountId: Int, mutate: suspend () -> T): T {
+    suspend fun <T> captureLibraryMutation(accountId: Int, scope: SyncLibrarySelection? = null, mutate: suspend () -> T): T {
         data class Row(val type: String, val id: String, val fields: JsonObject)
         suspend fun read(): Map<String, Row> = buildMap {
-            database.groupDao().queryAll(accountId).forEach { group ->
+            val selected = selectedLibraryRows(database, accountId, scope)
+            selected.groups.forEach { group ->
                 put("group:${group.id}", Row("group", group.id, buildJsonObject { put("name", group.name) }))
             }
-            database.feedDao().queryAll(accountId).forEach { feed ->
+            selected.feeds.forEach { feed ->
                 put("feed:${feed.id}", Row("feed", feed.id, buildJsonObject {
                     put("name", feed.name); put("url", feed.url); put("sourceType", feed.sourceType.name.lowercase())
                     put("icon", feed.icon?.let(::JsonPrimitive) ?: JsonNull)
@@ -59,7 +66,7 @@ class LibrarySyncMutationCapture @Inject constructor(
                     put("isFullContent", feed.isFullContent); put("isBrowser", feed.isBrowser)
                 }))
             }
-            database.articleDao().queryAllByAccountId(accountId).forEach { article ->
+            selected.articles.forEach { article ->
                 put("article:${article.id}", Row("article", article.id, buildJsonObject {
                     put("feedLocalId", article.feedId)
                     put("title", article.title)
@@ -108,37 +115,21 @@ class LibrarySyncMutationCapture @Inject constructor(
                         return existing
                     }
                     val now = System.currentTimeMillis()
-                    val feed = if (row.type == "feed") database.feedDao().queryById(row.id) else null
-                    val article = if (row.type == "article") database.articleDao().queryById(row.id) else null
                     return SyncIdentityMappingEntity(context.syncSpaceId, row.type, row.id,
                         SyncCanonicalIdentity.newSyncId(),
                         when (row.type) {
-                            "feed" -> feed?.let { SyncCanonicalIdentity.feedKey(it.sourceType, it.url) }
+                            "feed" -> SyncCanonicalIdentity.feedCandidateKey(
+                                SourceType.valueOf((row.fields.getValue("sourceType") as JsonPrimitive).content.uppercase(Locale.ROOT)),
+                                (row.fields.getValue("url") as JsonPrimitive).content,
+                            )
                             "article" -> {
-                                val articleWithFeed = checkNotNull(article) {
-                                    "Cannot create Sync mapping for missing article ${row.id}"
-                                }
-                                val feedMapping =
-                                    ensure(
-                                        Row(
-                                            type = "feed",
-                                            id = articleWithFeed.feed.id,
-                                            fields =
-                                                buildJsonObject {
-                                                    put("name", articleWithFeed.feed.name)
-                                                    put("url", articleWithFeed.feed.url)
-                                                    put("sourceType", articleWithFeed.feed.sourceType.name.lowercase())
-                                                    put("icon", articleWithFeed.feed.icon?.let(::JsonPrimitive) ?: JsonNull)
-                                                    put("groupLocalId", articleWithFeed.feed.groupId)
-                                                    put("isNotification", articleWithFeed.feed.isNotification)
-                                                    put("isFullContent", articleWithFeed.feed.isFullContent)
-                                                    put("isBrowser", articleWithFeed.feed.isBrowser)
-                                                },
-                                        )
-                                    )
-                                SyncCanonicalIdentity.articleKey(
-                                    feedCanonicalKey = feedMapping.canonicalKey,
-                                    articleLink = articleWithFeed.article.link,
+                                // 删除行的身份必须来自 before 快照，不能再查询已经删除的业务行。
+                                val rows = if ("article:${row.id}" in after) after else before
+                                val feedId = (row.fields.getValue("feedLocalId") as JsonPrimitive).content
+                                val feedRow = checkNotNull(rows["feed:$feedId"]) { "Article has no captured feed $feedId" }
+                                SyncCanonicalIdentity.articleCandidateKey(
+                                    feedCanonicalKey = ensure(feedRow).canonicalKey,
+                                    articleLink = (row.fields.getValue("url") as JsonPrimitive).content,
                                 )
                             }
                             else -> null
@@ -164,35 +155,7 @@ class LibrarySyncMutationCapture @Inject constructor(
                     val known = database.syncIdentityMappingDao().findByLocalId(context.syncSpaceId, row.type, row.id)
                     if (known != null && before[key]?.fields == row.fields) continue
                     var mapping = ensure(row, reviveIfDeleted = before[key] == null)
-                    val canonicalKey =
-                        when (row.type) {
-                            "feed" ->
-                                database.feedDao().queryById(row.id)?.let {
-                                    SyncCanonicalIdentity.feedKey(it.sourceType, it.url)
-                                }
-                            "article" ->
-                                database.articleDao().queryById(row.id)?.let { articleWithFeed ->
-                                    val feedMapping =
-                                        database.syncIdentityMappingDao().findByLocalId(
-                                            context.syncSpaceId,
-                                            SyncEntityType.FEED.wireName,
-                                            articleWithFeed.feed.id,
-                                        )
-                                    SyncCanonicalIdentity.articleKey(
-                                        feedCanonicalKey = feedMapping?.canonicalKey,
-                                        articleLink = articleWithFeed.article.link,
-                                    )
-                                }
-                            else -> mapping.canonicalKey
-                        }
-                    if (canonicalKey != mapping.canonicalKey) {
-                        mapping =
-                            mapping.copy(
-                                canonicalKey = canonicalKey,
-                                updatedAt = System.currentTimeMillis(),
-                            )
-                        database.syncIdentityMappingDao().update(mapping)
-                    }
+                    // URL 更新不重写创建身份时已持久化的候选输入与版本。
                     val fields = row.fields.toMutableMap()
                     if (row.type == "feed") {
                         val groupId = (fields.remove("groupLocalId") as JsonPrimitive).content
@@ -246,7 +209,9 @@ class LibrarySyncMutationCapture @Inject constructor(
                 }
                 val deletedRows =
                     before
-                        .filterKeys { it !in after }
+                        .filter { (key, row) ->
+                            key !in after && !libraryRowExists(database, SyncLibraryRowKey(accountId, row.type, row.id))
+                        }
                         .values
                         .sortedBy { row ->
                             when (row.type) {
@@ -1424,7 +1389,7 @@ class LibrarySyncMutationCapture @Inject constructor(
                     entityType = SyncEntityType.FEED.wireName,
                     localId = articleWithFeed.feed.id,
                     syncId = SyncCanonicalIdentity.newSyncId(),
-                    canonicalKey = SyncCanonicalIdentity.feedKey(articleWithFeed.feed.sourceType, articleWithFeed.feed.url),
+                    canonicalKey = SyncCanonicalIdentity.feedCandidateKey(articleWithFeed.feed.sourceType, articleWithFeed.feed.url),
                     generation = 0,
                     createdAt = now,
                     updatedAt = now,
@@ -1440,7 +1405,7 @@ class LibrarySyncMutationCapture @Inject constructor(
                 localId = articleId,
                 syncId = SyncCanonicalIdentity.newSyncId(),
                 canonicalKey =
-                    SyncCanonicalIdentity.articleKey(
+                    SyncCanonicalIdentity.articleCandidateKey(
                         feedCanonicalKey = feedMapping.canonicalKey,
                         articleLink = articleWithFeed.article.link,
                     ),

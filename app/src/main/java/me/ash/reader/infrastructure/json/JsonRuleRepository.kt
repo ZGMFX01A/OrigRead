@@ -7,13 +7,23 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import me.ash.reader.infrastructure.util.AtomicUtf8File
+import me.ash.reader.infrastructure.db.ConfigDocumentStore
+import me.ash.reader.infrastructure.db.SqliteConfigDocumentStore
+import me.ash.reader.infrastructure.db.FileConfigDocumentStore
 
 /** 保存并读取用户导入的 JSON/API 来源规则。 */
 @Singleton
-class JsonRuleRepository @Inject constructor(
+class JsonRuleRepository private constructor(
     @ApplicationContext private val context: Context,
+    private val documents: ConfigDocumentStore,
 ) {
+    /** 生产配置权威值与 Outbox 共用 SQLite 事务。 */
+    @Inject constructor(@ApplicationContext context: Context, documents: SqliteConfigDocumentStore) :
+        this(context, documents as ConfigDocumentStore)
+
+    /** 显式独立规则文件入口，生产 Hilt 不使用该构造。 */
+    constructor(context: Context) : this(context, FileConfigDocumentStore)
+
     private val json = Json {
         ignoreUnknownKeys = true
         prettyPrint = true
@@ -169,12 +179,12 @@ class JsonRuleRepository @Inject constructor(
     }
 
     private fun loadRules(): List<JsonRule> =
-        AtomicUtf8File.readOrNull(ruleFile)
+        documents.read(ruleFile)
             ?.let { json.decodeFromString<JsonRuleBundle>(it).rules }
             ?: emptyList()
 
     private fun writeRules(rules: List<JsonRule>) {
-        AtomicUtf8File.write(
+        documents.write(
             ruleFile,
             json.encodeToString(JsonRuleBundle(rules = rules)),
         )

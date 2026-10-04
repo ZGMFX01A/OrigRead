@@ -1,6 +1,7 @@
 package me.ash.reader.infrastructure.db
 
 import android.content.Context
+import kotlinx.coroutines.sync.Mutex
 import androidx.room.*
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
@@ -52,6 +53,15 @@ import me.ash.reader.infrastructure.sync.core.MIGRATION_27_28
 import me.ash.reader.infrastructure.sync.core.MIGRATION_28_29
 import me.ash.reader.infrastructure.sync.core.MIGRATION_29_30
 import me.ash.reader.infrastructure.sync.core.MIGRATION_30_31
+import me.ash.reader.infrastructure.sync.core.MIGRATION_32_33
+import me.ash.reader.infrastructure.sync.core.MIGRATION_33_34
+import me.ash.reader.infrastructure.sync.core.SyncSnapshotInstallProgress
+import me.ash.reader.infrastructure.sync.core.SyncSnapshotInstallProgressDao
+import me.ash.reader.infrastructure.sync.core.SyncSnapshotAuthorityRevision
+import me.ash.reader.infrastructure.sync.core.SyncSnapshotAuthorityRevisionDao
+import me.ash.reader.infrastructure.sync.core.SyncActorIsolationEntity
+import me.ash.reader.infrastructure.sync.core.SyncIntegrityDao
+import me.ash.reader.infrastructure.sync.core.SYNC_REJECTION_REWIND_TRIGGER
 import me.ash.reader.infrastructure.sync.core.MIGRATION_31_32
 import me.ash.reader.infrastructure.sync.core.SyncTrustedDeviceDao
 import me.ash.reader.infrastructure.sync.core.SyncTrustedDeviceEntity
@@ -117,6 +127,7 @@ import java.util.*
         SyncRecoveryCapsuleEntity::class,
         SyncInboxOperationEntity::class,
         SyncCoverageEntity::class,
+        SyncActorIsolationEntity::class,
         SyncApplyJournalEntity::class,
         SyncFieldVersionEntity::class,
         SyncFieldCandidateEntity::class,
@@ -136,8 +147,10 @@ import java.util.*
         SyncRunHistoryEntity::class,
         SyncSnapshotStreamStageEntity::class,
         SyncSnapshotStreamShardEntity::class,
+        SyncSnapshotInstallProgress::class,
+        SyncSnapshotAuthorityRevision::class,
     ],
-    version = 32,
+    version = 34,
     autoMigrations = [
         AutoMigration(from = 5, to = 6),
         AutoMigration(from = 5, to = 7),
@@ -158,12 +171,25 @@ import java.util.*
     SourceTypeConverters::class,
 )
 abstract class AndroidDatabase : RoomDatabase() {
-    abstract fun localConfigStateDao(): LocalConfigStateDao
+    private val visibleDaos = me.ash.reader.infrastructure.sync.core.SyncSnapshotVisibilityDao()
+    /** 同步业务投影与本地 mutation/Genesis/安装共用串行边界，不因使用不同协调器而互相覆盖。 */
+    val syncProjectionMutex = Mutex()
+    abstract fun snapshotInstallProgressDao(): SyncSnapshotInstallProgressDao
+    abstract fun snapshotAuthorityRevisionDao(): SyncSnapshotAuthorityRevisionDao
+    abstract fun syncIntegrityDao(): SyncIntegrityDao
+
+    abstract fun rawLocalConfigStateDao(): LocalConfigStateDao
+    /** 安装围栏期间暂停业务配置观察，解除后重新查询真实数据。 */
+    fun localConfigStateDao(): LocalConfigStateDao = visibleDaos.wrap(rawLocalConfigStateDao(), LocalConfigStateDao::class.java)
 
     abstract fun accountDao(): AccountDao
-    abstract fun feedDao(): FeedDao
-    abstract fun articleDao(): ArticleDao
-    abstract fun groupDao(): GroupDao
+    abstract fun rawFeedDao(): FeedDao
+    abstract fun rawArticleDao(): ArticleDao
+    abstract fun rawGroupDao(): GroupDao
+    /** 观察流等待完整快照，业务写入仍保留数据库围栏的明确拒绝。 */
+    fun feedDao(): FeedDao = visibleDaos.wrap(rawFeedDao(), FeedDao::class.java)
+    fun articleDao(): ArticleDao = visibleDaos.wrap(rawArticleDao(), ArticleDao::class.java)
+    fun groupDao(): GroupDao = visibleDaos.wrap(rawGroupDao(), GroupDao::class.java)
     abstract fun localSubscriptionDao(): LocalSubscriptionDao
     abstract fun rssHttpCacheDao(): RssHttpCacheDao
     abstract fun syncSpaceDao(): SyncSpaceDao
@@ -192,9 +218,14 @@ abstract class AndroidDatabase : RoomDatabase() {
                     context.applicationContext,
                     AndroidDatabase::class.java,
                     "Reader"
-                ).addMigrations(*allMigrations).addCallback(object : Callback() {
+                ).openHelperFactory(me.ash.reader.infrastructure.sync.core.SyncSnapshotGuardFactory(context.applicationContext))
+                    .addMigrations(*allMigrations).addCallback(object : Callback() {
                     override fun onOpen(db: SupportSQLiteDatabase) {
+                        // 新安装与升级都具备拒绝前缀回退规则。
+                        db.execSQL(SYNC_REJECTION_REWIND_TRIGGER)
+                        db.execSQL("PRAGMA synchronous = FULL")
                         me.ash.reader.infrastructure.sync.core.installActorAuthorTrigger(db)
+                        me.ash.reader.infrastructure.sync.core.SyncSnapshotAuthorityRevisions.install(db)
                     }
                 }).build().also {
                     instance = it
@@ -245,6 +276,8 @@ val allMigrations = arrayOf(
     MIGRATION_29_30,
     MIGRATION_30_31,
     MIGRATION_31_32,
+    MIGRATION_32_33,
+    MIGRATION_33_34,
 )
 
 @Suppress("ClassName")

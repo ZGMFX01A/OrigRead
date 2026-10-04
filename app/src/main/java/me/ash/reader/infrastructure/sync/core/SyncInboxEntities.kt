@@ -47,6 +47,7 @@ data class SyncCoverageEntity(
     val retainedPrefix: Long = 0,
     val snapshotPrefix: Long = 0,
     val stableGcPrefix: Long = 0,
+    @androidx.room.ColumnInfo(defaultValue = "0") val processedPrefix: Long = 0,
     val updatedAt: Long,
 )
 
@@ -127,6 +128,14 @@ interface SyncInboxDao {
 
     @Query("SELECT * FROM sync_inbox_operation WHERE operationId = :operationId LIMIT 1")
     suspend fun find(operationId: String): SyncInboxOperationEntity?
+
+    /** 授权状态读取不返回签名载荷，大字段尾部重放只需当前授权元数据。 */
+    @Query("SELECT authorizationState FROM sync_inbox_operation WHERE operationId=:operationId")
+    suspend fun findAuthorizationState(operationId: String): String?
+
+    /** 恢复队列只需真实应用状态，不读取 Inbox 中可能巨大的 operationJson。 */
+    @Query("SELECT state FROM sync_inbox_operation WHERE operationId=:operationId")
+    suspend fun findState(operationId: String): String?
 
     @Query(
         """
