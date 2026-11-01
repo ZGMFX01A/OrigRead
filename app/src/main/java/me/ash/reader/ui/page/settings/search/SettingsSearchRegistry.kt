@@ -537,11 +537,22 @@ object SettingsSearchRegistry {
         add(
             SettingsSearchItem(
                 id = "shared_content",
-                titleRes = R.string.shared_content,
+                titleRes = R.string.list_shared_content,
                 breadcrumbsRes = listOf(R.string.settings, R.string.interaction, R.string.share),
                 route = Route.Interaction,
                 icon = Icons.Outlined.TouchApp,
-                keywords = listOf("分享内容", "分享格式", "带标题", "带链接"),
+                keywords = listOf("分享内容", "分享格式", "带标题", "带链接", "列表分享"),
+            )
+        )
+        add(
+            SettingsSearchItem(
+                id = "reading_share",
+                titleRes = R.string.reading_share_config_title,
+                descRes = R.string.reading_share_config_desc,
+                breadcrumbsRes = listOf(R.string.settings, R.string.interaction, R.string.share),
+                route = Route.Interaction,
+                icon = Icons.Outlined.TouchApp,
+                keywords = listOf("分享内容", "分享目标", "正文", "译文", "摘要", "Obsidian", "SiYuan", "Logseq", "Notion"),
             )
         )
 

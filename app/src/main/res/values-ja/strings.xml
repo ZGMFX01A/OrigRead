@@ -339,6 +339,7 @@
     <string name="tips_article_list_tonal_elevation">記事一覧の階調はライトテーマでのみ反映されます</string>
     <string name="tips_group_list_tonal_elevation">グループ一覧の階調はライトテーマでのみ反映されます</string>
     <string name="share">共有</string>
+    <string name="list_shared_content">記事一覧から共有する内容</string>
     <string name="reading_share_config_title">閲覧画面から共有</string>
     <string name="reading_share_config_desc">共有する内容を選びます。元のURLは常に含まれます。</string>
     <string name="reading_share_first_use_title">共有内容を設定</string>

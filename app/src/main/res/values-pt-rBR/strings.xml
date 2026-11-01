@@ -345,6 +345,7 @@
     <string name="tips_article_list_tonal_elevation">O tom da lista de artigos só vale no tema claro</string>
     <string name="tips_group_list_tonal_elevation">O tom da lista de grupos só vale no tema claro</string>
     <string name="share">Compartilhar</string>
+    <string name="list_shared_content">Compartilhamento da lista de artigos</string>
     <string name="reading_share_config_title">Compartilhar artigos</string>
     <string name="reading_share_config_desc">Escolha o que compartilhar. O link original sempre será incluído.</string>
     <string name="reading_share_first_use_title">Configurar compartilhamento</string>

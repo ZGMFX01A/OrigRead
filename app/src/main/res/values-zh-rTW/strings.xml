@@ -286,6 +286,7 @@
   <string name="tips_article_list_tonal_elevation">文章清單色調層級僅在淺色主題下生效</string>
   <string name="tips_group_list_tonal_elevation">群組清單色調層級僅在淺色主題下生效</string>
   <string name="share">分享</string>
+  <string name="list_shared_content">列表分享內容</string>
   <string name="reading_share_config_title">閱讀頁分享</string>
   <string name="reading_share_config_desc">選擇分享內容，原文連結始終包含。</string>
   <string name="reading_share_first_use_title">設定閱讀頁分享</string>

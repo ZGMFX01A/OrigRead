@@ -228,8 +228,9 @@ fun InteractionPage(
                         modifier = Modifier.padding(horizontal = 24.dp),
                         text = stringResource(R.string.share),
                     )
+                    ReadingShareSettings()
                     SettingItem(
-                        title = stringResource(R.string.shared_content),
+                        title = stringResource(R.string.list_shared_content),
                         desc = sharedContent.toDesc(context),
                         onClick = {
                             sharedContentDialogVisible = true
@@ -344,7 +345,7 @@ fun InteractionPage(
 
     RadioDialog(
         visible = sharedContentDialogVisible,
-        title = stringResource(R.string.shared_content),
+        title = stringResource(R.string.list_shared_content),
         options = SharedContentPreference.values.map {
             RadioDialogOption(
                 text = it.toDesc(context),

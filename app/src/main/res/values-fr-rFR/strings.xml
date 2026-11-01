@@ -345,6 +345,7 @@
     <string name="tips_article_list_tonal_elevation">La teinte de la liste d’articles ne s’applique qu’au thème clair</string>
     <string name="tips_group_list_tonal_elevation">La teinte de la liste des groupes ne s’applique qu’au thème clair</string>
     <string name="share">Partager</string>
+    <string name="list_shared_content">Partage depuis la liste d’articles</string>
     <string name="reading_share_config_title">Partager des articles</string>
     <string name="reading_share_config_desc">Choisissez le contenu à partager. Le lien d’origine est toujours inclus.</string>
     <string name="reading_share_first_use_title">Configurer le partage</string>

@@ -498,6 +498,7 @@
     <string name="share">分享</string>
     <string
     name="reading_share_config_title">阅读页分享</string>
+    <string name="list_shared_content">列表分享内容</string>
     <string name="reading_share_config_desc">
   选择分享内容，原文链接始终包含。</string>
     <string name="reading_share_first_use_title">设置阅读页分享</string>

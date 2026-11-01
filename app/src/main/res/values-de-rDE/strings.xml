@@ -342,6 +342,7 @@
     <string name="tips_article_list_tonal_elevation">Die tonale Artikelliste gilt nur im hellen Design</string>
     <string name="tips_group_list_tonal_elevation">Die tonale Gruppenliste gilt nur im hellen Design</string>
     <string name="share">Teilen</string>
+    <string name="list_shared_content">Teilen aus der Artikelliste</string>
     <string name="reading_share_config_title">Artikel teilen</string>
     <string name="reading_share_config_desc">Inhalte zum Teilen wählen. Der Originallink ist immer dabei.</string>
     <string name="reading_share_first_use_title">Teilen einrichten</string>

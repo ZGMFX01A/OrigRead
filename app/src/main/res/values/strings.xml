@@ -598,6 +598,7 @@
   elevation for the group list is only available in the light theme</string>
     <string name="share">
   Share</string>
+    <string name="list_shared_content">Article list sharing</string>
     <string name="reading_share_config_title">Reading page sharing</string>
     <string
     name="reading_share_config_desc">Choose what to send to note apps. The original URL is always
