@@ -49,6 +49,7 @@ import me.ash.reader.infrastructure.di.ApplicationScope
 import me.ash.reader.infrastructure.di.IODispatcher
 import me.ash.reader.infrastructure.preference.SettingsProvider
 import me.ash.reader.infrastructure.rss.ReaderCacheHelper
+import me.ash.reader.infrastructure.rss.ReaderContentPreferences
 import me.ash.reader.infrastructure.translation.TranslationProviderType
 import me.ash.reader.infrastructure.translation.TranslationService
 import me.ash.reader.infrastructure.translation.TranslationSettingsRepository
@@ -69,6 +70,7 @@ constructor(
     internal val groupWithFeedsListUseCase: GroupWithFeedsListUseCase,
     internal val settingsProvider: SettingsProvider,
     internal val readerCacheHelper: ReaderCacheHelper,
+    internal val readerContentPreferences: ReaderContentPreferences,
     internal val articleWebSessionManager: ArticleWebSessionManager,
     internal val contentExtractionService: ContentExtractionService,
     internal val translationService: TranslationService,
@@ -199,6 +201,8 @@ constructor(
     fun renderDescriptionContent() = performRenderDescriptionContent()
 
     fun renderFullContent() = performRenderFullContent()
+
+    fun setFullContentEnabled(enabled: Boolean) = performSetFullContentEnabled(enabled)
 
     fun updateReadStatus(isUnread: Boolean) = performUpdateReadStatus(isUnread)
 

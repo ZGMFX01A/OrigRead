@@ -769,19 +769,14 @@ fun ReadingPage(
                             } == true,
                         showFullContentButton =
                             readingUiState.articleWithFeed?.feed?.sourceType == SourceType.RSS,
-                        isFullContent =
-                            readerState.content is ReaderState.FullContent ||
-                                readerState.content is ReaderState.Error,
+                        isFullContent = readerState.isFullContentEnabled,
                         onReadOriginal = {
                             context.openURL(
                                 readerState.link,
                                 OpenLinkPreference.AutoPreferCustomTabs,
                             )
                         },
-                        onFullContent = {
-                            if (it) viewModel.renderFullContent()
-                            else viewModel.renderDescriptionContent()
-                        },
+                        onFullContent = viewModel::setFullContentEnabled,
                         onShare = {
                             if (readingSharePreference.isConfigured) {
                                 shareReading(readingSharePreference)

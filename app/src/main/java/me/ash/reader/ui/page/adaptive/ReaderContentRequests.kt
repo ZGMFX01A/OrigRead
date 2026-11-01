@@ -2,6 +2,7 @@ package me.ash.reader.ui.page.adaptive
 
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -10,9 +11,28 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.ash.reader.domain.model.article.Article
+import me.ash.reader.domain.model.feed.SourceType
 import me.ash.reader.infrastructure.rss.ReaderContentPolicy
 import me.ash.reader.infrastructure.rss.ReaderFullContentResult
 import me.ash.reader.infrastructure.content.FullContentFailureClassifier
+import timber.log.Timber
+
+/** 仅用户点击会记录来源偏好；重试、缓存恢复和正文解析均不改按钮选择。 */
+internal fun ArticleListReaderViewModel.performSetFullContentEnabled(enabled: Boolean) {
+    val feed = currentFeed?.takeIf { it.sourceType == SourceType.RSS } ?: return
+    _readerState.update { it.copy(isFullContentEnabled = enabled) }
+    // 在本次点击内进入存储队列，后续点击及新阅读页的读取按相同顺序执行。
+    applicationScope.launch(start = CoroutineStart.UNDISPATCHED) {
+        try {
+            readerContentPreferences.setFullContentEnabled(feed.accountId, feed.id, enabled)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Timber.w(error, "Could not save source full-content selection")
+        }
+    }
+    if (enabled) renderFullContent() else renderDescriptionContent()
+}
 
 /** 沿用既有全文 loading 延迟，避免快速缓存命中闪烁。 */
 private const val FULL_CONTENT_LOADING_DELAY_MILLIS = 100L

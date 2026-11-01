@@ -6,6 +6,7 @@ import kotlinx.coroutines.launch
 import me.ash.reader.domain.model.article.Article
 import me.ash.reader.domain.model.article.ArticleFlowItem
 import me.ash.reader.domain.model.article.ArticleWithFeed
+import me.ash.reader.domain.model.feed.SourceType
 import me.ash.reader.infrastructure.rss.ReaderContentPolicy
 import me.ash.reader.infrastructure.content.FullContentFailureReason
 import timber.log.Timber
@@ -25,10 +26,13 @@ internal fun ArticleListReaderViewModel.performInitData(articleId: String, listI
             _readerState.update { it.copy(content = ReaderState.Error(FullContentFailureReason.ARTICLE_UNAVAILABLE)) }
             return@launch
         }
+        val fullContentEnabled = item.feed.sourceType == SourceType.RSS &&
+            readerContentPreferences.isFullContentEnabled(item.feed.accountId, item.feed.id)
+        if (serial != readerRequestSerial) return@launch
         if (diffMapHolder.checkIfUnread(item)) {
             diffMapHolder.updateDiff(item, isUnread = false)
         }
-        publishRequestedArticle(item)
+        publishRequestedArticle(item, fullContentEnabled)
         renderInitialContent(ReaderRequestIdentity(articleId, item.article.accountId, serial), item)
     }
 }
@@ -99,16 +103,22 @@ internal suspend fun ArticleListReaderViewModel.resolveRequestedArticle(articleI
 }
 
 /** 标题和文章对象一次发布，正文加载不在 StateFlow 的可重试更新函数内执行。 */
-internal fun ArticleListReaderViewModel.publishRequestedArticle(item: ArticleWithFeed) {
+internal fun ArticleListReaderViewModel.publishRequestedArticle(item: ArticleWithFeed, fullContentEnabled: Boolean = false) {
     _readingUiState.value = ReadingUiState(item, isStarred = item.article.isStarred)
     val state = ReaderState(articleId = item.article.id, feedName = item.feed.name, title = item.article.title,
-        author = item.article.author, link = item.article.link, publishedDate = item.article.date)
+        author = item.article.author, link = item.article.link, publishedDate = item.article.date,
+        isFullContentEnabled = fullContentEnabled)
     _readerState.value = prefetchState(state)
 }
 
 /** 初始内容继续沿用来源阅读策略；缓存与网络由同一受控全文请求处理。 */
 internal fun ArticleListReaderViewModel.renderInitialContent(identity: ReaderRequestIdentity, item: ArticleWithFeed) {
     if (!isCurrentRequest(identity)) return
+    if (item.feed.sourceType == SourceType.RSS) {
+        if (_readerState.value.isFullContentEnabled) renderFullContent()
+        else _readerState.update { it.copy(content = ReaderState.Description(item.article.rawDescription)) }
+        return
+    }
     val embedded = ReaderContentPolicy.embeddedFullContent(item.article, item.feed)
     if (embedded != null) {
         _readerState.update { it.copy(content = ReaderState.FullContent(embedded)) }

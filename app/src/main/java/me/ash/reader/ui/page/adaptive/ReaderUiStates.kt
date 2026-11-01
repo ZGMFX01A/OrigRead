@@ -48,6 +48,8 @@ data class ReaderState(
     val link: String? = null,
     val publishedDate: Date = Date(0L),
     val content: ContentState = Loading,
+    /** 来源的全文按钮选择；加载和解析失败不会改变它。 */
+    val isFullContentEnabled: Boolean = false,
     val listIndex: Int? = null,
     val nextArticle: PrefetchResult? = null,
     val previousArticle: PrefetchResult? = null,
