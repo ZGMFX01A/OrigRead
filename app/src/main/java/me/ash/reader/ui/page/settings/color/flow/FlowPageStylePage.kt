@@ -39,6 +39,7 @@ fun FlowPageStylePage(
     val articleListTonalElevation = LocalFlowArticleListTonalElevation.current
     val articleListReadIndicator = LocalFlowArticleListReadIndicator.current
     val sortUnreadArticles = LocalSortUnreadArticles.current
+    val articleListCardStyle = LocalFlowArticleListCardStyle.current
 
     val settings = LocalSettings.current
     val pullToSwitchFeed = settings.pullToSwitchFeed
@@ -57,6 +58,7 @@ fun FlowPageStylePage(
     var showSortUnreadArticlesDialog by remember { mutableStateOf(false) }
 
     var filterBarPaddingValue: Int? by remember { mutableStateOf(filterBarPadding) }
+    var articleListCardStyleDialogVisible by remember { mutableStateOf(false) }
 
     OrigReadScaffold(
         containerColor = MaterialTheme.colorScheme.surface onLight MaterialTheme.colorScheme.inverseOnSurface,
@@ -130,6 +132,13 @@ fun FlowPageStylePage(
                         modifier = Modifier.padding(horizontal = 24.dp),
                         text = stringResource(R.string.article_list)
                     )
+                    SettingItem(
+                        title = stringResource(R.string.article_list_style),
+                        desc = articleListCardStyle.description,
+                        onClick = {
+                            articleListCardStyleDialogVisible = true
+                        },
+                    ) {}
                     SettingItem(
                         title = stringResource(R.string.feed_favicons),
                         onClick = {
@@ -256,6 +265,22 @@ fun FlowPageStylePage(
                     Spacer(modifier = Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
                 }
             }
+        }
+    )
+
+    RadioDialog(
+        visible = articleListCardStyleDialogVisible,
+        title = stringResource(R.string.article_list_style),
+        options = FlowArticleListCardStylePreference.values.map {
+            RadioDialogOption(
+                text = it.description,
+                selected = it == articleListCardStyle,
+            ) {
+                it.put(context, scope)
+            }
+        },
+        onDismissRequest = {
+            articleListCardStyleDialogVisible = false
         }
     )
 

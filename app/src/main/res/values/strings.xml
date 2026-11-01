@@ -1516,4 +1516,7 @@
     <string name="json_repair_no_candidates">No working JSON rule was found. Check the URL and enabled rules.</string>
     <string name="search_settings">Search settings</string>
     <string name="no_settings_found">No matching settings found</string>
+    <string name="article_list_style">Article list style</string>
+    <string name="article_list_style_divider">Inset divider</string>
+    <string name="article_list_style_segmented">Segmented cards</string>
 </resources>

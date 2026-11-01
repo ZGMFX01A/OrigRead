@@ -456,6 +456,16 @@ object SettingsSearchRegistry {
         )
         add(
             SettingsSearchItem(
+                id = "article_list_style",
+                titleRes = R.string.article_list_style,
+                breadcrumbsRes = listOf(R.string.settings, R.string.interaction, R.string.article_list),
+                route = Route.Interaction,
+                icon = Icons.Outlined.TouchApp,
+                keywords = listOf("文章列表样式", "分段卡片", "分割线", "内缩分割线", "卡片样式", "呼吸缝", "Expressive", "card style", "divider"),
+            )
+        )
+        add(
+            SettingsSearchItem(
                 id = "swipe_to_start",
                 titleRes = R.string.swipe_to_start,
                 breadcrumbsRes = listOf(R.string.settings, R.string.interaction, R.string.article_list),

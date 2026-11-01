@@ -889,4 +889,7 @@
     <string name="rsshub_bound_instance_disabled_notice">此帶憑證訂閱所屬的 RSSHub 實例已被停用或刪除。請啟用原實例後再進行自動復原。</string>
     <string name="search_settings">搜尋設定項</string>
     <string name="no_settings_found">未找到相關設定項</string>
+    <string name="article_list_style">文章列表樣式</string>
+    <string name="article_list_style_divider">內縮分隔線</string>
+    <string name="article_list_style_segmented">分段卡片</string>
 </resources>

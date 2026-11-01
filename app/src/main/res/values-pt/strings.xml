@@ -354,4 +354,7 @@
     <string name="disable">Desabilitar</string>
     <string name="search_settings">Pesquisar nas configurações</string>
     <string name="no_settings_found">Nenhuma configuração encontrada</string>
+    <string name="article_list_style">Estilo da lista de artigos</string>
+    <string name="article_list_style_divider">Linha divisória recuada</string>
+    <string name="article_list_style_segmented">Cartões segmentados</string>
 </resources>

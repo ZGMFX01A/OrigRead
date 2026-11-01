@@ -885,4 +885,7 @@
     <string name="rsshub_bound_instance_disabled_notice">El servidor de este feed con credenciales se desactivó o eliminó. Reactiva el servidor original para la recuperación automática.</string>
     <string name="search_settings">Buscar en ajustes</string>
     <string name="no_settings_found">No se encontraron ajustes coincidentes</string>
+    <string name="article_list_style">Estilo de la lista de artículos</string>
+    <string name="article_list_style_divider">Línea divisoria sangrada</string>
+    <string name="article_list_style_segmented">Tarjetas segmentadas</string>
 </resources>

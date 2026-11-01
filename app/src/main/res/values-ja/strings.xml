@@ -879,4 +879,7 @@
     <string name="rsshub_bound_instance_disabled_notice">認証情報付きフィードの元のサーバーが無効化または削除されています。自動復旧には元のサーバーを有効にしてください。</string>
     <string name="search_settings">設定を検索</string>
     <string name="no_settings_found">一致する設定が見つかりません</string>
+    <string name="article_list_style">記事一覧のスタイル</string>
+    <string name="article_list_style_divider">インセット区切り線</string>
+    <string name="article_list_style_segmented">セグメント化カード</string>
 </resources>

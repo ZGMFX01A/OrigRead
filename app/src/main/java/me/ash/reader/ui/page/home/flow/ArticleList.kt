@@ -14,6 +14,8 @@ import androidx.paging.compose.itemKey
 import me.ash.reader.domain.data.Diff
 import me.ash.reader.domain.model.article.ArticleFlowItem
 import me.ash.reader.domain.model.article.ArticleWithFeed
+import me.ash.reader.infrastructure.preference.FlowArticleListCardStylePreference
+import me.ash.reader.infrastructure.preference.LocalFlowArticleListCardStyle
 import me.ash.reader.infrastructure.translation.TranslationDisplayMode
 
 @Suppress("FunctionName")
@@ -24,6 +26,7 @@ fun LazyListScope.ArticleList(
     isShowFeedIcon: Boolean,
     isShowStickyHeader: Boolean,
     articleListTonalElevation: Int,
+    cardStyle: FlowArticleListCardStylePreference = FlowArticleListCardStylePreference.default,
     translations: Map<String, ListTranslationResult> = emptyMap(),
     translationDisplayMode: TranslationDisplayMode = TranslationDisplayMode.TRANSLATED,
     translationRevealRevision: Int = 0,
@@ -48,6 +51,10 @@ fun LazyListScope.ArticleList(
             when (val item = pagingItems[index]) {
                 is ArticleFlowItem.Article -> {
                     val article = item.articleWithFeed.article
+                    val prevItem = if (index > 0) pagingItems.peek(index - 1) else null
+                    val nextItem = if (index + 1 < pagingItems.itemCount) pagingItems.peek(index + 1) else null
+                    val isFirstInDay = prevItem !is ArticleFlowItem.Article
+                    val isLastInDay = nextItem !is ArticleFlowItem.Article
                     SwipeableArticleItem(
                         modifier =
                             Modifier.animateItem(
@@ -61,8 +68,10 @@ fun LazyListScope.ArticleList(
                         translationRevealRevision = translationRevealRevision,
                         isUnread = diffMap[article.id]?.isUnread ?: article.isUnread,
                         articleListTonalElevation = articleListTonalElevation,
-                        showDivider =
-                            (if (index + 1 < pagingItems.itemCount) pagingItems.peek(index + 1) else null) is ArticleFlowItem.Article,
+                        cardStyle = cardStyle,
+                        isFirstInDay = isFirstInDay,
+                        isLastInDay = isLastInDay,
+                        showDivider = (cardStyle == FlowArticleListCardStylePreference.Divider) && !isLastInDay,
                         onClick = { onClick(it, index) },
                         isSwipeEnabled = isSwipeEnabled,
                         isMenuEnabled = isMenuEnabled,
@@ -79,10 +88,10 @@ fun LazyListScope.ArticleList(
 
                 is ArticleFlowItem.Date -> {
                     if (item.showSpacer) {
-                        // 跨日期处无分割线干扰，给足 24dp 纯净留白，形成大断层与高对比节奏
-                        Spacer(modifier = Modifier.height(24.dp))
+                        val spacerHeight = if (cardStyle == FlowArticleListCardStylePreference.Segmented) 22.dp else 24.dp
+                        Spacer(modifier = Modifier.height(spacerHeight))
                     }
-                    StickyHeader(item.date, isShowFeedIcon, articleListTonalElevation)
+                    StickyHeader(item.date, isShowFeedIcon, articleListTonalElevation, cardStyle)
                 }
 
                 else -> {}
@@ -94,6 +103,10 @@ fun LazyListScope.ArticleList(
                 is ArticleFlowItem.Article -> {
                     item(key = key(item), contentType = contentType(item)) {
                         val article = item.articleWithFeed.article
+                        val prevItem = if (index > 0) pagingItems.peek(index - 1) else null
+                        val nextItem = if (index + 1 < pagingItems.itemCount) pagingItems.peek(index + 1) else null
+                        val isFirstInDay = prevItem !is ArticleFlowItem.Article
+                        val isLastInDay = nextItem !is ArticleFlowItem.Article
                         SwipeableArticleItem(
                             modifier =
                                 Modifier.animateItem(
@@ -107,8 +120,10 @@ fun LazyListScope.ArticleList(
                             translationRevealRevision = translationRevealRevision,
                             isUnread = diffMap[article.id]?.isUnread ?: article.isUnread,
                             articleListTonalElevation = articleListTonalElevation,
-                            showDivider =
-                                (if (index + 1 < pagingItems.itemCount) pagingItems.peek(index + 1) else null) is ArticleFlowItem.Article,
+                            cardStyle = cardStyle,
+                            isFirstInDay = isFirstInDay,
+                            isLastInDay = isLastInDay,
+                            showDivider = (cardStyle == FlowArticleListCardStylePreference.Divider) && !isLastInDay,
                             onClick = { onClick(it, index) },
                             isSwipeEnabled = isSwipeEnabled,
                             isMenuEnabled = isMenuEnabled,
@@ -126,11 +141,11 @@ fun LazyListScope.ArticleList(
 
                 is ArticleFlowItem.Date -> {
                     if (item.showSpacer) {
-                        // 跨日期处无分割线干扰，给足 24dp 纯净留白，形成大断层与高对比节奏
-                        item { Spacer(modifier = Modifier.height(24.dp)) }
+                        val spacerHeight = if (cardStyle == FlowArticleListCardStylePreference.Segmented) 22.dp else 24.dp
+                        item { Spacer(modifier = Modifier.height(spacerHeight)) }
                     }
                     stickyHeader(key = key(item), contentType = contentType(item)) {
-                        StickyHeader(item.date, isShowFeedIcon, articleListTonalElevation)
+                        StickyHeader(item.date, isShowFeedIcon, articleListTonalElevation, cardStyle)
                     }
                 }
 

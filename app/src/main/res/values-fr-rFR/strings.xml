@@ -885,4 +885,7 @@
     <string name="rsshub_bound_instance_disabled_notice">Le serveur de ce flux avec identifiants a été désactivé ou supprimé. Réactivez le serveur d’origine pour la restauration automatique.</string>
     <string name="search_settings">Rechercher dans les paramètres</string>
     <string name="no_settings_found">Aucun paramètre correspondant trouvé</string>
+    <string name="article_list_style">Style de la liste d’articles</string>
+    <string name="article_list_style_divider">Ligne de séparation en retrait</string>
+    <string name="article_list_style_segmented">Cartes segmentées</string>
 </resources>

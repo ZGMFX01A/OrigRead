@@ -1358,4 +1358,7 @@
     <string name="json_repair_no_candidates">未找到可用的 JSON 规则，请检查页面地址和已启用规则。</string>
     <string name="search_settings">搜索设置项</string>
     <string name="no_settings_found">未找到相关设置项</string>
+    <string name="article_list_style">文章列表样式</string>
+    <string name="article_list_style_divider">内缩分割线</string>
+    <string name="article_list_style_segmented">分段卡片</string>
 </resources>

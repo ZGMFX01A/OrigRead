@@ -21,6 +21,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import me.ash.reader.R
+import me.ash.reader.infrastructure.preference.FlowArticleListCardStylePreference
+import me.ash.reader.infrastructure.preference.LocalFlowArticleListCardStyle
 import me.ash.reader.infrastructure.preference.InitialFilterPreference
 import me.ash.reader.infrastructure.preference.InitialPagePreference
 import me.ash.reader.infrastructure.preference.LocalArticleListSwipeEndAction
@@ -64,6 +66,7 @@ fun InteractionPage(
     val markAsReadOnScroll = LocalMarkAsReadOnScroll.current
     val hideEmptyGroups = LocalHideEmptyGroups.current
     val sortUnreadArticles = LocalSortUnreadArticles.current
+    val articleListCardStyle = LocalFlowArticleListCardStyle.current
     val pullToSwitchArticle = LocalPullToSwitchArticle.current
     val openLink = LocalOpenLink.current
     val openLinkSpecificBrowser = LocalOpenLinkSpecificBrowser.current
@@ -84,6 +87,7 @@ fun InteractionPage(
     var sharedContentDialogVisible by remember { mutableStateOf(false) }
     var showSortUnreadArticlesDialog by remember { mutableStateOf(false) }
     var showPullToLoadDialog by remember { mutableStateOf(false) }
+    var articleListCardStyleDialogVisible by remember { mutableStateOf(false) }
 
     OrigReadScaffold(
         containerColor = MaterialTheme.colorScheme.surface onLight MaterialTheme.colorScheme.inverseOnSurface,
@@ -142,6 +146,13 @@ fun InteractionPage(
                         modifier = Modifier.padding(horizontal = 24.dp),
                         text = stringResource(R.string.article_list),
                     )
+                    SettingItem(
+                        title = stringResource(R.string.article_list_style),
+                        desc = articleListCardStyle.description,
+                        onClick = {
+                            articleListCardStyleDialogVisible = true
+                        },
+                    ) {}
                     SettingItem(
                         title = stringResource(R.string.swipe_to_start),
                         desc = swipeToStartAction.desc,
@@ -387,6 +398,22 @@ fun InteractionPage(
         },
         onDismissRequest = {
             showPullToLoadDialog = false
+        }
+    )
+
+    RadioDialog(
+        visible = articleListCardStyleDialogVisible,
+        title = stringResource(R.string.article_list_style),
+        options = FlowArticleListCardStylePreference.values.map {
+            RadioDialogOption(
+                text = it.description,
+                selected = it == articleListCardStyle,
+            ) {
+                it.put(context, scope)
+            }
+        },
+        onDismissRequest = {
+            articleListCardStyleDialogVisible = false
         }
     )
 }

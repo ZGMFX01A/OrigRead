@@ -882,4 +882,7 @@
     <string name="rsshub_bound_instance_disabled_notice">Die Instanz dieses Feeds mit Zugangsdaten wurde deaktiviert oder gelöscht. Für automatische Wiederherstellung die ursprüngliche Instanz aktivieren.</string>
     <string name="search_settings">Einstellungen durchsuchen</string>
     <string name="no_settings_found">Keine passenden Einstellungen gefunden</string>
+    <string name="article_list_style">Stil der Artikelliste</string>
+    <string name="article_list_style_divider">Eingezogene Trennlinie</string>
+    <string name="article_list_style_segmented">Segmentierte Karten</string>
 </resources>

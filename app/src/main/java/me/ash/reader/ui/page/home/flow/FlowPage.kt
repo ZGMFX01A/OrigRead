@@ -11,9 +11,13 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import me.ash.reader.infrastructure.preference.FlowArticleListCardStylePreference
+import me.ash.reader.ui.ext.surfaceColorAtElevation
+import me.ash.reader.ui.theme.palette.onDark
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -81,6 +85,7 @@ import me.ash.reader.R
 import me.ash.reader.domain.data.PagerData
 import me.ash.reader.domain.model.article.ArticleFlowItem
 import me.ash.reader.domain.model.article.ArticleWithFeed
+import me.ash.reader.infrastructure.preference.LocalFlowArticleListCardStyle
 import me.ash.reader.infrastructure.preference.LocalFlowArticleListDateStickyHeader
 import me.ash.reader.infrastructure.preference.LocalFlowArticleListDesc
 import me.ash.reader.infrastructure.preference.FlowArticleListDescPreference
@@ -148,6 +153,7 @@ fun FlowPage(
 
     val openLink = LocalOpenLink.current
     val openLinkSpecificBrowser = LocalOpenLinkSpecificBrowser.current
+    val articleListCardStyle = LocalFlowArticleListCardStyle.current
 
     val settings = LocalSettings.current
     val pullToSwitchFeed = settings.pullToSwitchFeed
@@ -386,9 +392,16 @@ fun FlowPage(
 
     val isSyncing = viewModel.isSyncingFlow.collectAsStateValue()
 
+    val isSegmented = articleListCardStyle == FlowArticleListCardStylePreference.Segmented
+
     Box(modifier = Modifier.fillMaxSize()) {
         OrigReadScaffold(
-            containerTonalElevation = articleListTonalElevation.value.dp,
+            containerColor = if (isSegmented) {
+                MaterialTheme.colorScheme.surfaceContainerLow
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+            containerTonalElevation = if (isSegmented) 0.dp else articleListTonalElevation.value.dp,
             topBar = {
                 MaterialTheme(
                     colorScheme = MaterialTheme.colorScheme,
@@ -422,7 +435,13 @@ fun FlowPage(
                                 BasicText(
                                     modifier =
                                         Modifier.origReadSourceTitle().padding(
-                                            start = if (articleListFeedIcon.value) 34.dp else 8.dp,
+                                            start = if (isSegmented) {
+                                                12.dp
+                                            } else if (articleListFeedIcon.value) {
+                                                34.dp
+                                            } else {
+                                                8.dp
+                                            },
                                             end = 24.dp,
                                         ),
                                     text = titleText,
@@ -737,7 +756,17 @@ fun FlowPage(
                     Box(modifier = Modifier.fillMaxSize()) {
                         LazyColumn(
                             modifier =
-                                Modifier.pullToLoad(
+                                Modifier
+                                    .background(
+                                        if (isSegmented) {
+                                            MaterialTheme.colorScheme.surfaceContainerLow
+                                        } else {
+                                            (MaterialTheme.colorScheme.surfaceColorAtElevation(
+                                                articleListTonalElevation.value.dp
+                                            ) onDark MaterialTheme.colorScheme.surface)
+                                        }
+                                    )
+                                    .pullToLoad(
                                         state = pullToLoadState,
                                         enabled = true,
                                         contentOffsetY = { fraction ->
@@ -768,6 +797,7 @@ fun FlowPage(
                                 isShowFeedIcon = articleListFeedIcon.value,
                                 isShowStickyHeader = articleListDateStickyHeader.value,
                                 articleListTonalElevation = articleListTonalElevation.value,
+                                cardStyle = articleListCardStyle,
                                 translations = if (listTranslationState.showTranslation && flowUiState.pagerData == pagerData)
                                     listTranslationState.translations else emptyMap(),
                                 translationDisplayMode = translationSettings.displayMode,
