@@ -61,6 +61,8 @@ fun LazyListScope.ArticleList(
                         translationRevealRevision = translationRevealRevision,
                         isUnread = diffMap[article.id]?.isUnread ?: article.isUnread,
                         articleListTonalElevation = articleListTonalElevation,
+                        showDivider =
+                            (if (index + 1 < pagingItems.itemCount) pagingItems.peek(index + 1) else null) is ArticleFlowItem.Article,
                         onClick = { onClick(it, index) },
                         isSwipeEnabled = isSwipeEnabled,
                         isMenuEnabled = isMenuEnabled,
@@ -77,7 +79,8 @@ fun LazyListScope.ArticleList(
 
                 is ArticleFlowItem.Date -> {
                     if (item.showSpacer) {
-                        Spacer(modifier = Modifier.height(32.dp))
+                        // 跨日期处无分割线干扰，给足 24dp 纯净留白，形成大断层与高对比节奏
+                        Spacer(modifier = Modifier.height(24.dp))
                     }
                     StickyHeader(item.date, isShowFeedIcon, articleListTonalElevation)
                 }
@@ -104,6 +107,8 @@ fun LazyListScope.ArticleList(
                             translationRevealRevision = translationRevealRevision,
                             isUnread = diffMap[article.id]?.isUnread ?: article.isUnread,
                             articleListTonalElevation = articleListTonalElevation,
+                            showDivider =
+                                (if (index + 1 < pagingItems.itemCount) pagingItems.peek(index + 1) else null) is ArticleFlowItem.Article,
                             onClick = { onClick(it, index) },
                             isSwipeEnabled = isSwipeEnabled,
                             isMenuEnabled = isMenuEnabled,
@@ -121,7 +126,8 @@ fun LazyListScope.ArticleList(
 
                 is ArticleFlowItem.Date -> {
                     if (item.showSpacer) {
-                        item { Spacer(modifier = Modifier.height(32.dp)) }
+                        // 跨日期处无分割线干扰，给足 24dp 纯净留白，形成大断层与高对比节奏
+                        item { Spacer(modifier = Modifier.height(24.dp)) }
                     }
                     stickyHeader(key = key(item), contentType = contentType(item)) {
                         StickyHeader(item.date, isShowFeedIcon, articleListTonalElevation)

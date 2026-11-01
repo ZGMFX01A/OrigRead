@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -52,6 +53,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.DpSize
@@ -163,6 +165,7 @@ fun ArticleItem(
     val translationModeAlpha = me.ash.reader.ui.motion.rememberOrigReadContentAlpha(bilingual to translationRevealRevision)
     val titleStyle = remember(displayTitle, titleTypography) {
         titleTypography
+            .copy(fontWeight = FontWeight.SemiBold)
             .applyTextDirection(displayTitle.requiresBidi())
             .merge(lineHeight = 22.sp)
     }
@@ -185,118 +188,100 @@ fun ArticleItem(
                 .padding(horizontal = 12.dp, vertical = 12.dp)
                 .graphicsLayer { alpha = readAlpha.value }
     ) {
-        // Top
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
+            verticalAlignment = Alignment.Top,
         ) {
-            // Feed name
-            if (articleListFeedName.value) {
+            // 左侧：内联元信息行 + 标题 + 摘要（全部严格对齐 24.dp 黄金左轴）
+            Column(
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .graphicsLayer { alpha = translationModeAlpha.value }
+            ) {
+                val showFeedIcon = articleListFeedIcon.value
+                val showFeedName = articleListFeedName.value && feedName.isNotBlank()
+                val showDate = articleListDate.value && !timeString.isNullOrBlank()
+
+                // 1. 顶部内联元信息行：[16dp图标] 来源名 · 时间 [★]
+                if (showFeedIcon || showFeedName || showDate || isStarred) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (showFeedIcon) {
+                            FeedIcon(
+                                feedName = feedName,
+                                iconUrl = feedIconUrl,
+                                size = 16.dp,
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                        }
+                        if (showFeedName) {
+                            Text(
+                                text = feedName,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.tertiary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                        }
+                        if (showDate) {
+                            val separator = if (showFeedName) " · " else ""
+                            Text(
+                                text = "$separator$timeString",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                            )
+                        }
+                        if (isStarred) {
+                            Spacer(modifier = Modifier.width(4.dp))
+                            StarredIndicator(isStarred)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+
+                // 2. 文章标题
                 Text(
-                    modifier =
-                        Modifier.weight(1f)
-                            .padding(
-                                start = if (articleListFeedIcon.value) 30.dp else 0.dp,
-                                end = 10.dp,
-                            ),
-                    text = feedName,
-                    color = MaterialTheme.colorScheme.tertiary,
-                    style = MaterialTheme.typography.labelMedium,
-                    maxLines = 1,
+                    text = displayTitle,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    style = titleStyle,
+                    maxLines =
+                        if (articleListDesc != FlowArticleListDescPreference.NONE) 2 else 4,
                     overflow = TextOverflow.Ellipsis,
                 )
 
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier) {
-                    // Starred
-                    StarredIndicator(isStarred)
-
-                    if (articleListDate.value) {
-                        // Time
-                        Text(
-                            modifier = Modifier,
-                            text = timeString ?: "",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.labelMedium,
-                        )
-                    }
-                }
-            } else {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Spacer(Modifier.width(if (articleListFeedIcon.value) 30.dp else 0.dp))
-
-                    if (articleListDate.value) {
-                        // Time
-                        Text(
-                            modifier = Modifier.weight(1f),
-                            text = timeString ?: "",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.labelMedium,
-                        )
-                        // Starred
-                        StarredIndicator(isStarred)
-                    }
-                }
-            }
-
-            // Right
-
-        }
-
-        // Bottom
-        Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
-            // Feed icon
-            if (articleListFeedIcon.value) {
-                FeedIcon(feedName = feedName, iconUrl = feedIconUrl)
-                Spacer(modifier = Modifier.width(10.dp))
-            }
-
-            // Article
-            Column(modifier = Modifier.weight(1f).graphicsLayer { alpha = translationModeAlpha.value }) {
-
-                // Title
-                Row {
-                    Text(
-                        text = displayTitle,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        style = titleStyle,
-                        maxLines =
-                            if (articleListDesc != FlowArticleListDescPreference.NONE) 2 else 4,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    if (!articleListFeedName.value && !articleListDate.value) {
-                        StarredIndicator(isStarred)
-                    }
-                }
-
-                // 对照标题独占行数，不与原文共用一个 Text 的省略范围。
+                // 对照标题独占行数，不与原文共用一个 Text 的省略范围
                 if (bilingual && !translatedTitle.isNullOrBlank() && translatedTitle != title) {
                     Text(
-                        text = translatedTitle, modifier = Modifier.padding(top = 4.dp),
-                        style = titleTypography.applyTextDirection(translatedTitle.requiresBidi()).merge(lineHeight = 22.sp),
+                        text = translatedTitle,
+                        modifier = Modifier.padding(top = 4.dp),
+                        style = titleStyle,
                         color = MaterialTheme.colorScheme.primary,
                         maxLines = if (articleListDesc != FlowArticleListDescPreference.NONE) 2 else 4,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
 
-                // Description
+                // 3. 文章摘要
                 if (
                     articleListDesc != FlowArticleListDescPreference.NONE &&
                         displayDescription.isNotBlank()
                 ) {
-                    val bodySmallTypography = MaterialTheme.typography.bodySmall
+                    val bodySmallTypography = MaterialTheme.typography.bodyMedium
                     val descriptionStyle = remember(
                         displayDescription,
                         bodySmallTypography,
                     ) {
-                        bodySmallTypography.applyTextDirection(
-                            displayDescription.requiresBidi()
-                        )
+                        bodySmallTypography
+                            .applyTextDirection(displayDescription.requiresBidi())
+                            .merge(lineHeight = 19.sp)
                     }
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        modifier = Modifier.padding(top = 4.dp),
                         text = displayDescription,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = descriptionStyle,
@@ -310,8 +295,9 @@ fun ArticleItem(
                     )
                     if (bilingual && !translatedDescription.isNullOrBlank() && translatedDescription != shortDescription) {
                         Text(
-                            text = translatedDescription, modifier = Modifier.padding(top = 4.dp),
-                            style = bodySmallTypography.applyTextDirection(translatedDescription.requiresBidi()),
+                            text = translatedDescription,
+                            modifier = Modifier.padding(top = 4.dp),
+                            style = descriptionStyle,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = if (articleListDesc == FlowArticleListDescPreference.LONG) 4 else 2,
                             overflow = TextOverflow.Ellipsis,
@@ -320,10 +306,11 @@ fun ArticleItem(
                 }
             }
 
-            // Image
+            // 右侧：缩略图（直接与内容区顶部对齐，方正稳固）
             if (hasUsableArticleImage(imgData) && articleListImage.value && !imageLoadFailed) {
+                Spacer(modifier = Modifier.width(16.dp))
                 OrigReadAsyncImage(
-                    modifier = Modifier.padding(start = 10.dp).size(80.dp).clip(Shape20),
+                    modifier = Modifier.size(80.dp).clip(Shape20),
                     data = imgData,
                     scale = Scale.FILL,
                     precision = Precision.INEXACT,
@@ -379,6 +366,7 @@ fun SwipeableArticleItem(
     articleWithFeed: ArticleWithFeed,
     isUnread: Boolean = articleWithFeed.article.isUnread,
     articleListTonalElevation: Int = 0,
+    showDivider: Boolean = false,
     translation: ListTranslationResult? = null,
     translationDisplayMode: TranslationDisplayMode = TranslationDisplayMode.TRANSLATED,
     translationRevealRevision: Int = 0,
@@ -402,65 +390,74 @@ fun SwipeableArticleItem(
         }
     var menuOffset by remember { mutableStateOf(IntOffset.Zero) }
 
-    SwipeActionBox(
-        modifier = modifier,
-        articleWithFeed = articleWithFeed,
-        isRead = !isUnread,
-        isStarred = articleWithFeed.article.isStarred,
-        onToggleStarred = onToggleStarred,
-        onToggleRead = onToggleRead,
-    ) {
-        Box(
-            modifier =
-                Modifier.fillMaxSize()
-                    .pointerInput(isMenuExpanded) {
-                        awaitEachGesture {
-                            while (true) {
-                                awaitFirstDown(requireUnconsumed = false).let {
-                                    menuOffset = it.position.round()
+    Column(modifier = modifier) {
+        SwipeActionBox(
+            modifier = Modifier,
+            articleWithFeed = articleWithFeed,
+            isRead = !isUnread,
+            isStarred = articleWithFeed.article.isStarred,
+            onToggleStarred = onToggleStarred,
+            onToggleRead = onToggleRead,
+        ) {
+            Box(
+                modifier =
+                    Modifier.fillMaxSize()
+                        .pointerInput(isMenuExpanded) {
+                            awaitEachGesture {
+                                while (true) {
+                                    awaitFirstDown(requireUnconsumed = false).let {
+                                        menuOffset = it.position.round()
+                                    }
                                 }
                             }
                         }
-                    }
-                    .background(
-                        MaterialTheme.colorScheme.surfaceColorAtElevation(
-                            articleListTonalElevation.dp
-                        ) onDark MaterialTheme.colorScheme.surface
-                    )
-                    .wrapContentSize()
-        ) {
-            ArticleItem(
-                articleWithFeed = articleWithFeed,
-                isUnread = isUnread,
-                translation = translation,
-                translationDisplayMode = translationDisplayMode,
-                translationRevealRevision = translationRevealRevision,
-                onClick = onClick,
-                onLongClick = onLongClick,
-            )
-            with(articleWithFeed.article) {
-                if (isMenuEnabled) {
-                    AnimatedDropdownMenu(
-                        modifier = Modifier.padding(horizontal = 12.dp),
-                        expanded = isMenuExpanded,
-                        onDismissRequest = { isMenuExpanded = false },
-                        offset = menuOffset,
-                    ) {
-                        ArticleItemMenuContent(
-                            articleWithFeed = articleWithFeed,
-                            isStarred = isStarred,
-                            isRead = !isUnread,
-                            onToggleStarred = onToggleStarred,
-                            onToggleRead = onToggleRead,
-                            onMarkAboveAsRead = onMarkAboveAsRead,
-                            onMarkBelowAsRead = onMarkBelowAsRead,
-                            onShare = onShare,
+                        .background(
+                            MaterialTheme.colorScheme.surfaceColorAtElevation(
+                                articleListTonalElevation.dp
+                            ) onDark MaterialTheme.colorScheme.surface
+                        )
+                        .wrapContentSize()
+            ) {
+                ArticleItem(
+                    articleWithFeed = articleWithFeed,
+                    isUnread = isUnread,
+                    translation = translation,
+                    translationDisplayMode = translationDisplayMode,
+                    translationRevealRevision = translationRevealRevision,
+                    onClick = onClick,
+                    onLongClick = onLongClick,
+                )
+                with(articleWithFeed.article) {
+                    if (isMenuEnabled) {
+                        AnimatedDropdownMenu(
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                            expanded = isMenuExpanded,
+                            onDismissRequest = { isMenuExpanded = false },
+                            offset = menuOffset,
                         ) {
-                            isMenuExpanded = false
+                            ArticleItemMenuContent(
+                                articleWithFeed = articleWithFeed,
+                                isStarred = isStarred,
+                                isRead = !isUnread,
+                                onToggleStarred = onToggleStarred,
+                                onToggleRead = onToggleRead,
+                                onMarkAboveAsRead = onMarkAboveAsRead,
+                                onMarkBelowAsRead = onMarkBelowAsRead,
+                                onShare = onShare,
+                            ) {
+                                isMenuExpanded = false
+                            }
                         }
                     }
                 }
             }
+        }
+        if (showDivider) {
+            HorizontalDivider(
+                modifier = Modifier.padding(horizontal = 24.dp),
+                thickness = 0.5.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+            )
         }
     }
 }
