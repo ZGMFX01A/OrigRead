@@ -552,6 +552,7 @@
     <string name="initial_filter">Default filter</string>
     <string
     name="preview_article_title">The novel "Lord of the Mysteries" has finally come to an end</string>
+    <string name="preview_second_article_title">A reading list for the weekend</string>
     <string
     name="preview_article_desc">The Fool is the eighth and final volume of the Lord of the Mysteries
   series
@@ -1517,6 +1518,6 @@
     <string name="search_settings">Search settings</string>
     <string name="no_settings_found">No matching settings found</string>
     <string name="article_list_style">Article list style</string>
-    <string name="article_list_style_divider">Inset divider</string>
-    <string name="article_list_style_segmented">Segmented cards</string>
+    <string name="article_list_style_divider">List with dividers</string>
+    <string name="article_list_style_segmented">Individual cards</string>
 </resources>

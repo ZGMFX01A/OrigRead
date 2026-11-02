@@ -76,7 +76,16 @@ fun FlowPageStylePage(
                     DisplayText(text = stringResource(R.string.flow_page), desc = "")
                 }
 
-                // Preview
+                // Keep the selector beside the preview it changes.
+                item {
+                    SettingItem(
+                        title = stringResource(R.string.article_list_style),
+                        desc = articleListCardStyle.description,
+                        onClick = {
+                            articleListCardStyleDialogVisible = true
+                        },
+                    ) {}
+                }
                 item {
                     Row(
                         modifier = Modifier
@@ -86,8 +95,7 @@ fun FlowPageStylePage(
                             .background(
                                 MaterialTheme.colorScheme.inverseOnSurface
                                         onLight MaterialTheme.colorScheme.surface.copy(0.7f)
-                            )
-                            .clickable { },
+                            ),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -132,13 +140,6 @@ fun FlowPageStylePage(
                         modifier = Modifier.padding(horizontal = 24.dp),
                         text = stringResource(R.string.article_list)
                     )
-                    SettingItem(
-                        title = stringResource(R.string.article_list_style),
-                        desc = articleListCardStyle.description,
-                        onClick = {
-                            articleListCardStyleDialogVisible = true
-                        },
-                    ) {}
                     SettingItem(
                         title = stringResource(R.string.feed_favicons),
                         onClick = {

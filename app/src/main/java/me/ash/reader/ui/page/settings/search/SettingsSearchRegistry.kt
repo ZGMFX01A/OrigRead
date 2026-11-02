@@ -461,7 +461,8 @@ object SettingsSearchRegistry {
                 breadcrumbsRes = listOf(R.string.settings, R.string.interaction, R.string.article_list),
                 route = Route.Interaction,
                 icon = Icons.Outlined.TouchApp,
-                keywords = listOf("文章列表样式", "分段卡片", "分割线", "内缩分割线", "卡片样式", "呼吸缝", "Expressive", "card style", "divider"),
+                keywords = listOf("文章列表样式", "分隔线列表", "独立卡片", "分隔線", "獨立卡片", "list with dividers", "individual cards",
+                    "分段卡片", "分割线", "内缩分割线", "卡片样式", "呼吸缝", "Expressive", "card style", "divider"),
             )
         )
         add(

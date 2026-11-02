@@ -16,8 +16,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import me.ash.reader.infrastructure.preference.FlowArticleListCardStylePreference
-import me.ash.reader.ui.ext.surfaceColorAtElevation
-import me.ash.reader.ui.theme.palette.onDark
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -91,7 +89,6 @@ import me.ash.reader.infrastructure.preference.LocalFlowArticleListDesc
 import me.ash.reader.infrastructure.preference.FlowArticleListDescPreference
 import me.ash.reader.infrastructure.translation.TranslationTarget
 import me.ash.reader.infrastructure.translation.TranslationSettings
-import me.ash.reader.infrastructure.preference.LocalFlowArticleListFeedIcon
 import me.ash.reader.infrastructure.preference.LocalFlowArticleListTonalElevation
 import me.ash.reader.infrastructure.preference.LocalFlowFilterBarPadding
 import me.ash.reader.infrastructure.preference.LocalFlowFilterBarStyle
@@ -141,7 +138,6 @@ fun FlowPage(
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
     val articleListTonalElevation = LocalFlowArticleListTonalElevation.current
-    val articleListFeedIcon = LocalFlowArticleListFeedIcon.current
     val articleListDateStickyHeader = LocalFlowArticleListDateStickyHeader.current
     val topBarTonalElevation = LocalFlowTopBarTonalElevation.current
     val filterBarStyle = LocalFlowFilterBarStyle.current
@@ -392,16 +388,12 @@ fun FlowPage(
 
     val isSyncing = viewModel.isSyncingFlow.collectAsStateValue()
 
-    val isSegmented = articleListCardStyle == FlowArticleListCardStylePreference.Segmented
+    val isCardStyle = articleListCardStyle == FlowArticleListCardStylePreference.Segmented
+    val listBackground = articleListBackgroundColor(articleListCardStyle, articleListTonalElevation.value)
 
     Box(modifier = Modifier.fillMaxSize()) {
         OrigReadScaffold(
-            containerColor = if (isSegmented) {
-                MaterialTheme.colorScheme.surfaceContainerLow
-            } else {
-                MaterialTheme.colorScheme.surface
-            },
-            containerTonalElevation = if (isSegmented) 0.dp else articleListTonalElevation.value.dp,
+            containerTonalElevation = if (isCardStyle) 0.dp else articleListTonalElevation.value.dp,
             topBar = {
                 MaterialTheme(
                     colorScheme = MaterialTheme.colorScheme,
@@ -435,13 +427,8 @@ fun FlowPage(
                                 BasicText(
                                     modifier =
                                         Modifier.origReadSourceTitle().padding(
-                                            start = if (isSegmented) {
-                                                12.dp
-                                            } else if (articleListFeedIcon.value) {
-                                                34.dp
-                                            } else {
-                                                8.dp
-                                            },
+                                            // LargeTopAppBar already insets its expanded title by 16.dp.
+                                            start = ArticleListContentInset - 16.dp,
                                             end = 24.dp,
                                         ),
                                     text = titleText,
@@ -757,15 +744,7 @@ fun FlowPage(
                         LazyColumn(
                             modifier =
                                 Modifier
-                                    .background(
-                                        if (isSegmented) {
-                                            MaterialTheme.colorScheme.surfaceContainerLow
-                                        } else {
-                                            (MaterialTheme.colorScheme.surfaceColorAtElevation(
-                                                articleListTonalElevation.value.dp
-                                            ) onDark MaterialTheme.colorScheme.surface)
-                                        }
-                                    )
+                                    .background(listBackground)
                                     .pullToLoad(
                                         state = pullToLoadState,
                                         enabled = true,
@@ -794,7 +773,7 @@ fun FlowPage(
                             ArticleList(
                                 pagingItems = pagingItems,
                                 diffMap = viewModel.diffMapHolder.diffMap,
-                                isShowFeedIcon = articleListFeedIcon.value,
+                                isSingleFeed = filterState.feed != null && filterState.group == null,
                                 isShowStickyHeader = articleListDateStickyHeader.value,
                                 articleListTonalElevation = articleListTonalElevation.value,
                                 cardStyle = articleListCardStyle,

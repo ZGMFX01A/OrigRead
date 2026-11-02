@@ -15,7 +15,6 @@ import me.ash.reader.domain.data.Diff
 import me.ash.reader.domain.model.article.ArticleFlowItem
 import me.ash.reader.domain.model.article.ArticleWithFeed
 import me.ash.reader.infrastructure.preference.FlowArticleListCardStylePreference
-import me.ash.reader.infrastructure.preference.LocalFlowArticleListCardStyle
 import me.ash.reader.infrastructure.translation.TranslationDisplayMode
 
 @Suppress("FunctionName")
@@ -23,7 +22,8 @@ import me.ash.reader.infrastructure.translation.TranslationDisplayMode
 fun LazyListScope.ArticleList(
     pagingItems: LazyPagingItems<ArticleFlowItem>,
     diffMap: Map<String, Diff>,
-    isShowFeedIcon: Boolean,
+    // Kept for named callers of the previous layout; feed icons no longer move date headings.
+    @Suppress("UNUSED_PARAMETER") isShowFeedIcon: Boolean = false,
     isShowStickyHeader: Boolean,
     articleListTonalElevation: Int,
     cardStyle: FlowArticleListCardStylePreference = FlowArticleListCardStylePreference.default,
@@ -38,6 +38,7 @@ fun LazyListScope.ArticleList(
     onMarkAboveAsRead: ((ArticleWithFeed) -> Unit)? = null,
     onMarkBelowAsRead: ((ArticleWithFeed) -> Unit)? = null,
     onShare: ((ArticleWithFeed) -> Unit)? = null,
+    isSingleFeed: Boolean = false,
 ) {
     // https://issuetracker.google.com/issues/193785330
     // FIXME: Using sticky header with paging-compose need to iterate through the entire list
@@ -51,10 +52,6 @@ fun LazyListScope.ArticleList(
             when (val item = pagingItems[index]) {
                 is ArticleFlowItem.Article -> {
                     val article = item.articleWithFeed.article
-                    val prevItem = if (index > 0) pagingItems.peek(index - 1) else null
-                    val nextItem = if (index + 1 < pagingItems.itemCount) pagingItems.peek(index + 1) else null
-                    val isFirstInDay = prevItem !is ArticleFlowItem.Article
-                    val isLastInDay = nextItem !is ArticleFlowItem.Article
                     SwipeableArticleItem(
                         modifier =
                             Modifier.animateItem(
@@ -69,9 +66,8 @@ fun LazyListScope.ArticleList(
                         isUnread = diffMap[article.id]?.isUnread ?: article.isUnread,
                         articleListTonalElevation = articleListTonalElevation,
                         cardStyle = cardStyle,
-                        isFirstInDay = isFirstInDay,
-                        isLastInDay = isLastInDay,
-                        showDivider = (cardStyle == FlowArticleListCardStylePreference.Divider) && !isLastInDay,
+                        isSingleFeed = isSingleFeed,
+                        hasNextArticleInGroup = pagingItems.hasNextArticleInGroup(index),
                         onClick = { onClick(it, index) },
                         isSwipeEnabled = isSwipeEnabled,
                         isMenuEnabled = isMenuEnabled,
@@ -88,10 +84,9 @@ fun LazyListScope.ArticleList(
 
                 is ArticleFlowItem.Date -> {
                     if (item.showSpacer) {
-                        val spacerHeight = if (cardStyle == FlowArticleListCardStylePreference.Segmented) 22.dp else 24.dp
-                        Spacer(modifier = Modifier.height(spacerHeight))
+                        Spacer(modifier = Modifier.height(DateGroupSpacing))
                     }
-                    StickyHeader(item.date, isShowFeedIcon, articleListTonalElevation, cardStyle)
+                    StickyHeader(item.date, articleListTonalElevation, cardStyle)
                 }
 
                 else -> {}
@@ -103,10 +98,6 @@ fun LazyListScope.ArticleList(
                 is ArticleFlowItem.Article -> {
                     item(key = key(item), contentType = contentType(item)) {
                         val article = item.articleWithFeed.article
-                        val prevItem = if (index > 0) pagingItems.peek(index - 1) else null
-                        val nextItem = if (index + 1 < pagingItems.itemCount) pagingItems.peek(index + 1) else null
-                        val isFirstInDay = prevItem !is ArticleFlowItem.Article
-                        val isLastInDay = nextItem !is ArticleFlowItem.Article
                         SwipeableArticleItem(
                             modifier =
                                 Modifier.animateItem(
@@ -121,9 +112,8 @@ fun LazyListScope.ArticleList(
                             isUnread = diffMap[article.id]?.isUnread ?: article.isUnread,
                             articleListTonalElevation = articleListTonalElevation,
                             cardStyle = cardStyle,
-                            isFirstInDay = isFirstInDay,
-                            isLastInDay = isLastInDay,
-                            showDivider = (cardStyle == FlowArticleListCardStylePreference.Divider) && !isLastInDay,
+                            isSingleFeed = isSingleFeed,
+                            hasNextArticleInGroup = pagingItems.hasNextArticleInGroup(index),
                             onClick = { onClick(it, index) },
                             isSwipeEnabled = isSwipeEnabled,
                             isMenuEnabled = isMenuEnabled,
@@ -141,11 +131,10 @@ fun LazyListScope.ArticleList(
 
                 is ArticleFlowItem.Date -> {
                     if (item.showSpacer) {
-                        val spacerHeight = if (cardStyle == FlowArticleListCardStylePreference.Segmented) 22.dp else 24.dp
-                        item { Spacer(modifier = Modifier.height(spacerHeight)) }
+                        item { Spacer(modifier = Modifier.height(DateGroupSpacing)) }
                     }
                     stickyHeader(key = key(item), contentType = contentType(item)) {
-                        StickyHeader(item.date, isShowFeedIcon, articleListTonalElevation, cardStyle)
+                        StickyHeader(item.date, articleListTonalElevation, cardStyle)
                     }
                 }
 
@@ -154,6 +143,12 @@ fun LazyListScope.ArticleList(
         }
     }
 }
+
+private val DateGroupSpacing = 24.dp
+
+// peek observes the already presented neighbor without triggering another page load.
+private fun LazyPagingItems<ArticleFlowItem>.hasNextArticleInGroup(index: Int): Boolean =
+    index + 1 < itemCount && peek(index + 1) is ArticleFlowItem.Article
 
 private fun key(item: ArticleFlowItem): String {
     return when (item) {

@@ -317,6 +317,7 @@
     <string name="initial_page">Startseite</string>
     <string name="initial_filter">Standardfilter</string>
     <string name="preview_article_title">Schade, „Schwert der Morgenröte“ ist zu Ende</string>
+    <string name="preview_second_article_title">Eine Leseliste fürs Wochenende</string>
     <string name="preview_article_desc">Jede Geschichte endet einmal. Doch dieses Buch hat mich so lange begleitet, dass der Abschied schwerfällt. Die Haupthandlung ist vorbei, aber viele Fragen bleiben offen. Wann kommt wohl eine Zusatzgeschichte?</string>
     <string name="preview_feed_name">Wirbel-Bibliothek</string>
     <string name="value">Wert</string>
@@ -883,6 +884,6 @@
     <string name="search_settings">Einstellungen durchsuchen</string>
     <string name="no_settings_found">Keine passenden Einstellungen gefunden</string>
     <string name="article_list_style">Stil der Artikelliste</string>
-    <string name="article_list_style_divider">Eingezogene Trennlinie</string>
-    <string name="article_list_style_segmented">Segmentierte Karten</string>
+    <string name="article_list_style_divider">Liste mit Trennlinien</string>
+    <string name="article_list_style_segmented">Einzelne Karten</string>
 </resources>

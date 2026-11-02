@@ -457,6 +457,7 @@
     <string
     name="initial_filter">默认筛选器</string>
     <string name="preview_article_title">呜呜呜，黎明之剑完结了</string>
+    <string name="preview_second_article_title">周末，我想读完这几篇</string>
     <string
     name="preview_article_desc">是宴席，就有结束的时候，但这本书真的陪了我好久啊，好舍不得，而且主线结束了坑却没填完，不知道啥时候才有番外啊。</string>
     <string
@@ -1359,6 +1360,6 @@
     <string name="search_settings">搜索设置项</string>
     <string name="no_settings_found">未找到相关设置项</string>
     <string name="article_list_style">文章列表样式</string>
-    <string name="article_list_style_divider">内缩分割线</string>
-    <string name="article_list_style_segmented">分段卡片</string>
+    <string name="article_list_style_divider">分隔线列表</string>
+    <string name="article_list_style_segmented">独立卡片</string>
 </resources>

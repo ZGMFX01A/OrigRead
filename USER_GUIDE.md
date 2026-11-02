@@ -79,7 +79,9 @@ Open an article in the timeline to start reading. If it is too short, lacks imag
 
 If the source supplies only a few lines, try fetching full text. Open the original if the result is still incomplete. The first extraction can take a moment; following a citation into an unloaded article may also need time to fetch its body.
 
-The full-text button at the top of RSS articles remembers its state per source on this device. Subsequent articles from that source, including after restarting the app, use your last choice without affecting other sources. Extraction failures do not turn it off. Thin dividers in the article list separate adjacent articles.
+The full-text button at the top of RSS articles remembers its state per source on this device. Subsequent articles from that source, including after restarting the app, use your last choice without affecting other sources. Extraction failures do not turn it off.
+
+In Settings, search for **Article list style** to choose a continuous list with dividers or individual cards. Both show the title first, followed by the summary and time. In a mixed feed, you can also show the source beside the time.
 
 The reader lets you mark articles read, star them, move to the previous or next article, search within the text, and adjust the reading appearance. Phones mainly use one column. Tablets and larger screens can keep lists, the article, or AI in view together as space allows.
 

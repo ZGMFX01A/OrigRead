@@ -314,6 +314,7 @@
     <string name="initial_page">起動画面</string>
     <string name="initial_filter">既定のフィルター</string>
     <string name="preview_article_title">『黎明の剣』が完結してしまった</string>
+    <string name="preview_second_article_title">週末に読みたい記事</string>
     <string name="preview_article_desc">物語にはいつか終わりが来る。でも、ずっと一緒に過ごしてきた本だから、やっぱり寂しい。本編が終わっても謎はまだ残っているし、番外編はいつ読めるのかな。</string>
     <string name="preview_feed_name">うずまき書院</string>
     <string name="value">値</string>
@@ -880,6 +881,6 @@
     <string name="search_settings">設定を検索</string>
     <string name="no_settings_found">一致する設定が見つかりません</string>
     <string name="article_list_style">記事一覧のスタイル</string>
-    <string name="article_list_style_divider">インセット区切り線</string>
-    <string name="article_list_style_segmented">セグメント化カード</string>
+    <string name="article_list_style_divider">区切り線付きリスト</string>
+    <string name="article_list_style_segmented">個別のカード</string>
 </resources>

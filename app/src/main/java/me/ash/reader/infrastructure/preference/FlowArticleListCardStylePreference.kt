@@ -17,10 +17,10 @@ val LocalFlowArticleListCardStyle =
     compositionLocalOf<FlowArticleListCardStylePreference> { FlowArticleListCardStylePreference.default }
 
 sealed class FlowArticleListCardStylePreference(val value: Int) : Preference() {
-    /** 方案 1：极简内缩发丝线（仅同日相邻文章绘制 0.5dp 分割线，对齐正文 24dp 视觉线） */
+    /** 同一日期组内，使用与正文对齐的横线分隔相邻文章。 */
     data object Divider : FlowArticleListCardStylePreference(0)
 
-    /** 方案 2：Material 3 Expressive 分段卡片容器（根据同日位置动态圆角，以 2dp 呼吸缝代替画线） */
+    /** 每篇文章独立成卡。保留原有标识与存储值以兼容已有设置。 */
     data object Segmented : FlowArticleListCardStylePreference(1)
 
     override fun put(context: Context, scope: CoroutineScope) {

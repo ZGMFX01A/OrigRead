@@ -320,6 +320,7 @@
     <string name="initial_page">Écran d’accueil</string>
     <string name="initial_filter">Filtre par défaut</string>
     <string name="preview_article_title">La Lame de l’aube est finie, quelle tristesse</string>
+    <string name="preview_second_article_title">Une liste de lecture pour le week-end</string>
     <string name="preview_article_desc">Toute histoire a une fin, mais ce livre m’accompagne depuis si longtemps que j’ai du mal à lui dire adieu. L’intrigue principale est terminée, mais il reste des questions. À quand une histoire bonus ?</string>
     <string name="preview_feed_name">Bibliothèque du Tourbillon</string>
     <string name="value">Valeur</string>
@@ -886,6 +887,6 @@
     <string name="search_settings">Rechercher dans les paramètres</string>
     <string name="no_settings_found">Aucun paramètre correspondant trouvé</string>
     <string name="article_list_style">Style de la liste d’articles</string>
-    <string name="article_list_style_divider">Ligne de séparation en retrait</string>
-    <string name="article_list_style_segmented">Cartes segmentées</string>
+    <string name="article_list_style_divider">Liste avec séparateurs</string>
+    <string name="article_list_style_segmented">Cartes individuelles</string>
 </resources>

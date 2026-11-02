@@ -320,6 +320,7 @@
     <string name="initial_page">Pantalla inicial</string>
     <string name="initial_filter">Filtro inicial</string>
     <string name="preview_article_title">No puede ser: El filo del amanecer ha terminado</string>
+    <string name="preview_second_article_title">Una lista de lecturas para el fin de semana</string>
     <string name="preview_article_desc">Toda historia llega a su fin, pero este libro me ha acompañado tanto tiempo que cuesta despedirse. La trama principal terminó y aún quedan misterios. ¿Cuándo llegará una historia extra?</string>
     <string name="preview_feed_name">Biblioteca del Remolino</string>
     <string name="value">Valor</string>
@@ -886,6 +887,6 @@
     <string name="search_settings">Buscar en ajustes</string>
     <string name="no_settings_found">No se encontraron ajustes coincidentes</string>
     <string name="article_list_style">Estilo de la lista de artículos</string>
-    <string name="article_list_style_divider">Línea divisoria sangrada</string>
-    <string name="article_list_style_segmented">Tarjetas segmentadas</string>
+    <string name="article_list_style_divider">Lista con separadores</string>
+    <string name="article_list_style_segmented">Tarjetas individuales</string>
 </resources>

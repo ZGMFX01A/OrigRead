@@ -30,12 +30,14 @@ import me.ash.reader.domain.model.feed.Feed
 import me.ash.reader.domain.model.general.Filter
 import me.ash.reader.infrastructure.preference.FlowArticleListTonalElevationPreference
 import me.ash.reader.infrastructure.preference.FlowTopBarTonalElevationPreference
+import me.ash.reader.infrastructure.preference.LocalFlowArticleListCardStyle
 import me.ash.reader.ui.component.FilterBar
 import me.ash.reader.ui.component.base.FeedbackIconButton
 import me.ash.reader.ui.ext.formatAsString
 import me.ash.reader.ui.ext.surfaceColorAtElevation
-import me.ash.reader.ui.page.home.flow.ArticleItem
-import me.ash.reader.ui.theme.palette.onDark
+import me.ash.reader.ui.page.home.flow.StickyHeader
+import me.ash.reader.ui.page.home.flow.SwipeableArticleItem
+import me.ash.reader.ui.page.home.flow.articleListBackgroundColor
 import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -49,25 +51,20 @@ fun FlowPagePreview(
     filterBarTonalElevation: Dp,
 ) {
     var filter by remember { mutableStateOf(Filter.Unread) }
+    val style = LocalFlowArticleListCardStyle.current
 
     Column(
         modifier = Modifier
             .animateContentSize()
             .background(
-                color = MaterialTheme.colorScheme.surfaceColorAtElevation(
-                    articleListTonalElevation.value.dp
-                ) onDark MaterialTheme.colorScheme.surface,
+                color = articleListBackgroundColor(style, articleListTonalElevation.value),
                 shape = RoundedCornerShape(24.dp)
             )
     ) {
-        val preview = generateArticleWithFeedPreview()
-        val feed = preview.feed
-        val article = preview.article
-
         TopAppBar(
             title = {
                 Text(
-                    text = feed.name,
+                    text = stringResource(R.string.article_list),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
@@ -97,22 +94,35 @@ fun FlowPagePreview(
                 ),
             )
         )
-        Spacer(modifier = Modifier.height(12.dp))
-
-        ArticleItem(
-            modifier = Modifier,
-            feedName = feed.name,
-            feedIconUrl = feed.icon,
-            title = article.title,
-            shortDescription = article.shortDescription,
-            timeString = article.dateString,
-            imgData = R.drawable.animation,
-            isStarred = article.isStarred,
-            isUnread = article.isUnread,
-            onClick = {},
-            onLongClick = null
+        StickyHeader(stringResource(R.string.today), articleListTonalElevation.value, style)
+        val first = generateArticleWithFeedPreview()
+        val context = LocalContext.current
+        val nextTitle = stringResource(R.string.preview_second_article_title)
+        val second = ArticleWithFeed(
+            first.article.copy(
+                id = "preview-second",
+                feedId = "preview-origread",
+                title = nextTitle,
+                shortDescription = "",
+                rawDescription = "",
+                img = null,
+                isStarred = false,
+            ).apply {
+                dateString = Date(date.time - 3_600_000L).formatAsString(context, onlyHourMinute = true)
+            },
+            first.feed.copy(id = "preview-origread", name = "OrigRead"),
         )
-
+        // Use the same outer frame and between-row rule/gap as the feed. A mixed
+        // sample also lets the source icon/name switches remain visible here.
+        listOf(first, second).forEachIndexed { index, sample ->
+            SwipeableArticleItem(
+                articleWithFeed = sample,
+                cardStyle = style,
+                articleListTonalElevation = articleListTonalElevation.value,
+                hasNextArticleInGroup = index == 0,
+                isMenuEnabled = false,
+            )
+        }
         Spacer(modifier = Modifier.height(12.dp))
         FilterBar(
             filter = filter,
@@ -140,7 +150,7 @@ fun generateArticleWithFeedPreview(): ArticleWithFeed =
             accountId = 0,
             date = Date(1654053729L),
             isStarred = true,
-            img = null,
+            img = "android.resource://${LocalContext.current.packageName}/${R.drawable.animation}",
         ).apply {
             dateString = date.formatAsString(
                 context = LocalContext.current,
