@@ -61,6 +61,10 @@ class DiffMapHolder @Inject constructor(
     private var remoteRetryToken: Any? = null
     private var remoteRetryRequested = false
 
+    // The eagerly shared snapshot below can be collected before this constructor returns.
+    private val cacheDir = context.cacheDir.resolve("diff")
+    private var userCacheDir = cacheDir
+
     private val diffMapSnapshotWithRevisionFlow = snapshotFlow {
         synchronized(stateLock) {
             DiffMapSnapshot(
@@ -85,9 +89,6 @@ class DiffMapHolder @Inject constructor(
     val shouldSyncWithRemote get() = currentAccount?.type != AccountType.Local
 
     private val gson = Gson()
-
-    private val cacheDir = context.cacheDir.resolve("diff")
-    private var userCacheDir = cacheDir
 
     private var currentAccount: Account? = null
 
