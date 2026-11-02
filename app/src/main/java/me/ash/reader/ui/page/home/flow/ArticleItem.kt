@@ -40,11 +40,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -327,7 +325,6 @@ private fun ArticleRowContent(
     ) {
         ArticleTextWithThumbnail(
             image = if (showImage) data.image else null,
-            allowPortrait = dynamicShort,
             onError = { imageFailed = true },
         ) {
             Column(Modifier.fillMaxWidth()) {
@@ -388,7 +385,6 @@ private fun ArticleTitle(
 @Composable
 private fun ArticleTextWithThumbnail(
     image: Any?,
-    allowPortrait: Boolean,
     onError: () -> Unit,
     text: @Composable () -> Unit,
 ) {
@@ -402,12 +398,11 @@ private fun ArticleTextWithThumbnail(
         content = {
             text()
             OrigReadAsyncImage(
-                modifier = Modifier.clip(ThumbnailShape),
                 data = image,
-                scale = Scale.FILL,
+                scale = Scale.FIT,
                 precision = Precision.INEXACT,
                 size = SIZE_1000,
-                contentScale = ContentScale.Crop,
+                fittedShape = ThumbnailShape,
                 onError = onError,
             )
         },
@@ -420,12 +415,9 @@ private fun ArticleTextWithThumbnail(
             maxWidth = if (constraints.hasBoundedWidth) constraints.maxWidth - reserved else Constraints.Infinity,
             minHeight = 0,
         ))
-        val pictureWidth = minOf(maxEdge, copy.height)
-        // Keep the word column wide. A normal four-line text block can use a portrait
-        // crop to reach its bottom edge, but long/bilingual or enlarged text won't stretch a photo.
-        val maxImageHeight = if (allowPortrait && fontScale <= 1.25f) pictureWidth + pictureWidth / 2 else pictureWidth
-        val pictureHeight = minOf(copy.height, maxImageHeight)
-        val picture = measurables[1].measure(Constraints.fixed(pictureWidth, pictureHeight))
+        // Long copy must never turn the thumbnail into a portrait crop; short copy can shrink the slot.
+        val side = minOf(maxEdge, copy.height)
+        val picture = measurables[1].measure(Constraints.fixed(side, side))
         val width = copy.width + reserved
         layout(width, maxOf(copy.height, constraints.minHeight)) {
             copy.placeRelative(0, 0)

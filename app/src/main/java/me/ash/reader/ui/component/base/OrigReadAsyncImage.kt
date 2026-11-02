@@ -3,11 +3,17 @@ package me.ash.reader.ui.component.base
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.isSpecified
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.DefaultAlpha
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -36,6 +42,7 @@ fun OrigReadAsyncImage(
     contentDescription: String? = null,
     @DrawableRes placeholder: Int? = null,
     @DrawableRes error: Int? = null,
+    fittedShape: Shape? = null,
     onError: (() -> Unit)? = null,
 ) {
     // 兼容旧数据库中由 RSS HTML 正则直接保存的实体编码 URL，例如 BestBlogs/Wechat2RSS 的
@@ -68,12 +75,28 @@ fun OrigReadAsyncImage(
             onError?.invoke()
         }
     }
-    Image(
-        painter = painter,
-        contentDescription = contentDescription,
-        contentScale = contentScale,
-        modifier = modifier.background(MaterialTheme.colorScheme.surfaceContainer),
-    )
+    if (fittedShape != null) {
+        // Clip the image itself, not a letterboxed square. Unpainted space inherits the article background.
+        val intrinsic = painter.intrinsicSize
+        val ratio = if (intrinsic.isSpecified && intrinsic.width > 0f && intrinsic.height > 0f) {
+            (intrinsic.width / intrinsic.height).takeIf { it.isFinite() && it > 0f } ?: 1f
+        } else 1f
+        Box(modifier = modifier, contentAlignment = Alignment.TopEnd) {
+            Image(
+                painter = painter,
+                contentDescription = contentDescription,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.aspectRatio(ratio).clip(fittedShape),
+            )
+        }
+    } else {
+        Image(
+            painter = painter,
+            contentDescription = contentDescription,
+            contentScale = contentScale,
+            modifier = modifier.background(MaterialTheme.colorScheme.surfaceContainer),
+        )
+    }
 
     //    coil.compose.AsyncImage(
     //        modifier = modifier,
