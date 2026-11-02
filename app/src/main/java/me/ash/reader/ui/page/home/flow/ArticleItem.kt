@@ -419,9 +419,10 @@ private fun ArticleTextWithThumbnail(
         val side = minOf(maxEdge, copy.height)
         val picture = measurables[1].measure(Constraints.fixed(side, side))
         val width = copy.width + reserved
-        layout(width, maxOf(copy.height, constraints.minHeight)) {
-            copy.placeRelative(0, 0)
-            picture.placeRelative(width - picture.width, 0)
+        val height = maxOf(copy.height, constraints.minHeight)
+        layout(width, height) {
+            copy.placeRelative(0, (height - copy.height) / 2)
+            picture.placeRelative(width - picture.width, (height - picture.height) / 2)
         }
     }
 }

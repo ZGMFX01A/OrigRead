@@ -81,7 +81,7 @@ fun OrigReadAsyncImage(
         val ratio = if (intrinsic.isSpecified && intrinsic.width > 0f && intrinsic.height > 0f) {
             (intrinsic.width / intrinsic.height).takeIf { it.isFinite() && it > 0f } ?: 1f
         } else 1f
-        Box(modifier = modifier, contentAlignment = Alignment.TopEnd) {
+        Box(modifier = modifier, contentAlignment = Alignment.CenterEnd) {
             Image(
                 painter = painter,
                 contentDescription = contentDescription,

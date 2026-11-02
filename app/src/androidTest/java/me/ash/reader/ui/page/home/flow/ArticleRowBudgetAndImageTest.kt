@@ -50,6 +50,7 @@ class ArticleRowBudgetAndImageTest {
     private val brief = mutableStateOf(false)
     private val photo = mutableStateOf(false)
     private val widePhoto = mutableStateOf(false)
+    private val showTime = mutableStateOf(true)
     private val style = mutableStateOf<FlowArticleListCardStylePreference>(FlowArticleListCardStylePreference.Divider)
     private val frame get() = compose.onNodeWithTag("article-probe", useUnmergedTree = true)
 
@@ -87,17 +88,22 @@ class ArticleRowBudgetAndImageTest {
         assertEquals(2, textLayout(CHINESE_SUMMARY).lineCount)
     }
 
-    @Test fun bothFramesUseBoundedSquareThumbnailsAndPreserveTheEndsOfWidePhotos() {
+    @Test fun bothFramesCenterSquareAndFullWidthPhotosOnTheVisibleTextBlock() {
         width.value = 340.dp
         render()
         val density = InstrumentationRegistry.getInstrumentation().targetContext.resources.displayMetrics.density
         for (mode in listOf(FlowArticleListCardStylePreference.Divider, FlowArticleListCardStylePreference.Segmented)) {
-            compose.runOnIdle { style.value = mode; brief.value = false; photo.value = false; widePhoto.value = false }
+            compose.runOnIdle {
+                style.value = mode; brief.value = false; photo.value = false; widePhoto.value = false
+                showTime.value = true; translated.value = false
+            }
             val available = textLayout(HEADLINE).layoutInput.constraints.maxWidth
             val sideBudget = minOf((76 * density).roundToInt(), available / 4)
             compose.runOnIdle { photo.value = true }
             val square = paintedPhoto(MARKER)
-            assertEyebrowTop(square)
+            assertTrue("Long copy must be taller than the photo so the test distinguishes top from center",
+                bounds(SUMMARY).bottom - bounds("06:00").top > square.height() + 4f)
+            assertCenteredOnCopy(square, "06:00", SUMMARY)
             // The painted bounds exclude antialiased edge pixels. Compare within one physical pixel.
             assertEquals("Long copy cannot stretch a square in $mode",
                 square.width().toFloat(), square.height().toFloat(), 1f)
@@ -116,30 +122,48 @@ class ArticleRowBudgetAndImageTest {
             assertEquals("Left photo edge in $mode", square.left.toFloat(), left.left.toFloat(), 2f)
             assertEquals("Right photo edge in $mode", square.right.toFloat(), right.right.toFloat(), 2f)
             assertEquals("Preserve the wide picture's aspect ratio in $mode", square.width() / 4f, left.height().toFloat(), 2f)
-            assertEquals("The full banner stays at the top of the same slot in $mode",
-                square.top.toFloat(), left.top.toFloat(), 2f)
+            val banner = PixelRect(left).apply { union(right) }
+            assertEquals("The whole banner is centered inside the square slot in $mode",
+                square.exactCenterY(), banner.exactCenterY(), 2f)
+            assertCenteredOnCopy(banner, "06:00", SUMMARY)
             val fitted = frame.captureToImage().asAndroidBitmap()
-            val sampleY = square.bottom - 2
             val gutter = (square.right + (3 * density).roundToInt()).coerceAtMost(fitted.width - 1)
-            assertEquals("Unused space below a wide photo must match the article, not an image backplate",
-                fitted.getPixel(gutter, sampleY), fitted.getPixel(square.centerX(), sampleY))
+            for (sampleY in listOf(square.top + 2, square.bottom - 2)) {
+                assertEquals("Letterboxing above and below a wide photo uses the article surface",
+                    fitted.getPixel(gutter, sampleY), fitted.getPixel(square.centerX(), sampleY))
+            }
             assertEquals("Changing the source aspect ratio cannot narrow the text", textWidth,
                 textLayout(HEADLINE).layoutInput.constraints.maxWidth)
 
             compose.runOnIdle { brief.value = true; widePhoto.value = false }
             val short = paintedPhoto(MARKER)
-            assertEyebrowTop(short)
+            assertCenteredOnCopy(short, "06:00", BRIEF_TITLE)
             val row = frame.fetchSemanticsNode().boundsInRoot
             assertEquals("Short copy also gets a square in $mode", short.width().toFloat(), short.height().toFloat(), 1f)
             assertTrue("Short copy can shrink its picture", short.width() < square.width())
             val shortTextWidth = textLayout(BRIEF_TITLE).layoutInput.constraints.maxWidth
             assertTrue("The picture must not stretch below a short item", short.bottom + row.top <= bounds(BRIEF_TITLE).bottom + 2f)
+            compose.runOnIdle { widePhoto.value = true }
+            val briefBanner = PixelRect(paintedPhoto(LEFT_EDGE)).apply { union(paintedPhoto(RIGHT_EDGE)) }
+            assertCenteredOnCopy(briefBanner, "06:00", BRIEF_TITLE)
+            assertEquals("Center the fitted banner in the short square as well",
+                short.exactCenterY(), briefBanner.exactCenterY(), 2f)
             compose.runOnIdle { photo.value = false }
             assertEquals("Removing the picture must not change this one-line row's height",
                 row.height, frame.fetchSemanticsNode().boundsInRoot.height, 1f)
             val restored = textLayout(BRIEF_TITLE).layoutInput.constraints.maxWidth
             assertEquals("The full content width returns in $mode", available, restored)
             assertTrue("No empty image slot", restored > shortTextWidth)
+
+            // Without an eyebrow the headline, rather than an invisible time slot, is the top anchor.
+            // Reuse this row with translated copy: the visible image itself must move with the text.
+            compose.runOnIdle {
+                brief.value = false; photo.value = true; widePhoto.value = true
+                showTime.value = false; translated.value = true
+            }
+            compose.onNodeWithText("06:00", useUnmergedTree = true).assertDoesNotExist()
+            val translatedBanner = PixelRect(paintedPhoto(LEFT_EDGE)).apply { union(paintedPhoto(RIGHT_EDGE)) }
+            assertCenteredOnCopy(translatedBanner, CHINESE_TITLE, CHINESE_SUMMARY)
         }
     }
 
@@ -159,7 +183,7 @@ class ArticleRowBudgetAndImageTest {
                 LocalBasicFonts provides BasicFontsPreference.GoogleSans,
                 LocalFlowArticleListDesc provides description.value,
                 LocalFlowArticleListImage provides FlowArticleListImagePreference.ON,
-                LocalFlowArticleListTime provides FlowArticleListTimePreference.ON,
+                LocalFlowArticleListTime provides if (showTime.value) FlowArticleListTimePreference.ON else FlowArticleListTimePreference.OFF,
             ) {
                 AppTheme(useDarkTheme = false) {
                     ArticleItem(
@@ -190,10 +214,11 @@ class ArticleRowBudgetAndImageTest {
         return result.single()
     }
 
-    private fun assertEyebrowTop(photo: PixelRect) {
+    private fun assertCenteredOnCopy(photo: PixelRect, firstText: String, lastText: String) {
         val origin = frame.fetchSemanticsNode().boundsInRoot
-        assertEquals("The image and the time eyebrow share a top edge", bounds("06:00").top,
-            origin.top + photo.top, 2f)
+        val copyCenter = (bounds(firstText).top + bounds(lastText).bottom) / 2f
+        assertEquals("Visible photo center follows the complete rendered copy: $firstText … $lastText",
+            copyCenter, origin.top + photo.exactCenterY(), 2f)
         assertTrue("The image is in the trailing column", photo.centerX() > origin.width * 0.65f)
     }
 
