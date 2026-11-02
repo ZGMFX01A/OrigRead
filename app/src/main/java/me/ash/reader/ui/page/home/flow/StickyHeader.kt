@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import me.ash.reader.domain.model.constant.ElevationTokens
 import me.ash.reader.infrastructure.preference.FlowArticleListCardStylePreference
 import me.ash.reader.infrastructure.preference.LocalFlowArticleListCardStyle
 import me.ash.reader.ui.ext.surfaceColorAtElevation
@@ -19,14 +20,23 @@ import me.ash.reader.ui.theme.palette.onDark
 
 internal val ArticleListContentInset = 24.dp
 
+internal fun articleListPageElevation(cardStyle: FlowArticleListCardStylePreference, articleListTonalElevation: Int) =
+    if (cardStyle == FlowArticleListCardStylePreference.Segmented) ElevationTokens.Level1.dp
+    else articleListTonalElevation.dp
+
+@Composable
+internal fun articleListCardColor(): Color = with(MaterialTheme.colorScheme) {
+    surfaceContainerLowest onDark surfaceContainerLow
+}
+
 @Composable
 internal fun articleListBackgroundColor(
     cardStyle: FlowArticleListCardStylePreference,
     articleListTonalElevation: Int,
 ): Color = with(MaterialTheme.colorScheme) {
-    // Keep the page behind the raised-tone cards at the base surface, including AMOLED black.
-    if (cardStyle == FlowArticleListCardStylePreference.Segmented) surface
-    else surfaceColorAtElevation(articleListTonalElevation.dp) onDark surface
+    // Light groups sit on a slightly tinted page. In dark/AMOLED themes the
+    // canvas stays at the base surface and the grouped card is the lighter plane.
+    surfaceColorAtElevation(articleListPageElevation(cardStyle, articleListTonalElevation)) onDark surface
 }
 
 @Composable

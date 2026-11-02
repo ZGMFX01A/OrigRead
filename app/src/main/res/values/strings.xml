@@ -1519,5 +1519,5 @@
     <string name="no_settings_found">No matching settings found</string>
     <string name="article_list_style">Article list style</string>
     <string name="article_list_style_divider">List with dividers</string>
-    <string name="article_list_style_segmented">Individual cards</string>
+    <string name="article_list_style_segmented">Cards grouped by day</string>
 </resources>

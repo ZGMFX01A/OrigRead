@@ -112,13 +112,14 @@ fun FlowPagePreview(
             },
             first.feed.copy(id = "preview-origread", name = "OrigRead"),
         )
-        // Use the same outer frame and between-row rule/gap as the feed. A mixed
-        // sample also lets the source icon/name switches remain visible here.
+        // Two independently clickable articles share one day's surface. The preview
+        // uses the real list edges, including the in-group divider and outer corners.
         listOf(first, second).forEachIndexed { index, sample ->
             SwipeableArticleItem(
                 articleWithFeed = sample,
                 cardStyle = style,
                 articleListTonalElevation = articleListTonalElevation.value,
+                hasPreviousArticleInGroup = index > 0,
                 hasNextArticleInGroup = index == 0,
                 isMenuEnabled = false,
             )

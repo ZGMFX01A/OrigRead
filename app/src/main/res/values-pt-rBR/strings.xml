@@ -888,5 +888,5 @@
     <string name="no_settings_found">Nenhuma configuração encontrada</string>
     <string name="article_list_style">Estilo da lista de artigos</string>
     <string name="article_list_style_divider">Lista com linhas divisórias</string>
-    <string name="article_list_style_segmented">Cartões individuais</string>
+    <string name="article_list_style_segmented">Cartões agrupados por dia</string>
 </resources>

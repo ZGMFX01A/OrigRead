@@ -882,5 +882,5 @@
     <string name="no_settings_found">一致する設定が見つかりません</string>
     <string name="article_list_style">記事一覧のスタイル</string>
     <string name="article_list_style_divider">区切り線付きリスト</string>
-    <string name="article_list_style_segmented">個別のカード</string>
+    <string name="article_list_style_segmented">日付別のグループカード</string>
 </resources>

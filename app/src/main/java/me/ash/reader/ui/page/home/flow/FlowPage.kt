@@ -15,7 +15,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import me.ash.reader.infrastructure.preference.FlowArticleListCardStylePreference
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -388,12 +387,11 @@ fun FlowPage(
 
     val isSyncing = viewModel.isSyncingFlow.collectAsStateValue()
 
-    val isCardStyle = articleListCardStyle == FlowArticleListCardStylePreference.Segmented
     val listBackground = articleListBackgroundColor(articleListCardStyle, articleListTonalElevation.value)
 
     Box(modifier = Modifier.fillMaxSize()) {
         OrigReadScaffold(
-            containerTonalElevation = if (isCardStyle) 0.dp else articleListTonalElevation.value.dp,
+            containerTonalElevation = articleListPageElevation(articleListCardStyle, articleListTonalElevation.value),
             topBar = {
                 MaterialTheme(
                     colorScheme = MaterialTheme.colorScheme,

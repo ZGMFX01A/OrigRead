@@ -892,5 +892,5 @@
     <string name="no_settings_found">未找到相關設定項</string>
     <string name="article_list_style">文章列表樣式</string>
     <string name="article_list_style_divider">分隔線列表</string>
-    <string name="article_list_style_segmented">獨立卡片</string>
+    <string name="article_list_style_segmented">依日期分組的卡片</string>
 </resources>

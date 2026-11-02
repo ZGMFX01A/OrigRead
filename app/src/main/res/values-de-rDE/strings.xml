@@ -885,5 +885,5 @@
     <string name="no_settings_found">Keine passenden Einstellungen gefunden</string>
     <string name="article_list_style">Stil der Artikelliste</string>
     <string name="article_list_style_divider">Liste mit Trennlinien</string>
-    <string name="article_list_style_segmented">Einzelne Karten</string>
+    <string name="article_list_style_segmented">Nach Tagen gruppierte Karten</string>
 </resources>

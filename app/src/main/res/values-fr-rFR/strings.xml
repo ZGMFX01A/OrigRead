@@ -888,5 +888,5 @@
     <string name="no_settings_found">Aucun paramètre correspondant trouvé</string>
     <string name="article_list_style">Style de la liste d’articles</string>
     <string name="article_list_style_divider">Liste avec séparateurs</string>
-    <string name="article_list_style_segmented">Cartes individuelles</string>
+    <string name="article_list_style_segmented">Cartes groupées par jour</string>
 </resources>

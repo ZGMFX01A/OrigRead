@@ -3,7 +3,6 @@ package me.ash.reader.ui.page.home.flow
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -13,12 +12,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material.icons.outlined.FiberManualRecord
@@ -49,7 +45,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -57,6 +53,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.toArgb
+import androidx.core.graphics.ColorUtils
 import androidx.compose.ui.graphics.Shape
 import me.ash.reader.infrastructure.preference.FlowArticleListCardStylePreference
 import me.ash.reader.infrastructure.preference.LocalFlowArticleListCardStyle
@@ -75,12 +75,14 @@ import me.ash.reader.infrastructure.preference.FlowArticleListDescPreference
 import me.ash.reader.infrastructure.preference.FlowArticleReadIndicatorPreference
 import me.ash.reader.infrastructure.preference.LocalArticleListSwipeEndAction
 import me.ash.reader.infrastructure.preference.LocalArticleListSwipeStartAction
+import me.ash.reader.infrastructure.preference.LocalBasicFonts
 import me.ash.reader.infrastructure.preference.LocalFlowArticleListDesc
 import me.ash.reader.infrastructure.preference.LocalFlowArticleListFeedIcon
 import me.ash.reader.infrastructure.preference.LocalFlowArticleListFeedName
 import me.ash.reader.infrastructure.preference.LocalFlowArticleListImage
 import me.ash.reader.infrastructure.preference.LocalFlowArticleListReadIndicator
 import me.ash.reader.infrastructure.preference.LocalFlowArticleListTime
+import me.ash.reader.infrastructure.preference.LocalFlowArticleListTonalElevation
 import me.ash.reader.infrastructure.preference.SwipeEndActionPreference
 import me.ash.reader.infrastructure.preference.SwipeStartActionPreference
 import me.ash.reader.ui.component.FeedIcon
@@ -90,15 +92,23 @@ import me.ash.reader.ui.component.menu.AnimatedDropdownMenu
 import me.ash.reader.ui.component.swipe.SwipeAction
 import me.ash.reader.ui.component.swipe.SwipeableActionsBox
 import me.ash.reader.ui.ext.requiresBidi
-import me.ash.reader.ui.ext.surfaceColorAtElevation
 import me.ash.reader.ui.page.settings.color.flow.generateArticleWithFeedPreview
 import me.ash.reader.ui.theme.applyTextDirection
-import me.ash.reader.ui.theme.palette.onDark
 
 private val ArticleCardShape = RoundedCornerShape(16.dp)
 private val ThumbnailShape = RoundedCornerShape(8.dp)
 private val CardInset = 12.dp
 private val ThumbnailSize = 76.dp
+
+private val ArticleGroupStart = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+private val ArticleGroupEnd = RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp)
+
+private fun articleGroupShape(hasPrevious: Boolean, hasNext: Boolean): Shape = when {
+    !hasPrevious && !hasNext -> ArticleCardShape
+    !hasPrevious -> ArticleGroupStart
+    !hasNext -> ArticleGroupEnd
+    else -> RectangleShape
+}
 
 private data class ArticleRowData(
     val feedName: String,
@@ -154,10 +164,11 @@ fun ArticleItem(
     onClick: (ArticleWithFeed) -> Unit = {},
     onLongClick: (() -> Unit)? = null,
 ) {
-    ArticleItemFrame(modifier, cardStyle, cardShape) {
+    ArticleItemFrame(modifier, cardStyle, cardShape) { background ->
         ArticleRowContent(
             data = articleWithFeed.rowData(isUnread, translation),
             cardStyle = cardStyle,
+            background = background,
             isSingleFeed = isSingleFeed,
             bilingual = translationDisplayMode == TranslationDisplayMode.BILINGUAL,
             translationRevealRevision = translationRevealRevision,
@@ -188,13 +199,14 @@ fun ArticleItem(
     onClick: () -> Unit = {},
     onLongClick: (() -> Unit)? = null,
 ) {
-    ArticleItemFrame(modifier, cardStyle, cardShape) {
+    ArticleItemFrame(modifier, cardStyle, cardShape) { background ->
         ArticleRowContent(
             data = ArticleRowData(
                 feedName, feedIconUrl, title, shortDescription,
                 translatedTitle, translatedDescription, timeString, imgData, isStarred, isUnread,
             ),
             cardStyle = cardStyle,
+            background = background,
             isSingleFeed = isSingleFeed,
             bilingual = bilingual,
             translationRevealRevision = translationRevealRevision,
@@ -209,19 +221,46 @@ private fun ArticleItemFrame(
     modifier: Modifier,
     cardStyle: FlowArticleListCardStylePreference,
     cardShape: Shape,
-    content: @Composable () -> Unit,
+    articleListTonalElevation: Int = LocalFlowArticleListTonalElevation.current.value,
+    content: @Composable (Color) -> Unit,
 ) {
+    val fill = if (cardStyle == FlowArticleListCardStylePreference.Segmented) articleListCardColor()
+        else articleListBackgroundColor(cardStyle, articleListTonalElevation)
+    val background = fill.compositeOver(MaterialTheme.colorScheme.surface.copy(alpha = 1f))
     if (cardStyle == FlowArticleListCardStylePreference.Segmented) {
         Surface(
             modifier = modifier.fillMaxWidth().padding(horizontal = CardInset),
             shape = cardShape,
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            content = content,
-        )
+            color = background,
+        ) { content(background) }
     } else {
-        Box(modifier.fillMaxWidth()) { content() }
+        Box(modifier.fillMaxWidth().background(background)) { content(background) }
     }
+}
+
+internal data class ArticleSupportingColors(val summary: Color, val metadata: Color)
+
+/** Use the actual row fill, including its tonal elevation. Keep high-contrast palettes strong
+ * by stepping back a fixed amount of contrast rather than capping every theme at the minimum. */
+internal fun articleSupportingColors(background: Color, onSurfaceVariant: Color, onSurface: Color): ArticleSupportingColors {
+    val bg = background.toArgb()
+    val variant = ColorUtils.compositeColors(onSurfaceVariant.toArgb(), bg)
+    val strong = ColorUtils.compositeColors(onSurface.toArgb(), bg)
+    val baseContrast = ColorUtils.calculateContrast(variant, bg).toFloat()
+    fun tone(floor: Float, reduction: Float): Color {
+        val target = maxOf(floor, baseContrast - reduction)
+        val ink = when {
+            baseContrast >= target -> variant
+            ColorUtils.calculateContrast(strong, bg) >= target -> strong
+            ColorUtils.calculateContrast(Color.Black.toArgb(), bg) >
+                ColorUtils.calculateContrast(Color.White.toArgb(), bg) -> Color.Black.toArgb()
+            else -> Color.White.toArgb()
+        }
+        val alpha = ColorUtils.calculateMinimumAlpha(ink, bg, target)
+        return if (alpha < 0) Color(ink)
+        else Color(ColorUtils.compositeColors(ColorUtils.setAlphaComponent(ink, alpha), bg))
+    }
+    return ArticleSupportingColors(summary = tone(4.9f, 1.2f), metadata = tone(4.5f, 2.8f))
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -229,6 +268,7 @@ private fun ArticleItemFrame(
 private fun ArticleRowContent(
     data: ArticleRowData,
     cardStyle: FlowArticleListCardStylePreference,
+    background: Color,
     isSingleFeed: Boolean,
     bilingual: Boolean,
     translationRevealRevision: Int,
@@ -254,58 +294,108 @@ private fun ArticleRowContent(
     val colors = MaterialTheme.colorScheme
     val themeTitle = MaterialTheme.typography.titleMedium
     val titleStyle = themeTitle.copy(
-        // The theme's 16/24 sp title becomes 18/24 sp; retain its font family and scaled metrics.
         fontSize = themeTitle.fontSize * (18f / 16f),
+        lineHeight = themeTitle.lineHeight * (23f / 24f),
         fontWeight = if (muted) FontWeight.Normal else FontWeight.SemiBold,
     )
+    val titleColor = if (muted) colors.onSurfaceVariant else colors.onSurface
+    val supporting = remember(background, colors.onSurfaceVariant, colors.onSurface) {
+        articleSupportingColors(background, colors.onSurfaceVariant, colors.onSurface)
+    }
     var imageFailed by remember(data.image) { mutableStateOf(false) }
     val showImage = LocalFlowArticleListImage.current.value && hasUsableArticleImage(data.image) && !imageFailed
     val contentAlpha = me.ash.reader.ui.motion.rememberOrigReadContentAlpha(bilingual to translationRevealRevision)
     val isCard = cardStyle == FlowArticleListCardStylePreference.Segmented
-    Row(
+    Column(
         modifier = Modifier.fillMaxWidth()
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(
                 horizontal = if (isCard) CardInset else ArticleListContentInset,
-                vertical = if (isCard) 14.dp else 16.dp,
+                vertical = 14.dp,
             ),
-        verticalAlignment = Alignment.Top,
     ) {
-        Column(Modifier.weight(1f).graphicsLayer { alpha = contentAlpha.value }) {
-            ArticleRowText(title, titleStyle, if (muted) colors.onSurfaceVariant else colors.onSurface, titleLines)
-            if (secondTitle != null) {
-                ArticleRowText(secondTitle, titleStyle, if (muted) colors.onSurfaceVariant else colors.primary,
-                    titleLines, Modifier.padding(top = 4.dp))
-            }
-            if (hasDescription) {
-                if (description.isNotBlank()) {
-                    ArticleRowText(description, MaterialTheme.typography.bodyMedium, colors.onSurfaceVariant,
-                        descriptionLines, Modifier.padding(top = 4.dp))
+        ArticleMetadata(data, isSingleFeed, supporting.metadata)
+        ArticleTextWithThumbnail(image = if (showImage) data.image else null, onError = { imageFailed = true }) {
+            Column(Modifier.fillMaxWidth().graphicsLayer { alpha = contentAlpha.value }) {
+                ArticleTitle(title, titleStyle, titleColor, titleLines, muted)
+                if (secondTitle != null) {
+                    ArticleTitle(secondTitle, titleStyle, titleColor, titleLines, muted, Modifier.padding(top = 4.dp))
                 }
-                if (secondDescription != null) {
-                    ArticleRowText(secondDescription, MaterialTheme.typography.bodyMedium, colors.onSurfaceVariant,
-                        descriptionLines, Modifier.padding(top = 4.dp))
+                if (hasDescription && description.isNotBlank()) {
+                    ArticleRowText(description, MaterialTheme.typography.bodyMedium, supporting.summary,
+                        descriptionLines, Modifier.padding(top = 6.dp))
+                }
+                if (hasDescription && secondDescription != null) {
+                    ArticleRowText(secondDescription, MaterialTheme.typography.bodyMedium, supporting.summary,
+                        descriptionLines, Modifier.padding(top = if (description.isBlank()) 6.dp else 4.dp))
                 }
             }
-            ArticleMetadata(data, isSingleFeed)
         }
+    }
+}
 
-        if (showImage) {
-            Spacer(Modifier.width(12.dp))
+@Composable
+private fun ArticleTitle(
+    text: String,
+    style: TextStyle,
+    color: Color,
+    maxLines: Int,
+    muted: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val basicFonts = LocalBasicFonts.current
+    Text(
+        text = remember(text, basicFonts, muted) { articleTitleText(text, basicFonts, muted) },
+        modifier = modifier,
+        style = remember(text, style) { style.applyTextDirection(text.requiresBidi()) },
+        color = color,
+        maxLines = maxLines,
+        overflow = TextOverflow.Ellipsis,
+    )
+}
+
+@Composable
+private fun ArticleTextWithThumbnail(
+    image: Any?,
+    onError: () -> Unit,
+    text: @Composable () -> Unit,
+) {
+    if (image == null) {
+        text()
+        return
+    }
+    // Measure the copy once, then fit the thumbnail to its height. A one-line headline
+    // doesn't have to pay for a 76 dp image; long or bilingual copy can grow naturally.
+    Layout(
+        modifier = Modifier.fillMaxWidth(),
+        content = {
+            text()
             OrigReadAsyncImage(
-                modifier = Modifier.layout { measurable, constraints ->
-                    // Respect the actual list pane width in split screen, without subcomposing every row.
-                    val side = minOf(ThumbnailSize.roundToPx(), constraints.maxWidth / 4, constraints.maxHeight)
-                    val placeable = measurable.measure(Constraints.fixed(side, side))
-                    layout(side, side) { placeable.placeRelative(0, 0) }
-                }.clip(ThumbnailShape),
-                data = data.image,
+                modifier = Modifier.clip(ThumbnailShape),
+                data = image,
                 scale = Scale.FILL,
                 precision = Precision.INEXACT,
                 size = SIZE_1000,
                 contentScale = ContentScale.Crop,
-                onError = { imageFailed = true },
+                onError = onError,
             )
+        },
+    ) { measurables, constraints ->
+        val maxEdge = minOf(ThumbnailSize.roundToPx(), constraints.maxWidth / 4, constraints.maxHeight)
+        val gap = minOf(12.dp.roundToPx(), constraints.maxWidth - maxEdge)
+        val reserved = maxEdge + gap
+        val copy = measurables[0].measure(constraints.copy(
+            minWidth = (constraints.minWidth - reserved).coerceAtLeast(0),
+            maxWidth = if (constraints.hasBoundedWidth) constraints.maxWidth - reserved else Constraints.Infinity,
+            minHeight = 0,
+        ))
+        val edge = minOf(maxEdge, maxOf(48.dp.roundToPx(), copy.height))
+        val picture = measurables[1].measure(Constraints.fixed(edge, edge))
+        val height = maxOf(copy.height, picture.height, constraints.minHeight)
+        val width = copy.width + reserved
+        layout(width, height) {
+            copy.placeRelative(0, (height - copy.height) / 2)
+            picture.placeRelative(width - picture.width, (height - picture.height) / 2)
         }
     }
 }
@@ -329,7 +419,7 @@ private fun ArticleRowText(
 }
 
 @Composable
-private fun ArticleMetadata(data: ArticleRowData, isSingleFeed: Boolean) {
+private fun ArticleMetadata(data: ArticleRowData, isSingleFeed: Boolean, color: Color) {
     val showIcon = !isSingleFeed && LocalFlowArticleListFeedIcon.current.value &&
         (data.feedName.isNotBlank() || !data.feedIconUrl.isNullOrBlank())
     val showName = !isSingleFeed && LocalFlowArticleListFeedName.current.value && data.feedName.isNotBlank()
@@ -338,18 +428,18 @@ private fun ArticleMetadata(data: ArticleRowData, isSingleFeed: Boolean) {
     if (!showIcon && !showName && time == null && !data.starred) return
 
     Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (showIcon) FeedIcon(feedName = data.feedName, iconUrl = data.feedIconUrl, size = 14.dp)
         if (showName) {
             ArticleRowText(data.feedName, MaterialTheme.typography.labelMedium,
-                MaterialTheme.colorScheme.onSurfaceVariant, 1, Modifier.weight(1f, fill = false))
+                color, 1, Modifier.weight(1f, fill = false))
         }
         if (time != null) {
             ArticleRowText(if (showName) "· $time" else time, MaterialTheme.typography.labelMedium,
-                MaterialTheme.colorScheme.onSurfaceVariant, 1)
+                color, 1)
         }
         if (data.starred) StarredIndicator(true)
     }
@@ -396,6 +486,7 @@ fun SwipeableArticleItem(
     isUnread: Boolean = articleWithFeed.article.isUnread,
     articleListTonalElevation: Int = 0,
     hasNextArticleInGroup: Boolean = false,
+    hasPreviousArticleInGroup: Boolean = false,
     cardStyle: FlowArticleListCardStylePreference = LocalFlowArticleListCardStyle.current,
     translation: ListTranslationResult? = null,
     translationDisplayMode: TranslationDisplayMode = TranslationDisplayMode.TRANSLATED,
@@ -414,11 +505,10 @@ fun SwipeableArticleItem(
     var isMenuExpanded by remember(article.id, isMenuEnabled) { mutableStateOf(false) }
     var menuOffset by remember(article.id) { mutableStateOf(IntOffset.Zero) }
     val isCard = cardStyle == FlowArticleListCardStylePreference.Segmented
-    val background = if (isCard) MaterialTheme.colorScheme.surfaceContainerLow else
-        MaterialTheme.colorScheme.surfaceColorAtElevation(articleListTonalElevation.dp) onDark MaterialTheme.colorScheme.surface
+    val shape = articleGroupShape(hasPreviousArticleInGroup, hasNextArticleInGroup)
 
-    Column(modifier = modifier.fillMaxWidth()) {
-        ArticleItemFrame(Modifier, cardStyle, ArticleCardShape) {
+    ArticleItemFrame(modifier, cardStyle, shape, articleListTonalElevation) { background ->
+        Column(Modifier.fillMaxWidth()) {
             SwipeActionBox(
                 articleWithFeed = articleWithFeed,
                 isRead = !isUnread,
@@ -437,6 +527,7 @@ fun SwipeableArticleItem(
                     ArticleRowContent(
                         data = articleWithFeed.rowData(isUnread, translation),
                         cardStyle = cardStyle,
+                        background = background,
                         isSingleFeed = isSingleFeed,
                         bilingual = translationDisplayMode == TranslationDisplayMode.BILINGUAL,
                         translationRevealRevision = translationRevealRevision,
@@ -464,14 +555,13 @@ fun SwipeableArticleItem(
                     }
                 }
             }
-        }
-        if (hasNextArticleInGroup) {
-            if (isCard) Spacer(Modifier.height(8.dp))
-            else HorizontalDivider(
-                modifier = Modifier.padding(horizontal = ArticleListContentInset),
-                thickness = 1.dp,
-                color = MaterialTheme.colorScheme.outlineVariant,
-            )
+            if (hasNextArticleInGroup) {
+                HorizontalDivider(
+                    modifier = Modifier.padding(horizontal = if (isCard) CardInset else ArticleListContentInset),
+                    thickness = with(LocalDensity.current) { 1f.toDp() },
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                )
+            }
         }
     }
 }

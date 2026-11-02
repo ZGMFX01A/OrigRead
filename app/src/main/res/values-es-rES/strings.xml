@@ -888,5 +888,5 @@
     <string name="no_settings_found">No se encontraron ajustes coincidentes</string>
     <string name="article_list_style">Estilo de la lista de artículos</string>
     <string name="article_list_style_divider">Lista con separadores</string>
-    <string name="article_list_style_segmented">Tarjetas individuales</string>
+    <string name="article_list_style_segmented">Tarjetas agrupadas por día</string>
 </resources>

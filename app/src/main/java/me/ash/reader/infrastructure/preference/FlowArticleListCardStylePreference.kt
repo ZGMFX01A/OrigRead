@@ -20,7 +20,7 @@ sealed class FlowArticleListCardStylePreference(val value: Int) : Preference() {
     /** 同一日期组内，使用与正文对齐的横线分隔相邻文章。 */
     data object Divider : FlowArticleListCardStylePreference(0)
 
-    /** 每篇文章独立成卡。保留原有标识与存储值以兼容已有设置。 */
+    /** 同一天的文章共用卡面。沿用原卡片设置的存储值。 */
     data object Segmented : FlowArticleListCardStylePreference(1)
 
     override fun put(context: Context, scope: CoroutineScope) {

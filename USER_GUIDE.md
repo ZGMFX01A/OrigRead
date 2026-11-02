@@ -81,7 +81,7 @@ If the source supplies only a few lines, try fetching full text. Open the origin
 
 The full-text button at the top of RSS articles remembers its state per source on this device. Subsequent articles from that source, including after restarting the app, use your last choice without affecting other sources. Extraction failures do not turn it off.
 
-In Settings, search for **Article list style** to choose a continuous list with dividers or individual cards. Both show the title first, followed by the summary and time. In a mixed feed, you can also show the source beside the time.
+In Settings, search for **Article list style** to choose a continuous list with dividers or cards grouped by day. In the card view, articles from the same day share one background. The time and optional source appear above the headline; single-feed views omit the repeated source.
 
 The reader lets you mark articles read, star them, move to the previous or next article, search within the text, and adjust the reading appearance. Phones mainly use one column. Tablets and larger screens can keep lists, the article, or AI in view together as space allows.
 

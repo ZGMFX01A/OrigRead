@@ -3,14 +3,19 @@ package me.ash.reader.ui.page.home.flow
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.itemContentType
 import androidx.paging.compose.itemKey
+import java.util.TimeZone
+import java.util.concurrent.TimeUnit
 import me.ash.reader.domain.data.Diff
 import me.ash.reader.domain.model.article.ArticleFlowItem
 import me.ash.reader.domain.model.article.ArticleWithFeed
@@ -40,6 +45,50 @@ fun LazyListScope.ArticleList(
     onShare: ((ArticleWithFeed) -> Unit)? = null,
     isSingleFeed: Boolean = false,
 ) {
+    val zone = TimeZone.getDefault()
+
+    @Composable
+    fun LazyItemScope.ArticleEntry(index: Int, item: ArticleFlowItem.Article) {
+        val article = item.articleWithFeed.article
+        val day = item.localDay(zone)
+        val previous = if (index > 0) pagingItems.peek(index - 1) as? ArticleFlowItem.Article else null
+        val next = if (index + 1 < pagingItems.itemCount) pagingItems.peek(index + 1) as? ArticleFlowItem.Article else null
+        val hasPrevious = previous?.localDay(zone) == day
+        val hasNext = next?.localDay(zone) == day
+        // Paging normally emits a Date item that owns this gap. A headerless
+        // presentation still ends the previous day's group without adding an index.
+        val unlabeledDayStart = previous != null && !hasPrevious
+        SwipeableArticleItem(
+            modifier =
+                Modifier.animateItem(
+                    fadeInSpec = null,
+                    placementSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+                    fadeOutSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
+                ).then(if (unlabeledDayStart) Modifier.padding(top = DateGroupSpacing) else Modifier),
+            articleWithFeed = item.articleWithFeed,
+            translation = translations[article.id],
+            translationDisplayMode = translationDisplayMode,
+            translationRevealRevision = translationRevealRevision,
+            isUnread = diffMap[article.id]?.isUnread ?: article.isUnread,
+            articleListTonalElevation = articleListTonalElevation,
+            cardStyle = cardStyle,
+            isSingleFeed = isSingleFeed,
+            hasPreviousArticleInGroup = hasPrevious,
+            hasNextArticleInGroup = hasNext,
+            onClick = { onClick(it, index) },
+            isSwipeEnabled = isSwipeEnabled,
+            isMenuEnabled = isMenuEnabled,
+            onToggleStarred = onToggleStarred,
+            onToggleRead = onToggleRead,
+            onMarkAboveAsRead =
+                if (index == 0 || (index == 1 && previous == null)) null
+                else onMarkAboveAsRead,
+            onMarkBelowAsRead =
+                if (index == pagingItems.itemCount - 1) null else onMarkBelowAsRead,
+            onShare = onShare,
+        )
+    }
+
     // https://issuetracker.google.com/issues/193785330
     // FIXME: Using sticky header with paging-compose need to iterate through the entire list
     //  to figure out where to add sticky headers, which significantly impacts the performance
@@ -51,35 +100,7 @@ fun LazyListScope.ArticleList(
         ) { index ->
             when (val item = pagingItems[index]) {
                 is ArticleFlowItem.Article -> {
-                    val article = item.articleWithFeed.article
-                    SwipeableArticleItem(
-                        modifier =
-                            Modifier.animateItem(
-                                fadeInSpec = null,
-                                placementSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
-                                fadeOutSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
-                            ),
-                        articleWithFeed = item.articleWithFeed,
-                        translation = translations[article.id],
-                        translationDisplayMode = translationDisplayMode,
-                        translationRevealRevision = translationRevealRevision,
-                        isUnread = diffMap[article.id]?.isUnread ?: article.isUnread,
-                        articleListTonalElevation = articleListTonalElevation,
-                        cardStyle = cardStyle,
-                        isSingleFeed = isSingleFeed,
-                        hasNextArticleInGroup = pagingItems.hasNextArticleInGroup(index),
-                        onClick = { onClick(it, index) },
-                        isSwipeEnabled = isSwipeEnabled,
-                        isMenuEnabled = isMenuEnabled,
-                        onToggleStarred = onToggleStarred,
-                        onToggleRead = onToggleRead,
-                        onMarkAboveAsRead =
-                            if (index == 1) null
-                            else onMarkAboveAsRead, // index == 0 -> ArticleFlowItem.Date
-                        onMarkBelowAsRead =
-                            if (index == pagingItems.itemCount - 1) null else onMarkBelowAsRead,
-                        onShare = onShare,
-                    )
+                    ArticleEntry(index, item)
                 }
 
                 is ArticleFlowItem.Date -> {
@@ -97,35 +118,7 @@ fun LazyListScope.ArticleList(
             when (val item = pagingItems.peek(index)) {
                 is ArticleFlowItem.Article -> {
                     item(key = key(item), contentType = contentType(item)) {
-                        val article = item.articleWithFeed.article
-                        SwipeableArticleItem(
-                            modifier =
-                                Modifier.animateItem(
-                                    fadeInSpec = null,
-                                    placementSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
-                                    fadeOutSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
-                                ),
-                            articleWithFeed = item.articleWithFeed,
-                            translation = translations[article.id],
-                            translationDisplayMode = translationDisplayMode,
-                            translationRevealRevision = translationRevealRevision,
-                            isUnread = diffMap[article.id]?.isUnread ?: article.isUnread,
-                            articleListTonalElevation = articleListTonalElevation,
-                            cardStyle = cardStyle,
-                            isSingleFeed = isSingleFeed,
-                            hasNextArticleInGroup = pagingItems.hasNextArticleInGroup(index),
-                            onClick = { onClick(it, index) },
-                            isSwipeEnabled = isSwipeEnabled,
-                            isMenuEnabled = isMenuEnabled,
-                            onToggleStarred = onToggleStarred,
-                            onToggleRead = onToggleRead,
-                            onMarkAboveAsRead =
-                                if (index == 1) null
-                                else onMarkAboveAsRead, // index == 0 -> ArticleFlowItem.Date
-                            onMarkBelowAsRead =
-                                if (index == pagingItems.itemCount - 1) null else onMarkBelowAsRead,
-                            onShare = onShare,
-                        )
+                        ArticleEntry(index, item)
                     }
                 }
 
@@ -144,11 +137,13 @@ fun LazyListScope.ArticleList(
     }
 }
 
-private val DateGroupSpacing = 24.dp
+private val DateGroupSpacing = 28.dp
 
-// peek observes the already presented neighbor without triggering another page load.
-private fun LazyPagingItems<ArticleFlowItem>.hasNextArticleInGroup(index: Int): Boolean =
-    index + 1 < itemCount && peek(index + 1) is ArticleFlowItem.Article
+// Compare calendar days in the same local time zone used for the date headings.
+private fun ArticleFlowItem.Article.localDay(zone: TimeZone): Long {
+    val millis = articleWithFeed.article.date.time
+    return Math.floorDiv(millis + zone.getOffset(millis), TimeUnit.DAYS.toMillis(1))
+}
 
 private fun key(item: ArticleFlowItem): String {
     return when (item) {
