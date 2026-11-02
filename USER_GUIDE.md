@@ -81,7 +81,7 @@ If the source supplies only a few lines, try fetching full text. Open the origin
 
 The full-text button at the top of RSS articles remembers its state per source on this device. Subsequent articles from that source, including after restarting the app, use your last choice without affecting other sources. Extraction failures do not turn it off.
 
-In Settings, search for **Article list style** to choose a continuous list with dividers or cards grouped by day. In the card view, articles from the same day share one background. The time and optional source appear above the headline; single-feed views omit the repeated source.
+In Settings, search for **Article list style** to choose a continuous list with dividers or cards grouped by day. In the card view, articles from the same day share one background. The time and optional source appear above the headline; single-feed views omit the repeated source. With short previews, a three-line headline leaves room for one line of summary; shorter headlines allow up to two. Long previews and bilingual text keep their own line limits.
 
 The reader lets you mark articles read, star them, move to the previous or next article, search within the text, and adjust the reading appearance. Phones mainly use one column. Tablets and larger screens can keep lists, the article, or AI in view together as space allows.
 

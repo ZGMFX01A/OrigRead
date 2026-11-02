@@ -17,6 +17,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.toArgb
+import android.util.Log
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsActions
@@ -85,7 +86,7 @@ class EditorialAndCardListTest {
     private val amoled = mutableStateOf(false)
     private val copyMode = mutableStateOf(CopyMode.Original)
     private enum class CopyMode { Original, Translated, Bilingual }
-    private data class Palette(val page: Int, val card: Int, val line: Int)
+    private data class Palette(val page: Int, val card: Int, val line: Int, val flatPage: Int, val previousDarkCard: Int)
     private lateinit var palette: Palette
     private val list get() = compose.onNodeWithTag("film-list")
     private var clicked: String? = null
@@ -156,8 +157,19 @@ class EditorialAndCardListTest {
                 val gutter = (edge * 0.70f).roundToInt()
                 val y = (first.center.y - origin.top).roundToInt()
                 val fill = if (card) palette.card else palette.page
-                assertTrue("Page outside the group", near(image.getPixel(1, y), palette.page))
-                if (card) assertTrue("The card face must differ from the page", !near(fill, palette.page))
+                val actualPage = image.getPixel(1, y)
+                val actualFace = image.getPixel(gutter, y)
+                assertTrue("Page outside the group", near(actualPage, palette.page))
+                assertTrue("Actual row face", near(actualFace, fill))
+                if (card) {
+                    assertTrue("The card face must differ from the page", !near(actualFace, actualPage))
+                    if (night && !translated) assertRaisedDarkCard("dark", actualFace, actualPage, 1.16)
+                    val headingEnd = heading.bottom - origin.top
+                    val firstCardPixel = (headingEnd.roundToInt()..(eyebrow.top - origin.top).roundToInt())
+                        .first { near(image.getPixel(image.width / 2, it), fill) }
+                    assertEquals("Space outside the card, from the date text to the group face",
+                        12f * context.resources.displayMetrics.density, firstCardPixel - headingEnd, 2f)
+                }
                 assertTrue("No side strokes on either style",
                     (1 until edge).none { near(image.getPixel(it, y), palette.line) } &&
                         (image.width - edge until image.width - 1).none { near(image.getPixel(it, y), palette.line) })
@@ -198,6 +210,9 @@ class EditorialAndCardListTest {
             val from = (second.bottom - origin.top).roundToInt().coerceIn(0, image.height)
             val to = (third.top - origin.top).roundToInt().coerceIn(0, image.height)
             assertEquals(Color.Black.toArgb(), palette.page)
+            val y = (third.center.y - origin.top).roundToInt().coerceIn(0, image.height - 1)
+            assertEquals("The outer canvas stays black", Color.Black.toArgb(), image.getPixel(1, y))
+            if (withDates && !pinned) assertRaisedDarkCard("amoled", image.getPixel(x, y), image.getPixel(1, y), 1.12)
             assertTrue("A real cross-day gap exposes the AMOLED page",
                 (from until to).count { near(image.getPixel(x, it), palette.page) } >= (x / 2).coerceAtLeast(2))
             assertEquals("No in-group rule where the day changes", 0, linePixels(image, from.toFloat(), to.toFloat()))
@@ -253,7 +268,10 @@ class EditorialAndCardListTest {
                         flowOf(PagingData.from(rows))
                     }.collectAsLazyPagingItems()
                     val page = articleListBackgroundColor(style.value, 0)
-                    val colors = Palette(page.toArgb(), articleListCardColor().toArgb(), MaterialTheme.colorScheme.outlineVariant.toArgb())
+                    val colors = with(MaterialTheme.colorScheme) {
+                        Palette(page.toArgb(), articleListCardColor().toArgb(), outlineVariant.toArgb(),
+                            surface.toArgb(), surfaceContainerLow.toArgb())
+                    }
                     SideEffect { palette = colors }
                     LazyColumn(Modifier.widthIn(max = 400.dp).fillMaxWidth().fillMaxHeight()
                         .background(page).testTag("film-list")) {
@@ -284,6 +302,17 @@ class EditorialAndCardListTest {
         val rows = from.roundToInt().coerceIn(0, image.height) until to.roundToInt().coerceIn(0, image.height)
         return rows.count { y -> near(image.getPixel(image.width / 3, y), palette.line) &&
             near(image.getPixel(image.width * 2 / 3, y), palette.line) }
+    }
+
+    private fun assertRaisedDarkCard(label: String, face: Int, page: Int, minimumRatio: Double) {
+        fun contrast(lighter: Int, darker: Int) =
+            (android.graphics.Color.luminance(lighter) + 0.05) / (android.graphics.Color.luminance(darker) + 0.05)
+        val actual = contrast(face, page)
+        val previous = contrast(palette.previousDarkCard, palette.flatPage)
+        Log.i("ArticleListTone", "$label face=" + Integer.toHexString(face) + " page=" + Integer.toHexString(page) +
+            " contrast=$actual previous=$previous")
+        assertTrue("$label group must be visibly brighter than the page: $actual (previous $previous)",
+            actual >= minimumRatio && actual > previous + 0.02)
     }
 
     private fun near(pixel: Int, color: Int): Boolean = listOf(16, 8, 0).all { shift ->

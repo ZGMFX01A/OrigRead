@@ -49,6 +49,7 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -274,6 +275,8 @@ private fun ArticleRowContent(
     translationRevealRevision: Int,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)?,
+    hasPreviousArticleInGroup: Boolean = false,
+    hasNextArticleInGroup: Boolean = false,
 ) {
     val descriptionLines = when (LocalFlowArticleListDesc.current) {
         FlowArticleListDescPreference.NONE -> 0
@@ -306,28 +309,54 @@ private fun ArticleRowContent(
     val showImage = LocalFlowArticleListImage.current.value && hasUsableArticleImage(data.image) && !imageFailed
     val contentAlpha = me.ash.reader.ui.motion.rememberOrigReadContentAlpha(bilingual to translationRevealRevision)
     val isCard = cardStyle == FlowArticleListCardStylePreference.Segmented
+    val inset = if (isCard) CardInset else ArticleListContentInset
+    // A bilingual preference alone doesn't add a second copy (for example before a translation arrives).
+    val dynamicShort = descriptionLines == 2 && hasDescription && secondTitle == null && secondDescription == null
     Column(
         modifier = Modifier.fillMaxWidth()
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(
-                horizontal = if (isCard) CardInset else ArticleListContentInset,
-                vertical = 14.dp,
+                start = inset, end = inset,
+                top = when {
+                    !isCard -> 16.dp
+                    !hasPreviousArticleInGroup -> CardInset
+                    else -> 14.dp
+                },
+                bottom = if (isCard && !hasNextArticleInGroup) CardInset else 14.dp,
             ),
     ) {
-        ArticleMetadata(data, isSingleFeed, supporting.metadata)
-        ArticleTextWithThumbnail(image = if (showImage) data.image else null, onError = { imageFailed = true }) {
-            Column(Modifier.fillMaxWidth().graphicsLayer { alpha = contentAlpha.value }) {
-                ArticleTitle(title, titleStyle, titleColor, titleLines, muted)
-                if (secondTitle != null) {
-                    ArticleTitle(secondTitle, titleStyle, titleColor, titleLines, muted, Modifier.padding(top = 4.dp))
-                }
-                if (hasDescription && description.isNotBlank()) {
-                    ArticleRowText(description, MaterialTheme.typography.bodyMedium, supporting.summary,
-                        descriptionLines, Modifier.padding(top = 6.dp))
-                }
-                if (hasDescription && secondDescription != null) {
-                    ArticleRowText(secondDescription, MaterialTheme.typography.bodyMedium, supporting.summary,
-                        descriptionLines, Modifier.padding(top = if (description.isBlank()) 6.dp else 4.dp))
+        ArticleTextWithThumbnail(
+            image = if (showImage) data.image else null,
+            allowPortrait = dynamicShort,
+            onError = { imageFailed = true },
+        ) {
+            Column(Modifier.fillMaxWidth()) {
+                ArticleMetadata(data, isSingleFeed, supporting.metadata)
+                Column(Modifier.fillMaxWidth().graphicsLayer { alpha = contentAlpha.value }) {
+                    if (dynamicShort) {
+                        BudgetedArticleCopy(
+                            title = { measured ->
+                                ArticleTitle(title, titleStyle, titleColor, titleLines, muted, onTextLayout = measured)
+                            },
+                            summary = { lines ->
+                                ArticleRowText(description, MaterialTheme.typography.bodyMedium, supporting.summary,
+                                    lines, Modifier.padding(top = 6.dp))
+                            },
+                        )
+                    } else {
+                        ArticleTitle(title, titleStyle, titleColor, titleLines, muted)
+                        if (secondTitle != null) {
+                            ArticleTitle(secondTitle, titleStyle, titleColor, titleLines, muted, Modifier.padding(top = 4.dp))
+                        }
+                        if (hasDescription && description.isNotBlank()) {
+                            ArticleRowText(description, MaterialTheme.typography.bodyMedium, supporting.summary,
+                                descriptionLines, Modifier.padding(top = 6.dp))
+                        }
+                        if (hasDescription && secondDescription != null) {
+                            ArticleRowText(secondDescription, MaterialTheme.typography.bodyMedium, supporting.summary,
+                                descriptionLines, Modifier.padding(top = if (description.isBlank()) 6.dp else 4.dp))
+                        }
+                    }
                 }
             }
         }
@@ -342,6 +371,7 @@ private fun ArticleTitle(
     maxLines: Int,
     muted: Boolean,
     modifier: Modifier = Modifier,
+    onTextLayout: (TextLayoutResult) -> Unit = {},
 ) {
     val basicFonts = LocalBasicFonts.current
     Text(
@@ -350,6 +380,7 @@ private fun ArticleTitle(
         style = remember(text, style) { style.applyTextDirection(text.requiresBidi()) },
         color = color,
         maxLines = maxLines,
+        onTextLayout = onTextLayout,
         overflow = TextOverflow.Ellipsis,
     )
 }
@@ -357,6 +388,7 @@ private fun ArticleTitle(
 @Composable
 private fun ArticleTextWithThumbnail(
     image: Any?,
+    allowPortrait: Boolean,
     onError: () -> Unit,
     text: @Composable () -> Unit,
 ) {
@@ -364,8 +396,7 @@ private fun ArticleTextWithThumbnail(
         text()
         return
     }
-    // Measure the copy once, then fit the thumbnail to its height. A one-line headline
-    // doesn't have to pay for a 76 dp image; long or bilingual copy can grow naturally.
+    // Reserve a bounded width once. The thumbnail follows the measured copy height, never the reverse.
     Layout(
         modifier = Modifier.fillMaxWidth(),
         content = {
@@ -389,13 +420,16 @@ private fun ArticleTextWithThumbnail(
             maxWidth = if (constraints.hasBoundedWidth) constraints.maxWidth - reserved else Constraints.Infinity,
             minHeight = 0,
         ))
-        val edge = minOf(maxEdge, maxOf(48.dp.roundToPx(), copy.height))
-        val picture = measurables[1].measure(Constraints.fixed(edge, edge))
-        val height = maxOf(copy.height, picture.height, constraints.minHeight)
+        val pictureWidth = minOf(maxEdge, copy.height)
+        // Keep the word column wide. A normal four-line text block can use a portrait
+        // crop to reach its bottom edge, but long/bilingual or enlarged text won't stretch a photo.
+        val maxImageHeight = if (allowPortrait && fontScale <= 1.25f) pictureWidth + pictureWidth / 2 else pictureWidth
+        val pictureHeight = minOf(copy.height, maxImageHeight)
+        val picture = measurables[1].measure(Constraints.fixed(pictureWidth, pictureHeight))
         val width = copy.width + reserved
-        layout(width, height) {
-            copy.placeRelative(0, (height - copy.height) / 2)
-            picture.placeRelative(width - picture.width, (height - picture.height) / 2)
+        layout(width, maxOf(copy.height, constraints.minHeight)) {
+            copy.placeRelative(0, 0)
+            picture.placeRelative(width - picture.width, 0)
         }
     }
 }
@@ -428,7 +462,7 @@ private fun ArticleMetadata(data: ArticleRowData, isSingleFeed: Boolean, color: 
     if (!showIcon && !showName && time == null && !data.starred) return
 
     Row(
-        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+        modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -438,8 +472,8 @@ private fun ArticleMetadata(data: ArticleRowData, isSingleFeed: Boolean, color: 
                 color, 1, Modifier.weight(1f, fill = false))
         }
         if (time != null) {
-            ArticleRowText(if (showName) "· $time" else time, MaterialTheme.typography.labelMedium,
-                color, 1)
+            ArticleRowText(if (showName) "· $time" else time,
+                MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium), color, 1)
         }
         if (data.starred) StarredIndicator(true)
     }
@@ -531,6 +565,8 @@ fun SwipeableArticleItem(
                         isSingleFeed = isSingleFeed,
                         bilingual = translationDisplayMode == TranslationDisplayMode.BILINGUAL,
                         translationRevealRevision = translationRevealRevision,
+                        hasPreviousArticleInGroup = hasPreviousArticleInGroup,
+                        hasNextArticleInGroup = hasNextArticleInGroup,
                         onClick = { onClick(articleWithFeed) },
                         onLongClick = if (isMenuEnabled) ({ isMenuExpanded = true }) else null,
                     )

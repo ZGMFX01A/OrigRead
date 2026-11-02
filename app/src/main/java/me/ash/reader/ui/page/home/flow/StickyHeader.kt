@@ -14,6 +14,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import me.ash.reader.domain.model.constant.ElevationTokens
 import me.ash.reader.infrastructure.preference.FlowArticleListCardStylePreference
+import me.ash.reader.infrastructure.preference.LocalAmoledDarkTheme
 import me.ash.reader.infrastructure.preference.LocalFlowArticleListCardStyle
 import me.ash.reader.ui.ext.surfaceColorAtElevation
 import me.ash.reader.ui.theme.palette.onDark
@@ -26,7 +27,9 @@ internal fun articleListPageElevation(cardStyle: FlowArticleListCardStylePrefere
 
 @Composable
 internal fun articleListCardColor(): Color = with(MaterialTheme.colorScheme) {
-    surfaceContainerLowest onDark surfaceContainerLow
+    // In AMOLED, Low and Container both use tone 4; High is the next visible step.
+    val darkCard = if (LocalAmoledDarkTheme.current.value) surfaceContainerHigh else surfaceContainer
+    surfaceContainerLowest onDark darkCard
 }
 
 @Composable
@@ -34,9 +37,10 @@ internal fun articleListBackgroundColor(
     cardStyle: FlowArticleListCardStylePreference,
     articleListTonalElevation: Int,
 ): Color = with(MaterialTheme.colorScheme) {
-    // Light groups sit on a slightly tinted page. In dark/AMOLED themes the
-    // canvas stays at the base surface and the grouped card is the lighter plane.
-    surfaceColorAtElevation(articleListPageElevation(cardStyle, articleListTonalElevation)) onDark surface
+    // Give grouped cards a darker canvas in night mode. Lowest is pure black in AMOLED.
+    // Flat lists keep their regular dark surface and light-theme elevations stay unchanged.
+    val darkPage = if (cardStyle == FlowArticleListCardStylePreference.Segmented) surfaceContainerLowest else surface
+    surfaceColorAtElevation(articleListPageElevation(cardStyle, articleListTonalElevation)) onDark darkPage
 }
 
 @Composable
@@ -45,7 +49,7 @@ fun StickyHeader(
     articleListTonalElevation: Int = 0,
     cardStyle: FlowArticleListCardStylePreference = LocalFlowArticleListCardStyle.current,
 ) {
-    val bottomPadding = if (cardStyle == FlowArticleListCardStylePreference.Segmented) 8.dp else 4.dp
+    val bottomPadding = if (cardStyle == FlowArticleListCardStylePreference.Segmented) 12.dp else 4.dp
     Row(
         modifier = Modifier
             .fillMaxWidth()
