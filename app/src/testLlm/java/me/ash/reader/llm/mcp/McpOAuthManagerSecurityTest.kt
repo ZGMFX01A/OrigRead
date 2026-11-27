@@ -66,7 +66,14 @@ class McpOAuthManagerSecurityTest {
                     assertTrue(server.isClosed)
                     if (client != null) {
                         client.soTimeout = 1000
-                        assertEquals(-1, client.getInputStream().read())
+                        val closedImmediately =
+                            try {
+                                client.getInputStream().read() == -1
+                            } catch (_: java.net.SocketException) {
+                                // Linux 关闭未 accept 或被中断的本地监听连接时会发送 TCP RST，同样属于立即关闭。
+                                true
+                            }
+                        assertTrue(closedImmediately)
                     }
                 } finally { client?.close() }
             }
