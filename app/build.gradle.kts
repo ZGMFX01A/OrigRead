@@ -35,7 +35,7 @@ if (debugKeyPropsFile.isFile) debugKeyPropsFile.inputStream().use(debugKeyProps:
 // 在执行任务前检查实际任务图，也覆盖 assemble/bundle 等聚合任务。
 gradle.taskGraph.whenReady {
     val packagesRelease = allTasks.any {
-        it.project == project && Regex("^(assemble|bundle|package).*Release.*$", RegexOption.IGNORE_CASE).matches(it.name)
+        it.project == project && Regex("^(assemble|bundle|package).*Release(UniversalApk|Bundle)?$", RegexOption.IGNORE_CASE).matches(it.name)
     }
     if (packagesRelease) {
         val required = listOf("keyAlias", "keyPassword", "storeFile", "storePassword")

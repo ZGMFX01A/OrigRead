@@ -1,5 +1,5 @@
 name: "Build Pull Request"
-on: pull_request
+on: workflow_dispatch
 
 jobs:
     build:
@@ -13,11 +13,60 @@ jobs:
 
             - uses: gradle/actions/setup-gradle@v4
 
+            - name: Prepare release signing config
+              env:
+                  RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+                  RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+                  RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+                  RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+              run: |
+                  set -euo pipefail
+                  for var in RELEASE_KEYSTORE_BASE64 RELEASE_STORE_PASSWORD RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD; do
+                      if [ -z "${!var:-}" ]; then
+                          echo "::error::Missing required GitHub secret: $var"
+                          exit 1
+                      fi
+                  done
+                  mkdir -p signature
+                  printf '%s' "$RELEASE_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 --decode > signature/release.keystore
+                  chmod 600 signature/release.keystore
+                  python3 - <<'PY'
+                  import os
+                  from pathlib import Path
+
+                  def escape_prop(value: str) -> str:
+                      escaped = (
+                          value.replace("\\", "\\\\")
+                          .replace("\n", "\\n")
+                          .replace("\r", "\\r")
+                          .replace("\t", "\\t")
+                      )
+                      if escaped.startswith((" ", "#", "!")):
+                          escaped = "\\" + escaped
+                      return escaped
+
+                  lines = [
+                      "storeFile=../signature/release.keystore",
+                      f"storePassword={escape_prop(os.environ['RELEASE_STORE_PASSWORD'])}",
+                      f"keyAlias={escape_prop(os.environ['RELEASE_KEY_ALIAS'])}",
+                      f"keyPassword={escape_prop(os.environ['RELEASE_KEY_PASSWORD'])}",
+                  ]
+                  props_path = Path("signature/keystore_release.properties")
+                  props_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+                  PY
+                  chmod 600 signature/keystore_release.properties
+                  test -s signature/release.keystore
+                  test -s signature/keystore_release.properties
+
             - name: Build Standard and LLM APKs
               run: >-
                   ./gradlew
                   assembleStandardGithubRelease
                   assembleLlmGithubRelease
+
+            - name: Clean up release signing config
+              if: ${{ always() }}
+              run: rm -f signature/release.keystore signature/keystore_release.properties
 
             - uses: actions/upload-artifact@v4
               with:
