@@ -249,6 +249,6 @@ constructor(
                 itemIds = listOf(articleId.dollarLast()),
                 mark = if (isStarred) GoogleReaderAPI.Stream.Starred.tag else null,
                 unmark = if (!isStarred) GoogleReaderAPI.Stream.Starred.tag else null,
-            )
+            ).getOrThrow()
     }
 }

@@ -5,6 +5,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TranslationContentProcessorTest {
+
+    @Test fun `plain text and inline nodes are wrapped and renderable`() {
+        listOf("Hello world", "<span>Hello world</span>").forEach { html ->
+            val prepared = processor.prepare(html)
+            org.junit.Assert.assertEquals(listOf("Hello world"), prepared.texts)
+            assertTrue(processor.render(prepared, listOf("你好"), TranslationDisplayMode.TRANSLATED).contains("你好"))
+        }
+    }
+    @Test fun `empty nodes report business error`() {
+        val error = org.junit.Assert.assertThrows(TranslationException::class.java) { processor.prepare("") }
+        org.junit.Assert.assertEquals(TranslationErrorCode.EMPTY_CONTENT, error.code)
+    }
+
     private val processor = TranslationContentProcessor()
 
     @Test

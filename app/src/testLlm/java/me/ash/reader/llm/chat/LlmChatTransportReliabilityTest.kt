@@ -29,6 +29,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class LlmChatTransportReliabilityTest {
+
+    @Test fun `reasoning whitespace deltas survive parsing`() {
+        listOf(" ", "\n", "  \n  ").forEach { chunk ->
+            val delta = org.json.JSONObject().put("reasoning_content", chunk).put("reasoning", "fallback")
+            val payload = org.json.JSONObject().put("choices", org.json.JSONArray().put(org.json.JSONObject().put("delta", delta)))
+            assertEquals(chunk, me.ash.reader.llm.chat.runtime.parseStreamPayload(payload.toString())!!.reasoning)
+        }
+    }
+
     private val messages = listOf(LlmChatRequestMessage(LlmChatRole.USER, "hello"))
     private fun event(content: String) = "data: {\"choices\":[{\"delta\":{\"content\":\"$content\"}}]}\n\n"
     private fun plan(server: MockWebServer, streaming: Boolean = true) = LlmExecutionPlan(

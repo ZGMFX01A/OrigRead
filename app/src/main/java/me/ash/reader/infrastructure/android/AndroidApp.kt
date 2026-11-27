@@ -29,6 +29,7 @@ import me.ash.reader.infrastructure.preference.AutoCheckUpdatesPreference
 import me.ash.reader.infrastructure.preference.SettingsProvider
 import me.ash.reader.infrastructure.rss.OPMLDataSource
 import me.ash.reader.infrastructure.rss.RssHelper
+import me.ash.reader.ui.ext.awaitPreferenceCache
 import me.ash.reader.ui.ext.del
 import me.ash.reader.ui.ext.getLatestApk
 import me.ash.reader.ui.ext.isGitHub
@@ -104,6 +105,7 @@ class AndroidApp : Application(), Configuration.Provider {
             Timber.plant(Timber.DebugTree())
         }
         applicationScope.launch {
+            awaitPreferenceCache()
             accountInit()
             workerInit()
             checkUpdate()
@@ -124,10 +126,8 @@ class AndroidApp : Application(), Configuration.Provider {
     private suspend fun accountInit() {
         withContext(ioDispatcher) {
             if (accountService.isNoAccount()) {
-                launch { accountService.initWithDefaultAccount() }
-                    .invokeOnCompletion {
-                        rssService.get().doSyncOneTime(accountService.getCurrentAccountId())
-                    }
+                accountService.initWithDefaultAccount()
+                rssService.get().doSyncOneTime(accountService.getCurrentAccountId())
             } else {
                 accountService.migrateOrigReadIdentifiers()
             }

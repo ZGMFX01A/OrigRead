@@ -22,6 +22,26 @@ import org.mockito.kotlin.*
 
 /** 调用真实本地同步流程，抓取和 DAO 为边界 mock，事务本身另由设备真实 Room 验证。 */
 class LocalSourceSyncTest {
+
+    @Test fun partialFailureKeepsSuccessfulSourceAndAllowsPostSync() = runBlocking<Unit> {
+        val f = Fixture()
+        val other = f.feed.copy(id = "other", name = "Other")
+        whenever(f.feeds.queryAll(ACCOUNT_ID)).thenReturn(listOf(f.feed, other))
+        whenever(f.feeds.queryArchivedArticles(other.id)).thenReturn(emptyList())
+        whenever(f.source.fetchForSync(eq(f.feed), any())).thenReturn(
+            LocalSourceService.SyncFetchResult(FeedWithArticle(f.feed, emptyList()), failure = IOException("offline")))
+        whenever(f.source.fetchForSync(eq(other), any())).thenReturn(
+            LocalSourceService.SyncFetchResult(FeedWithArticle(other, emptyList())))
+        val result = f.service.sync(ACCOUNT_ID, null, null) as ListenableWorker.Result.Failure
+        assertEquals(1, result.outputData.getInt("failedSources", 0))
+        assertEquals(1, result.outputData.getInt("updatedSources", 0))
+        assertTrue(shouldRunPostSync(result))
+        assertFalse(shouldRunPostSync(ListenableWorker.Result.retry()))
+        assertFalse(shouldRunPostSync(ListenableWorker.Result.failure()))
+        verify(f.articles).insertRssWithCache(eq(emptyList()), eq(other), isNull())
+        verify(f.account, never()).updateSyncTime(any(), any())
+    }
+
     /** 网络失败不是空 Feed 成功，不更新账户同步时间。 */
     @Test fun sourceFailureIsReportedWithoutAdvancingAccountSuccess() = runBlocking<Unit> {
         val fixture = Fixture()

@@ -1,6 +1,7 @@
 package me.ash.reader.llm.selection
 
 import android.app.Activity
+import kotlinx.coroutines.launch
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -68,12 +69,27 @@ internal fun setLlmProcessTextComponentEnabled(
     context: Context,
     enabled: Boolean,
 ) {
-    context.packageManager.setComponentEnabledSetting(
-        ComponentName(context, LlmProcessTextActivity::class.java),
-        if (enabled) PackageManager.COMPONENT_ENABLED_STATE_ENABLED
-        else PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-        PackageManager.DONT_KILL_APP,
-    )
+    val appContext = context.applicationContext
+    componentUpdates.trySend(appContext to enabled).getOrThrow()
+}
+
+private val componentUpdates = kotlinx.coroutines.channels.Channel<Pair<Context, Boolean>>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+private val componentUpdateScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO).also { scope ->
+    scope.launch {
+        for ((context, enabled) in componentUpdates) {
+            try {
+                context.packageManager.setComponentEnabledSetting(
+                    ComponentName(context, LlmProcessTextActivity::class.java),
+                    if (enabled) PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                    else PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                    PackageManager.DONT_KILL_APP,
+                )
+            } catch (error: Exception) {
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                timber.log.Timber.e(error, "Unable to update PROCESS_TEXT component")
+            }
+        }
+    }
 }
 
 /** 防止异常应用向当前阅读页一次性注入超大文本；正文完整上下文仍由 OrigRead 自己提供。 */

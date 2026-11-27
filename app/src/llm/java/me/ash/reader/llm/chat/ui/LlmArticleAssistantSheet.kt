@@ -280,12 +280,16 @@ fun LlmArticleAssistantSheet(
             if (sheetState.isVisible) {
                 if (!citationSheetExitInFlight) {
                     citationSheetExitInFlight = true
-                    onNavigateReaderCitation(request)
                     coroutineScope.launch {
                         try {
+                            onNavigateReaderCitation(request)
                             sheetState.hide()
                         } finally {
-                            onCitationExitAnimationComplete()
+                            try {
+                                onCitationExitAnimationComplete()
+                            } finally {
+                                citationSheetExitInFlight = false
+                            }
                         }
                     }
                 }
@@ -443,7 +447,11 @@ fun LlmArticleAssistantSheet(
             // composer and put the caret there. Ordinary Chat openings keep the existing draft and
             // do not steal focus because selectedText is null on those paths.
             input = selectedText
-            inputFocusRequester.requestFocus()
+            try {
+                inputFocusRequester.requestFocus()
+            } catch (error: IllegalStateException) {
+                timber.log.Timber.w(error, "Chat input is no longer attached")
+            }
         }
     }
     LaunchedEffect(articleAnalysisRequested) {
@@ -775,11 +783,7 @@ fun LlmArticleAssistantSheet(
                     onReasoningEffortChange = viewModel::setReasoningEffort,
                     onQuickMessage = viewModel::sendQuickMessage,
                     onSend = {
-                        val text = input.trim()
-                        if (text.isNotBlank()) {
-                            input = ""
-                            viewModel.sendMessage(text)
-                        }
+                        input = submitChatDraft(input, viewModel::sendMessage)
                     },
                     onStop = viewModel::stopGeneration,
                 )
@@ -2791,7 +2795,7 @@ private fun WebSearchResultsSheet(
                         WebSearchResultCard(
                             result = result,
                             onOpen = { sourceUrl ->
-                                runCatching { uriHandler.openUri(sourceUrl) }
+                                runCatching { uriHandler.openUri(sourceUrl) }.onFailure { timber.log.Timber.w(it, "Unable to open citation source") }
                             },
                         )
                     }
@@ -3134,7 +3138,7 @@ private fun ContextSourcesSheet(
                                 }
                             } ?: ref.sourceUrl?.let { sourceUrl ->
                                 TextButton(
-                                    onClick = { runCatching { uriHandler.openUri(sourceUrl) } },
+                                    onClick = { runCatching { uriHandler.openUri(sourceUrl) }.onFailure { timber.log.Timber.w(it, "Unable to open citation source") } },
                                     modifier = Modifier.align(Alignment.End),
                                 ) {
                                     Text(stringResource(R.string.llm_context_open_source))
@@ -3200,7 +3204,7 @@ private fun ManualToolSheet(
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+            modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
@@ -3330,7 +3334,7 @@ private fun WebSearchModeSheet(
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+            modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(

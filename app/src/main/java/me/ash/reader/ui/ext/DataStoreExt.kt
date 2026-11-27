@@ -6,7 +6,6 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
@@ -14,13 +13,9 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
-import java.io.IOException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.filterNotNull
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
@@ -46,30 +41,16 @@ val Context.languages: Int
 
 suspend fun DataStore<Preferences>.put(dataStoreKeys: String, value: Any) {
     val key = DataStoreKey.keys[dataStoreKeys]?.key ?: return
-    this.edit {
-        withContext(Dispatchers.IO) {
+    cachedPreferences().write {
+        edit { preferences ->
             when (value) {
-                is Int -> {
-                    it[key as Preferences.Key<Int>] = value
-                }
-                is Long -> {
-                    it[key as Preferences.Key<Long>] = value
-                }
-                is String -> {
-                    it[key as Preferences.Key<String>] = value
-                }
-                is Boolean -> {
-                    it[key as Preferences.Key<Boolean>] = value
-                }
-                is Float -> {
-                    it[key as Preferences.Key<Float>] = value
-                }
-                is Double -> {
-                    it[key as Preferences.Key<Double>] = value
-                }
-                else -> {
-                    throw IllegalArgumentException("Unsupported type")
-                }
+                is Int -> preferences[key as Preferences.Key<Int>] = value
+                is Long -> preferences[key as Preferences.Key<Long>] = value
+                is String -> preferences[key as Preferences.Key<String>] = value
+                is Boolean -> preferences[key as Preferences.Key<Boolean>] = value
+                is Float -> preferences[key as Preferences.Key<Float>] = value
+                is Double -> preferences[key as Preferences.Key<Double>] = value
+                else -> throw IllegalArgumentException("Unsupported type")
             }
         }
     }
@@ -87,31 +68,33 @@ suspend fun String.restoreConfigurationPreferences(context: Context) {
     // 先完整校验类型，避免清空现有偏好后才发现备份内容无效。
     validateConfigurationPreferencesJSONString()
 
-    context.dataStore.edit { preferences ->
-        PreferencesKey.keys.values
-            .filter { it.name !in ignorePreferencesOnConfigurationBackup }
-            .forEach { key ->
-                when (key) {
-                    is PreferencesKey.BooleanKey -> preferences.remove(key.key)
-                    is PreferencesKey.FloatKey -> preferences.remove(key.key)
-                    is PreferencesKey.IntKey -> preferences.remove(key.key)
-                    is PreferencesKey.LongKey -> preferences.remove(key.key)
-                    is PreferencesKey.StringKey -> preferences.remove(key.key)
+    context.dataStore.cachedPreferences().write {
+        context.dataStore.edit { preferences ->
+            PreferencesKey.keys.values
+                .filter { it.name !in ignorePreferencesOnConfigurationBackup }
+                .forEach { key ->
+                    when (key) {
+                        is PreferencesKey.BooleanKey -> preferences.remove(key.key)
+                        is PreferencesKey.FloatKey -> preferences.remove(key.key)
+                        is PreferencesKey.IntKey -> preferences.remove(key.key)
+                        is PreferencesKey.LongKey -> preferences.remove(key.key)
+                        is PreferencesKey.StringKey -> preferences.remove(key.key)
+                    }
                 }
-            }
 
-        deserializedMap
-            .filterKeys { it !in ignorePreferencesOnConfigurationBackup }
-            .forEach { (keyString, value) ->
-                when (val key = PreferencesKey.keys[keyString]) {
-                    is PreferencesKey.BooleanKey -> preferences[key.key] = value as Boolean
-                    is PreferencesKey.FloatKey -> preferences[key.key] = (value as Number).toFloat()
-                    is PreferencesKey.IntKey -> preferences[key.key] = (value as Number).toInt()
-                    is PreferencesKey.LongKey -> preferences[key.key] = (value as Number).toLong()
-                    is PreferencesKey.StringKey -> preferences[key.key] = value as String
-                    null -> Unit
+            deserializedMap
+                .filterKeys { it !in ignorePreferencesOnConfigurationBackup }
+                .forEach { (keyString, value) ->
+                    when (val key = PreferencesKey.keys[keyString]) {
+                        is PreferencesKey.BooleanKey -> preferences[key.key] = value as Boolean
+                        is PreferencesKey.FloatKey -> preferences[key.key] = (value as Number).toFloat()
+                        is PreferencesKey.IntKey -> preferences[key.key] = (value as Number).toInt()
+                        is PreferencesKey.LongKey -> preferences[key.key] = (value as Number).toLong()
+                        is PreferencesKey.StringKey -> preferences[key.key] = value as String
+                        null -> Unit
+                    }
                 }
-            }
+        }
     }
 }
 
@@ -145,22 +128,27 @@ fun String.validateConfigurationPreferencesJSONString() {
         }
 }
 
+private val preferenceCacheScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+private val preferenceCaches = java.util.WeakHashMap<DataStore<Preferences>, PreferenceSnapshotCache>()
+
+@Synchronized
+private fun DataStore<Preferences>.cachedPreferences(): PreferenceSnapshotCache =
+    preferenceCaches.getOrPut(this) {
+        PreferenceSnapshotCache(this, preferenceCacheScope) { error ->
+            Log.e("RLog", "Unable to read preferences", error)
+        }
+    }
+
+/** Startup awaits the first disk snapshot without blocking the UI thread. */
+suspend fun Context.awaitPreferenceCache() {
+    dataStore.cachedPreferences().values.filterNotNull().first()
+}
+
 @Suppress("UNCHECKED_CAST")
 fun <T> DataStore<Preferences>.get(key: String): T? {
-    return runBlocking {
-        this@get.data
-            .catch { exception ->
-                if (exception is IOException) {
-                    Log.e("RLog", "Get data store error $exception")
-                    exception.printStackTrace()
-                    emit(emptyPreferences())
-                } else {
-                    throw exception
-                }
-            }
-            .map { it[DataStoreKey.keys[key]?.key as Preferences.Key<T>] }
-            .first() as T
-    }
+    val preferences = checkNotNull(cachedPreferences().values.value) { "Preferences have not loaded yet" }
+    val typedKey = DataStoreKey.keys[key]?.key as? Preferences.Key<T> ?: return null
+    return preferences[typedKey]
 }
 
 sealed interface PreferencesKey {

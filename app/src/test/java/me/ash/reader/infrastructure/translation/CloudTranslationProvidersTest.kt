@@ -18,6 +18,22 @@ import org.junit.Before
 import org.junit.Test
 
 class CloudTranslationProvidersTest {
+
+    @Test fun `malformed and missing json fields use translation error contract`() = runBlocking {
+        val providers = listOf(MicrosoftTranslationProvider(httpClient), DeepLTranslationProvider(httpClient), GoogleCloudTranslationProvider(httpClient), DlxTranslationProvider(httpClient))
+        for (provider in providers) {
+            for (body in listOf("not-json", "{}")) {
+                server.enqueue(MockResponse().setBody(body))
+                try {
+                    provider.translate(listOf("Hello"), null, "zh", TranslationRuntimeConfig(server.url("/").toString().trimEnd('/'), "", "key"))
+                    fail("invalid response accepted by ${provider.type}")
+                } catch (error: TranslationException) {
+                    assertEquals(TranslationErrorCode.INVALID_RESPONSE, error.code)
+                }
+            }
+        }
+    }
+
     private lateinit var server: MockWebServer
     private lateinit var httpClient: TranslationHttpClient
 

@@ -1,5 +1,8 @@
 package me.ash.reader.domain.data
 
+import java.security.MessageDigest
+import me.ash.reader.infrastructure.coroutines.suspendRunCatching
+import timber.log.Timber
 import android.content.Context
 import androidx.annotation.Keep
 import androidx.compose.runtime.mutableStateMapOf
@@ -51,6 +54,8 @@ class DiffMapHolder @Inject constructor(
 ) {
     val diffMap = mutableStateMapOf<String, Diff>()
 
+    private val modifiedArticleIds = mutableSetOf<String>()
+    private var remoteRetryAttempt = 0
     private val pendingDbDiffs = mutableMapOf<String, PendingDbDiff>()
     private val syncState = DiffSyncState()
     private val stateLock = Any()
@@ -75,6 +80,8 @@ class DiffMapHolder @Inject constructor(
             DiffMapSnapshot(
                 diffs = diffMap.toMap(),
                 pendingDbDiffs = pendingDbDiffs.mapValues { it.value.diff },
+                pendingRemoteDiffs = syncState.pending.toMap(),
+                cacheIdentity = currentAccount?.let(::diffCacheIdentity),
                 cacheDir = userCacheDir,
                 cacheToken = CacheWriteToken(sessionGeneration, revision),
             )
@@ -154,12 +161,16 @@ class DiffMapHolder @Inject constructor(
             val snapshot = DiffMapSnapshot(
                 diffs = diffMap.toMap(),
                 pendingDbDiffs = pendingDbDiffs.mapValues { it.value.diff },
+                pendingRemoteDiffs = syncState.pending.toMap(),
+                cacheIdentity = currentAccount?.let(::diffCacheIdentity),
                 cacheDir = userCacheDir,
                 cacheToken = CacheWriteToken(sessionGeneration, revision),
             )
             sessionGeneration++
             diffMap.clear()
             pendingDbDiffs.clear()
+            modifiedArticleIds.clear()
+            remoteRetryAttempt = 0
             syncState.clear()
             revision = 0L
             jobs to snapshot
@@ -169,6 +180,8 @@ class DiffMapHolder @Inject constructor(
         writeDiffsToCache(
             diffs = oldState.diffs,
             pendingDbDiffs = oldState.pendingDbDiffs,
+            pendingRemoteDiffs = oldState.pendingRemoteDiffs,
+            cacheIdentity = oldState.cacheIdentity,
             targetCacheDir = oldState.cacheDir,
             cacheToken = oldState.cacheToken,
         )
@@ -177,10 +190,12 @@ class DiffMapHolder @Inject constructor(
     private fun commitOnChange() {
         dbJob = applicationScope.launch(ioDispatcher) {
             diffMapSnapshotWithRevisionFlow.debounce(2_000).collect { snapshot ->
-                if (snapshot.diffs.isNotEmpty() || snapshot.pendingDbDiffs.isNotEmpty()) {
+                if (snapshot.diffs.isNotEmpty() || snapshot.pendingDbDiffs.isNotEmpty() || snapshot.pendingRemoteDiffs.isNotEmpty()) {
                     writeDiffsToCache(
                         diffs = snapshot.diffs,
                         pendingDbDiffs = snapshot.pendingDbDiffs,
+                        pendingRemoteDiffs = snapshot.pendingRemoteDiffs,
+                        cacheIdentity = snapshot.cacheIdentity,
                         targetCacheDir = snapshot.cacheDir,
                         cacheToken = snapshot.cacheToken,
                     )
@@ -195,6 +210,7 @@ class DiffMapHolder @Inject constructor(
                 CommitContext(
                     accountId = it,
                     accountTypeId = account.type.id,
+                    cacheIdentity = diffCacheIdentity(account),
                     sessionGeneration = sessionGeneration,
                     cacheDir = userCacheDir,
                 )
@@ -269,6 +285,8 @@ class DiffMapHolder @Inject constructor(
             diffMap[articleId] = diff
         }
 
+        modifiedArticleIds += articleId
+        remoteRetryAttempt = 0
         revision++
         pendingDbDiffs[articleId] = PendingDbDiff(diff = diff, revision = revision)
         return diff
@@ -316,6 +334,7 @@ class DiffMapHolder @Inject constructor(
                     CommitContext(
                         accountId = it,
                         accountTypeId = account.type.id,
+                        cacheIdentity = diffCacheIdentity(account),
                         sessionGeneration = sessionGeneration,
                         cacheDir = userCacheDir,
                     )
@@ -376,6 +395,8 @@ class DiffMapHolder @Inject constructor(
                 DiffMapSnapshot(
                     diffs = diffMap.toMap(),
                     pendingDbDiffs = pendingDbDiffs.mapValues { it.value.diff },
+                    pendingRemoteDiffs = syncState.pending.toMap(),
+                    cacheIdentity = currentAccount?.let(::diffCacheIdentity),
                     cacheDir = userCacheDir,
                     cacheToken = CacheWriteToken(sessionGeneration, revision),
                 )
@@ -383,6 +404,8 @@ class DiffMapHolder @Inject constructor(
             writeDiffsToCache(
                 diffs = remainingSnapshot.diffs,
                 pendingDbDiffs = remainingSnapshot.pendingDbDiffs,
+                pendingRemoteDiffs = remainingSnapshot.pendingRemoteDiffs,
+                cacheIdentity = remainingSnapshot.cacheIdentity,
                 targetCacheDir = remainingSnapshot.cacheDir,
                 cacheToken = remainingSnapshot.cacheToken,
             )
@@ -395,6 +418,8 @@ class DiffMapHolder @Inject constructor(
             DiffMapSnapshot(
                 diffs = diffMap.toMap(),
                 pendingDbDiffs = pendingDbDiffs.mapValues { it.value.diff },
+                pendingRemoteDiffs = syncState.pending.toMap(),
+                cacheIdentity = currentAccount?.let(::diffCacheIdentity),
                 cacheDir = context.cacheDir,
                 cacheToken = CacheWriteToken(context.sessionGeneration, revision),
             )
@@ -402,6 +427,8 @@ class DiffMapHolder @Inject constructor(
         writeDiffsToCache(
             diffs = snapshot.diffs,
             pendingDbDiffs = snapshot.pendingDbDiffs,
+            pendingRemoteDiffs = snapshot.pendingRemoteDiffs,
+            cacheIdentity = snapshot.cacheIdentity,
             targetCacheDir = snapshot.cacheDir,
             cacheToken = snapshot.cacheToken,
         )
@@ -410,6 +437,8 @@ class DiffMapHolder @Inject constructor(
     private suspend fun writeDiffsToCache(
         diffs: Map<String, Diff>,
         pendingDbDiffs: Map<String, Diff> = emptyMap(),
+        pendingRemoteDiffs: Map<String, Diff> = emptyMap(),
+        cacheIdentity: String? = null,
         targetCacheDir: File = userCacheDir,
         cacheToken: CacheWriteToken? = null,
     ) {
@@ -424,7 +453,7 @@ class DiffMapHolder @Inject constructor(
                     ) {
                         return@withContext
                     }
-                    if (diffs.isEmpty() && pendingDbDiffs.isEmpty()) {
+                    if (diffs.isEmpty() && pendingDbDiffs.isEmpty() && pendingRemoteDiffs.isEmpty()) {
                         if (targetCacheFile.exists() && !targetCacheFile.delete()) {
                             return@withContext
                         }
@@ -438,6 +467,8 @@ class DiffMapHolder @Inject constructor(
                         StoredDiffs(
                             diffs = diffs,
                             pendingDbDiffs = pendingDbDiffs,
+                            pendingRemoteDiffs = pendingRemoteDiffs,
+                            cacheIdentity = cacheIdentity,
                         )
                     )
                     targetCacheDir.mkdirs()
@@ -500,11 +531,11 @@ class DiffMapHolder @Inject constructor(
                     account = account,
                 )
             }
-            runCatching { read.await() }.getOrElse { error ->
-                if (error is CancellationException) throw error
+            suspendRunCatching { read.await() }.getOrElse { error ->
+                Timber.w(error, "远端阅读状态同步失败")
                 emptySet()
-            } + runCatching { unread.await() }.getOrElse { error ->
-                if (error is CancellationException) throw error
+            } + suspendRunCatching { unread.await() }.getOrElse { error ->
+                Timber.w(error, "远端阅读状态同步失败")
                 emptySet()
             }
         }
@@ -513,9 +544,12 @@ class DiffMapHolder @Inject constructor(
             synchronized(stateLock) {
                 if (!isCurrentSessionLocked(context)) return
                 syncState.complete(toBeSync, synced)
+                revision++
+                if (syncState.pending.isEmpty()) remoteRetryAttempt = 0
             }
         }
 
+        persistCurrentState(context)
         if (synced.size < toBeSync.size && isCurrentSession(context)) {
             scheduleRemoteRetry(account, context)
         }
@@ -528,12 +562,15 @@ class DiffMapHolder @Inject constructor(
                 remoteRetryRequested = true
                 return
             }
+            // 有界指数退避，失败状态仍留在缓存，等待下次显式同步或用户操作。
+            val retryDelay = remoteDiffRetryDelay(remoteRetryAttempt) ?: return
+            remoteRetryAttempt++
             val retryToken = Any()
             remoteRetryRequested = false
             remoteRetryToken = retryToken
             remoteRetryJob = applicationScope.launch(ioDispatcher) {
                 try {
-                    delay(5_000)
+                    delay(retryDelay)
                     if (isCurrentSession(context)) {
                         val pending = synchronized(stateLock) {
                             syncState.pending.toMap()
@@ -569,6 +606,7 @@ class DiffMapHolder @Inject constructor(
                     CommitContext(
                         accountId = it,
                         accountTypeId = account.type.id,
+                        cacheIdentity = diffCacheIdentity(account),
                         sessionGeneration = sessionGeneration,
                         cacheDir = userCacheDir,
                     )
@@ -578,7 +616,7 @@ class DiffMapHolder @Inject constructor(
 
         cacheRestoreJob = applicationScope.launch(ioDispatcher) {
             val targetCacheFile = context.cacheDir.resolve("diff_map.json")
-            val storedDiffs = runCatching {
+            val storedDiffs = suspendRunCatching {
                 if (targetCacheFile.exists() && targetCacheFile.canRead()) {
                     val tmpJson = targetCacheFile.readText()
                     if (JsonParser.parseString(tmpJson).asJsonObject.has("diffs")) {
@@ -591,23 +629,28 @@ class DiffMapHolder @Inject constructor(
                 } else {
                     null
                 }
-            }.getOrNull()
+            }.onFailure { Timber.w(it, "差分缓存恢复失败") }.getOrNull()
+                // 无身份旧缓存只兼容既有本地恢复；新格式绝不跨账号类型或凭据恢复。
+                ?.takeIf { it.cacheIdentity == null || it.cacheIdentity == context.cacheIdentity }
 
             synchronized(stateLock) {
                 if (!isCurrentSessionLocked(context)) return@launch
-                if (diffMap.isEmpty() && pendingDbDiffs.isEmpty()) {
-                    storedDiffs?.diffs.orEmpty().forEach { (articleId, diff) ->
-                        diffMap[articleId] = diff
-                    }
-                    val pending = storedDiffs?.pendingDbDiffs.orEmpty()
-                        .ifEmpty { storedDiffs?.diffs.orEmpty() }
-                    pending.forEach { (articleId, diff) ->
+                // 磁盘读取期间产生的新操作优先；不能因为已有一项内存状态而丢掉其余缓存项。
+                storedDiffs?.diffs.orEmpty().forEach { (articleId, diff) ->
+                    if (articleId !in modifiedArticleIds) diffMap.putIfAbsent(articleId, diff)
+                }
+                val pending = storedDiffs?.pendingDbDiffs.orEmpty()
+                    .ifEmpty { storedDiffs?.diffs.orEmpty() }
+                pending.forEach { (articleId, diff) ->
+                    if (articleId !in modifiedArticleIds && articleId !in pendingDbDiffs) {
                         revision++
-                        pendingDbDiffs[articleId] = PendingDbDiff(
-                            diff = diff,
-                            revision = revision,
-                        )
+                        pendingDbDiffs[articleId] = PendingDbDiff(diff, revision)
                     }
+                }
+                // 旧缓存无法证明远端凭据归属，只恢复本地数据，不能用当前凭据重放旧操作。
+                if (shouldSyncWithRemote && storedDiffs?.cacheIdentity == context.cacheIdentity) {
+                    syncState.restore((storedDiffs?.diffs.orEmpty() + pending + storedDiffs?.pendingRemoteDiffs.orEmpty())
+                        .filterKeys { it !in modifiedArticleIds })
                 }
             }
             commitDiffsToDb()
@@ -631,6 +674,8 @@ class DiffMapHolder @Inject constructor(
     private data class DiffMapSnapshot(
         val diffs: Map<String, Diff>,
         val pendingDbDiffs: Map<String, Diff>,
+        val pendingRemoteDiffs: Map<String, Diff>,
+        val cacheIdentity: String?,
         val cacheDir: File,
         val cacheToken: CacheWriteToken,
     )
@@ -641,11 +686,16 @@ class DiffMapHolder @Inject constructor(
         val diffs: Map<String, Diff>? = null,
         @field:SerializedName("pendingDbDiffs")
         val pendingDbDiffs: Map<String, Diff>? = null,
+        @field:SerializedName("pendingRemoteDiffs")
+        val pendingRemoteDiffs: Map<String, Diff>? = null,
+        @field:SerializedName("cacheIdentity")
+        val cacheIdentity: String? = null,
     )
 
     private data class CommitContext(
         val accountId: Int,
         val accountTypeId: Int,
+        val cacheIdentity: String,
         val sessionGeneration: Long,
         val cacheDir: File,
     )
@@ -691,6 +741,13 @@ internal class DiffSyncState {
         }
     }
 
+    /** 只补充尚未在当前会话操作或同步过的条目，内存操作永远优先于旧缓存。 */
+    fun restore(cached: Map<String, Diff>) {
+        cached.forEach { (id, diff) ->
+            if (id !in pending && id !in inFlight && id !in synced) pending[id] = diff
+        }
+    }
+
     fun begin(snapshot: Map<String, Diff>): Map<String, Diff> {
         return snapshot.filter { (articleId, diff) -> pending[articleId] == diff }
             .also { current ->
@@ -719,3 +776,12 @@ internal class DiffSyncState {
         synced.clear()
     }
 }
+
+/** 自动重试最多五次，保留失败数据供下一次显式同步；不会常驻五秒死循环。 */
+internal fun remoteDiffRetryDelay(attempt: Int): Long? =
+    if (attempt in 0 until 5) 5_000L * (1L shl attempt) else null
+
+internal fun diffCacheIdentity(account: Account): String =
+    MessageDigest.getInstance("SHA-256")
+        .digest("${account.type.id}:${account.securityKey?.let { "value:$it" } ?: "null"}".toByteArray(Charsets.UTF_8))
+        .joinToString("") { "%02x".format(it) }

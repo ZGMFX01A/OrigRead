@@ -12,8 +12,67 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.coroutines.async
+import kotlinx.coroutines.test.runCurrent
 
 class LlmSkillFoundationTest {
+    @Test
+    fun `runtime skill lookup waits for asynchronous initial disk snapshot`() = kotlinx.coroutines.test.runTest {
+        val dispatcher = kotlinx.coroutines.test.StandardTestDispatcher(testScheduler)
+        val directory = java.nio.file.Files.createTempDirectory("p2-b-skill-load").toFile()
+        try {
+            directory.resolve("llm-skills").mkdirs()
+            directory.resolve("llm-skills/state.json").writeText(
+                """{"skills":[{"id":"saved-skill","description":"Persisted skill","enabled":true,"instructions":"Apply persisted instructions"}]}"""
+            )
+            val context = org.mockito.kotlin.mock<android.content.Context>()
+            org.mockito.kotlin.whenever(context.filesDir).thenReturn(directory)
+            org.mockito.Mockito.mockStatic(android.os.Looper::class.java).use {
+                val repository = LlmSkillRepository(context, dispatcher)
+                org.mockito.kotlin.verify(context, org.mockito.kotlin.never()).filesDir
+                assertTrue(repository.current().skills.isEmpty())
+                assertThrows(IllegalStateException::class.java) { repository.loadedActiveSkill("saved-skill") }
+                val lookup = async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                    repository.activeSkill("saved-skill")
+                }
+                assertFalse(lookup.isCompleted)
+                runCurrent()
+                assertEquals("Apply persisted instructions", lookup.await()?.instructions)
+                assertEquals("saved-skill", repository.loadedActiveSkill("saved-skill")?.id)
+            }
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `reader hosts only toggle component at ownership boundaries`() {
+        val boundaries = mutableListOf<Boolean>()
+        val hosts = me.ash.reader.llm.selection.ActiveReaderHosts { boundaries += it }
+        hosts.acquire()
+        hosts.acquire()
+        hosts.release()
+        assertEquals(listOf(true), boundaries)
+        hosts.release()
+        hosts.acquire()
+        hosts.release()
+        assertEquals(listOf(true, false, true, false), boundaries)
+        assertThrows(IllegalStateException::class.java) { hosts.release() }
+    }
+
+    @Test
+    fun `context budget preserves exact lower bound and rejects overflow`() {
+        val minimum = me.ash.reader.llm.settings.LlmSettingsRepository.MIN_CONTEXT_TOKENS
+        assertEquals("4.096", me.ash.reader.llm.settings.formatContextBudgetK(minimum))
+        assertEquals(minimum, me.ash.reader.llm.settings.parseContextBudgetK("4.096"))
+        org.junit.Assert.assertNull(me.ash.reader.llm.settings.parseContextBudgetK("4"))
+        org.junit.Assert.assertNull(me.ash.reader.llm.settings.parseContextBudgetK("4.095"))
+        org.junit.Assert.assertNull(me.ash.reader.llm.settings.parseContextBudgetK("999999999999999999999999"))
+        assertEquals(128000, me.ash.reader.llm.settings.parseContextBudgetK("128"))
+        val maximum = me.ash.reader.llm.settings.LlmSettingsRepository.MAX_CONTEXT_TOKENS
+        assertEquals(maximum, me.ash.reader.llm.settings.parseContextBudgetK(me.ash.reader.llm.settings.formatContextBudgetK(maximum)))
+    }
+
     @Test
     fun `skill parser accepts portable frontmatter and metadata`() {
         val parsed =

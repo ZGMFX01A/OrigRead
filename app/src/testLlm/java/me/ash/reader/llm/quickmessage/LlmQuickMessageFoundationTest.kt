@@ -8,6 +8,19 @@ import org.junit.Test
 
 class LlmQuickMessageFoundationTest {
     @Test
+    fun `save failure without message is never success`() {
+        val result = quickMessageSaveResult { throw IllegalStateException() }
+        assertTrue(result is SaveResult.Failure)
+        assertTrue((result as SaveResult.Failure).message.isNotBlank())
+        assertEquals(SaveResult.Success, quickMessageSaveResult {})
+    }
+
+    @Test(expected = java.util.concurrent.CancellationException::class)
+    fun `save cancellation propagates`() {
+        quickMessageSaveResult { throw java.util.concurrent.CancellationException() }
+    }
+
+    @Test
     fun `template resolves original article variables from current snapshot`() {
         val result =
             resolveQuickMessageTemplate(

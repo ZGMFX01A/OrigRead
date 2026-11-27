@@ -1,5 +1,13 @@
 package me.ash.reader.llm.mcp
 
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.ensureActive
+import java.util.concurrent.atomic.AtomicReference
+import java.io.IOException
+import timber.log.Timber
 import me.ash.reader.infrastructure.json.optCleanString
 import me.ash.reader.infrastructure.json.optNullableString
 import me.ash.reader.infrastructure.network.EndpointPolicy
@@ -117,7 +125,7 @@ class McpOAuthManager @Inject constructor(
                 )
 
             openAuthorizationUrl(authorizationUrl)
-            val callback = withContext(ioDispatcher) { awaitLoopbackCallback(callbackServer) }
+            val callback = withContext(ioDispatcher) { awaitLoopbackCallback(callbackServer, state) }
             validateAuthorizationCallback(
                 callback = callback,
                 expectedState = state,
@@ -624,30 +632,65 @@ private fun createLoopbackServer(): ServerSocket =
  * 浏览器可能先发 favicon、预连接或空探测；这些请求必须独立失败并继续监听，不能让首个伴随请求提前关闭
  * 整个 OAuth callback Server。总等待时间仍严格受 [OAUTH_CALLBACK_TIMEOUT_MS] 限制。
  */
-internal fun awaitLoopbackCallback(server: ServerSocket): McpOAuthCallback {
+internal suspend fun awaitLoopbackCallback(server: ServerSocket, expectedState: String): McpOAuthCallback =
+    suspendCancellableCoroutine { continuation ->
+        val activeClient = AtomicReference<java.net.Socket?>()
+        // 取消线程直接关闭 socket，不能依赖被 accept/read 占住的 IO dispatcher 再执行清理。
+        continuation.invokeOnCancellation {
+            closeLoopbackSocket(server)
+            activeClient.getAndSet(null)?.let(::closeLoopbackSocket)
+        }
+        try {
+            val callback = readLoopbackCallback(server, expectedState, activeClient, continuation.context)
+            continuation.resume(callback)
+        } catch (error: IOException) {
+            continuation.context.ensureActive()
+            continuation.resumeWithException(error)
+        } finally {
+            closeLoopbackSocket(server)
+            activeClient.getAndSet(null)?.let(::closeLoopbackSocket)
+        }
+    }
+
+private fun closeLoopbackSocket(socket: java.io.Closeable) {
+    try {
+        socket.close()
+    } catch (error: IOException) {
+        Timber.w(error, "OAuth loopback socket 关闭失败")
+    }
+}
+
+private fun readLoopbackCallback(
+    server: ServerSocket,
+    expectedState: String,
+    activeClient: AtomicReference<java.net.Socket?>,
+    coroutineContext: CoroutineContext,
+): McpOAuthCallback {
     val deadlineNanos = System.nanoTime() + OAUTH_CALLBACK_TIMEOUT_MS * 1_000_000L
     while (true) {
+        coroutineContext.ensureActive()
         val remainingNanos = deadlineNanos - System.nanoTime()
         if (remainingNanos <= 0L) throw McpException("OAuth callback 等待超时")
-        val remainingMillis =
-            (remainingNanos / 1_000_000L)
-                .coerceAtLeast(1L)
-                .coerceAtMost(Int.MAX_VALUE.toLong())
-                .toInt()
+        val remainingMillis = (remainingNanos / 1_000_000L).coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
         server.soTimeout = remainingMillis
-
-        val socket =
-            try {
-                server.accept()
-            } catch (error: SocketTimeoutException) {
-                throw McpException("OAuth callback 等待超时", error)
-            }
+        val socket = try {
+            server.accept()
+        } catch (error: SocketTimeoutException) {
+            throw McpException("OAuth callback 等待超时", error)
+        }
+        activeClient.set(socket)
         socket.use { client ->
+            coroutineContext.ensureActive()
             client.soTimeout = minOf(OAUTH_CALLBACK_CLIENT_READ_TIMEOUT_MS, remainingMillis)
-            val reader = client.getInputStream().bufferedReader(StandardCharsets.UTF_8)
-            val firstLine = runCatching { reader.readLine().orEmpty() }.getOrNull().orEmpty()
-            val requestParts = firstLine.split(' ', limit = 3)
-            if (requestParts.size < 2) {
+            val firstLine = try {
+                readBoundedLoopbackLine(client.getInputStream().bufferedReader(StandardCharsets.UTF_8))
+            } catch (error: IOException) {
+                coroutineContext.ensureActive()
+                Timber.d(error, "OAuth loopback 请求读取失败")
+                null
+            }
+            val requestParts = firstLine?.split(' ', limit = 3)
+            if (requestParts == null || requestParts.size != 3) {
                 writeLoopbackResponse(client, "400 Bad Request", "Invalid OAuth callback request.")
                 return@use
             }
@@ -655,9 +698,9 @@ internal fun awaitLoopbackCallback(server: ServerSocket): McpOAuthCallback {
                 writeLoopbackResponse(client, "405 Method Not Allowed", "Only GET is supported.")
                 return@use
             }
-
-            val uri = runCatching { URI(requestParts[1]) }.getOrNull()
-            if (uri == null) {
+            val uri = try {
+                URI(requestParts[1])
+            } catch (error: java.net.URISyntaxException) {
                 writeLoopbackResponse(client, "400 Bad Request", "Invalid OAuth callback request.")
                 return@use
             }
@@ -665,26 +708,34 @@ internal fun awaitLoopbackCallback(server: ServerSocket): McpOAuthCallback {
                 writeLoopbackResponse(client, "404 Not Found", "Not found.")
                 return@use
             }
-
-            val params = runCatching { parseQuery(uri.rawQuery) }.getOrNull()
-            if (params == null) {
+            val params = try {
+                parseQuery(uri.rawQuery)
+            } catch (error: IllegalArgumentException) {
                 writeLoopbackResponse(client, "400 Bad Request", "Invalid OAuth callback query.")
                 return@use
             }
-            writeLoopbackResponse(
-                client,
-                "200 OK",
-                "Authorization completed. You can return to OrigRead.",
-            )
-            return McpOAuthCallback(
-                code = params["code"],
-                state = params["state"],
-                issuer = params["iss"],
-                error = params["error"],
-                errorDescription = params["error_description"],
-            )
+            // 未匹配当前授权会话的本地探测不得消费真正的授权响应。
+            if (params["state"] != expectedState ||
+                (params["code"].isNullOrBlank() && params["error"].isNullOrBlank())) {
+                writeLoopbackResponse(client, "400 Bad Request", "Invalid OAuth callback state or response.")
+                return@use
+            }
+            writeLoopbackResponse(client, "200 OK", "Authorization completed. You can return to OrigRead.")
+            return McpOAuthCallback(params["code"], params["state"], params["iss"], params["error"], params["error_description"])
         }
+        activeClient.compareAndSet(socket, null)
     }
+}
+
+/** 首行最多 8192 字符，超限立即拒绝，不等待对端继续发送。 */
+private fun readBoundedLoopbackLine(reader: java.io.Reader): String? {
+    val line = StringBuilder()
+    while (line.length <= 8192) {
+        val next = reader.read()
+        if (next == -1 || next == '\n'.code) return line.toString().removeSuffix("\r")
+        line.append(next.toChar())
+    }
+    return null
 }
 
 /** 浏览器伴随请求的响应失败不能反向中断 OAuth 监听，因此这里采用 best-effort 写回。 */
@@ -693,7 +744,7 @@ private fun writeLoopbackResponse(
     status: String,
     body: String,
 ) {
-    runCatching {
+    try {
         val bytes = body.toByteArray(StandardCharsets.UTF_8)
         val writer = client.getOutputStream().bufferedWriter(StandardCharsets.UTF_8)
         writer.write("HTTP/1.1 $status\r\n")
@@ -702,6 +753,8 @@ private fun writeLoopbackResponse(
         writer.write("Connection: close\r\n\r\n")
         writer.write(body)
         writer.flush()
+    } catch (error: IOException) {
+        Timber.d(error, "OAuth loopback 响应写回失败")
     }
 }
 

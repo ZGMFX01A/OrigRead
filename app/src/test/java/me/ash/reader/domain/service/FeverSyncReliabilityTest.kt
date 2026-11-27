@@ -113,6 +113,18 @@ class FeverSyncReliabilityTest {
         verify(f.accounts, never()).update(any())
     }
 
+    @Test fun defaultGroupMarksOnlyItsFeedsWithoutNumericGroupParsing() = runBlocking<Unit> {
+        val f = Fixture(); f.setup()
+        whenever(f.accounts.getCurrentAccountId()).thenReturn(7)
+        doReturn(f.api).whenever(f.service).getFeverAPI(null)
+        val feed = me.ash.reader.domain.model.feed.Feed("7$42", "Feed", null, "https://example.com", "7\$default", 7)
+        whenever(f.feeds.queryByGroupId(7, "7\$default")).thenReturn(listOf(feed))
+        f.service.markAsRead("7\$default", null, null, java.util.Date(1000), false)
+        verify(f.api, never()).markGroup(any(), any(), any())
+        verify(f.api).markFeed(FeverDTO.StatusEnum.Read, 42L, 1L)
+        verify(f.feeds, never()).queryAll(7)
+    }
+
     private inner class Fixture {
         val account = Account(7, "Fever", AccountType.Fever)
         val accounts = mock<AccountService>()

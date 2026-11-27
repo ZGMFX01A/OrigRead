@@ -9,6 +9,22 @@ import org.junit.Test
 
 class DynamicWebsiteRenderPolicyTest {
     @Test
+    fun `js content cropping is limited to Wechat domain boundaries`() {
+        listOf("https://mp.weixin.qq.com/s?id=1", "https://weixin.qq.com/", "https://MP.WEIXIN.QQ.COM/s")
+            .forEach {
+                assertTrue(it, DynamicWebsiteRenderPolicy.allowsWechatContentCrop(it))
+                assertTrue(DynamicWebsiteRenderPolicy.captureDomScript(it, 750000).contains("var wechatContent = document.querySelector('#js_content');"))
+            }
+        listOf("https://example.com/js_content", "https://weixin.qq.com.evil.test/", "https://evilweixin.qq.com/", "file://weixin.qq.com/a", "invalid")
+            .forEach {
+                assertFalse(it, DynamicWebsiteRenderPolicy.allowsWechatContentCrop(it))
+                val script = DynamicWebsiteRenderPolicy.captureDomScript(it, 750000)
+                assertTrue(script.contains("var wechatContent = null;"))
+                assertFalse(script.contains("querySelector('#js_content')"))
+            }
+    }
+
+    @Test
     fun `allows only http same site navigation`() {
         val initial = "https://news.example.com/list"
 

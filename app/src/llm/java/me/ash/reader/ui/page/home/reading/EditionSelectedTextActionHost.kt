@@ -22,11 +22,12 @@ internal fun EditionSelectedTextActionHost(
     enabled: Boolean,
     onSelectedText: (String) -> Unit,
 ) {
-    val context = LocalContext.current
+    val context = LocalContext.current.applicationContext
     val lifecycleOwner = LocalLifecycleOwner.current
     val latestOnSelectedText = rememberUpdatedState(onSelectedText)
 
     DisposableEffect(enabled, lifecycleOwner, context) {
+        val hosts = processTextHosts(context)
         var registered = false
 
         fun updateRegistration(active: Boolean) {
@@ -34,10 +35,11 @@ internal fun EditionSelectedTextActionHost(
             registered = active
             if (active) {
                 LlmSelectedTextBridge.registerReader()
+                hosts.acquire()
             } else {
                 LlmSelectedTextBridge.unregisterReader()
+                hosts.release()
             }
-            setLlmProcessTextComponentEnabled(context, active)
         }
 
         val observer =
@@ -70,3 +72,11 @@ internal fun EditionSelectedTextActionHost(
         }
     }
 }
+
+private var sharedHosts: me.ash.reader.llm.selection.ActiveReaderHosts? = null
+
+@Synchronized
+private fun processTextHosts(context: android.content.Context): me.ash.reader.llm.selection.ActiveReaderHosts =
+    sharedHosts ?: me.ash.reader.llm.selection.ActiveReaderHosts { enabled ->
+        setLlmProcessTextComponentEnabled(context, enabled)
+    }.also { sharedHosts = it }

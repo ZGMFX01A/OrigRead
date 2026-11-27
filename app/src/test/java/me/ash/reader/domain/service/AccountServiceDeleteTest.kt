@@ -64,6 +64,9 @@ class AccountServiceDeleteTest {
 
     // 仅提供临时测试目录，不访问应用或设备上的用户偏好。
     @Before fun setUp() {
+        runBlocking {
+            org.mockito.kotlin.doCallRealMethod().whenever(accountDao).deleteWithRelatedData(any(), any(), any(), any())
+        }
         Dispatchers.setMain(dispatcher)
         whenever(context.applicationContext).thenReturn(context)
         whenever(context.filesDir).thenReturn(directory)

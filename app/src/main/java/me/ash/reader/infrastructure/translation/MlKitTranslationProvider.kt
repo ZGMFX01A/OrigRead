@@ -1,5 +1,6 @@
 package me.ash.reader.infrastructure.translation
 
+import me.ash.reader.infrastructure.coroutines.suspendRunCatching
 import com.google.android.gms.tasks.Task
 import com.google.mlkit.common.model.DownloadConditions
 import com.google.mlkit.nl.languageid.LanguageIdentification
@@ -40,7 +41,7 @@ class MlKitTranslationProvider @Inject constructor() : TranslationProvider {
                     .build()
             )
         try {
-            runCatching {
+            suspendRunCatching {
                     translator
                         .downloadModelIfNeeded(DownloadConditions.Builder().build())
                         .awaitResult()

@@ -62,13 +62,11 @@ class LlmQuickMessageSettingsViewModel @Inject constructor(
         id: String?,
         title: String,
         content: String,
-    ): String? =
-        runCatching {
+    ): SaveResult =
+        quickMessageSaveResult {
                 if (id == null) repository.create(title, content)
                 else repository.update(id, title, content)
             }
-            .exceptionOrNull()
-            ?.message
 
     fun setEnabled(
         id: String,
@@ -155,7 +153,7 @@ fun LlmQuickMessageSettingsPage(
             onDismiss = { createVisible = false },
             onSave = { title, content ->
                 viewModel.save(null, title, content).also { error ->
-                    if (error == null) createVisible = false
+                    if (error == SaveResult.Success) createVisible = false
                 }
             },
         )
@@ -167,7 +165,7 @@ fun LlmQuickMessageSettingsPage(
             onDismiss = { editing = null },
             onSave = { title, content ->
                 viewModel.save(message.id, title, content).also { error ->
-                    if (error == null) editing = null
+                    if (error == SaveResult.Success) editing = null
                 }
             },
         )
@@ -261,7 +259,7 @@ private fun QuickMessageEditorSheet(
     initial: LlmQuickMessage?,
     initialText: LlmQuickMessageText?,
     onDismiss: () -> Unit,
-    onSave: (title: String, content: String) -> String?,
+    onSave: (title: String, content: String) -> SaveResult,
 ) {
     var title by rememberSaveable(initial?.id) { mutableStateOf(initialText?.title.orEmpty()) }
     var content by rememberSaveable(initial?.id) { mutableStateOf(initialText?.content.orEmpty()) }
@@ -308,7 +306,7 @@ private fun QuickMessageEditorSheet(
                 Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
             Button(
-                onClick = { error = onSave(title, content) },
+                onClick = { error = (onSave(title, content) as? SaveResult.Failure)?.message },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = title.isNotBlank() && content.isNotBlank(),
             ) {

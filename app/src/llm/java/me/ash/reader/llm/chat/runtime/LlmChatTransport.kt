@@ -537,7 +537,7 @@ internal fun parseStreamPayload(payload: String): LlmChatDelta? {
         content = parseChatContent(delta.opt("content")),
         reasoning =
             parseChatContent(delta.opt("reasoning_content"))
-                .ifBlank { parseChatContent(delta.opt("reasoning")) },
+                .ifEmpty { parseChatContent(delta.opt("reasoning")) },
         toolCalls = parseToolCallDeltas(delta.optJSONArray("tool_calls")),
         promptTokens = usage?.first,
         completionTokens = usage?.second,
@@ -572,7 +572,7 @@ internal fun parseNonStreamingPayload(payload: String): LlmChatDelta {
         content = parseChatContent(message.opt("content")).ifBlank { first.optString("text") },
         reasoning =
             parseChatContent(message.opt("reasoning_content"))
-                .ifBlank { parseChatContent(message.opt("reasoning")) },
+                .ifEmpty { parseChatContent(message.opt("reasoning")) },
         toolCalls = parseToolCallDeltas(message.optJSONArray("tool_calls")),
         promptTokens = usage?.first,
         completionTokens = usage?.second,

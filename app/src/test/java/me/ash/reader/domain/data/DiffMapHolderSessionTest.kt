@@ -24,6 +24,68 @@ import org.mockito.kotlin.*
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DiffMapHolderSessionTest {
+    @Test fun legacyCacheRestoresLocallyWithoutReplayingUnverifiedRemoteChanges() = runTest {
+        val directory = Files.createTempDirectory("diff-legacy-").toFile()
+        val scope = TestScope(UnconfinedTestDispatcher(testScheduler))
+        try {
+            val cache = directory.resolve("diff/7/diff_map.json")
+            cache.parentFile.mkdirs()
+            cache.writeText("""{"diffs":{"cached":{"isUnread":false,"articleId":"cached","feedId":"feed"}}}""")
+            val accounts = mock<AccountService>()
+            whenever(accounts.currentAccountFlow).thenReturn(MutableStateFlow<Account?>(Account(7, "Reader", AccountType.GoogleReader)))
+            val context = mock<Context>()
+            whenever(context.cacheDir).thenReturn(directory)
+            val rss = mock<RssService>()
+            val repository = mock<GoogleReaderRssService>()
+            whenever(rss.get(AccountType.GoogleReader.id)).thenReturn(repository)
+            DiffMapHolder(context, scope, StandardTestDispatcher(testScheduler), accounts, rss)
+            runCurrent()
+            Snapshot.sendApplyNotifications()
+            runCurrent()
+            advanceTimeBy(2001)
+            runCurrent()
+            verify(repository).batchMarkAsRead(setOf("cached"), false, 7)
+            verify(repository, never()).syncReadStatus(any(), any(), any())
+        } finally {
+            scope.cancel()
+            runCurrent()
+            assertTrue(directory.deleteRecursively())
+        }
+    }
+
+    @Test fun cacheRestoreMergesUnrelatedEntriesAndKeepsNewMemoryChanges() = runTest {
+        val directory = Files.createTempDirectory("diff-restore-").toFile()
+        val scope = TestScope(UnconfinedTestDispatcher(testScheduler))
+        try {
+            val cache = directory.resolve("diff/7/diff_map.json")
+            cache.parentFile.mkdirs()
+            cache.writeText("""{"cacheIdentity":"${diffCacheIdentity(Account(7, "Reader", AccountType.GoogleReader))}","diffs":{"cached":{"isUnread":false,"articleId":"cached","feedId":"feed"},"live":{"isUnread":true,"articleId":"live","feedId":"feed"}}}""")
+            val accounts = mock<AccountService>()
+            whenever(accounts.currentAccountFlow).thenReturn(MutableStateFlow<Account?>(Account(7, "Reader", AccountType.GoogleReader)))
+            val context = mock<Context>()
+            whenever(context.cacheDir).thenReturn(directory)
+            val rss = mock<RssService>()
+            val repository = mock<GoogleReaderRssService>()
+            whenever(rss.get(AccountType.GoogleReader.id)).thenReturn(repository)
+            val holder = DiffMapHolder(context, scope, StandardTestDispatcher(testScheduler), accounts, rss)
+            val feed = Feed("feed", "News", null, "https://example.com", "group", 7)
+            val article = Article("live", Date(), "Title", rawDescription = "", shortDescription = "", link = "https://example.com/1", feedId = "feed", accountId = 7)
+            holder.updateDiff(ArticleWithFeed(article, feed), isUnread = false)
+            runCurrent()
+            Snapshot.sendApplyNotifications()
+            runCurrent()
+            val field = DiffMapHolder::class.java.getDeclaredField("pendingSyncDiffsSnapshotFlow").apply { isAccessible = true }
+            val pending = (field.get(holder) as StateFlow<*>).value as Map<*, *>
+            assertEquals(setOf("live", "cached"), pending.keys)
+            assertEquals(false, (pending["live"] as Diff).isUnread)
+            assertEquals(false, (pending["cached"] as Diff).isUnread)
+        } finally {
+            scope.cancel()
+            runCurrent()
+            assertTrue(directory.deleteRecursively())
+        }
+    }
+
     @Test fun metadataChangesPreserveSessionIdentity() {
         val account = Account(7, "Reader", AccountType.GoogleReader)
         listOf(account.copy(updateAt = Date()), account.copy(lastArticleId = "7$99"),

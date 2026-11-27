@@ -106,12 +106,9 @@ class LlmChatRepository @Inject constructor(
 
     /** 重命名会话；空标题不会覆盖原值。 */
     suspend fun renameConversation(conversationId: String, title: String) {
-        val current = dao.getConversation(conversationId) ?: return
         val normalized = title.trim().take(MAX_CONVERSATION_TITLE_LENGTH)
         if (normalized.isBlank()) return
-        dao.updateConversation(
-            current.copy(title = normalized, updatedAt = System.currentTimeMillis())
-        )
+        dao.renameConversation(conversationId, normalized, System.currentTimeMillis())
     }
 
     /** 保存会话绑定的 Provider/Model/Skill。 */
@@ -121,21 +118,12 @@ class LlmChatRepository @Inject constructor(
         model: String?,
         skillId: String?,
     ) {
-        val current = dao.getConversation(conversationId) ?: return
-        dao.updateConversation(
-            current.copy(
-                providerId = providerId,
-                model = model,
-                skillId = skillId,
-                updatedAt = System.currentTimeMillis(),
-            )
-        )
+        dao.updateConversationRuntime(conversationId, providerId, model, skillId, System.currentTimeMillis())
     }
 
     /** 更新会话最近活动时间。 */
     suspend fun touchConversation(conversationId: String) {
-        val current = dao.getConversation(conversationId) ?: return
-        dao.updateConversation(current.copy(updatedAt = System.currentTimeMillis()))
+        dao.touchConversation(conversationId, System.currentTimeMillis())
     }
 
     /** 删除会话，关联消息由 Room 外键级联删除。 */
@@ -201,7 +189,21 @@ class LlmChatRepository @Inject constructor(
                 tokenUsageEstimated = tokenUsageEstimated,
                 updatedAt = System.currentTimeMillis(),
             )
-        dao.updateMessage(updated)
+        dao.patchMessage(
+            id = updated.id, updatedAt = updated.updatedAt,
+            content = updated.content, setContent = updated.content != message.content,
+            reasoning = updated.reasoning, setReasoning = updated.reasoning != message.reasoning,
+            status = updated.status, setStatus = updated.status != message.status,
+            errorMessage = updated.errorMessage, setErrorMessage = updated.errorMessage != message.errorMessage,
+            webSearchStatus = updated.webSearchStatus, setWebSearchStatus = updated.webSearchStatus != message.webSearchStatus,
+            webSearchQuery = updated.webSearchQuery, setWebSearchQuery = updated.webSearchQuery != message.webSearchQuery,
+            webSearchProviderName = updated.webSearchProviderName, setWebSearchProviderName = updated.webSearchProviderName != message.webSearchProviderName,
+            webSearchErrorMessage = updated.webSearchErrorMessage, setWebSearchErrorMessage = updated.webSearchErrorMessage != message.webSearchErrorMessage,
+            promptTokens = updated.promptTokens, setPromptTokens = updated.promptTokens != message.promptTokens,
+            completionTokens = updated.completionTokens, setCompletionTokens = updated.completionTokens != message.completionTokens,
+            durationMs = updated.durationMs, setDurationMs = updated.durationMs != message.durationMs,
+            tokenUsageEstimated = updated.tokenUsageEstimated, setTokenUsageEstimated = updated.tokenUsageEstimated != message.tokenUsageEstimated,
+        )
         if (touchConversation) {
             touchConversation(message.conversationId)
         }

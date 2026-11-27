@@ -22,49 +22,6 @@ private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 abstract class BaseHttpTranslationProvider(
     private val httpClient: TranslationHttpClient,
 ) : TranslationProvider {
-    protected fun executeJson(request: Request): String =
-        runCatching {
-                httpClient.client.newCall(request).execute().use { response ->
-                    val body = response.body.string()
-                    when {
-                        response.code == 401 || response.code == 403 ->
-                            throw TranslationException(
-                                TranslationErrorCode.AUTHENTICATION,
-                                responseMessage("翻译服务鉴权失败", response.code, body),
-                            )
-                        response.code == 429 || response.code == 456 ->
-                            throw TranslationException(
-                                TranslationErrorCode.RATE_LIMITED,
-                                responseMessage("翻译服务请求过于频繁或额度已用尽", response.code, body),
-                            )
-                        response.code == 404 || response.code == 405 ->
-                            throw TranslationException(
-                                TranslationErrorCode.PROVIDER_NOT_CONFIGURED,
-                                responseMessage("翻译服务地址或接口路径不正确", response.code, body),
-                            )
-                        response.code == 400 || response.code == 422 ->
-                            throw TranslationException(
-                                TranslationErrorCode.INVALID_RESPONSE,
-                                responseMessage("翻译服务拒绝了当前请求参数", response.code, body),
-                            )
-                        !response.isSuccessful ->
-                            throw TranslationException(
-                                TranslationErrorCode.NETWORK,
-                                responseMessage("翻译服务请求失败", response.code, body),
-                            )
-                    }
-                    body
-                }
-            }
-            .getOrElse { error ->
-                if (error is TranslationException) throw error
-                throw TranslationException(
-                    TranslationErrorCode.NETWORK,
-                    networkErrorMessage(error, request.url.host),
-                    error,
-                )
-            }
-
     /** 协程路径使用真取消，且保持既有 timeout 和错误分类。 */
     protected suspend fun executeJsonCancellable(request: Request): String =
         try {
@@ -269,19 +226,23 @@ class MicrosoftTranslationProvider @Inject constructor(
         if (config.region.isNotBlank()) {
             builder.header("Ocp-Apim-Subscription-Region", config.region)
         }
-        val response = JSONArray(executeJsonCancellable(builder.build()))
-        val translated =
-            List(response.length()) { index ->
-                response
-                    .getJSONObject(index)
-                    .getJSONArray("translations")
-                    .getJSONObject(0)
-                    .getString("text")
-            }
-        val detected =
-            sourceLanguage
-                ?: response.optJSONObject(0)?.optJSONObject("detectedLanguage")?.optString("language")
-        return TranslationBatchResult(translated, detected)
+        try {
+            val response = JSONArray(executeJsonCancellable(builder.build()))
+            val translated =
+                List(response.length()) { index ->
+                    response
+                        .getJSONObject(index)
+                        .getJSONArray("translations")
+                        .getJSONObject(0)
+                        .getString("text")
+                }
+            val detected =
+                sourceLanguage
+                    ?: response.optJSONObject(0)?.optJSONObject("detectedLanguage")?.optString("language")
+            return TranslationBatchResult(translated, detected)
+        } catch (error: org.json.JSONException) {
+            throw TranslationException(TranslationErrorCode.INVALID_RESPONSE, "翻译服务返回了无效 JSON 或缺少必要字段", error)
+        }
     }
 
 }
@@ -311,20 +272,24 @@ class DeepLTranslationProvider @Inject constructor(
                 .header("Authorization", "DeepL-Auth-Key $apiKey")
                 .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
                 .build()
-        val translations = JSONObject(executeJsonCancellable(request)).getJSONArray("translations")
-        val translated =
-            List(translations.length()) { index -> translations.getJSONObject(index).getString("text") }
-        val detected =
-            sourceLanguage
-                ?: translations.optJSONObject(0)?.optString("detected_source_language")
-        return TranslationBatchResult(translated, detected)
+        try {
+            val translations = JSONObject(executeJsonCancellable(request)).getJSONArray("translations")
+            val translated =
+                List(translations.length()) { index -> translations.getJSONObject(index).getString("text") }
+            val detected =
+                sourceLanguage
+                    ?: translations.optJSONObject(0)?.optString("detected_source_language")
+            return TranslationBatchResult(translated, detected)
+        } catch (error: org.json.JSONException) {
+            throw TranslationException(TranslationErrorCode.INVALID_RESPONSE, "翻译服务返回了无效 JSON 或缺少必要字段", error)
+        }
     }
 
     /**
      * 查询 DeepL 当前计费周期的字符用量。
      * 该接口比发送一段测试翻译更适合用于验证凭据和服务连通性。
      */
-    fun getUsage(config: TranslationRuntimeConfig): DeepLUsage {
+    suspend fun getUsage(config: TranslationRuntimeConfig): DeepLUsage {
         val apiKey = requireApiKey(config)
         val request =
             Request.Builder()
@@ -332,17 +297,21 @@ class DeepLTranslationProvider @Inject constructor(
                 .header("Authorization", "DeepL-Auth-Key $apiKey")
                 .get()
                 .build()
-        val response = JSONObject(executeJson(request))
-        if (!response.has("character_count") || !response.has("character_limit")) {
-            throw TranslationException(
-                TranslationErrorCode.INVALID_RESPONSE,
-                "DeepL 用量接口返回内容不完整",
+        try {
+            val response = JSONObject(executeJsonCancellable(request))
+            if (!response.has("character_count") || !response.has("character_limit")) {
+                throw TranslationException(
+                    TranslationErrorCode.INVALID_RESPONSE,
+                    "DeepL 用量接口返回内容不完整",
+                )
+            }
+            return DeepLUsage(
+                characterCount = response.getLong("character_count"),
+                characterLimit = response.getLong("character_limit"),
             )
+        } catch (error: org.json.JSONException) {
+            throw TranslationException(TranslationErrorCode.INVALID_RESPONSE, "翻译服务返回了无效 JSON 或缺少必要字段", error)
         }
-        return DeepLUsage(
-            characterCount = response.getLong("character_count"),
-            characterLimit = response.getLong("character_limit"),
-        )
     }
 }
 
@@ -375,18 +344,22 @@ class GoogleCloudTranslationProvider @Inject constructor(
                 .url(url)
                 .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
                 .build()
-        val translations =
-            JSONObject(executeJsonCancellable(request))
-                .getJSONObject("data")
-                .getJSONArray("translations")
-        val translated =
-            List(translations.length()) { index ->
-                decodeHtmlEntities(translations.getJSONObject(index).getString("translatedText"))
-            }
-        val detected =
-            sourceLanguage
-                ?: translations.optJSONObject(0)?.optString("detectedSourceLanguage")
-        return TranslationBatchResult(translated, detected)
+        try {
+            val translations =
+                JSONObject(executeJsonCancellable(request))
+                    .getJSONObject("data")
+                    .getJSONArray("translations")
+            val translated =
+                List(translations.length()) { index ->
+                    decodeHtmlEntities(translations.getJSONObject(index).getString("translatedText"))
+                }
+            val detected =
+                sourceLanguage
+                    ?: translations.optJSONObject(0)?.optString("detectedSourceLanguage")
+            return TranslationBatchResult(translated, detected)
+        } catch (error: org.json.JSONException) {
+            throw TranslationException(TranslationErrorCode.INVALID_RESPONSE, "翻译服务返回了无效 JSON 或缺少必要字段", error)
+        }
     }
 }
 
@@ -425,28 +398,32 @@ class DlxTranslationProvider @Inject constructor(
     }
 
     private fun parseDlxResponse(body: String): String {
-        val json = JSONObject(body)
-        json.optString("data").takeIf { it.isNotBlank() }?.let { return it }
-        json.optString("translation").takeIf { it.isNotBlank() }?.let { return it }
-        val translations = json.optJSONArray("translations")
-        if (translations != null && translations.length() > 0) {
-            val first = translations.get(0)
-            return when (first) {
-                is String -> first
-                is JSONObject ->
-                    first.optString("text").ifBlank { first.optString("translation") }
-                else -> ""
-            }.ifBlank {
-                throw TranslationException(
-                    TranslationErrorCode.INVALID_RESPONSE,
-                    "DLX 返回了无法识别的译文结构",
-                )
+        try {
+            val json = JSONObject(body)
+            json.optString("data").takeIf { it.isNotBlank() }?.let { return it }
+            json.optString("translation").takeIf { it.isNotBlank() }?.let { return it }
+            val translations = json.optJSONArray("translations")
+            if (translations != null && translations.length() > 0) {
+                val first = translations.get(0)
+                return when (first) {
+                    is String -> first
+                    is JSONObject ->
+                        first.optString("text").ifBlank { first.optString("translation") }
+                    else -> ""
+                }.ifBlank {
+                    throw TranslationException(
+                        TranslationErrorCode.INVALID_RESPONSE,
+                        "DLX 返回了无法识别的译文结构",
+                    )
+                }
             }
+            throw TranslationException(
+                TranslationErrorCode.INVALID_RESPONSE,
+                "DLX 返回结果中没有译文",
+            )
+        } catch (error: org.json.JSONException) {
+            throw TranslationException(TranslationErrorCode.INVALID_RESPONSE, "翻译服务返回了无效 JSON 或缺少必要字段", error)
         }
-        throw TranslationException(
-            TranslationErrorCode.INVALID_RESPONSE,
-            "DLX 返回结果中没有译文",
-        )
     }
 }
 

@@ -233,10 +233,7 @@ constructor(
             return false
         }
         val account = accountDao.queryById(accountId) ?: return false
-        articleDao.deleteByAccountId(accountId)
-        feedDao.deleteByAccountId(accountId)
-        groupDao.deleteByAccountId(accountId)
-        accountDao.delete(account)
+        accountDao.deleteWithRelatedData(account, articleDao, feedDao, groupDao)
         val currentId = committedAccountIdValue ?: currentAccountIdFlow.value
             ?: context.dataStore.data.first()[accountIdKey]
         if (currentId == null || currentId == accountId) {

@@ -366,7 +366,13 @@ class OpenAiCompatibleProvider @Inject constructor(
      * 获取 OpenAI Compatible 服务公开的模型列表。
      * 标准格式优先读取 {"data":[{"id":"..."}]}，同时兼容常见的 models 数组和根数组格式。
      */
-    fun listModels(config: AiRuntimeConfig): List<String> {
+    fun listModels(config: AiRuntimeConfig): List<String> =
+        availableModels(execute(modelsRequest(config)))
+
+    suspend fun listModelsCancellable(config: AiRuntimeConfig): List<String> =
+        availableModels(executeCancellable(modelsRequest(config)))
+
+    private fun modelsRequest(config: AiRuntimeConfig): Request {
         val requestBuilder =
             Request.Builder()
                 .url(resolveModelsEndpoint(config.endpoint))
@@ -376,7 +382,10 @@ class OpenAiCompatibleProvider @Inject constructor(
             requestBuilder.header("Authorization", "Bearer ${config.apiKey}")
         }
 
-        val responseText = execute(requestBuilder.build())
+        return requestBuilder.build()
+    }
+
+    private fun availableModels(responseText: String): List<String> {
         val models = parseModelList(responseText)
             .map(::normalizeAiModelName)
             .filter(String::isNotBlank)
@@ -639,7 +648,7 @@ class OpenAiCompatibleProvider @Inject constructor(
             content = parseContent(delta.opt("content")),
             reasoning =
                 parseContent(delta.opt("reasoning_content"))
-                    .ifBlank { parseContent(delta.opt("reasoning")) },
+                    .ifEmpty { parseContent(delta.opt("reasoning")) },
             finishReason = finishReason,
         ).takeIf {
             it.content.isNotEmpty() || it.reasoning.isNotEmpty() || it.finishReason != null

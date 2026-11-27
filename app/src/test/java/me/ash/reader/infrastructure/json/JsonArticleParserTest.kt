@@ -10,6 +10,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class JsonArticleParserTest {
+
+    @Test fun `html summary is truncated as text while complete body is preserved`() {
+        val html = "<p>" + "内容".repeat(200) + "</p><aside>尾部</aside>"
+        val item = org.json.JSONObject().put("title", "Title").put("link", "https://example.com/1").put("body", html)
+        val rule = JsonRule(id = "html", name = "HTML", hosts = listOf("example.com"), endpoint = "/api", itemsPath = "$[*]", titlePath = "$.title", linkPath = "$.link", descriptionPath = "$.body", contentPath = "$.body")
+        val article = JsonArticleParser().parse("[$item]", rule, feed, feed.url).single()
+        assertEquals(html, article.rawDescription)
+        assertEquals("内容".repeat(140), article.shortDescription)
+    }
+
     private val feed = Feed(
         id = "feed-1",
         name = "JSON API",

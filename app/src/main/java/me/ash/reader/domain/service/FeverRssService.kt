@@ -145,10 +145,10 @@ constructor(
         val feverAPI = getFeverAPI()
         val beforeUnixTimestamp = (before?.time ?: Date(Long.MAX_VALUE).time) / 1000
         when {
-            groupId != null -> {
+            groupId != null && groupId.dollarLast().toLongOrNull() != null -> {
                 feverAPI.markGroup(
                     status = if (isUnread) FeverDTO.StatusEnum.Unread else FeverDTO.StatusEnum.Read,
-                    id = groupId.dollarLast().toLong(),
+                    id = requireNotNull(groupId.dollarLast().toLongOrNull()),
                     before = beforeUnixTimestamp,
                 )
             }
@@ -169,7 +169,8 @@ constructor(
             }
 
             else -> {
-                feedDao.queryAll(accountService.getCurrentAccountId()).forEach {
+                (if (groupId != null) feedDao.queryByGroupId(accountService.getCurrentAccountId(), groupId)
+                else feedDao.queryAll(accountService.getCurrentAccountId())).forEach {
                     feverAPI.markFeed(
                         status =
                             if (isUnread) FeverDTO.StatusEnum.Unread else FeverDTO.StatusEnum.Read,

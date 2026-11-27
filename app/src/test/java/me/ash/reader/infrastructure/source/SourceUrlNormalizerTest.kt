@@ -6,6 +6,13 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 class SourceUrlNormalizerTest {
+
+    @Test fun `encoded path query and user info remain encoded exactly once`() {
+        val url = "https://user%20name@example.com/a%2Fb%20c?q=x%2Fy%20z"
+        assertEquals(url, SourceUrlNormalizer.comparisonKey(url + "&utm_source=share#fragment"))
+        assertEquals(url, SourceUrlNormalizer.comparisonKey(SourceUrlNormalizer.comparisonKey(url)))
+    }
+
     @Test
     fun `normalizes harmless source url variations for duplicate checks`() {
         val expected = "https://example.com/feed"

@@ -1,5 +1,6 @@
 package me.ash.reader.llm.runtime
 
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import javax.inject.Inject
 import javax.inject.Singleton
 import me.ash.reader.infrastructure.ai.AiCapabilityOverrideMode
@@ -105,7 +106,10 @@ private fun AiProviderProfile.toCapabilityOverride(): ModelCapabilityOverride {
                 if (enabled) ReasoningParameterStyle.OPENAI_REASONING_EFFORT
                 else ReasoningParameterStyle.NONE
             },
-        supportsReasoningOutput = reasoningEnabled,
+        // 已知协议的输出能力由模型决定，不能从 reasoning_effort 参数开关推断。
+        // 未知兼容端点保留显式开启 reasoning 的旧有 opt-in 行为。
+        supportsReasoningOutput = if (reasoningEnabled == true &&
+            endpoint.toHttpUrlOrNull()?.host !in setOf("api.openai.com", "api.deepseek.com")) true else null,
         contextWindowTokens = contextWindowTokens,
         // AUTO 已由 ModelCapabilityResolver 根据 Provider/Model 解析；手动值作为持久 override 注入。
         outputTokenLimitStyle = outputTokenLimitStyle.takeUnless { it == AiOutputTokenLimitStyle.AUTO },

@@ -1,5 +1,6 @@
 package me.ash.reader.llm.skill
 
+import me.ash.reader.infrastructure.coroutines.suspendRunCatching
 import android.content.ClipboardManager
 import android.content.Context
 import android.net.Uri
@@ -95,7 +96,7 @@ class LlmSkillSettingsViewModel @Inject constructor(
 
     fun importSkill(uri: Uri) {
         viewModelScope.launch {
-            runCatching { repository.import(uri) }
+            suspendRunCatching { repository.import(uri) }
                 .onSuccess { result ->
                     _uiState.update {
                         it.copy(
@@ -114,9 +115,18 @@ class LlmSkillSettingsViewModel @Inject constructor(
         }
     }
 
-    fun setEnabled(skillId: String, enabled: Boolean) = repository.setEnabled(skillId, enabled)
-    fun delete(skillId: String) = repository.delete(skillId)
-    fun bind(task: LlmSkillTask, skillId: String?) = repository.setBinding(task, skillId)
+    private fun updateSkill(action: suspend () -> Unit) {
+        viewModelScope.launch {
+            suspendRunCatching { action() }.onFailure { error ->
+                timber.log.Timber.e(error, "Unable to update Skill")
+                _uiState.update { it.copy(importError = error.message ?: "Skill update failed") }
+            }
+        }
+    }
+
+    fun setEnabled(skillId: String, enabled: Boolean) = updateSkill { repository.setEnabled(skillId, enabled) }
+    fun delete(skillId: String) = updateSkill { repository.delete(skillId) }
+    fun bind(task: LlmSkillTask, skillId: String?) = updateSkill { repository.setBinding(task, skillId) }
 
     /** 保存应用内编辑的 SKILL.md；失败时返回可展示错误，成功返回 null。 */
     suspend fun createLocalSkill(
@@ -124,7 +134,7 @@ class LlmSkillSettingsViewModel @Inject constructor(
         markdown: String,
     ): String? {
         var failureMessage: String? = null
-        runCatching { repository.createLocal(fileName, markdown) }
+        suspendRunCatching { repository.createLocal(fileName, markdown) }
             .onSuccess { result ->
                 _uiState.update {
                     it.copy(
@@ -196,7 +206,7 @@ fun LlmSkillSettingsPage(
                             ) {
                                 FilledTonalButton(
                                     onClick = {
-                                        createDraft = readClipboardText(context).orEmpty()
+                                        createDraft = ""
                                         draftError = null
                                         createSkillVisible = true
                                     },

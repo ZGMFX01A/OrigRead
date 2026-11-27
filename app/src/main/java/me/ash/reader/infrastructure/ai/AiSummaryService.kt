@@ -1,5 +1,6 @@
 package me.ash.reader.infrastructure.ai
 
+import me.ash.reader.infrastructure.coroutines.suspendRunCatching
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.roundToInt
@@ -63,14 +64,14 @@ class AiSummaryService @Inject constructor(
         providerId: String,
         apiKeyOverride: String? = null,
     ): Result<List<String>> =
-        runCatching {
+        suspendRunCatching {
             withContext(ioDispatcher) {
                 val profile = settingsRepository.provider(providerId)
                     ?: throw AiException(AiErrorCode.NOT_CONFIGURED, "AI 服务配置不存在")
                 if (profile.endpoint.isBlank()) {
                     throw AiException(AiErrorCode.INVALID_REQUEST, "请先填写 AI 服务地址")
                 }
-                provider.listModels(
+                provider.listModelsCancellable(
                     settingsRepository.runtimeConfig(
                         providerId = profile.id,
                         apiKeyOverride = apiKeyOverride,
@@ -284,7 +285,7 @@ class AiSummaryService @Inject constructor(
         providerId: String,
         modelOverride: String? = null,
     ): Result<String> =
-        runCatching {
+        suspendRunCatching {
             withContext(ioDispatcher) {
                 requireEnabledSettings()
                 val profile = settingsRepository.provider(providerId)
@@ -293,7 +294,7 @@ class AiSummaryService @Inject constructor(
                 if (!profile.enabled || profile.endpoint.isBlank() || model.isBlank()) {
                     throw AiException(AiErrorCode.NOT_CONFIGURED, "请先启用并填写 AI 服务地址和模型")
                 }
-                provider.complete(
+                provider.completeCancellable(
                     systemPrompt = "You are a connection test. Follow the user instruction exactly.",
                     userPrompt = "Reply with exactly: OK",
                     config =

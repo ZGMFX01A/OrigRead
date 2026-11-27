@@ -9,6 +9,9 @@ import java.io.ByteArrayOutputStream
 import java.util.zip.ZipInputStream
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,27 +30,74 @@ import org.json.JSONObject
 @Singleton
 class LlmSkillRepository @Inject constructor(
     @ApplicationContext private val context: Context,
+    @me.ash.reader.infrastructure.di.IODispatcher ioDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO,
 ) {
-    private val stateFile = context.filesDir.resolve("llm-skills/state.json")
-    private val stateBackupFile = context.filesDir.resolve("llm-skills/state.json.bak")
-    private val localSkillDir = context.filesDir.resolve("llm-skills/local")
-    private val _state = MutableStateFlow(readState())
+    private val stateFile by lazy { context.filesDir.resolve("llm-skills/state.json") }
+    private val stateBackupFile by lazy { context.filesDir.resolve("llm-skills/state.json.bak") }
+    private val localSkillDir by lazy { context.filesDir.resolve("llm-skills/local") }
+    private val _state = MutableStateFlow(LlmSkillState())
+    private val skillDispatcher = ioDispatcher.limitedParallelism(1)
+    private val ioScope = CoroutineScope(SupervisorJob() + skillDispatcher)
+    @Volatile private var loaded = false
+
+    init {
+        ioScope.launch {
+            try { ensureLoaded() } catch (error: Exception) {
+                timber.log.Timber.e(error, "Unable to load Skills")
+            }
+        }
+    }
+
+    private fun ensureLoaded() {
+        if (loaded) return
+        val mainLooper = android.os.Looper.getMainLooper()
+        check(mainLooper == null || android.os.Looper.myLooper() != mainLooper) { "Skills are still loading" }
+        synchronized(this) {
+            if (!loaded) {
+                _state.value = readState()
+                loaded = true
+            }
+        }
+    }
+
+    private suspend fun mutate(block: () -> Unit) = withContext(skillDispatcher) {
+        ensureLoaded()
+        synchronized(this@LlmSkillRepository) { block() }
+    }
     val state: StateFlow<LlmSkillState> = _state.asStateFlow()
 
     fun current(): LlmSkillState = _state.value
 
-    fun enabledSkills(): List<LlmSkillRecord> = current().skills.filter(LlmSkillRecord::enabled)
+    suspend fun awaitLoaded() = withContext(skillDispatcher) { ensureLoaded() }
+
+    suspend fun enabledSkills(): List<LlmSkillRecord> {
+        awaitLoaded()
+        return current().skills.filter(LlmSkillRecord::enabled)
+    }
 
     fun skill(id: String?): LlmSkillRecord? =
         id?.let { value -> current().skills.firstOrNull { it.id == value } }
 
-    fun activeSkill(id: String?): LlmSkillRecord? = skill(id)?.takeIf(LlmSkillRecord::enabled)
+    /** Runtime plan construction is synchronous; routing must await the Skill snapshot first. */
+    internal fun loadedActiveSkill(id: String?): LlmSkillRecord? {
+        if (id == null) return null
+        check(loaded) { "Skills are still loading" }
+        return skill(id)?.takeIf(LlmSkillRecord::enabled)
+    }
 
-    fun boundSkill(task: LlmSkillTask): LlmSkillRecord? =
-        activeSkill(current().bindings.skillId(task))
+    suspend fun activeSkill(id: String?): LlmSkillRecord? {
+        awaitLoaded()
+        return loadedActiveSkill(id)
+    }
+
+    suspend fun boundSkill(task: LlmSkillTask): LlmSkillRecord? {
+        awaitLoaded()
+        return activeSkill(current().bindings.skillId(task))
+    }
 
     suspend fun import(uri: Uri): LlmSkillImportResult =
         withContext(Dispatchers.IO) {
+            ensureLoaded()
             val displayName = displayName(uri)
             val bytes = readBounded(uri)
             val imported =
@@ -68,6 +118,7 @@ class LlmSkillRepository @Inject constructor(
         markdown: String,
     ): LlmSkillImportResult =
         withContext(Dispatchers.IO) {
+            ensureLoaded()
             val normalizedFileName = normalizeLocalFileName(fileName)
             val imported = parseStandalone(markdown.toByteArray(Charsets.UTF_8))
             val conflicting =
@@ -89,42 +140,43 @@ class LlmSkillRepository @Inject constructor(
             install(imported, sourceFileName = normalizedFileName)
         }
 
-    @Synchronized
-    fun setEnabled(skillId: String, enabled: Boolean) {
+    suspend fun setEnabled(skillId: String, enabled: Boolean) = mutate {
         val old = current()
-        if (old.skills.none { it.id == skillId }) return
+        if (old.skills.none { it.id == skillId }) return@mutate
         val next = old.copy(
             skills = old.skills.map { if (it.id == skillId) it.copy(enabled = enabled) else it }
         )
         updateState(next)
     }
 
-    @Synchronized
-    fun delete(skillId: String) {
+    suspend fun delete(skillId: String) = mutate {
         val old = current()
-        if (old.skills.none { it.id == skillId }) return
+        if (old.skills.none { it.id == skillId }) return@mutate
         var bindings = old.bindings
         LlmSkillTask.entries.forEach { task ->
             if (bindings.skillId(task) == skillId) bindings = bindings.withBinding(task, null)
         }
         old.skills.firstOrNull { it.id == skillId }?.sourceFileName?.let { sourceFileName ->
             runCatching { localSkillDir.resolve(sourceFileName).delete() }
+                .onFailure { timber.log.Timber.w(it, "Unable to delete Skill source") }
         }
         updateState(old.copy(skills = old.skills.filterNot { it.id == skillId }, bindings = bindings))
     }
 
-    @Synchronized
-    fun setBinding(task: LlmSkillTask, skillId: String?) {
-        val normalized = skillId?.takeIf { activeSkill(it) != null }
+    suspend fun setBinding(task: LlmSkillTask, skillId: String?) = mutate {
+        val normalized = skillId?.takeIf { skill(it)?.enabled == true }
         updateState(current().copy(bindings = current().bindings.withBinding(task, normalized)))
     }
 
     /** 为 Prompt 注入生成稳定内容；Skill 停用/删除时安全回退为空。 */
-    fun instructionFor(skillId: String?): String? =
+    suspend fun instructionFor(skillId: String?): String? =
         activeSkill(skillId)?.instructionBundle()?.takeIf(String::isNotBlank)
 
     /** 完整配置备份只保存可执行的结构化 Skill 状态，不依赖 app-private 原始 Markdown 文件。 */
-    fun exportBackupState(): String = encodeState(current())
+    fun exportBackupState(): String {
+        ensureLoaded()
+        return encodeState(current())
+    }
 
     fun validateBackupState(raw: String) {
         validateState(decodeState(raw))
@@ -135,6 +187,7 @@ class LlmSkillRepository @Inject constructor(
      */
     @Synchronized
     fun restoreBackupState(raw: String) {
+        ensureLoaded()
         val decoded = decodeState(raw)
         validateState(decoded)
         val portable =
@@ -310,6 +363,7 @@ class LlmSkillRepository @Inject constructor(
     private fun readState(): LlmSkillState {
         if (!stateFile.exists()) return LlmSkillState()
         runCatching { decodeState(stateFile.readText()).also(::validateState) }
+            .onFailure { timber.log.Timber.w(it, "Unable to read Skill state; trying backup") }
             .getOrNull()
             ?.let { return it }
 
@@ -318,6 +372,7 @@ class LlmSkillRepository @Inject constructor(
                 if (!stateBackupFile.exists()) return@runCatching LlmSkillState()
                 decodeState(stateBackupFile.readText()).also(::validateState)
             }
+            .onFailure { timber.log.Timber.e(it, "Unable to read Skill backup") }
             .getOrDefault(LlmSkillState())
     }
 

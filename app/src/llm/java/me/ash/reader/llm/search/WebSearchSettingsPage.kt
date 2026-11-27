@@ -1,5 +1,6 @@
 package me.ash.reader.llm.search
 
+import me.ash.reader.infrastructure.coroutines.suspendRunCatching
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -177,7 +178,7 @@ class WebSearchSettingsViewModel @Inject constructor(
             )
         }
         viewModelScope.launch {
-            runCatching { searchService.checkHealth(providerId) }
+            suspendRunCatching { searchService.checkHealth(providerId) }
                 .onSuccess { result ->
                     _uiState.update { state ->
                         state.copy(

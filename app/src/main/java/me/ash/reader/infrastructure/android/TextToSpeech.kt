@@ -85,8 +85,8 @@ class TextToSpeechManager @Inject constructor(
     }
 
     private fun startReading(text: String, readingRequestId: Long) {
-        val detectedLocale = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            context.detectLocaleFromText(text.take(text.lastIndex.coerceAtMost(500)))
+        val detectedLocale = if (text.isNotBlank() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            context.detectLocaleFromText(speechLocaleSample(text))
                 .firstOrNull()?.locale
         } else {
             null
@@ -217,3 +217,6 @@ data class LocaleWithConfidence(
     val locale: Locale,
     val confidence: Float,
 )
+
+/** 语言识别只取前 500 字；空文本不会产生负长度或丢掉单字文本。 */
+internal fun speechLocaleSample(text: String): String = text.take(500)

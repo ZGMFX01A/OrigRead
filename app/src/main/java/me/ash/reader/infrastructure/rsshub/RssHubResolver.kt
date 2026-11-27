@@ -1,5 +1,8 @@
 package me.ash.reader.infrastructure.rsshub
 
+import me.ash.reader.infrastructure.coroutines.suspendRunCatching
+import me.ash.reader.infrastructure.ai.awaitResponseAndUse
+import timber.log.Timber
 import com.rometools.rome.feed.synd.SyndFeed
 import java.io.EOFException
 import java.io.InterruptedIOException
@@ -138,26 +141,27 @@ class RssHubResolver @Inject constructor(
                         probeInstance(inputUrl, instance)
                     } catch (error: CancellationException) {
                         throw error
-                    } catch (_: Exception) {
+                    } catch (error: Exception) {
+                        Timber.w(error, "RSSHub 实例探测失败")
                         emptyList()
                     }
                 },
                 onResult = { instance, results ->
                     if (!successRecorded && results.any(RssHubProbeResult::available)) {
-                        runCatching { settingsRepository.recordSuccess(instance) }
+                        suspendRunCatching { settingsRepository.recordSuccess(instance) }.onFailure { Timber.w(it, "RSSHub 实例诊断状态保存失败") }
                         successRecorded = true
                     }
                     val attemptedRoutes = results.filter { it.match.resolved }
                     if (attemptedRoutes.isNotEmpty() && attemptedRoutes.all(::shouldCoolInstanceGlobally)) {
-                        runCatching { settingsRepository.recordFailure(instance) }
+                        suspendRunCatching { settingsRepository.recordFailure(instance) }.onFailure { Timber.w(it, "RSSHub 实例诊断状态保存失败") }
                     }
                     results.forEach { result ->
                         result.routePath?.let { routePath ->
                             val routeFamily = RssHubInputParser.routeFamily(routePath)
                             if (result.available) {
-                                runCatching { settingsRepository.recordRouteSuccess(instance, routeFamily) }
+                                suspendRunCatching { settingsRepository.recordRouteSuccess(instance, routeFamily) }.onFailure { Timber.w(it, "RSSHub 实例诊断状态保存失败") }
                             } else if (result.state != CandidateState.NEEDS_INPUT) {
-                                runCatching { settingsRepository.recordRouteFailure(instance, routeFamily) }
+                                suspendRunCatching { settingsRepository.recordRouteFailure(instance, routeFamily) }.onFailure { Timber.w(it, "RSSHub 实例诊断状态保存失败") }
                             }
                         }
                         val key = routeKey(result.match)
@@ -294,14 +298,14 @@ class RssHubResolver @Inject constructor(
                     completedInstances += instance
                     if (result.available) {
                         available = result
-                        runCatching { settingsRepository.recordRouteSuccess(instance, routeFamily) }
-                        runCatching { settingsRepository.recordSuccess(instance) }
+                        suspendRunCatching { settingsRepository.recordRouteSuccess(instance, routeFamily) }.onFailure { Timber.w(it, "RSSHub 实例诊断状态保存失败") }
+                        suspendRunCatching { settingsRepository.recordSuccess(instance) }.onFailure { Timber.w(it, "RSSHub 实例诊断状态保存失败") }
                         true
                     } else {
                         diagnostics[candidateOrder.getValue(instance)] = result
-                        runCatching { settingsRepository.recordRouteFailure(instance, routeFamily) }
+                        suspendRunCatching { settingsRepository.recordRouteFailure(instance, routeFamily) }.onFailure { Timber.w(it, "RSSHub 实例诊断状态保存失败") }
                         if (shouldCoolInstanceGlobally(result)) {
-                            runCatching { settingsRepository.recordFailure(instance) }
+                            suspendRunCatching { settingsRepository.recordFailure(instance) }.onFailure { Timber.w(it, "RSSHub 实例诊断状态保存失败") }
                         }
                         false
                     }
@@ -396,10 +400,10 @@ class RssHubResolver @Inject constructor(
     /** 使用当前实例执行轻量连接测试。 */
     suspend fun testConnection(instanceBaseUrl: String): Result<Unit> =
         withContext(ioDispatcher) {
-            runCatching {
+            suspendRunCatching {
                 val normalized = RssHubSettingsRepository.normalizeInstanceUrl(instanceBaseUrl)
                 val request = okhttp3.Request.Builder().url("$normalized/healthz").build()
-                rssHubHttpClients.forInstance(normalized).newCall(request).execute().use { response ->
+                rssHubHttpClients.forInstance(normalized).newCall(request).awaitResponseAndUse { response ->
                     check(response.isSuccessful) { "HTTP ${response.code}" }
                 }
             }
@@ -550,7 +554,7 @@ class RssHubResolver @Inject constructor(
         instances: List<String>,
         maxConcurrency: Int,
         block: suspend (String) -> T,
-        onResult: (String, T) -> Boolean,
+        onResult: suspend (String, T) -> Boolean,
     ): Boolean = supervisorScope {
         if (instances.isEmpty()) return@supervisorScope false
         val semaphore = Semaphore(minOf(maxConcurrency, instances.size))

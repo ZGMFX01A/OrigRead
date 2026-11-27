@@ -1,5 +1,6 @@
 package me.ash.reader.infrastructure.editionsync
 
+import me.ash.reader.infrastructure.coroutines.suspendRunCatching
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
@@ -34,7 +35,7 @@ class EditionSyncImportActivity : AppCompatActivity() {
     private suspend fun loadAndConfirm(intent: Intent) {
         val result =
             withContext(Dispatchers.IO) {
-                runCatching {
+                suspendRunCatching {
                     val sourcePackage =
                         intent.getStringExtra(EditionSyncContract.EXTRA_SOURCE_PACKAGE)
                             ?: error("同步请求缺少来源包")
@@ -104,7 +105,7 @@ class EditionSyncImportActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val result =
                 withContext(Dispatchers.IO) {
-                    runCatching { editionSyncService.restoreBundle(content) }
+                    suspendRunCatching { editionSyncService.restoreBundle(content) }
                 }
             result.fold(
                 onSuccess = { restored ->

@@ -211,7 +211,7 @@ internal fun resolveWebSearchDecision(
     mode: WebSearchMode,
     userInput: String,
 ): WebSearchDecision {
-    if (!enabled || mode == WebSearchMode.OFF) {
+    if (userInput.isBlank() || !enabled || mode == WebSearchMode.OFF) {
         return WebSearchDecision(WebSearchRequestStatus.NOT_NEEDED, required = false)
     }
     val required = mode == WebSearchMode.FORCE

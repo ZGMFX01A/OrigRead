@@ -707,7 +707,7 @@ private fun swipeActionIcon(
     val readImageVector =
         remember(isRead) { if (isRead) Icons.Outlined.Circle else Icons.Rounded.CheckCircleOutline }
 
-    return remember(direction) {
+    return remember(direction, swipeToStartAction, swipeToEndAction, starImageVector, readImageVector) {
         when (direction) {
             SwipeDirection.StartToEnd -> {
 
@@ -743,7 +743,7 @@ private fun swipeActionText(
 
     val readText = stringResource(if (isRead) R.string.mark_as_unread else R.string.mark_as_read)
 
-    return remember(direction) {
+    return remember(direction, swipeToStartAction, swipeToEndAction, starText, readText) {
         when (direction) {
             SwipeDirection.StartToEnd -> {
                 when (swipeToEndAction) {

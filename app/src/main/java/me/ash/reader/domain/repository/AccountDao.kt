@@ -57,4 +57,19 @@ interface AccountDao {
 
     @Delete
     suspend fun delete(vararg account: Account)
+
+    /** 同一 Room 数据库提供的 DAO 在事务内按现有顺序清理，失败时账户和关联数据一起回滚。 */
+    @Transaction
+    suspend fun deleteWithRelatedData(
+        account: Account,
+        articleDao: ArticleDao,
+        feedDao: FeedDao,
+        groupDao: GroupDao,
+    ) {
+        val accountId = requireNotNull(account.id)
+        articleDao.deleteByAccountId(accountId)
+        feedDao.deleteByAccountId(accountId)
+        groupDao.deleteByAccountId(accountId)
+        delete(account)
+    }
 }

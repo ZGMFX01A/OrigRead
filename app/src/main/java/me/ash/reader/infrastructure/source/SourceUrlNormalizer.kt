@@ -40,15 +40,14 @@ object SourceUrlNormalizer {
                 .let { if (it == "/") "" else it }
         val query = normalizeQuery(uri.rawQuery)
 
-        return URI(
-            scheme,
-            uri.rawUserInfo,
-            host,
-            port,
-            path,
-            query.ifBlank { null },
-            null,
-        ).toASCIIString()
+        // URI 多参数构造器会再次转义百分号；组件已是 raw，直接拼装后只转义非 ASCII。
+        val authority = buildString {
+            uri.rawUserInfo?.let { append(it).append('@') }
+            append(host)
+            if (port != -1) append(':').append(port)
+        }
+        return URI("$scheme://$authority$path" + query.takeIf { it.isNotEmpty() }?.let { "?$it" }.orEmpty())
+            .toASCIIString()
     }
 
     private fun normalizeQuery(rawQuery: String?): String {

@@ -1,5 +1,7 @@
 package me.ash.reader.infrastructure.ai
 
+import me.ash.reader.infrastructure.ai.awaitResponseAndUse
+import me.ash.reader.infrastructure.coroutines.suspendRunCatching
 import java.net.URI
 import java.util.Date
 import javax.inject.Inject
@@ -335,7 +337,7 @@ class AiRuleGenerationService @Inject constructor(
     }
 
     /** 首次候选失败时把本地真实错误反馈给模型修一次，避免用户反复手动点击生成。 */
-    private fun generateWithOneRepair(
+    private suspend fun generateWithOneRepair(
         systemPrompt: String,
         userPrompt: String,
         runtime: AiRuleRuntime,
@@ -346,11 +348,11 @@ class AiRuleGenerationService @Inject constructor(
         validate: (String) -> AiGeneratedRulePreview,
     ): AiGeneratedRulePreview {
         onProgress(AiRuleGenerationProgress(AiRuleGenerationStage.GENERATING_CANDIDATE, 1))
-        var raw = aiProvider.complete(systemPrompt, userPrompt, runtime.config)
+        var raw = aiProvider.completeCancellable(systemPrompt, userPrompt, runtime.config)
         var firstError: Throwable? = null
         repeat(2) { attempt ->
             onProgress(AiRuleGenerationProgress(AiRuleGenerationStage.VALIDATING_CANDIDATE, attempt + 1))
-            runCatching {
+            suspendRunCatching {
                 return validate(raw).copy(
                     providerName = runtime.provider.name,
                     model = runtime.config.model,
@@ -371,7 +373,7 @@ class AiRuleGenerationService @Inject constructor(
                             )
                         )
                         raw =
-                            aiProvider.complete(
+                            aiProvider.completeCancellable(
                                 systemPrompt = systemPrompt,
                                 userPrompt =
                                     """
@@ -432,7 +434,7 @@ class AiRuleGenerationService @Inject constructor(
             contentStatus = AiContentRuleStatus.SKIPPED,
             contentMessage = "列表规则已通过，但没有可用于正文验证的规则对象",
         )
-        val listArticles = runCatching {
+        val listArticles = suspendRunCatching {
             ConfigurableWebsiteParser(rule).parse(
                 Jsoup.parse(listPage.content, listPage.finalUrl),
                 temporaryFeed(rule.name, listPage.finalUrl, SourceType.WEBSITE),
@@ -471,7 +473,7 @@ class AiRuleGenerationService @Inject constructor(
             ),
         )
         val detailSamples = sameSiteArticles.mapNotNull { article ->
-            runCatching {
+            suspendRunCatching {
                 fetchWebsitePage(article.link, renderMode).let { WebsiteContentSample(article.title, it) }
             }
                 .onFailure { error ->
@@ -491,7 +493,7 @@ class AiRuleGenerationService @Inject constructor(
             )
         }
 
-        return runCatching {
+        return suspendRunCatching {
             onProgress(
                 AiRuleGenerationProgress(
                     AiRuleGenerationStage.GENERATING_CONTENT,
@@ -529,7 +531,7 @@ class AiRuleGenerationService @Inject constructor(
     }
 
     /** JSON API 的正文若随列表数据返回，只需验证 contentPath；没有正文字段也不阻塞列表规则。 */
-    private fun enrichJsonContentRule(
+    private suspend fun enrichJsonContentRule(
         preview: AiGeneratedRulePreview,
         sourceJson: String,
         runtime: AiRuleRuntime,
@@ -539,7 +541,7 @@ class AiRuleGenerationService @Inject constructor(
             contentStatus = AiContentRuleStatus.SKIPPED,
             contentMessage = "列表规则已通过，但没有可用于正文验证的规则对象",
         )
-        return runCatching {
+        return suspendRunCatching {
             onProgress(
                 AiRuleGenerationProgress(
                     AiRuleGenerationStage.GENERATING_CONTENT,
@@ -553,7 +555,7 @@ class AiRuleGenerationService @Inject constructor(
                 onProgress = onProgress,
             )
             if (candidate.contentPath.isNullOrBlank()) {
-                return@runCatching preview.copy(
+                return@suspendRunCatching preview.copy(
                     contentStatus = AiContentRuleStatus.SKIPPED,
                     contentMessage = "API 未提供明确正文字段；打开文章时将使用通用解析和 WebView 兜底",
                 )
@@ -585,7 +587,7 @@ class AiRuleGenerationService @Inject constructor(
         }
     }
 
-    private fun generateWebsiteContentCandidate(
+    private suspend fun generateWebsiteContentCandidate(
         rule: WebsiteRule,
         samples: List<WebsiteContentSample>,
         runtime: AiRuleRuntime,
@@ -603,16 +605,16 @@ class AiRuleGenerationService @Inject constructor(
                 appendLine("</detail_html>")
             }
         }
-        var raw = aiProvider.complete(WEBSITE_CONTENT_RULE_SYSTEM_PROMPT, userPrompt, runtime.config)
+        var raw = aiProvider.completeCancellable(WEBSITE_CONTENT_RULE_SYSTEM_PROMPT, userPrompt, runtime.config)
         var firstError: Throwable? = null
         repeat(2) { attempt ->
             onProgress(AiRuleGenerationProgress(AiRuleGenerationStage.VALIDATING_CONTENT, attempt + 1))
-            runCatching {
+            suspendRunCatching {
                 return json.decodeFromString<WebsiteContentCandidate>(extractJsonObject(raw))
             }.onFailure { error ->
                 if (attempt == 0) {
                     firstError = error
-                    raw = aiProvider.complete(
+                    raw = aiProvider.completeCancellable(
                         WEBSITE_CONTENT_RULE_SYSTEM_PROMPT,
                         "$userPrompt\n\n上一次正文候选无效：${error.message.orEmpty()}\n上一次输出：${raw.take(4_000)}\n请只输出修正后的 JSON 对象。",
                         runtime.config,
@@ -628,7 +630,7 @@ class AiRuleGenerationService @Inject constructor(
         error("正文候选生成失败")
     }
 
-    private fun generateJsonContentCandidate(
+    private suspend fun generateJsonContentCandidate(
         rule: JsonRule,
         sourceJson: String,
         runtime: AiRuleRuntime,
@@ -643,16 +645,16 @@ class AiRuleGenerationService @Inject constructor(
             ${sourceJson.take(MAX_AI_SOURCE_CHARS)}
             </json_sample>
         """.trimIndent()
-        var raw = aiProvider.complete(JSON_CONTENT_RULE_SYSTEM_PROMPT, userPrompt, runtime.config)
+        var raw = aiProvider.completeCancellable(JSON_CONTENT_RULE_SYSTEM_PROMPT, userPrompt, runtime.config)
         var firstError: Throwable? = null
         repeat(2) { attempt ->
             onProgress(AiRuleGenerationProgress(AiRuleGenerationStage.VALIDATING_CONTENT, attempt + 1))
-            runCatching {
+            suspendRunCatching {
                 return json.decodeFromString<JsonContentCandidate>(extractJsonObject(raw))
             }.onFailure { error ->
                 if (attempt == 0) {
                     firstError = error
-                    raw = aiProvider.complete(
+                    raw = aiProvider.completeCancellable(
                         JSON_CONTENT_RULE_SYSTEM_PROMPT,
                         "$userPrompt\n\n上一次正文路径候选无效：${error.message.orEmpty()}\n上一次输出：${raw.take(4_000)}\n请只输出修正后的 JSON 对象。",
                         runtime.config,
@@ -877,7 +879,7 @@ class AiRuleGenerationService @Inject constructor(
         )
     }
 
-    private fun fetch(url: String): FetchedPage =
+    private suspend fun fetch(url: String): FetchedPage =
         httpClient.newCall(
             Request.Builder()
                 .url(url)
@@ -885,7 +887,7 @@ class AiRuleGenerationService @Inject constructor(
                 .header("Accept", "text/html,application/json;q=0.9,*/*;q=0.8")
                 .header("Upgrade-Insecure-Requests", "1")
                 .build(),
-        ).execute().use { response ->
+        ).awaitResponseAndUse { response ->
             check(response.isSuccessful) { "目标地址请求失败：HTTP ${response.code}" }
             FetchedPage(response.request.url.toString(), response.readBoundedUtf8(10L * 1024L * 1024L))
         }
@@ -896,7 +898,7 @@ class AiRuleGenerationService @Inject constructor(
     ): FetchedPage =
         when (renderMode) {
             AiWebsiteGenerationMode.STATIC ->
-                runCatching { fetch(url) }.getOrElse { error ->
+                suspendRunCatching { fetch(url) }.getOrElse { error ->
                     throw AiWebsiteDynamicRetryException(
                         "普通网页请求没有获得可用于生成规则的页面内容：${error.message.orEmpty()}。\n" +
                             "可以点击“用浏览器渲染重试”；如果网站要求登录、验证码或付费权限，仍可能无法生成规则。",

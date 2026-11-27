@@ -1,5 +1,8 @@
 package me.ash.reader.llm.mcp
 
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import me.ash.reader.infrastructure.coroutines.suspendRunCatching
 import android.net.Uri
 import androidx.browser.customtabs.CustomTabsIntent
 
@@ -308,7 +311,7 @@ class McpSettingsViewModel @Inject constructor(
             )
         }
         viewModelScope.launch {
-            runCatching { toolRegistry.refreshServer(serverId, forceRefresh = true) }
+            suspendRunCatching { toolRegistry.refreshServer(serverId, forceRefresh = true) }
                 .onSuccess { catalog ->
                     _uiState.update { state ->
                         state.copy(
@@ -370,7 +373,7 @@ class McpSettingsViewModel @Inject constructor(
         }
         viewModelScope.launch {
             val startedAt = System.nanoTime()
-            runCatching { toolRegistry.refreshServer(serverId, forceRefresh = true) }
+            suspendRunCatching { toolRegistry.refreshServer(serverId, forceRefresh = true) }
                 .onSuccess { catalog ->
                     val latencyMs = ((System.nanoTime() - startedAt) / 1_000_000L).coerceAtLeast(0L)
                     _uiState.update { state ->
@@ -445,7 +448,7 @@ class McpSettingsViewModel @Inject constructor(
             )
         }
         viewModelScope.launch {
-            runCatching {
+            suspendRunCatching {
                     oauthManager.authorize(profile) { url ->
                         withContext(Dispatchers.Main.immediate) { openAuthorizationUrl(url) }
                     }
@@ -950,7 +953,7 @@ private fun McpServerEditorSheet(
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+            modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Text(

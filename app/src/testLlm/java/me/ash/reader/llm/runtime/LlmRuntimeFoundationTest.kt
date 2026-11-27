@@ -14,6 +14,19 @@ import org.mockito.kotlin.mock
 
 class LlmRuntimeFoundationTest {
 
+    @Test fun `known protocol reasoning parameter does not change reasoning output capability`() {
+        val adapter = OpenAiCompatibleLlmAdapter(mock(), ModelCapabilityResolver())
+        val openai = AiProviderProfile(name = "OpenAI", endpoint = "https://api.openai.com/v1", reasoningCapabilityOverride = AiCapabilityOverrideMode.ENABLED)
+        val capability = adapter.capability(openai, "gpt-5", null)
+        assertFalse(capability.supportsReasoningOutput)
+        assertEquals(ReasoningParameterStyle.OPENAI_REASONING_EFFORT, capability.reasoningParameterStyle)
+        val deepseek = openai.copy(endpoint = "https://api.deepseek.com/v1", reasoningCapabilityOverride = AiCapabilityOverrideMode.DISABLED)
+        val outputOnly = adapter.capability(deepseek, "deepseek-reasoner", null)
+        assertTrue(outputOnly.supportsReasoningOutput)
+        assertEquals(ReasoningParameterStyle.NONE, outputOnly.reasoningParameterStyle)
+    }
+
+
     @Test
     fun `unknown compatible provider uses conservative capabilities`() {
         val capability =

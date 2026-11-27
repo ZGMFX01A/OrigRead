@@ -1,5 +1,7 @@
 package me.ash.reader.infrastructure.net
 
+import kotlinx.coroutines.CancellationException
+import timber.log.Timber
 import com.google.gson.Gson
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -83,7 +85,10 @@ internal suspend fun NetworkDataSource.getTrustedLatestRelease(
             if (response.isSuccessful && body != null && body.isTrustedReleaseMetadata(repositoryUrl)) {
                 return LatestReleaseCheckResult(body, lastResponseCode)
             }
-        } catch (_: Exception) {
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Timber.w(error, "Release 候选请求失败")
             // A mirror failure must not prevent trying the next candidate.
             lastResponseCode = null
         }
@@ -130,7 +135,10 @@ internal suspend fun NetworkDataSource.getTrustedLatestReleaseVersion(
                     }
                 }
             }
-        } catch (_: Exception) {
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Timber.w(error, "Release 候选请求失败")
             // CDN 索引失败不影响官方 GitHub API 兜底。
         }
     }
@@ -155,7 +163,10 @@ private suspend fun NetworkDataSource.probeReleaseAsset(url: String): ReleaseAss
             response.body()?.close()
             response.errorBody()?.close()
         }
-    } catch (_: Exception) {
+    } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Timber.w(error, "Release 候选请求失败")
         ReleaseAssetProbeResult.UNAVAILABLE
     }
 

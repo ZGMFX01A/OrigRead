@@ -512,7 +512,11 @@ fun FlowPage(
                                                 onSearch = true
                                                 markAsRead = false
                                                 delay(100)
-                                                focusRequester.requestFocus()
+                                                try {
+                                                    focusRequester.requestFocus()
+                                                } catch (error: IllegalStateException) {
+                                                    timber.log.Timber.w(error, "Search focus is no longer attached")
+                                                }
                                             }
                                         }
                                 }
@@ -604,11 +608,13 @@ fun FlowPage(
                 ) { flowUiState ->
                     val pager = flowUiState.pagerData.pager
                     val filterState = flowUiState.pagerData.filterState
-                    val pagingItems = pager.collectAsLazyPagingItems().also { pagingItems = it }
+                    val scenePagingItems = pager.collectAsLazyPagingItems()
                     SideEffect {
-                        if (flowUiState.pagerData == pagerData) translationPagingItems = pagerData to pagingItems
+                        pagingItems = scenePagingItems
+                        if (flowUiState.pagerData == pagerData) translationPagingItems = pagerData to scenePagingItems
                     }
 
+                    val pagingItems = scenePagingItems
                     if (markAsReadOnScroll && filterState.filter.isUnread()) {
                         LaunchedEffect(listState.isScrollInProgress) {
                             if (!listState.isScrollInProgress) {

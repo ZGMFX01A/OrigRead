@@ -37,6 +37,9 @@ import me.ash.reader.infrastructure.preference.InitialPagePreference
 import me.ash.reader.infrastructure.preference.LanguagesPreference
 import me.ash.reader.infrastructure.preference.LocalDarkTheme
 import me.ash.reader.infrastructure.preference.SettingsProvider
+import me.ash.reader.ui.ext.awaitPreferenceCache
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.getValue
 import me.ash.reader.ui.ext.initialPage
 import me.ash.reader.ui.ext.isFirstLaunch
 import me.ash.reader.ui.ext.languages
@@ -66,11 +69,6 @@ class MainActivity : AppCompatActivity() {
 
         enableEdgeToEdge()
 
-        // Set the language
-        if (Build.VERSION.SDK_INT < 33) {
-            LanguagesPreference.fromValue(languages).let { LanguagesPreference.setLocale(it) }
-        }
-
         // 增大 CursorWindow，避免大正文/大数据行触发窗口容量问题。
         // size
         try {
@@ -96,6 +94,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         setContent {
+            val preferencesReady by produceState(false) {
+                awaitPreferenceCache()
+                if (Build.VERSION.SDK_INT < 33) {
+                    LanguagesPreference.fromValue(languages).let { LanguagesPreference.setLocale(it) }
+                }
+                value = true
+            }
+            if (!preferencesReady) return@setContent
             AccountSettingsProvider(accountService = accountService) {
                 settingsProvider.ProvidesSettings {
                     val subscribeViewModel: SubscribeViewModel = hiltViewModel()

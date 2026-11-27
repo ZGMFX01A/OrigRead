@@ -157,6 +157,15 @@ interface LlmChatDao {
     @Update
     suspend fun updateConversation(conversation: LlmConversationEntity)
 
+    @Query("UPDATE llm_conversations SET title = :title, updated_at = MAX(updated_at, :updatedAt) WHERE id = :id")
+    suspend fun renameConversation(id: String, title: String, updatedAt: Long)
+
+    @Query("UPDATE llm_conversations SET provider_id = :providerId, model = :model, skill_id = :skillId, updated_at = MAX(updated_at, :updatedAt) WHERE id = :id")
+    suspend fun updateConversationRuntime(id: String, providerId: String?, model: String?, skillId: String?, updatedAt: Long)
+
+    @Query("UPDATE llm_conversations SET updated_at = MAX(updated_at, :updatedAt) WHERE id = :id")
+    suspend fun touchConversation(id: String, updatedAt: Long)
+
     /** 删除会话并触发消息外键级联删除。 */
     @Delete
     suspend fun deleteConversation(conversation: LlmConversationEntity)
@@ -169,6 +178,62 @@ interface LlmChatDao {
     @Update
     suspend fun updateMessage(message: LlmMessageEntity)
 
+    /** 只写调用者改变的列，不重放旧快照中的开关、搜索状态或正文。 */
+    @Query(
+        "UPDATE llm_messages SET content = CASE WHEN :setContent THEN :content ELSE content END, " +
+        "reasoning = CASE WHEN :setReasoning THEN :reasoning ELSE reasoning END, " +
+        "status = CASE WHEN :setStatus THEN :status ELSE status END, " +
+        "error_message = CASE WHEN :setErrorMessage THEN :errorMessage ELSE error_message END, " +
+        "web_search_status = CASE WHEN :setWebSearchStatus THEN :webSearchStatus ELSE web_search_status END, " +
+        "web_search_query = CASE WHEN :setWebSearchQuery THEN :webSearchQuery ELSE web_search_query END, " +
+        "web_search_provider_name = CASE WHEN :setWebSearchProviderName THEN :webSearchProviderName ELSE web_search_provider_name END, " +
+        "web_search_error_message = CASE WHEN :setWebSearchErrorMessage THEN :webSearchErrorMessage ELSE web_search_error_message END, " +
+        "prompt_tokens = CASE WHEN :setPromptTokens THEN :promptTokens ELSE prompt_tokens END, " +
+        "completion_tokens = CASE WHEN :setCompletionTokens THEN :completionTokens ELSE completion_tokens END, " +
+        "duration_ms = CASE WHEN :setDurationMs THEN :durationMs ELSE duration_ms END, " +
+        "token_usage_estimated = CASE WHEN :setTokenUsageEstimated THEN :tokenUsageEstimated ELSE token_usage_estimated END, " +
+        "updated_at = MAX(updated_at, " +
+        ":updatedAt) WHERE id = :id"
+    )
+    suspend fun patchMessage(
+        id: String, updatedAt: Long,
+        content: String, setContent: Boolean,
+        reasoning: String?, setReasoning: Boolean,
+        status: LlmMessageStatus, setStatus: Boolean,
+        errorMessage: String?, setErrorMessage: Boolean,
+        webSearchStatus: WebSearchRequestStatus?, setWebSearchStatus: Boolean,
+        webSearchQuery: String?, setWebSearchQuery: Boolean,
+        webSearchProviderName: String?, setWebSearchProviderName: Boolean,
+        webSearchErrorMessage: String?, setWebSearchErrorMessage: Boolean,
+        promptTokens: Int?, setPromptTokens: Boolean,
+        completionTokens: Int?, setCompletionTokens: Boolean,
+        durationMs: Long?, setDurationMs: Boolean,
+        tokenUsageEstimated: Boolean, setTokenUsageEstimated: Boolean,
+    )
+
+    @Query(
+        "UPDATE llm_messages SET web_search_status = :status, " +
+        "web_search_provider_name = :providerName, " +
+        "web_search_error_message = :errorMessage, " +
+        "updated_at = MAX(updated_at, " +
+        ":updatedAt) WHERE id = :id"
+    )
+    suspend fun updateWebSearchState(id: String, status: WebSearchRequestStatus?, providerName: String?, errorMessage: String?, updatedAt: Long)
+
+    @Query(
+        "UPDATE llm_messages SET content = :content, " +
+        "reasoning = :reasoning, " +
+        "status = :status, " +
+        "error_message = :errorMessage, " +
+        "prompt_tokens = :promptTokens, " +
+        "completion_tokens = :completionTokens, " +
+        "duration_ms = :durationMs, " +
+        "token_usage_estimated = :tokenUsageEstimated, " +
+        "updated_at = MAX(updated_at, " +
+        ":updatedAt) WHERE id = :id"
+    )
+    suspend fun updateGenerationState(id: String, content: String, reasoning: String?, status: LlmMessageStatus, errorMessage: String?, promptTokens: Int?, completionTokens: Int?, durationMs: Long?, tokenUsageEstimated: Boolean, updatedAt: Long)
+
     /**
      * Search 终态与当次已取得的 Search ContextRef 必须原子提交。
      *
@@ -180,8 +245,9 @@ interface LlmChatDao {
         message: LlmMessageEntity,
         contextRefs: List<LlmContextRefEntity>,
     ) {
-        updateMessage(message)
+        updateWebSearchState(message.id, message.webSearchStatus, message.webSearchProviderName, message.webSearchErrorMessage, message.updatedAt)
         deleteContextRefsForAssistant(message.id)
+        deleteOrphanCitationAnnotationsForAssistant(message.id)
         if (contextRefs.isNotEmpty()) insertContextRefs(contextRefs)
     }
 
@@ -308,6 +374,7 @@ interface LlmChatDao {
         citationRefs: List<LlmCitationRefEntity>,
     ) {
         deleteCitationRefsForAssistant(assistantMessageId)
+        deleteOrphanCitationAnnotationsForAssistant(assistantMessageId)
         if (citationRefs.isNotEmpty()) insertCitationRefs(citationRefs)
     }
 
@@ -324,7 +391,7 @@ interface LlmChatDao {
         annotations: List<LlmCitationAnnotationEntity>,
         annotationRefs: List<LlmCitationAnnotationRefEntity>,
     ) {
-        updateMessage(message)
+        updateGenerationState(message.id, message.content, message.reasoning, message.status, message.errorMessage, message.promptTokens, message.completionTokens, message.durationMs, message.tokenUsageEstimated, message.updatedAt)
         deleteCitationAnnotationsForAssistant(message.id)
         deleteCitationRefsForAssistant(message.id)
         if (citationRefs.isNotEmpty()) insertCitationRefs(citationRefs)

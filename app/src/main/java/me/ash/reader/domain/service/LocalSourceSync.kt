@@ -50,6 +50,7 @@ internal suspend fun LocalRssService.syncLocalSources(
             "updatedSources" to statuses.count { it == SourceSyncStatus.UPDATED },
             "unchangedSources" to statuses.count { it == SourceSyncStatus.UNCHANGED },
             "failedSources" to failedCount,
+            "sourcesProcessed" to true,
         )
         if (failedCount > 0) return@supervisorScope ListenableWorker.Result.failure(resultData)
         accountService.updateSyncTime(accountId, Date())

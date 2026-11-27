@@ -20,7 +20,7 @@ constructor(
     private val workManager: WorkManager,
 ) : CoroutineWorker(context, workerParams) {
 
-    /** 任务与后处理始终使用输入账户，只有全部成功才清理归档并抓取全文。 */
+    /** 任务与后处理始终使用输入账户，部分来源失败也要刷新已完成来源的派生数据。 */
     override suspend fun doWork(): Result {
         val data = inputData
         val accountId = data.getInt("accountId", MISSING_ACCOUNT_ID)
@@ -30,7 +30,7 @@ constructor(
 
         val service = rssService.forAccount(accountId)
         val result = service.sync(accountId = accountId, feedId = feedId, groupId = groupId)
-        if (result !is Result.Success) return result
+        if (!shouldRunPostSync(result)) return result
         service.clearKeepArchivedArticles(accountId).forEach {
             readerCacheHelper.deleteCacheFor(articleId = it.id, accountId = it.accountId)
         }
@@ -148,3 +148,8 @@ constructor(
         }
     }
 }
+
+/** 账户级错误仍阻止后处理；已完成来源汇总的部分失败不阻止清理、全文缓存和小组件更新。 */
+internal fun shouldRunPostSync(result: ListenableWorker.Result): Boolean =
+    result is ListenableWorker.Result.Success ||
+        (result is ListenableWorker.Result.Failure && result.outputData.getBoolean("sourcesProcessed", false))

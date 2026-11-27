@@ -1,5 +1,6 @@
 package me.ash.reader.infrastructure.translation
 
+import me.ash.reader.infrastructure.coroutines.suspendRunCatching
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
@@ -344,7 +345,7 @@ class TranslationService @Inject constructor(
     }
 
     suspend fun testProvider(type: TranslationProviderType): Result<String> =
-        runCatching {
+        suspendRunCatching {
             val settings = settingsRepository.current()
             if (!settings.provider(type).enabled) {
                 throw TranslationException(
@@ -378,7 +379,7 @@ class TranslationService @Inject constructor(
 
     /** 仅在用户明确查询额度时访问 DeepL 用量接口；服务测试始终走真实翻译请求。 */
     suspend fun getDeepLUsage(): Result<DeepLUsage> =
-        runCatching {
+        suspendRunCatching {
             val type = TranslationProviderType.DEEPL
             if (!settingsRepository.current().provider(type).enabled) {
                 throw TranslationException(

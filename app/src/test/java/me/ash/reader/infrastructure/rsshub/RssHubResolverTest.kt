@@ -30,6 +30,22 @@ import org.mockito.kotlin.verifyNoInteractions
 import org.mockito.kotlin.whenever
 
 class RssHubResolverTest {
+    @Test fun `cancelled probe does not launch diagnostic or retry requests`() = runTest {
+        val helper = mock<RssHelper>()
+        // 附加字段禁止协程调试设施复制异常，使身份断言只检测应用有没有包装取消。
+        val cancellation = object : kotlinx.coroutines.CancellationException("stop") { val marker = Any() }
+        doAnswer { throw cancellation }.whenever(helper).parseFeedDirect(any(), any(), any())
+        try {
+            resolver(mock(), helper, enabledSettingsRepository("https://one.example"), StandardTestDispatcher(testScheduler))
+                .probeExplicitRoute("/zhihu/hot", "https://one.example")
+            org.junit.Assert.fail("cancellation swallowed")
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            org.junit.Assert.assertSame(cancellation, error)
+        }
+        verify(helper).parseFeedDirect(any(), any(), any())
+        org.mockito.kotlin.verifyNoMoreInteractions(helper)
+    }
+
     private val inputUrl = "https://example.com/user/42"
 
     @Test

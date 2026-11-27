@@ -1,5 +1,9 @@
 package me.ash.reader.llm.mcp
 
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancelAndJoin
 import android.content.Context
 import java.io.File
 import java.nio.file.Files
@@ -22,6 +26,59 @@ import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
 
 class McpOAuthManagerSecurityTest {
+    @Test fun `single thread dispatcher cannot delay loopback cancellation`() = runBlocking {
+        java.util.concurrent.Executors.newSingleThreadExecutor().asCoroutineDispatcher().use { dispatcher ->
+            for (connect in listOf(false, true)) {
+                java.net.ServerSocket(0, 1, java.net.InetAddress.getByName("127.0.0.1")).use { server ->
+                    val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+                    val pending = launch(dispatcher) { started.complete(Unit); awaitLoopbackCallback(server, "expected") }
+                    started.await()
+                    val client = if (connect) java.net.Socket("127.0.0.1", server.localPort) else null
+                    try {
+                        kotlinx.coroutines.withTimeout(1000) { pending.cancelAndJoin() }
+                        assertTrue(server.isClosed)
+                    } finally { client?.close() }
+                }
+            }
+        }
+    }
+
+    @Test fun `loopback rejects wrong state and oversized line then accepts real callback`() = runBlocking {
+        java.net.ServerSocket(0, 1, java.net.InetAddress.getByName("127.0.0.1")).use { server ->
+            val pending = async(Dispatchers.IO) { awaitLoopbackCallback(server, "expected") }
+            assertEquals("HTTP/1.1 400 Bad Request", loopbackRequest(server.localPort, "/callback?code=evil&state=wrong"))
+            assertFalse(pending.isCompleted)
+            assertEquals("HTTP/1.1 400 Bad Request", loopbackRequest(server.localPort, "/callback?" + "x".repeat(8300)))
+            assertFalse(pending.isCompleted)
+            assertEquals("HTTP/1.1 200 OK", loopbackRequest(server.localPort, "/callback?code=real&state=expected"))
+            assertEquals("real", kotlinx.coroutines.withTimeout(2000) { pending.await() }.code)
+        }
+    }
+    @Test fun `loopback cancellation closes listening and active sockets immediately`() = runBlocking {
+        for (connect in listOf(false, true)) {
+            java.net.ServerSocket(0, 1, java.net.InetAddress.getByName("127.0.0.1")).use { server ->
+                val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+                val pending = launch(Dispatchers.IO) { started.complete(Unit); awaitLoopbackCallback(server, "expected") }
+                started.await()
+                val client = if (connect) java.net.Socket("127.0.0.1", server.localPort) else null
+                try {
+                    kotlinx.coroutines.withTimeout(1000) { pending.cancelAndJoin() }
+                    assertTrue(server.isClosed)
+                    if (client != null) {
+                        client.soTimeout = 1000
+                        assertEquals(-1, client.getInputStream().read())
+                    }
+                } finally { client?.close() }
+            }
+        }
+    }
+    private fun loopbackRequest(port: Int, target: String): String? =
+        java.net.Socket("127.0.0.1", port).use { client ->
+            client.soTimeout = 2000
+            client.getOutputStream().write("GET $target HTTP/1.1\r\n\r\n".toByteArray())
+            client.getInputStream().bufferedReader().readLine()
+        }
+
     @Test
     fun `remote metadata rejects cleartext loopback token endpoint`() {
         assertThrows(McpException::class.java) {

@@ -92,7 +92,7 @@ class DynamicWebsiteHtmlRenderer @Inject constructor(
 
             fun capture(view: WebView, finalUrl: String) {
                 if (completed) return
-                view.evaluateJavascript(CAPTURE_DOM_SCRIPT) { encodedHtml ->
+                view.evaluateJavascript(DynamicWebsiteRenderPolicy.captureDomScript(finalUrl, MAX_RENDERED_HTML_CHARS)) { encodedHtml ->
                     if (completed) return@evaluateJavascript
                     val html = runCatching {
                         DynamicWebsiteRenderPolicy.decodeJavascriptString(encodedHtml)
@@ -230,29 +230,37 @@ class DynamicWebsiteHtmlRenderer @Inject constructor(
         const val MAX_RENDERED_HTML_CHARS = 750_000
         const val VIEWPORT_WIDTH = 1080
         const val VIEWPORT_HEIGHT = 1920
-
-        val CAPTURE_DOM_SCRIPT =
-            """
-            (function() {
-                // 微信文章整页脚本和样式非常大，优先只回传正文节点，避免 DOM 上限截断正文。
-                var wechatContent = document.querySelector('#js_content');
-                if (wechatContent) {
-                    return '<html><body>' + wechatContent.outerHTML + '</body></html>';
-                }
-                var root = document.documentElement;
-                if (!root) return "";
-                var html = root.outerHTML || "";
-                return html.length > $MAX_RENDERED_HTML_CHARS
-                    ? html.substring(0, $MAX_RENDERED_HTML_CHARS)
-                    : html;
-            })();
-            """.trimIndent()
     }
 }
 
 /** 与 Android WebView 无关的导航和 JavaScript 返回值处理规则，便于 JVM 回归测试。 */
 internal object DynamicWebsiteRenderPolicy {
     private val json = Json
+
+    fun captureDomScript(targetUrl: String, maxHtmlChars: Int): String =
+            """
+            (function() {
+                // 微信文章整页脚本和样式非常大，优先只回传正文节点，避免 DOM 上限截断正文。
+                var wechatContent = ${if (allowsWechatContentCrop(targetUrl)) "document.querySelector('#js_content')" else "null"};
+                if (wechatContent) {
+                    return '<html><body>' + wechatContent.outerHTML + '</body></html>';
+                }
+                var root = document.documentElement;
+                if (!root) return "";
+                var html = root.outerHTML || "";
+                return html.length > $maxHtmlChars
+                    ? html.substring(0, $maxHtmlChars)
+                    : html;
+            })();
+            """.trimIndent()
+
+    fun allowsWechatContentCrop(targetUrl: String): Boolean =
+        runCatching {
+            val uri = URI(targetUrl)
+            val host = uri.host?.lowercase().orEmpty()
+            uri.scheme?.lowercase() in setOf("http", "https") &&
+                (host == "weixin.qq.com" || host.endsWith(".weixin.qq.com"))
+        }.getOrDefault(false)
 
     fun requiresInteractiveVerification(targetUrl: String): Boolean =
         runCatching {

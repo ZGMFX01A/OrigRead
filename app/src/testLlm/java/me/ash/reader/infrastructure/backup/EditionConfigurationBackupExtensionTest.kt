@@ -18,6 +18,14 @@ import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 
 class EditionConfigurationBackupExtensionTest {
+
+    @Test fun `secrets without configuration are rejected before any restore`() {
+        val secrets = Json.parseToJsonElement("{}")
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) { extension().validateBackup(null, secrets) }
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) { extension().restoreBackup(null, secrets, true) }
+        org.mockito.kotlin.verifyNoInteractions(llmSettingsRepository, webSearchRepository, mcpServerRepository)
+    }
+
     private val llmSettingsRepository = mock<LlmSettingsRepository>()
     private val webSearchRepository = mock<WebSearchRepository>()
     private val mcpServerRepository = mock<McpServerRepository>()

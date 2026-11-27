@@ -1060,9 +1060,8 @@ class LlmChatViewModel @Inject constructor(
      * 发送用户消息并启动一轮 assistant 流式生成。
      * 首条消息会同时创建会话，避免用户打开页面但从未发言时产生空历史记录。
      */
-    fun sendMessage(rawText: String) {
+    fun sendMessage(rawText: String): Boolean =
         sendUserRequest(rawText, LlmExecutionTask.CHAT)
-    }
 
     /**
      * 将 Quick Message 按点击瞬间的阅读上下文展开后，作为普通 USER / CHAT 请求发送。
@@ -1103,13 +1102,13 @@ class LlmChatViewModel @Inject constructor(
     private fun sendUserRequest(
         rawText: String,
         requestTask: LlmExecutionTask,
-    ) {
+    ): Boolean {
         val text = rawText.trim()
-        val currentArticle = articleContext.value ?: return
-        if (text.isBlank() || hasGenerationInFlight()) return
+        val currentArticle = articleContext.value ?: return false
+        if (text.isBlank() || hasGenerationInFlight()) return false
         if (_uiState.value.toolCalls.any { it.status == LlmToolCallStatus.PENDING_APPROVAL }) {
             _uiState.update { it.copy(transientError = "请先处理当前待确认的 Tool Call") }
-            return
+            return false
         }
         startGenerationJob {
             if (requestTask == LlmExecutionTask.CHAT) {
@@ -1173,6 +1172,7 @@ class LlmChatViewModel @Inject constructor(
             )
             generateAssistant(conversationId)
         }
+        return true
     }
 
     /**

@@ -22,6 +22,7 @@ package me.ash.reader.ui.component.reader
 
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.core.Animatable
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -155,7 +156,6 @@ private fun LazyListScope.formatBody(
             val decoratedParagraph =
                 paragraphBuilder.toAnnotatedString().withReaderEvidenceDecorations(
                     anchorRanges = anchorRanges,
-                    highlight = anchorHighlight,
                     markerSnapshot = markerSnapshot,
                     markerArticleId = markerArticleId,
                 )
@@ -179,7 +179,7 @@ private fun LazyListScope.formatBody(
             val requiresBidi = paragraph.toString().requiresBidi()
             val textStyle = bodyStyle().applyTextDirection(requiresBidi = requiresBidi)
             val contentWidth = LocalTextContentWidth.current
-            val textIdentity = paragraph.hashCode()
+            val textIdentity = decoratedParagraph.text.hashCode()
             val layoutHolder = remember(trackedItem.itemIndex, textIdentity) { NativeReaderTextLayoutHolder() }
             RegisterNativeReaderTextDisposal(
                 state = nativeReaderAnchorState,
@@ -194,6 +194,7 @@ private fun LazyListScope.formatBody(
                 modifier =
                     Modifier.width(contentWidth)
                         .padding(horizontal = textHorizontalPadding().dp)
+                        .readerEvidenceHighlight(decoratedParagraph.renderedRanges, anchorHighlight, layoutHolder)
                         .trackNativeReaderText(
                             state = nativeReaderAnchorState,
                             trackedItem = trackedItem,
@@ -256,7 +257,6 @@ private fun LazyListScope.formatCodeBlock(
             val decoratedCode =
                 paragraphBuilder.toAnnotatedString().withReaderEvidenceDecorations(
                     anchorRanges = anchorRanges,
-                    highlight = anchorHighlight,
                     markerSnapshot = markerSnapshot,
                     markerArticleId = markerArticleId,
                 )
@@ -285,7 +285,7 @@ private fun LazyListScope.formatCodeBlock(
                         style = codeBlockStyle(),
                         softWrap = false,
                         modifier =
-                            Modifier.trackNativeReaderText(
+                            Modifier.readerEvidenceHighlight(decoratedCode.renderedRanges, anchorHighlight, layoutHolder).trackNativeReaderText(
                                 state = nativeReaderAnchorState,
                                 trackedItem = trackedItem,
                                 renderedRanges = decoratedCode.renderedRanges,
@@ -970,29 +970,28 @@ private fun registerNativeReaderTextIfReady(
 @Composable
 private fun AnnotatedString.withReaderEvidenceDecorations(
     anchorRanges: List<ReaderTextAnchorRange>,
-    highlight: NativeReaderAnchorHighlight?,
     markerSnapshot: ReaderEvidenceMarkerSnapshot?,
     markerArticleId: String?,
 ): ReaderEvidenceDecoratedText {
-    val highlighted = withReaderEvidenceHighlight(anchorRanges, highlight)
+    val sourceText = this
     val insertions =
-        remember(anchorRanges, markerSnapshot, markerArticleId, highlighted.length) {
+        remember(anchorRanges, markerSnapshot, markerArticleId, sourceText.length) {
             buildReaderEvidenceMarkerInsertions(
                 anchorRanges = anchorRanges,
                 snapshot = markerSnapshot,
                 articleId = markerArticleId,
-                textLength = highlighted.length,
+                textLength = sourceText.length,
             )
         }
-    if (insertions.isEmpty()) return ReaderEvidenceDecoratedText(highlighted, anchorRanges)
+    if (insertions.isEmpty()) return ReaderEvidenceDecoratedText(sourceText, anchorRanges)
 
     val markerForeground = MaterialTheme.colorScheme.onSecondaryContainer
     val markerBackground = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f)
     val decorated = buildAnnotatedString {
         var cursor = 0
         insertions.forEach { insertion ->
-            val end = insertion.endExclusive.coerceIn(cursor, highlighted.length)
-            append(highlighted.subSequence(cursor, end))
+            val end = insertion.endExclusive.coerceIn(cursor, sourceText.length)
+            append(sourceText.subSequence(cursor, end))
             insertion.displayOrders.forEach { displayOrder ->
                 append(READER_EVIDENCE_MARKER_SELECTION_SENTINEL)
                 append(" ")
@@ -1020,7 +1019,7 @@ private fun AnnotatedString.withReaderEvidenceDecorations(
             }
             cursor = end
         }
-        if (cursor < highlighted.length) append(highlighted.subSequence(cursor, highlighted.length))
+        if (cursor < sourceText.length) append(sourceText.subSequence(cursor, sourceText.length))
     }
     val renderedRanges =
         anchorRanges.map { range ->
@@ -1049,45 +1048,33 @@ private fun transformedReaderOffset(
     return sourceOffset + inserted
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun AnnotatedString.withReaderEvidenceHighlight(
+private fun Modifier.readerEvidenceHighlight(
     anchorRanges: List<ReaderTextAnchorRange>,
     highlight: NativeReaderAnchorHighlight?,
-): AnnotatedString {
-    val targetKey = highlight?.stableLocatorKey ?: return this
-    val matchingRanges =
-        remember(anchorRanges, targetKey, length) {
-            anchorRanges
-                .filter { it.stableLocatorKey == targetKey }
-                .mapNotNull { range ->
-                    val start = range.start.coerceIn(0, length)
-                    val end = range.endExclusive.coerceIn(start, length)
-                    if (end > start) start until end else null
-                }
-        }
-    if (matchingRanges.isEmpty()) return this
-
-    val intensity = remember(targetKey) { Animatable(0f) }
-    val highlightInSpec = androidx.compose.animation.core.tween<Float>(CitationMotion.FadeInMillis)
-    val highlightOutSpec = androidx.compose.animation.core.tween<Float>(CitationMotion.FadeOutMillis)
-    LaunchedEffect(highlight.revision, matchingRanges) {
-        intensity.snapTo(0f)
-        intensity.animateTo(1f, animationSpec = highlightInSpec)
-        delay(CitationMotion.HoldMillis)
-        intensity.animateTo(0f, animationSpec = highlightOutSpec)
+    holder: NativeReaderTextLayoutHolder,
+): Modifier {
+    val targetKey = highlight?.stableLocatorKey
+    val ranges = remember(anchorRanges, targetKey) {
+        anchorRanges.filter { targetKey != null && it.stableLocatorKey == targetKey }
     }
-
-    val background =
-        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.74f * intensity.value)
-    return buildAnnotatedString {
-        append(this@withReaderEvidenceHighlight)
-        matchingRanges.forEach { range ->
-            addStyle(
-                SpanStyle(background = background),
-                start = range.first,
-                end = range.last + 1,
-            )
+    val intensity = remember { Animatable(0f) }
+    LaunchedEffect(highlight?.revision, ranges) {
+        intensity.snapTo(0f)
+        if (ranges.isNotEmpty()) {
+            intensity.animateTo(1f, androidx.compose.animation.core.tween(CitationMotion.FadeInMillis))
+            delay(CitationMotion.HoldMillis)
+            intensity.animateTo(0f, androidx.compose.animation.core.tween(CitationMotion.FadeOutMillis))
+        }
+    }
+    val color = MaterialTheme.colorScheme.secondaryContainer
+    return drawBehind {
+        val layout = holder.textLayoutResult ?: return@drawBehind
+        val length = layout.layoutInput.text.length
+        ranges.forEach { range ->
+            val start = range.start.coerceIn(0, length)
+            val end = range.endExclusive.coerceIn(start, length)
+            if (end > start) drawPath(layout.getPathForRange(start, end), color.copy(alpha = 0.74f * intensity.value))
         }
     }
 }

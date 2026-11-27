@@ -54,7 +54,7 @@ class JsonArticleParser @Inject constructor() {
         val link = resolveUrl(baseUrl, linkValue) ?: return null
         val description = stringValue(item, rule.descriptionPath).orEmpty()
         val content = stringValue(item, rule.contentPath).orEmpty()
-        val shortDescription = description.ifBlank { Jsoup.parse(content).text() }.take(280)
+        val shortDescription = Jsoup.parse(description.ifBlank { content }).text().take(280)
         val image = stringValue(item, rule.imagePath)?.let { resolveUrl(baseUrl, it) }
         val stableId = stringValue(item, rule.idPath).orEmpty().ifBlank { link }
 

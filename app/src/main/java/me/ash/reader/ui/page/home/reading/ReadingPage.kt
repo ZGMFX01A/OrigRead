@@ -870,7 +870,9 @@ fun ReadingPage(
                                             }
                                         }
                                         .collectAsStateValue(initial = false)
-                                if (isCurrentScene) showTopDivider = sceneShowTopDivider
+                                LaunchedEffect(isCurrentScene, sceneShowTopDivider) {
+                                    if (isCurrentScene) showTopDivider = sceneShowTopDivider
+                                }
 
                                 CompositionLocalProvider(
                                     LocalTextStyle provides

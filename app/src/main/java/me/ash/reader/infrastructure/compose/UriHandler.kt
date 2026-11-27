@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Parcelable
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
@@ -26,7 +27,9 @@ internal fun ProvideUriHandler(content: @Composable () -> Unit) {
     val context = LocalContext.current
     CompositionLocalProvider(
         LocalUriHandler provides
-            AppUriHandler(context, settings.openLink, settings.openLinkSpecificBrowser),
+            remember(context, settings.openLink, settings.openLinkSpecificBrowser) {
+                AppUriHandler(context, settings.openLink, settings.openLinkSpecificBrowser)
+            },
         content = content,
     )
 }
@@ -103,9 +106,14 @@ internal class AppUriHandler(
                             startActivity(intent.setPackage(specificBrowser.packageName))
                         }
                     }
-                } catch (_: Throwable) {
+                } catch (error: Exception) {
+                    timber.log.Timber.w(error, "Unable to open preferred link handler")
                     showToast(getString(R.string.open_link_something_wrong))
-                    startActivity(intent)
+                    try {
+                        startActivity(intent.setPackage(null))
+                    } catch (fallbackError: Exception) {
+                        timber.log.Timber.w(fallbackError, "No activity can open link")
+                    }
                 }
             }
         }

@@ -1,5 +1,7 @@
 package me.ash.reader.infrastructure.android
 
+import me.ash.reader.infrastructure.coroutines.suspendRunCatching
+import me.ash.reader.infrastructure.ai.awaitResponseAndUse
 import android.content.Context
 import android.media.MediaScannerConnection
 import android.net.Uri
@@ -33,56 +35,64 @@ class AndroidImageDownloader @Inject constructor(
     @CheckResult
     suspend fun downloadImage(imageUrl: String): Result<Uri> {
         return withContext(ioDispatcher) {
-            Request.Builder().url(imageUrl).build().runCatching {
-                okHttpClient.newCall(this).execute().run {
+            suspendRunCatching {
+                val request = Request.Builder().url(imageUrl).build()
+                okHttpClient.newCall(request).awaitResponseAndUse { response ->
+                    with(response) {
+                        check(isSuccessful) { "图片下载失败：HTTP $code" }
 
-                    val fileName = URLUtil.guessFileName(
-                        imageUrl, header("Content-Disposition"), body.contentType()?.toString()
-                    )
+                        val fileName = URLUtil.guessFileName(
+                            imageUrl, header("Content-Disposition"), body.contentType()?.toString()
+                        )
 
-                    val relativePath =
-                        Environment.DIRECTORY_PICTURES + "/" + context.getString(R.string.origread)
+                        val relativePath =
+                            Environment.DIRECTORY_PICTURES + "/" + context.getString(R.string.origread)
 
-                    val resolver = context.contentResolver
+                        val resolver = context.contentResolver
 
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        val imageCollection =
-                            MediaStore.Images.Media.getContentUri(
-                                MediaStore.VOLUME_EXTERNAL_PRIMARY
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            val imageCollection =
+                                MediaStore.Images.Media.getContentUri(
+                                    MediaStore.VOLUME_EXTERNAL_PRIMARY
+                                )
+
+
+                            val imageDetails = contentValuesOf(
+                                MediaStore.Images.Media.DISPLAY_NAME to fileName,
+                                MediaStore.Images.Media.RELATIVE_PATH to relativePath,
+                                MediaStore.Images.Media.IS_PENDING to 1
                             )
 
+                            val imageUri = resolver.insert(imageCollection, imageDetails)
+                                ?: throw IOException("Cannot create image")
 
-                        val imageDetails = contentValuesOf(
-                            MediaStore.Images.Media.DISPLAY_NAME to fileName,
-                            MediaStore.Images.Media.RELATIVE_PATH to relativePath,
-                            MediaStore.Images.Media.IS_PENDING to 1
-                        )
-
-                        val imageUri = resolver.insert(imageCollection, imageDetails)
-                            ?: return@withContext Result.failure(IOException("Cannot create image"))
-
-                        resolver.openFileDescriptor(imageUri, "w", null).use { pfd ->
-                            body.byteStream().use {
-                                it.copyTo(
-                                    FileOutputStream(
-                                        pfd?.fileDescriptor ?: return@withContext Result.failure(
-                                            IOException("Null fd")
-                                        )
-                                    )
-                                )
+                            try {
+                                resolver.openFileDescriptor(imageUri, "w", null).use { pfd ->
+                                    val descriptor = pfd ?: throw IOException("Null fd")
+                                    FileOutputStream(descriptor.fileDescriptor).use { output ->
+                                        body.byteStream().use { input -> input.copyTo(output) }
+                                    }
+                                }
+                                imageDetails.clear()
+                                imageDetails.put(MediaStore.Images.Media.IS_PENDING, 0)
+                                if (resolver.update(imageUri, imageDetails, null, null) <= 0) {
+                                    throw IOException("Cannot publish downloaded image")
+                                }
+                            } catch (error: Exception) {
+                                try {
+                                    resolver.delete(imageUri, null, null)
+                                } catch (cleanupError: Exception) {
+                                    error.addSuppressed(cleanupError)
+                                }
+                                throw error
                             }
+                            imageUri
+                        } else {
+                            saveImageForAndroidP(
+                                fileName,
+                                Environment.getExternalStoragePublicDirectory(relativePath).path
+                            )
                         }
-                        imageDetails.run {
-                            clear()
-                            put(MediaStore.Images.Media.IS_PENDING, 0)
-                            resolver.update(imageUri, this, null, null)
-                        }
-                        imageUri
-                    } else {
-                        saveImageForAndroidP(
-                            fileName,
-                            Environment.getExternalStoragePublicDirectory(relativePath).path
-                        )
                     }
                 }
             }
@@ -98,7 +108,7 @@ class AndroidImageDownloader @Inject constructor(
         val file = Path(imageDirectory, fileName).createParentDirectories().createFile().toFile()
 
         body.byteStream().use {
-            it.copyTo(file.outputStream())
+            file.outputStream().use { output -> it.copyTo(output) }
         }
 
         var contentUri: Uri = Uri.fromFile(file)

@@ -20,6 +20,18 @@ import org.mockito.kotlin.mock
 import org.mockito.kotlin.verifyNoInteractions
 
 class WebSearchFoundationTest {
+
+    @Test fun `blank user input cannot trigger or construct search in any mode`() {
+        WebSearchMode.entries.forEach { mode ->
+            val decision = resolveWebSearchDecision(true, mode, " \n\t")
+            assertFalse(decision.triggered)
+            assertFalse(decision.required)
+            val prepared = buildWebSearchPreparedRequest(decision, "Title", " ", emptyList(), null)
+            assertEquals(null, prepared.request)
+        }
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) { WebSearchRequest(query = " ") }
+    }
+
     @Test
     fun `prepared search uses frozen provider and key without rereading repository`() = runBlocking {
         val server = MockWebServer()

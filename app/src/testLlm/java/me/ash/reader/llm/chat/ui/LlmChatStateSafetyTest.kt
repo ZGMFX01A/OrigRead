@@ -13,6 +13,16 @@ import org.junit.Test
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class LlmChatStateSafetyTest {
     @Test
+    fun `rejected sends preserve exact draft and accepted sends clear it`() {
+        val draft = "  unsent draft  "
+        var submitted = ""
+        assertEquals(draft, submitChatDraft(draft) { submitted = it; false })
+        assertEquals("unsent draft", submitted)
+        assertEquals("", submitChatDraft(draft) { true })
+        assertEquals("  ", submitChatDraft("  ") { fail("Blank draft must not be sent"); true })
+    }
+
+    @Test
     fun `foreign transient citations are excluded from selected conversation`() {
         fun override(conversation: String): TransientChatPresentationOverride {
             val message = message(conversation)

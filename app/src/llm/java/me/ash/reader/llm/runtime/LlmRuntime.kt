@@ -53,7 +53,7 @@ class LlmRuntime @Inject constructor(
                 "truncated" to context.truncated,
             )
         }
-        val skill = skillRepository.activeSkill(profile.skillId)
+        val skill = skillRepository.loadedActiveSkill(profile.skillId)
         val skillInstructions = skill?.instructionBundle()?.takeIf(String::isNotBlank)
         skillInstructions?.let { instructions ->
             val budget =

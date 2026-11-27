@@ -444,25 +444,15 @@ fun OrigReadWindowRegionBox(
                 targetRegion == null -> container
                 else -> targetRegion.intersect(container) ?: container
             }
-        if (container == null || resolved == null) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = contentAlignment,
-                content = content,
-            )
+        val regionModifier = if (container == null || resolved == null) {
+            Modifier.fillMaxSize()
         } else {
-            Box(
-                modifier =
-                    Modifier.absoluteOffset(
-                            x = (resolved.leftDp - container.leftDp).dp,
-                            y = (resolved.topDp - container.topDp).dp,
-                        )
-                        .width(resolved.widthDp.dp)
-                        .height(resolved.heightDp.dp),
-                contentAlignment = contentAlignment,
-                content = content,
-            )
+            Modifier.absoluteOffset(
+                x = (resolved.leftDp - container.leftDp).dp,
+                y = (resolved.topDp - container.topDp).dp,
+            ).width(resolved.widthDp.dp).height(resolved.heightDp.dp)
         }
+        Box(modifier = regionModifier, contentAlignment = contentAlignment, content = content)
     }
 }
 
@@ -508,37 +498,19 @@ fun OrigReadAdaptiveContent(
             } else {
                 adaptiveLayoutProfile.foldLayoutInfo.primarySafeRegion(container)
             }
-        if (container == null || safeRegion == null) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.TopCenter,
-            ) {
-                Box(
-                    modifier =
-                        Modifier.widthIn(max = width.maxWidth)
-                            .fillMaxWidth()
-                            .fillMaxHeight(),
-                    content = content,
-                )
-            }
+        val regionModifier = if (container == null || safeRegion == null) {
+            Modifier.fillMaxSize()
         } else {
-            val localX = (safeRegion.leftDp - container.leftDp).dp
-            val localY = (safeRegion.topDp - container.topDp).dp
+            Modifier.absoluteOffset(
+                x = (safeRegion.leftDp - container.leftDp).dp,
+                y = (safeRegion.topDp - container.topDp).dp,
+            ).width(safeRegion.widthDp.dp).height(safeRegion.heightDp.dp)
+        }
+        Box(modifier = regionModifier, contentAlignment = Alignment.TopCenter) {
             Box(
-                modifier =
-                    Modifier.absoluteOffset(x = localX, y = localY)
-                        .width(safeRegion.widthDp.dp)
-                        .height(safeRegion.heightDp.dp),
-                contentAlignment = Alignment.TopCenter,
-            ) {
-                Box(
-                    modifier =
-                        Modifier.widthIn(max = width.maxWidth)
-                            .fillMaxWidth()
-                            .fillMaxHeight(),
-                    content = content,
-                )
-            }
+                modifier = Modifier.widthIn(max = width.maxWidth).fillMaxWidth().fillMaxHeight(),
+                content = content,
+            )
         }
     }
 }

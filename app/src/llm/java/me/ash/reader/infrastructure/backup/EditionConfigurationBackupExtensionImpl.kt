@@ -76,6 +76,7 @@ class EditionConfigurationBackupExtensionImpl @Inject constructor(
         )
 
     override fun validateBackup(configuration: JsonElement?, secrets: JsonElement?) {
+        require(configuration != null || secrets == null) { "LLM 凭据缺少对应配置，拒绝恢复不一致备份" }
         val decoded = configuration?.let { json.decodeFromJsonElement<LlmEditionConfigurationBackup>(it) } ?: return
         decoded.toValidatedDomain()
         decoded.skillState?.let(skillRepository::validateBackupState)
@@ -99,6 +100,7 @@ class EditionConfigurationBackupExtensionImpl @Inject constructor(
         secrets: JsonElement?,
         replaceSecrets: Boolean,
     ) {
+        require(configuration != null || secrets == null) { "LLM 凭据缺少对应配置，拒绝恢复不一致备份" }
         val decoded = configuration?.let { json.decodeFromJsonElement<LlmEditionConfigurationBackup>(it) } ?: return
         val domain = decoded.toValidatedDomain()
         val decodedSecrets = secrets?.let { json.decodeFromJsonElement<LlmEditionSecretsBackup>(it) }

@@ -16,7 +16,7 @@ class LlmSkillRouter @Inject constructor(
     private val settingsRepository: LlmSettingsRepository,
 ) {
     /** Skills 总开关关闭时永远不激活自定义 Skill。 */
-    fun resolve(userInput: String): LlmSkillRecord? {
+    suspend fun resolve(userInput: String): LlmSkillRecord? {
         if (!settingsRepository.current().skillsEnabled) return null
         return matchLlmSkill(userInput, repository.enabledSkills())?.skill
     }

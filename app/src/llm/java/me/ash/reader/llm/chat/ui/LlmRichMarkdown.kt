@@ -10,7 +10,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
@@ -68,20 +69,27 @@ internal fun LlmRichMarkdown(
             intensity.animateTo(0f, tween(CitationMotion.FadeOutMillis))
         }
     }
-    val highlightColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.64f * intensity.value)
+    val highlightColor = MaterialTheme.colorScheme.secondaryContainer
+    val latestCitationClick = rememberUpdatedState(onCitationClick)
     val parentUriHandler = LocalUriHandler.current
     val citationUriHandler =
-        object : UriHandler {
-            override fun openUri(uri: String) {
-                val citationIndex = parseLlmCitationUri(uri)
-                if (
-                    citationFeatureEnabled &&
-                        citationIndex != null &&
-                        citationIndex in validCitationIndices
-                ) {
-                    onCitationClick(citationIndex)
-                } else {
-                    parentUriHandler.openUri(uri)
+        remember(parentUriHandler, citationFeatureEnabled, validCitationIndices) {
+            object : UriHandler {
+                override fun openUri(uri: String) {
+                    val citationIndex = parseLlmCitationUri(uri)
+                    if (
+                        citationFeatureEnabled &&
+                            citationIndex != null &&
+                            citationIndex in validCitationIndices
+                    ) {
+                        latestCitationClick.value(citationIndex)
+                    } else {
+                        try {
+                            parentUriHandler.openUri(uri)
+                        } catch (error: Exception) {
+                            timber.log.Timber.w(error, "Unable to open Markdown link")
+                        }
+                    }
                 }
             }
         }
@@ -92,7 +100,10 @@ internal fun LlmRichMarkdown(
             blockModifier = if (citationReturnBlockIndex == null) null else { index, _ ->
                 if (index != citationReturnBlockIndex) Modifier
                 else Modifier.fillMaxWidth()
-                    .background(highlightColor, RoundedCornerShape(8.dp))
+                    .drawBehind {
+                        drawRoundRect(highlightColor.copy(alpha = 0.64f * intensity.value),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx()))
+                    }
                     .padding(horizontal = 6.dp, vertical = 2.dp)
                     .onGloballyPositioned { coordinates ->
                         onCitationParagraphPositioned?.invoke(

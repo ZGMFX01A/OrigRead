@@ -69,7 +69,7 @@ class AiJsonRuleGenerationTest {
             )
 
             val provider = mock<OpenAiCompatibleProvider>()
-            whenever(provider.complete(any(), any(), any())).thenReturn(
+            whenever(provider.completeCancellable(any(), any(), any())).thenReturn(
                 """
                 {"id":"draft","name":"本地 JSON 测试","version":1,"enabled":true,
                  "hosts":["example.invalid"],"sourceKind":"API","endpoint":".",
@@ -117,7 +117,7 @@ class AiJsonRuleGenerationTest {
             assertTrue(preview.contentMessage.orEmpty().contains("共用同一字段"))
             assertTrue(progress.contains(AiRuleGenerationStage.VALIDATING_CANDIDATE))
             assertTrue(progress.contains(AiRuleGenerationStage.GENERATING_CONTENT))
-            verify(provider, times(2)).complete(any(), any(), any())
+            verify(provider, times(2)).completeCancellable(any(), any(), any())
             verify(jsonRepository).validateCandidate(any())
         } finally {
             targetServer.shutdown()

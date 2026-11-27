@@ -20,7 +20,7 @@ class TranslationContentProcessor {
             if (plainText.isBlank()) {
                 throw TranslationException(TranslationErrorCode.EMPTY_CONTENT, "正文中没有可翻译文本")
             }
-            document.body().html("<p></p>")
+            document.body().empty().appendElement("p").text(plainText)
             return PreparedContent(document, listOf(plainText))
         }
         return PreparedContent(document, texts)
@@ -107,7 +107,7 @@ class TranslationContentProcessor {
                     element.parents().none { parent -> parent.tagName() in SKIPPED_TAGS } &&
                     element.select(BLOCK_SELECTOR).none { child -> child !== element }
             }
-        return if (selected.isNotEmpty()) selected else listOf(document.body().child(0))
+        return selected
     }
 
     companion object {

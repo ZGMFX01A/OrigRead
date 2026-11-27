@@ -68,23 +68,12 @@ fun LlmAdvancedSettingsSection(
     val settings by viewModel.settings.collectAsState()
     var contextBudgetK by
         rememberSaveable(settings.contextMaxTokens) {
-            mutableStateOf((settings.contextMaxTokens / 1_000).toString())
+            mutableStateOf(formatContextBudgetK(settings.contextMaxTokens))
         }
-    val contextBudgetKValue = contextBudgetK.toIntOrNull()
-    val contextBudgetValid =
-        contextBudgetKValue != null &&
-            contextBudgetKValue * 1_000 in
-                LlmSettingsRepository.MIN_CONTEXT_TOKENS..LlmSettingsRepository.MAX_CONTEXT_TOKENS
+    val contextBudgetValid = parseContextBudgetK(contextBudgetK) != null
 
     fun commitContextBudget() {
-        val value = contextBudgetK.toIntOrNull() ?: return
-        val tokens = value.toLong() * 1_000L
-        if (tokens in
-            LlmSettingsRepository.MIN_CONTEXT_TOKENS.toLong()..
-                LlmSettingsRepository.MAX_CONTEXT_TOKENS.toLong()
-        ) {
-            viewModel.setContextMaxTokens(tokens.toInt())
-        }
+        parseContextBudgetK(contextBudgetK)?.let(viewModel::setContextMaxTokens)
     }
 
     // Chat 关闭时只保留公共 AiSettingsPage 的摘要/基础 AI 配置；总开关在页面最末尾单独展示。
@@ -152,26 +141,20 @@ fun LlmAdvancedSettingsSection(
             OutlinedTextField(
                 value = contextBudgetK,
                 onValueChange = { value ->
-                    val normalized = value.filter(Char::isDigit).take(4)
+                    val normalized = value.filter { it.isDigit() || it == '.' }.take(12)
                     contextBudgetK = normalized
-                    val parsed = normalized.toIntOrNull()
-                    val tokens = parsed?.toLong()?.times(1_000L)
-                    if (
-                        tokens != null &&
-                            tokens in
-                                LlmSettingsRepository.MIN_CONTEXT_TOKENS.toLong()..
-                                    LlmSettingsRepository.MAX_CONTEXT_TOKENS.toLong()
-                    ) {
-                        viewModel.setContextMaxTokens(tokens.toInt())
-                    }
+                    parseContextBudgetK(normalized)?.let(viewModel::setContextMaxTokens)
                 },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 isError = contextBudgetK.isNotBlank() && !contextBudgetValid,
                 suffix = { Text("K") },
+                supportingText = {
+                    Text("${formatContextBudgetK(LlmSettingsRepository.MIN_CONTEXT_TOKENS)}–${formatContextBudgetK(LlmSettingsRepository.MAX_CONTEXT_TOKENS)} K")
+                },
                 keyboardOptions =
                     KeyboardOptions(
-                        keyboardType = KeyboardType.Number,
+                        keyboardType = KeyboardType.Decimal,
                         imeAction = ImeAction.Done,
                     ),
                 keyboardActions = KeyboardActions(onDone = { commitContextBudget() }),

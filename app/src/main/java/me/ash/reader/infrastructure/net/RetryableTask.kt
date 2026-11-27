@@ -5,7 +5,10 @@ import kotlin.contracts.InvocationKind
 import kotlin.contracts.contract
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 data class RetryConfig(
     val attempts: Int = 2,
@@ -104,28 +107,37 @@ suspend fun <R> withRetries(
     config: RetryConfig = RetryConfig(),
     block: suspend () -> R,
 ): RetryableTaskResult<R> {
+    require(config.attempts > 0) { "重试次数必须大于零" }
     val attemptExceptions = mutableListOf<Throwable>()
     with(config) {
         var currentDelay = initialDelay
 
         for (attempt in 1..attempts) {
+            var blockFailure: Throwable? = null
             try {
-                val result = withTimeoutOrNull(timeoutPerAttempt) { block() }
-
-                if (result != null) {
-                    return RetryableTaskResult.Success(result)
-                } else {
+                val result = try {
+                    withTimeout(timeoutPerAttempt) {
+                        try {
+                            block()
+                        } catch (error: Throwable) {
+                            blockFailure = error
+                            throw error
+                        }
+                    }
+                } catch (error: TimeoutCancellationException) {
+                    // 外层超时属于调用方取消，不能转换成一次可重试失败。
+                    currentCoroutineContext().ensureActive()
                     throw TimeoutException(timeoutPerAttempt)
                 }
-            } catch (th: Throwable) {
+                return RetryableTaskResult.Success(result)
+            } catch (caught: Throwable) {
+                currentCoroutineContext().ensureActive()
+                // 单次超时使用业务超时；任务主动抛出的其余异常保持原实例。
+                val th = if (caught is TimeoutException) caught else blockFailure ?: caught
+                if (th is CancellationException) throw th
                 attemptExceptions.add(th)
 
-                if (attempt < attempts) {
-                    delay(currentDelay)
-                    currentDelay = (currentDelay * delayFactor).toLong().coerceAtMost(maxDelay)
-                }
-
-                if (!shouldRetry(th) || attempt == attempts) {
+                if (attempt == attempts || !shouldRetry(th)) {
                     return RetryableTaskResult.Failure(
                         finalException = th,
                         attemptExceptions = attemptExceptions,
@@ -133,6 +145,8 @@ suspend fun <R> withRetries(
                 }
 
                 onRetry?.invoke(th)
+                delay(currentDelay)
+                currentDelay = (currentDelay * delayFactor).toLong().coerceAtMost(maxDelay)
             }
         }
         return RetryableTaskResult.Failure(

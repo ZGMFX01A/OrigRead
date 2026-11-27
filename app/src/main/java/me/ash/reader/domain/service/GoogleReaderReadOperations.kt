@@ -20,7 +20,7 @@ internal suspend fun GoogleReaderRssService.markGoogleReaderSelection(selection:
             itemIds = chunk,
             mark = if (!selection.isUnread) GoogleReaderAPI.Stream.Read.tag else null,
             unmark = if (selection.isUnread) GoogleReaderAPI.Stream.Read.tag else null,
-        )
+        ).getOrThrow()
     }
 }
 

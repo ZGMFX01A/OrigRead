@@ -451,7 +451,7 @@ class McpFoundationTest {
     @Test
     fun `oauth loopback ignores browser companion request before callback`() = runBlocking {
         ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { server ->
-            val callback = async(Dispatchers.IO) { awaitLoopbackCallback(server) }
+            val callback = async(Dispatchers.IO) { awaitLoopbackCallback(server, "123") }
 
             val faviconStatus = sendLoopbackGet(server.localPort, "/favicon.ico")
             val callbackStatus = sendLoopbackGet(server.localPort, "/callback?code=abc&state=123")

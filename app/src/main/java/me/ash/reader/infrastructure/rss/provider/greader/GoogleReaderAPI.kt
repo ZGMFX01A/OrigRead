@@ -1,5 +1,6 @@
 package me.ash.reader.infrastructure.rss.provider.greader
 
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import android.content.Context
 import androidx.annotation.CheckResult
 import java.util.concurrent.ConcurrentHashMap
@@ -216,7 +217,7 @@ private constructor(
                 .newCall(
                     Request.Builder()
                         .url(
-                            "$serverUrl$query?output=json${params?.joinToString(separator = "") { "&${it.first}=${it.second}" } ?: ""}"
+                            buildGoogleReaderRequestUrl(serverUrl, query, params)
                         )
                         .addHeader("Authorization", "GoogleLogin auth=${authData.clientLoginToken}")
                         .addHeader("User-Agent", USER_AGENT_STRING)
@@ -254,7 +255,7 @@ private constructor(
                 .newCall(
                     Request.Builder()
                         .url(
-                            "$serverUrl$query?output=json${params?.joinToString(separator = "") { "&${it.first}=${it.second}" } ?: ""}"
+                            buildGoogleReaderRequestUrl(serverUrl, query, params)
                         )
                         .addHeader("Authorization", "GoogleLogin auth=${authData.clientLoginToken}")
                         .addHeader("Content-Type", "application/x-www-form-urlencoded")
@@ -399,7 +400,8 @@ private constructor(
         mark: String? = null,
         unmark: String? = null,
     ): RetryableTaskResult<String> =
-        retryablePostRequestWithResult<String>(
+        withRetries(retryConfig) {
+            val result = postRequest<String>(
             query = "reader/api/0/edit-tag",
             form =
                 mutableListOf<Pair<String, String>>().apply {
@@ -408,6 +410,9 @@ private constructor(
                     unmark?.let { add(Pair("r", unmark)) }
                 },
         )
+            requireGoogleReaderEditTagOk(result)
+            result
+        }
 
     suspend fun disableTag(categoryId: String): String =
         retryablePostRequest<String>(
@@ -556,3 +561,14 @@ private constructor(
 }
 
 typealias ItemId = String
+
+/** 查询参数逐项编码，值中的 &、+、/、空格不能成为新的参数。 */
+internal fun buildGoogleReaderRequestUrl(serverUrl: String, query: String, params: List<Pair<String, String>>?): okhttp3.HttpUrl =
+    ("$serverUrl$query").toHttpUrl().newBuilder()
+        .addQueryParameter("output", "json")
+        .apply { params?.forEach { (key, value) -> addQueryParameter(key, value) } }
+        .build()
+
+internal fun requireGoogleReaderEditTagOk(response: String) {
+    if (response.trim() != "OK") throw GoogleReaderAPIException("editTag 未返回 OK：$response")
+}
