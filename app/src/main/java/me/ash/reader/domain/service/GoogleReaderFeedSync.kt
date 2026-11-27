@@ -4,7 +4,7 @@ import java.util.Date
 import androidx.work.ListenableWorker
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.coroutineScope
 import me.ash.reader.domain.model.account.AccountType
 import me.ash.reader.infrastructure.rss.provider.greader.GoogleReaderAPI.Companion.remoteId
 import me.ash.reader.infrastructure.rss.provider.greader.GoogleReaderAPI.Companion.shortId
@@ -13,7 +13,7 @@ import me.ash.reader.ui.ext.dollarLast
 /** 单来源刷新与整账户刷新复用同一状态差集实现，API 固定为任务账户。 */
 internal suspend fun GoogleReaderRssService.syncGoogleReaderFeed(
     accountId: Int, feedId: String,
-): ListenableWorker.Result = supervisorScope {
+): ListenableWorker.Result = coroutineScope {
     val account = requireNotNull(accountService.getAccountById(accountId)) { "cannot find account" }
     require(account.type.id in setOf(AccountType.GoogleReader.id, AccountType.FreshRSS.id)) {
         "account type is invalid"

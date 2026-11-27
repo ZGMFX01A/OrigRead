@@ -7,42 +7,38 @@ const BR_WORD_STEM_PERCENTAGE = 0.7;
 const MAX_FIXATION_PARTS = 4;
 const FIXATION_LOWER_BOUND = 0
 function highlightText(sentenceText) {
-	return sentenceText.replace(/\p{L}+/gu, (word) => {
-		const { length } = word;
-
-		const brWordStemWidth = length > 3 ? Math.round(length * BR_WORD_STEM_PERCENTAGE) : length;
-
-		const firstHalf = word.slice(0, brWordStemWidth);
-		const secondHalf = word.slice(brWordStemWidth);
-		var htmlWord = "<br-bold>";
-        htmlWord += makeFixations(firstHalf);
-        htmlWord += "</br-bold>";
-        if (secondHalf.length) {
-            htmlWord += "<br-edge>";
-            htmlWord += makeFixations(secondHalf);
-            htmlWord += "</br-edge>";
+    const matches = [...sentenceText.matchAll(/\p{L}+/gu)];
+    if (matches.length === 0) return null;
+    const span = document.createElement('br-span');
+    let offset = 0;
+    matches.forEach(function(match) {
+        span.appendChild(document.createTextNode(sentenceText.slice(offset, match.index)));
+        const word = match[0];
+        const stem = word.length > 3 ? Math.round(word.length * BR_WORD_STEM_PERCENTAGE) : word.length;
+        const bold = document.createElement('br-bold');
+        makeFixations(bold, word.slice(0, stem));
+        span.appendChild(bold);
+        if (stem < word.length) {
+            const edge = document.createElement('br-edge');
+            makeFixations(edge, word.slice(stem));
+            span.appendChild(edge);
         }
-		return htmlWord;
-	});
+        offset = match.index + word.length;
+    });
+    span.appendChild(document.createTextNode(sentenceText.slice(offset)));
+    return span;
 }
 
-function makeFixations(textContent) {
-	const COMPUTED_MAX_FIXATION_PARTS = textContent.length >= MAX_FIXATION_PARTS ? MAX_FIXATION_PARTS : textContent.length;
-
-	const fixationWidth = Math.ceil(textContent.length * (1 / COMPUTED_MAX_FIXATION_PARTS));
-
-	if (fixationWidth === FIXATION_LOWER_BOUND) {
-		return '<br-fixation fixation-strength="1">' + textContent + '</br-fixation>';
-	}
-
-	const fixationsSplits = new Array(COMPUTED_MAX_FIXATION_PARTS).fill(null).map((item, index) => {
-		const wordStartBoundary = index * fixationWidth;
-		const wordEndBoundary = wordStartBoundary + fixationWidth > textContent.length ? textContent.length : wordStartBoundary + fixationWidth;
-
-		return `<br-fixation fixation-strength="` + (index + 1) + `">` + textContent.slice(wordStartBoundary, wordEndBoundary) + `</br-fixation>`;
-	});
-
-	return fixationsSplits.join('');
+function makeFixations(parent, textContent) {
+    const parts = Math.min(MAX_FIXATION_PARTS, textContent.length);
+    if (parts === 0) return;
+    const width = Math.ceil(textContent.length / parts);
+    for (let index = 0; index < parts; index++) {
+        const fixation = document.createElement('br-fixation');
+        fixation.setAttribute('fixation-strength', String(index + 1));
+        fixation.appendChild(document.createTextNode(textContent.slice(index * width, (index + 1) * width)));
+        parent.appendChild(fixation);
+    }
 }
 
 const IGNORE_NODE_TAGS = ['STYLE', 'SCRIPT', 'BR-SPAN', 'BR-FIXATION', 'BR-BOLD', 'BR-EDGE', 'SVG', 'INPUT', 'TEXTAREA'];
@@ -53,10 +49,9 @@ function parseNode(node) {
     
     if (node.nodeType === Node.TEXT_NODE && node.nodeValue.length) {
         try {
-            const brSpan = document.createElement('br-span');
-            brSpan.innerHTML = highlightText(node.nodeValue);
-            if (brSpan.childElementCount === 0) return;
-            node.parentElement.replaceChild(brSpan, node); // JiffyReader keeps the old element around, but we don't need it
+            const brSpan = highlightText(node.nodeValue);
+            if (brSpan === null) return;
+            node.parentElement.replaceChild(brSpan, node);
         } catch (e) {
             console.error('Error parsing text node:', e);
         }

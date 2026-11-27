@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <permission android:name="me.ash.reader.permission.EDITION_SYNC" android:protectionLevel="signature" />
+    <uses-permission android:name="me.ash.reader.permission.EDITION_SYNC" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission
@@ -51,9 +53,10 @@
         </intent>
     </queries>
 
+    <!-- 敏感库与 Keystore 关联数据不走系统自动备份，统一使用内置加密配置备份与 Edition Sync。 -->
     <application
         android:name=".infrastructure.android.AndroidApp"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:enableOnBackInvokedCallback="true"
         android:icon="@drawable/origread_install_icon"
         android:label="@string/app_name"
@@ -118,6 +121,7 @@
         <!-- 只由另一 Edition 通过显式 Component 启动；Activity 内再次校验包名、URI authority 与签名。 -->
         <activity
             android:name=".infrastructure.editionsync.EditionSyncImportActivity"
+            android:permission="me.ash.reader.permission.EDITION_SYNC"
             android:excludeFromRecents="true"
             android:exported="true"
             android:noHistory="true"

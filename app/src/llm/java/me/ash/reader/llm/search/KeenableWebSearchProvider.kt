@@ -7,6 +7,7 @@ import kotlinx.coroutines.withContext
 import me.ash.reader.infrastructure.ai.AiHttpClient
 import me.ash.reader.infrastructure.ai.AiPerfTracer
 import me.ash.reader.infrastructure.di.IODispatcher
+import me.ash.reader.infrastructure.json.optNullableString
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
@@ -43,7 +44,7 @@ class KeenableWebSearchProvider @Inject constructor(
             builder.header("X-Keenable-Title", KEENABLE_APP_TITLE)
         }
         httpClient.executeWebSearchCall(builder.build(), request) { response ->
-            val payload = response.body?.string().orEmpty()
+            val payload = response.readWebSearchPayload()
             request.perfTrace?.let { trace ->
                 AiPerfTracer.mark(
                     trace,
@@ -74,17 +75,15 @@ internal fun parseKeenableSearchResponse(
         if (array != null) {
             repeat(array.length()) { index ->
                 val item = array.optJSONObject(index) ?: return@repeat
-                val url = item.optString("url").trim()
-                if (url.isBlank()) return@repeat
-                val snippet = item.optString("snippet").trim().ifBlank {
-                    item.optString("description").trim()
-                }
+                val url = item.optNullableString("url") ?: return@repeat
+                val snippet = item.optNullableString("snippet")
+                    ?: item.optNullableString("description").orEmpty()
                 add(
                     WebSearchResult(
-                        title = item.optString("title").trim().ifBlank { url },
+                        title = item.optNullableString("title") ?: url,
                         url = url,
                         snippet = snippet,
-                        publishedAt = item.optString("published_at").trim().takeIf(String::isNotBlank),
+                        publishedAt = item.optNullableString("published_at"),
                         source = runCatching { url.toHttpUrl().host }.getOrNull(),
                     )
                 )
@@ -119,9 +118,10 @@ internal fun resolveKeenableEndpoint(endpoint: String, hasApiKey: Boolean): Stri
 private fun keenableErrorSuffix(payload: String): String {
     val message = runCatching {
         val root = JSONObject(payload)
-        root.optString("detail")
-            .ifBlank { root.optString("message") }
-            .ifBlank { root.optString("error") }
+        root.optNullableString("detail")
+            ?: root.optNullableString("message")
+            ?: root.optNullableString("error")
+            ?: ""
     }.getOrDefault("").trim()
     return if (message.isBlank()) "" else "：${message.take(240)}"
 }

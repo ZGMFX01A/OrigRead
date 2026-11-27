@@ -7,6 +7,8 @@ import kotlinx.coroutines.withContext
 import me.ash.reader.infrastructure.ai.AiHttpClient
 import me.ash.reader.infrastructure.ai.AiPerfTracer
 import me.ash.reader.infrastructure.di.IODispatcher
+import me.ash.reader.infrastructure.json.optCleanString
+import me.ash.reader.infrastructure.json.optNullableString
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -42,7 +44,7 @@ class BochaWebSearchProvider @Inject constructor(
                     .post(body.toString().toRequestBody(BOCHA_JSON_MEDIA_TYPE))
                     .build()
             httpClient.executeWebSearchCall(httpRequest, request) { response ->
-                val payload = response.body?.string().orEmpty()
+                val payload = response.readWebSearchPayload()
                 request.perfTrace?.let { trace ->
                     AiPerfTracer.mark(
                         trace,
@@ -79,18 +81,16 @@ internal fun parseBochaSearchResponse(
             if (array != null) {
                 repeat(array.length()) { index ->
                     val item = array.optJSONObject(index) ?: return@repeat
-                    val url = item.optString("url").trim()
-                    if (url.isBlank()) return@repeat
-                    val summary = item.optString("summary").trim()
+                    val url = item.optNullableString("url") ?: return@repeat
+                    val summary = item.optCleanString("summary").trim()
                     add(
                         WebSearchResult(
-                            title = item.optString("name").trim().ifBlank { url },
+                            title = item.optNullableString("name") ?: url,
                             url = url,
-                            snippet = item.optString("snippet").trim().ifBlank { summary },
-                            publishedAt =
-                                item.optString("datePublished").trim().takeIf(String::isNotBlank),
+                            snippet = item.optNullableString("snippet") ?: summary,
+                            publishedAt = item.optNullableString("datePublished"),
                             source =
-                                item.optString("siteName").trim().takeIf(String::isNotBlank)
+                                item.optNullableString("siteName")
                                     ?: runCatching { java.net.URI(url).host }.getOrNull(),
                             content = summary.takeIf(String::isNotBlank),
                         )
@@ -110,9 +110,10 @@ private fun bochaErrorSuffix(payload: String): String {
     val message =
         runCatching {
                 val root = JSONObject(payload)
-                root.optString("msg")
-                    .ifBlank { root.optString("message") }
-                    .ifBlank { root.optString("error") }
+                root.optNullableString("msg")
+                    ?: root.optNullableString("message")
+                    ?: root.optNullableString("error")
+                    ?: ""
             }
             .getOrDefault("")
             .trim()

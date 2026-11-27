@@ -14,6 +14,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import me.ash.reader.infrastructure.json.optCleanString
+import me.ash.reader.infrastructure.json.optNullableString
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -148,7 +150,7 @@ class LlmSkillRepository @Inject constructor(
         return ImportedSkill(parsed, markdown, emptyList(), hasScripts = false)
     }
 
-    private fun parseZip(bytes: ByteArray, displayName: String): ImportedSkill {
+    internal fun parseZip(bytes: ByteArray, displayName: String): ImportedSkill {
         val entries = linkedMapOf<String, ByteArray>()
         var entryCount = 0
         var totalBytes = 0L
@@ -195,8 +197,11 @@ class LlmSkillRepository @Inject constructor(
         var hasScripts = false
         entries.forEach { (path, content) ->
             if (path == skillPath) return@forEach
+            if (root.isNotBlank() && !path.startsWith("$root/")) {
+                throw LlmSkillFormatException("Skill 包存在越界路径：$path")
+            }
             val relative = if (root.isBlank()) path else path.removePrefix("$root/")
-            if (relative.startsWith("scripts/")) {
+            if (relative.startsWith("scripts/", ignoreCase = true)) {
                 hasScripts = true
                 return@forEach
             }
@@ -347,6 +352,11 @@ class LlmSkillRepository @Inject constructor(
         val ids = state.skills.mapTo(hashSetOf(), LlmSkillRecord::id)
         state.skills.forEach { skill ->
             require(skill.id.matches(VALID_SKILL_ID)) { "Skill ID 无效：${skill.id}" }
+            skill.sourceFileName?.let { fileName ->
+                require(isSafeLocalSourceFileName(fileName)) {
+                    "Skill sourceFileName 包含非法路径：${skill.id}"
+                }
+            }
             require(skill.description.length <= 1024) { "Skill description 过长：${skill.id}" }
             require(skill.instructions.isNotBlank() && skill.instructions.length <= MAX_BACKUP_INSTRUCTION_CHARACTERS) {
                 "Skill 指令大小无效：${skill.id}"
@@ -355,7 +365,11 @@ class LlmSkillRepository @Inject constructor(
             require(skill.resources.sumOf { it.content.length.toLong() } <= MAX_TOTAL_RESOURCE_CHARACTERS) {
                 "Skill 文本资源过大：${skill.id}"
             }
-            require(skill.resources.all { it.path.isNotBlank() && it.content.length <= MAX_RESOURCE_CHARACTERS }) {
+            require(
+                skill.resources.all { resource ->
+                    isSafeResourcePath(resource.path) && resource.content.length <= MAX_RESOURCE_CHARACTERS
+                }
+            ) {
                 "Skill 文本资源无效：${skill.id}"
             }
         }
@@ -412,7 +426,7 @@ class LlmSkillRepository @Inject constructor(
     private fun decodeSkill(json: JSONObject): LlmSkillRecord {
         val metadataJson = json.optJSONObject("metadata") ?: JSONObject()
         val metadata = buildMap {
-            metadataJson.keys().forEach { key -> put(key, metadataJson.optString(key)) }
+            metadataJson.keys().forEach { key -> put(key, metadataJson.optCleanString(key)) }
         }
         val resourceArray = json.optJSONArray("resources") ?: JSONArray()
         val resources = buildList {
@@ -433,7 +447,7 @@ class LlmSkillRepository @Inject constructor(
             allowedTools = json.optNullableString("allowedTools"),
             metadata = metadata,
             hasScripts = json.optBoolean("hasScripts", false),
-            contentHash = json.optString("contentHash"),
+            contentHash = json.optCleanString("contentHash"),
             installedAt = json.optLong("installedAt"),
             updatedAt = json.optLong("updatedAt"),
         )
@@ -454,10 +468,25 @@ class LlmSkillRepository @Inject constructor(
             articleAnalysisSkillId = json?.optNullableString("articleAnalysis"),
         )
 
-    private fun JSONObject.optNullableString(key: String): String? =
-        takeUnless { isNull(key) }?.optString(key)?.trim()?.takeIf(String::isNotBlank)
+    private fun isSafeLocalSourceFileName(fileName: String): Boolean {
+        val trimmed = fileName.trim()
+        return trimmed.isNotBlank() &&
+            trimmed == fileName &&
+            trimmed.length <= 80 &&
+            trimmed != "." &&
+            trimmed != ".." &&
+            trimmed.none { it == '/' || it == '\\' || it.isISOControl() }
+    }
 
-    private data class ImportedSkill(
+    private fun isSafeResourcePath(path: String): Boolean {
+        if (path.isBlank() || path.startsWith("/") || '\\' in path) return false
+        if (path.any(Char::isISOControl)) return false
+        val segments = path.split('/')
+        if (segments.any { it.isBlank() || it == "." || it == ".." }) return false
+        return !path.startsWith("scripts/", ignoreCase = true)
+    }
+
+    internal data class ImportedSkill(
         val parsed: LlmSkillParser.Parsed,
         val markdown: String,
         val resources: List<LlmSkillResource>,

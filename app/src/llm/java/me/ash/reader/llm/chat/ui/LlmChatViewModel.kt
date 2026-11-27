@@ -6,6 +6,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -538,6 +539,8 @@ class LlmChatViewModel @Inject constructor(
                     currentConversationId = null,
                     conversations = emptyList(),
                     messages = emptyList(),
+                    toolCalls = emptyList(),
+                    citationAnnotations = emptyList(),
                     contextRefs = emptyList(),
                     citationRefs = emptyList(),
                     manualToolContexts = emptyList(),
@@ -602,16 +605,19 @@ class LlmChatViewModel @Inject constructor(
                 }
                 .collect { snapshot ->
                     val persistedMessages = snapshot.persistedPresentation.map(LlmMessageCitationPresentation::message)
-                    val messageOverrides = snapshot.transientOverrides.mapValues { it.value.message }
+                    val scopedOverrides = conversationScopedPresentationOverrides(
+                        snapshot.transientOverrides, snapshot.conversationId,
+                    )
+                    val messageOverrides = scopedOverrides.mapValues { it.value.message }
                     val citationOverrideIds =
-                        snapshot.transientOverrides.values
+                        scopedOverrides.values
                             .filter { it.citationRefs != null }
                             .mapTo(mutableSetOf()) { it.message.id }
                     val citationRefs =
                         (snapshot.persistedPresentation
                             .filterNot { it.message.id in citationOverrideIds }
                             .flatMap(LlmMessageCitationPresentation::citationRefs) +
-                            snapshot.transientOverrides.values.flatMap { it.citationRefs.orEmpty() })
+                            scopedOverrides.values.flatMap { it.citationRefs.orEmpty() })
                             .sortedWith(
                                 compareBy<LlmCitationRefEntity> { it.createdAt }
                                     .thenBy { it.assistantMessageId }
@@ -622,7 +628,7 @@ class LlmChatViewModel @Inject constructor(
                         (snapshot.persistedPresentation
                             .filterNot { it.message.id in citationOverrideIds }
                             .flatMap(LlmMessageCitationPresentation::citationAnnotations) +
-                            snapshot.transientOverrides.values.flatMap { it.citationAnnotations.orEmpty() })
+                            scopedOverrides.values.flatMap { it.citationAnnotations.orEmpty() })
                             .sortedWith(
                                 compareBy<LlmCitationAnnotationWithRefs> { it.annotation.assistantMessageId }
                                     .thenBy { it.annotation.occurrenceOrdinal }
@@ -708,6 +714,8 @@ class LlmChatViewModel @Inject constructor(
             it.copy(
                 currentConversationId = null,
                 messages = emptyList(),
+                toolCalls = emptyList(),
+                citationAnnotations = emptyList(),
                 contextRefs = emptyList(),
                 citationRefs = emptyList(),
                 transientError = null,
@@ -1231,12 +1239,18 @@ class LlmChatViewModel @Inject constructor(
 
     /** 删除指定会话；若正在生成该会话，先终止网络请求。 */
     fun deleteConversation(conversationId: String) {
-        if (conversationId == selectedConversationId.value) {
+        val isCurrentConversation = conversationId == selectedConversationId.value ||
+            conversationId == _uiState.value.currentConversationId
+        val jobToStop = generationJob.takeIf { isCurrentConversation }
+        if (isCurrentConversation) {
             stopGeneration()
             nextConversationSelectionRevision()
             clearConversationScopedTransientContext()
         }
-        viewModelScope.launch { repository.deleteConversation(conversationId) }
+        viewModelScope.launch {
+            jobToStop?.cancelAndJoin()
+            repository.deleteConversation(conversationId)
+        }
     }
 
     /** Snackbar 消费错误后清除一次性错误状态。 */
@@ -1369,7 +1383,15 @@ class LlmChatViewModel @Inject constructor(
         val call = _uiState.value.toolCalls.firstOrNull { it.id == toolCallId } ?: return
         if (call.status != LlmToolCallStatus.PENDING_APPROVAL) return
         startGenerationJob {
-            executePersistedToolCall(call, confirmed = true)
+            var executionError: Exception? = null
+            executePersistedToolCall(call, confirmed = true, onExecutionException = { executionError = it })
+            val failure = executionError
+            if (failure != null) {
+                _uiState.update {
+                    it.copy(transientError = failure.message?.takeIf(String::isNotBlank) ?: "Tool execution failed")
+                }
+                return@startGenerationJob
+            }
             resumeAfterResolvedToolCalls(call.conversationId)
         }
     }
@@ -1415,6 +1437,7 @@ class LlmChatViewModel @Inject constructor(
     private suspend fun executePersistedToolCall(
         call: LlmToolCallEntity,
         confirmed: Boolean,
+        onExecutionException: (Exception) -> Unit = {},
     ): LlmToolCallEntity {
         val running =
             repository.updateToolCall(
@@ -1423,7 +1446,7 @@ class LlmChatViewModel @Inject constructor(
                 resultContent = null,
                 errorMessage = null,
             )
-        val result =
+        val result = try {
             toolRuntime.execute(
                 call =
                     LlmToolCall(
@@ -1434,6 +1457,26 @@ class LlmChatViewModel @Inject constructor(
                 profile = LlmExecutionProfile(enabledToolIds = setOf(running.toolId)),
                 confirmed = confirmed,
             )
+        } catch (error: CancellationException) {
+            withContext(NonCancellable) {
+                repository.updateToolCall(
+                    toolCall = running,
+                    status = LlmToolCallStatus.ERROR,
+                    resultContent = "Tool execution was cancelled.",
+                    errorMessage = "Tool execution was cancelled",
+                )
+            }
+            throw error
+        } catch (error: Exception) {
+            val failed = repository.updateToolCall(
+                toolCall = running,
+                status = LlmToolCallStatus.ERROR,
+                resultContent = "Tool execution failed: ${error.message?.takeIf(String::isNotBlank) ?: "Unknown error"}",
+                errorMessage = error.message?.takeIf(String::isNotBlank) ?: "Tool execution failed",
+            )
+            onExecutionException(error)
+            return failed
+        }
         return when (result) {
             is LlmToolResult.Success ->
                 repository.updateToolCall(
@@ -1507,7 +1550,8 @@ class LlmChatViewModel @Inject constructor(
         var finishReason: LlmFinishReason? = null
         var requestCitationEntries: List<LlmCitationProtocolEntry> = emptyList()
         val toolCallParts = sortedMapOf<Int, MutableToolCallPart>()
-        var continueAfterTools = false
+        var continueWithTools = false
+        var generationTools: List<LlmToolDescriptor> = emptyList()
 
         fun durationMs(): Long? =
             requestStartedAtNanos?.let { startedAt ->
@@ -1979,54 +2023,9 @@ class LlmChatViewModel @Inject constructor(
                 finishReason = finishReason,
             )
 
-            if (terminalDecision == LlmGenerationTerminalDecision.ContinueWithTools) {
-                if (toolRound >= MAX_AUTOMATIC_TOOL_ROUNDS) {
-                    error("Tool Calling 已达到安全轮次上限")
-                }
-                val now = System.currentTimeMillis()
-                val calls =
-                    toolCallParts.values.map { part ->
-                        val providerCallId = part.id?.takeIf(String::isNotBlank)
-                            ?: error("AI Tool Call 缺少 id")
-                        val apiName = part.name?.takeIf(String::isNotBlank)
-                            ?: error("AI Tool Call 缺少 function name")
-                        val descriptor = resolveToolByApiName(plan.tools, apiName)
-                        val arguments = part.arguments.toString().ifBlank { "{}" }
-                        // Function Calling 参数必须是 JSON Object；第三方兼容服务返回破损参数时禁止执行。
-                        runCatching { org.json.JSONObject(arguments) }
-                            .getOrElse { error("Tool $apiName 返回了无效 arguments JSON") }
-                        LlmToolCallEntity(
-                            id = UUID.randomUUID().toString(),
-                            conversationId = conversationId,
-                            assistantMessageId = assistant.id,
-                            providerCallId = providerCallId,
-                            toolId = descriptor?.id ?: "unresolved:$apiName",
-                            toolName = descriptor?.name ?: apiName,
-                            toolSourceId = descriptor?.sourceId,
-                            apiName = apiName,
-                            argumentsJson = arguments,
-                            status =
-                                when {
-                                    descriptor == null -> LlmToolCallStatus.ERROR
-                                    descriptor.requiresConfirmation -> LlmToolCallStatus.PENDING_APPROVAL
-                                    else -> LlmToolCallStatus.RUNNING
-                                },
-                            errorMessage = descriptor?.let { null } ?: "模型请求了当前未授权的 Tool：$apiName",
-                            createdAt = now,
-                            updatedAt = now,
-                        )
-                    }
-                repository.appendToolCalls(calls)
+            continueWithTools = terminalDecision == LlmGenerationTerminalDecision.ContinueWithTools
+            generationTools = plan.tools
 
-                // 只有本地策略明确免确认的 Tool 才自动执行；远端 MCP 默认都保持 Pending。
-                calls.filter { it.status == LlmToolCallStatus.RUNNING }.forEach { call ->
-                    executePersistedToolCall(call, confirmed = false)
-                }
-                val refreshedCalls = repository.getToolCalls(conversationId)
-                val hasPending = refreshedCalls.any { it.status == LlmToolCallStatus.PENDING_APPROVAL }
-                val hasRunning = refreshedCalls.any { it.status == LlmToolCallStatus.RUNNING }
-                continueAfterTools = !hasPending && !hasRunning
-            }
         } catch (error: CancellationException) {
             // 取消发生时当前协程已经不可挂起，使用 NonCancellable 确保部分结果和 STOPPED 状态落库。
             withContext(NonCancellable) {
@@ -2054,7 +2053,7 @@ class LlmChatViewModel @Inject constructor(
                 )
             }
             throw error
-        } catch (error: Throwable) {
+        } catch (error: Exception) {
             // 错误信息既持久化到消息，又作为一次性 Snackbar 暴露，便于历史恢复后仍能看见失败原因。
             val message = error.message?.takeIf(String::isNotBlank) ?: "AI 请求失败"
             val errorPresentation = finalizeCitationMessage(
@@ -2078,6 +2077,75 @@ class LlmChatViewModel @Inject constructor(
                 finishReason = finishReason ?: LlmFinishReason.Error,
             )
             _uiState.update { it.copy(transientError = message) }
+            return
+        }
+
+        if (!continueWithTools) return
+        if (toolRound >= MAX_AUTOMATIC_TOOL_ROUNDS) {
+            _uiState.update { it.copy(transientError = "Tool Calling 已达到安全轮次上限") }
+            return
+        }
+        val continueAfterTools = coordinateAutomaticToolPhase(
+            closeUnfinished = { cancelled, message ->
+                closeUnfinishedToolCalls(
+                    calls = repository.getToolCalls(conversationId)
+                        .filter { it.assistantMessageId == assistant.id },
+                    cancelled = cancelled,
+                    message = message,
+                ) { call ->
+                    repository.updateToolCall(call, call.status, call.resultContent, call.errorMessage)
+                }
+            },
+            publishError = { message -> _uiState.update { it.copy(transientError = message) } },
+        ) {
+            val now = System.currentTimeMillis()
+            val calls =
+                toolCallParts.values.map { part ->
+                    val providerCallId = part.id?.takeIf(String::isNotBlank)
+                        ?: error("AI Tool Call 缺少 id")
+                    val apiName = part.name?.takeIf(String::isNotBlank)
+                        ?: error("AI Tool Call 缺少 function name")
+                    val descriptor = resolveToolByApiName(generationTools, apiName)
+                    val arguments = part.arguments.toString().ifBlank { "{}" }
+                    // Function Calling 参数必须是 JSON Object；第三方兼容服务返回破损参数时禁止执行。
+                    try {
+                        org.json.JSONObject(arguments)
+                    } catch (error: org.json.JSONException) {
+                        error("Tool $apiName 返回了无效 arguments JSON")
+                    }
+                    LlmToolCallEntity(
+                        id = UUID.randomUUID().toString(),
+                        conversationId = conversationId,
+                        assistantMessageId = assistant.id,
+                        providerCallId = providerCallId,
+                        toolId = descriptor?.id ?: "unresolved:$apiName",
+                        toolName = descriptor?.name ?: apiName,
+                        toolSourceId = descriptor?.sourceId,
+                        apiName = apiName,
+                        argumentsJson = arguments,
+                        status =
+                            when {
+                                descriptor == null -> LlmToolCallStatus.ERROR
+                                descriptor.requiresConfirmation -> LlmToolCallStatus.PENDING_APPROVAL
+                                else -> LlmToolCallStatus.RUNNING
+                            },
+                        errorMessage = descriptor?.let { null } ?: "模型请求了当前未授权的 Tool：$apiName",
+                        createdAt = now,
+                        updatedAt = now,
+                    )
+                }
+            repository.appendToolCalls(calls)
+
+            // 只有本地策略明确免确认的 Tool 才自动执行；远端 MCP 默认都保持 Pending。
+            calls.filter { it.status == LlmToolCallStatus.RUNNING }.forEach { call ->
+                var executionError: Exception? = null
+                executePersistedToolCall(call, confirmed = false, onExecutionException = { executionError = it })
+                executionError?.let { throw it }
+            }
+            val refreshedCalls = repository.getToolCalls(conversationId)
+            val hasPending = refreshedCalls.any { it.status == LlmToolCallStatus.PENDING_APPROVAL }
+            val hasRunning = refreshedCalls.any { it.status == LlmToolCallStatus.RUNNING }
+            !hasPending && !hasRunning
         }
 
         if (continueAfterTools) {
@@ -2410,3 +2478,46 @@ internal fun buildArticleContextItems(context: ArticleAssistantContext): List<Ll
             )
         }
     }
+
+/** Only presentation data belonging to the selected conversation may override Room. */
+internal fun conversationScopedPresentationOverrides(
+    overrides: Map<String, TransientChatPresentationOverride>,
+    conversationId: String?,
+): Map<String, TransientChatPresentationOverride> =
+    overrides.filterValues { it.message.conversationId == conversationId }
+
+/** Tool failures have no access to the completed assistant's persistence path. */
+internal suspend fun coordinateAutomaticToolPhase(
+    closeUnfinished: suspend (cancelled: Boolean, message: String) -> Unit,
+    publishError: (String) -> Unit,
+    execute: suspend () -> Boolean,
+): Boolean = try {
+    execute()
+} catch (error: CancellationException) {
+    withContext(NonCancellable) {
+        closeUnfinished(true, "Tool execution was cancelled")
+    }
+    throw error
+} catch (error: Exception) {
+    val message = error.message?.takeIf(String::isNotBlank) ?: "Tool execution failed"
+    withContext(NonCancellable) { closeUnfinished(false, message) }
+    publishError(message)
+    false
+}
+
+internal suspend fun closeUnfinishedToolCalls(
+    calls: List<LlmToolCallEntity>,
+    cancelled: Boolean,
+    message: String,
+    persist: suspend (LlmToolCallEntity) -> Unit,
+) {
+    calls.filter { it.status == LlmToolCallStatus.RUNNING ||
+        (cancelled && it.status == LlmToolCallStatus.PENDING_APPROVAL) }
+        .forEach { call ->
+            persist(call.copy(
+                status = LlmToolCallStatus.ERROR,
+                resultContent = if (cancelled) "Tool execution was cancelled." else "Tool execution failed: $message",
+                errorMessage = message,
+            ))
+        }
+}

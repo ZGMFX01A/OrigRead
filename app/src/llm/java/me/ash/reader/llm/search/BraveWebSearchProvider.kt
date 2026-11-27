@@ -6,6 +6,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import me.ash.reader.infrastructure.ai.AiHttpClient
 import me.ash.reader.infrastructure.di.IODispatcher
+import me.ash.reader.infrastructure.json.optNullableString
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import org.json.JSONObject
@@ -42,7 +43,7 @@ class BraveWebSearchProvider @Inject constructor(
                     .get()
                     .build()
             httpClient.executeWebSearchCall(httpRequest, request) { response ->
-                val payload = response.body?.string().orEmpty()
+                val payload = response.readWebSearchPayload()
                 if (!response.isSuccessful) {
                     throw WebSearchException("Brave 搜索失败：HTTP ${response.code}")
                 }
@@ -64,24 +65,23 @@ internal fun parseBraveSearchResponse(
             if (array != null) {
                 repeat(array.length()) { index ->
                     val item = array.optJSONObject(index) ?: return@repeat
-                    val url = item.optString("url").trim()
-                    if (url.isBlank()) return@repeat
+                    val url = item.optNullableString("url") ?: return@repeat
                     val extra = item.optJSONArray("extra_snippets")
                     val snippets =
                         buildList {
-                            item.optString("description").trim().takeIf(String::isNotBlank)?.let(::add)
+                            item.optNullableString("description")?.let(::add)
                             if (extra != null) {
                                 repeat(extra.length()) { i ->
-                                    extra.optString(i).trim().takeIf(String::isNotBlank)?.let(::add)
+                                    extra.optNullableString(i)?.let(::add)
                                 }
                             }
                         }
                     add(
                         WebSearchResult(
-                            title = item.optString("title").ifBlank { url },
+                            title = item.optNullableString("title") ?: url,
                             url = url,
                             snippet = snippets.distinct().joinToString("\n"),
-                            publishedAt = item.optString("page_age").takeIf(String::isNotBlank),
+                            publishedAt = item.optNullableString("page_age"),
                             source = runCatching { url.toHttpUrl().host }.getOrNull(),
                         )
                     )

@@ -286,19 +286,18 @@ private constructor(
     suspend fun getUserInfo(): GoogleReaderDTO.User =
         retryableGetRequest<GoogleReaderDTO.User>("reader/api/0/user-info")
 
-    suspend fun getSubscriptionList(): GoogleReaderDTO.SubscriptionList? =
-        retryableGetRequestWithResult<GoogleReaderDTO.SubscriptionList>(
+    suspend fun getSubscriptionList(): GoogleReaderDTO.SubscriptionList =
+        retryableGetRequest<GoogleReaderDTO.SubscriptionList>(
                 "reader/api/0/subscription/list"
             )
-            .getOrNull()
 
     suspend fun getReadItemIds(
         since: Long,
         useIt: Boolean = false,
         limit: String? = MAXIMUM_ITEMS_LIMIT,
         continuationId: String? = null,
-    ): GoogleReaderDTO.ItemIds? =
-        retryableGetRequestWithResult<GoogleReaderDTO.ItemIds>(
+    ): GoogleReaderDTO.ItemIds =
+        retryableGetRequest<GoogleReaderDTO.ItemIds>(
                 query = "reader/api/0/stream/items/ids",
                 params =
                     mutableListOf<Pair<String, String>>().apply {
@@ -309,7 +308,6 @@ private constructor(
                         continuationId?.let { add(Pair("c", continuationId)) }
                     },
             )
-            .getOrNull()
 
     suspend fun getItemIdsForFeed(
         feedId: String,
@@ -317,8 +315,8 @@ private constructor(
         since: Long? = null,
         limit: String? = MAXIMUM_ITEMS_LIMIT,
         continuationId: String? = null,
-    ): GoogleReaderDTO.ItemIds? =
-        retryableGetRequestWithResult<GoogleReaderDTO.ItemIds>(
+    ): GoogleReaderDTO.ItemIds =
+        retryableGetRequest<GoogleReaderDTO.ItemIds>(
                 query = "reader/api/0/stream/items/ids",
                 params =
                     mutableListOf<Pair<String, String>>().apply {
@@ -329,7 +327,6 @@ private constructor(
                         continuationId?.let { add(Pair("c", continuationId)) }
                     },
             )
-            .getOrNull()
 
     suspend fun getItemIdsForCategory(
         categoryId: String,
@@ -337,8 +334,8 @@ private constructor(
         since: Long? = null,
         limit: String? = MAXIMUM_ITEMS_LIMIT,
         continuationId: String? = null,
-    ): GoogleReaderDTO.ItemIds? =
-        retryableGetRequestWithResult<GoogleReaderDTO.ItemIds>(
+    ): GoogleReaderDTO.ItemIds =
+        retryableGetRequest<GoogleReaderDTO.ItemIds>(
                 query = "reader/api/0/stream/items/ids",
                 params =
                     mutableListOf<Pair<String, String>>().apply {
@@ -349,14 +346,13 @@ private constructor(
                         continuationId?.let { add(Pair("c", continuationId)) }
                     },
             )
-            .getOrNull()
 
     suspend fun getUnreadItemIds(
         since: Long? = null,
         limit: String? = MAXIMUM_ITEMS_LIMIT,
         continuationId: String? = null,
-    ): GoogleReaderDTO.ItemIds? =
-        retryableGetRequestWithResult<GoogleReaderDTO.ItemIds>(
+    ): GoogleReaderDTO.ItemIds =
+        retryableGetRequest<GoogleReaderDTO.ItemIds>(
                 query = "reader/api/0/stream/items/ids",
                 params =
                     mutableListOf<Pair<String, String>>().apply {
@@ -367,14 +363,13 @@ private constructor(
                         continuationId?.let { add(Pair("c", continuationId)) }
                     },
             )
-            .getOrNull()
 
     suspend fun getStarredItemIds(
         since: Long? = null,
         limit: String? = MAXIMUM_ITEMS_LIMIT,
         continuationId: String? = null,
-    ): GoogleReaderDTO.ItemIds? =
-        retryableGetRequestWithResult<GoogleReaderDTO.ItemIds>(
+    ): GoogleReaderDTO.ItemIds =
+        retryableGetRequest<GoogleReaderDTO.ItemIds>(
                 query = "reader/api/0/stream/items/ids",
                 params =
                     mutableListOf<Pair<String, String>>().apply {
@@ -384,7 +379,6 @@ private constructor(
                         continuationId?.let { add(Pair("c", continuationId)) }
                     },
             )
-            .getOrNull()
 
     suspend fun getItemsContents(ids: List<String>?) =
         retryablePostRequest<GoogleReaderDTO.ItemsContents>(

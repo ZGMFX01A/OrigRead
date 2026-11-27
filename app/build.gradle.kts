@@ -1,4 +1,3 @@
-import java.io.FileInputStream
 import java.util.Properties
 import org.jetbrains.kotlin.compose.compiler.gradle.ComposeFeatureFlag
 
@@ -26,16 +25,27 @@ val gitCommitHash = fetchGitCommitHash()
 val releaseVersion = System.getenv("RELEASE_VERSION")?.takeIf { it.isNotBlank() }
 // 标签构建优先采用发布标签；本地与普通分支构建默认使用当前正式版版本号。
 val normalizedVersionName = releaseVersion?.removePrefix("v") ?: "1.0.0"
-val keyProps = Properties()
+val releaseKeyProps = Properties()
+val debugKeyProps = Properties()
 val releaseKeyPropsFile: File = rootProject.file("signature/keystore_release.properties")
 val debugKeyPropsFile: File = rootProject.file("signature/keystore.properties")
+if (releaseKeyPropsFile.isFile) releaseKeyPropsFile.inputStream().use(releaseKeyProps::load)
+if (debugKeyPropsFile.isFile) debugKeyPropsFile.inputStream().use(debugKeyProps::load)
 
-
-if (releaseKeyPropsFile.exists()) {
-    println("Loading keystore properties from ${releaseKeyPropsFile.absolutePath}")
-    keyProps.load(FileInputStream(releaseKeyPropsFile))
-} else if (debugKeyPropsFile.exists()) {
-    keyProps.load(FileInputStream(debugKeyPropsFile))
+// 在执行任务前检查实际任务图，也覆盖 assemble/bundle 等聚合任务。
+gradle.taskGraph.whenReady {
+    val packagesRelease = allTasks.any {
+        it.project == project && Regex("^(assemble|bundle|package).*Release.*$", RegexOption.IGNORE_CASE).matches(it.name)
+    }
+    if (packagesRelease) {
+        val required = listOf("keyAlias", "keyPassword", "storeFile", "storePassword")
+        if (!releaseKeyPropsFile.isFile || required.any { releaseKeyProps.getProperty(it).isNullOrBlank() }) {
+            throw GradleException("Release 打包必须完整配置 signature/keystore_release.properties；禁止使用 Debug 签名")
+        }
+        if (!file(releaseKeyProps.getProperty("storeFile")).isFile) {
+            throw GradleException("Release keystore 文件不存在，请检查 signature/keystore_release.properties")
+        }
+    }
 }
 
 android {
@@ -110,11 +120,19 @@ android {
         res.srcDir("src/llm/common-res")
     }
     signingConfigs {
+        getByName("debug") {
+            if (debugKeyPropsFile.isFile) {
+                keyAlias = debugKeyProps.getProperty("keyAlias")
+                keyPassword = debugKeyProps.getProperty("keyPassword")
+                storeFile = debugKeyProps.getProperty("storeFile")?.let { file(it) }
+                storePassword = debugKeyProps.getProperty("storePassword")
+            }
+        }
         create("release") {
-            keyAlias = keyProps["keyAlias"] as String?
-            keyPassword = keyProps["keyPassword"] as String?
-            storeFile = keyProps["storeFile"]?.let { file(it as String) }
-            storePassword = keyProps["storePassword"] as String?
+            keyAlias = releaseKeyProps["keyAlias"] as String?
+            keyPassword = releaseKeyProps["keyPassword"] as String?
+            storeFile = releaseKeyProps["storeFile"]?.let { file(it as String) }
+            storePassword = releaseKeyProps["storePassword"] as String?
         }
     }
     lint { disable.addAll(listOf("MissingTranslation", "ExtraTranslation")) }
@@ -128,7 +146,7 @@ android {
             )
             signingConfig = signingConfigs.getByName("release")
         }
-        all { signingConfig = signingConfigs.getByName("release") }
+        getByName("debug") { signingConfig = signingConfigs.getByName("debug") }
     }
     applicationVariants.all {
         val edition = productFlavors.firstOrNull { it.dimension == "edition" }?.name ?: "standard"

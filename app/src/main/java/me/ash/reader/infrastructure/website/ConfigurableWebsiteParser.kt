@@ -9,6 +9,7 @@ import java.util.UUID
 import me.ash.reader.domain.model.article.Article
 import me.ash.reader.domain.model.article.ArticleCleanupMetadata
 import me.ash.reader.domain.model.feed.Feed
+import me.ash.reader.infrastructure.security.SafeRegexGuard
 import me.ash.reader.ui.ext.spacerDollar
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
@@ -31,12 +32,12 @@ class ConfigurableWebsiteParser(
                 .firstOrNull { it.isNotEmpty() }
                 ?: error("规则 ${rule.name} 未匹配到文章节点")
 
-        val includeUrl = rule.includeUrlRegex?.let(::Regex)
+        val includeUrl = rule.includeUrlRegex?.let { SafeRegexGuard.compile(it) }
         val automaticDateExtractor =
             rule.automaticDateExtraction.takeIf { it }
                 ?.let { AutomaticArticleDateExtractor.create(document, fetchedAt) }
         val sourceHost = runCatching { URI(feed.url).host.orEmpty() }.getOrDefault("")
-        val excludeTitles = rule.excludeTitleRegexes.map(::Regex)
+        val excludeTitles = rule.excludeTitleRegexes.map { SafeRegexGuard.compile(it) }
         val seenLinks = linkedSetOf<String>()
 
         return items.asSequence()
@@ -59,7 +60,7 @@ class ConfigurableWebsiteParser(
         fetchedArticles: List<Article>,
     ): List<String> {
         if (rule.cleanupMode != WebsiteCleanupMode.URL_ID_RANGE) return emptyList()
-        val idRegex = rule.urlIdRegex?.let(::Regex) ?: return emptyList()
+        val idRegex = rule.urlIdRegex?.let { SafeRegexGuard.compile(it) } ?: return emptyList()
         val fetchedIds = fetchedArticles.mapNotNull { idRegex.find(it.link)?.groupValues?.getOrNull(1)?.toLongOrNull() }
         val oldestFetchedId = fetchedIds.minOrNull() ?: return emptyList()
         val fetchedLinks = fetchedArticles.mapTo(hashSetOf()) { it.link }

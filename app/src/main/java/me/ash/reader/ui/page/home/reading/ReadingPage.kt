@@ -2,6 +2,10 @@ package me.ash.reader.ui.page.home.reading
 
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.Flow
+import me.ash.reader.ui.page.adaptive.ReaderTranslationUiState as ArticleTranslationUiState
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Box
@@ -339,54 +343,37 @@ fun ReadingPage(
         onLoadArticle(target.ownerArticleId, -1)
     }
 
+    val currentReadingRenderer by rememberUpdatedState(readingRenderer)
     LaunchedEffect(
         pendingCitationNavigation?.requestId,
         citationNavigationArmed,
     ) {
         val pending = pendingCitationNavigation ?: return@LaunchedEffect
         if (!citationNavigationArmed) return@LaunchedEffect
-        val targetArticleId = pending.articleId.trim()
-        val articleAtStart = readerState.articleId?.trim()?.ifBlank { null }
-        if (pending.shouldInvalidateForArticle(articleAtStart)) {
-            if (pending.sameRequest(pendingCitationNavigation)) pendingCitationNavigation = null
-            return@LaunchedEffect
-        }
-        if (!pending.isTargetArticle(articleAtStart)) {
-            // Cross-article loading is part of this request transaction. The effect is keyed only by
-            // request identity/armed state, so unrelated Reader state emissions cannot replay loads.
-            onLoadArticle(pending.articleId, -1)
-        }
-        snapshotFlow { readerState.articleId?.trim()?.ifBlank { null } }
-            .first { articleId -> pending.isTargetArticle(articleId) || pending.shouldInvalidateForArticle(articleId) }
-        val currentArticleId = readerState.articleId?.trim()?.ifBlank { null }
-        if (!pending.isTargetArticle(currentArticleId)) {
-            if (pending.sameRequest(pendingCitationNavigation)) pendingCitationNavigation = null
-            return@LaunchedEffect
-        }
-        snapshotFlow { readerState.content }
-            .first { contentState -> contentState !is ReaderState.Loading }
-        if (readerState.content is ReaderState.Error) {
-            if (pending.sameRequest(pendingCitationNavigation)) {
-                citationNavigationFailure = pending
-                pendingCitationNavigation = null
+        val resolution = awaitCitationNavigationTarget(
+            pending = pending,
+            readerStateFlow = viewModel.readerStateStateFlow,
+            translationUiStateFlow = viewModel.translationUiState,
+            rendererReadyFlow = snapshotFlow {
+                Triple(currentReadingRenderer, nativeReaderAnchorState.readyArticleId, webViewReaderAnchorState.readyArticleId)
+            },
+            onLoadArticle = { onLoadArticle(it, -1) },
+            onShowOriginalContent = viewModel::showOriginalContentForCitation,
+        )
+        val renderer = when (resolution) {
+            CitationNavigationTargetResolution.Invalidated -> {
+                if (pending.sameRequest(pendingCitationNavigation)) pendingCitationNavigation = null
+                return@LaunchedEffect
             }
-            return@LaunchedEffect
+            CitationNavigationTargetResolution.Failed -> {
+                if (pending.sameRequest(pendingCitationNavigation)) {
+                    citationNavigationFailure = pending
+                    pendingCitationNavigation = null
+                }
+                return@LaunchedEffect
+            }
+            is CitationNavigationTargetResolution.Ready -> resolution.renderer
         }
-        if (translationState.showTranslation) viewModel.showOriginalContentForCitation()
-        snapshotFlow { translationState.showTranslation }.first { showing -> !showing }
-        val renderer =
-            snapshotFlow { readingRenderer }
-                .combine(
-                    snapshotFlow {
-                        nativeReaderAnchorState.readyArticleId to webViewReaderAnchorState.readyArticleId
-                    }
-                ) { candidate, ready -> candidate to ready }
-                .first { (candidate, ready) ->
-                    when (candidate) {
-                        ReadingRendererPreference.NativeComponent -> ready.first == targetArticleId
-                        ReadingRendererPreference.WebView -> ready.second == targetArticleId
-                    }
-                }.first
 
         when (renderer) {
             ReadingRendererPreference.NativeComponent -> {
@@ -1210,9 +1197,9 @@ fun ReadingPage(
                     it,
                     onSuccess = { context.showToast(context.getString(R.string.image_saved)) },
                     onFailure = {
-                        // FIXME: crash the app for error report
                         th ->
-                        throw th
+                        Log.w("RLog", "Failed to save image", th)
+                        context.showToast(context.getString(R.string.image_save_failed))
                     },
                 )
             },
@@ -1309,4 +1296,48 @@ fun ReadingPage(
             },
         )
     }
+}
+
+internal sealed interface CitationNavigationTargetResolution {
+    data class Ready(val renderer: ReadingRendererPreference) : CitationNavigationTargetResolution
+    data object Invalidated : CitationNavigationTargetResolution
+    data object Failed : CitationNavigationTargetResolution
+}
+
+internal suspend fun awaitCitationNavigationTarget(
+    pending: PendingCitationNavigation,
+    readerStateFlow: StateFlow<ReaderState>,
+    translationUiStateFlow: StateFlow<ArticleTranslationUiState>,
+    rendererReadyFlow: Flow<Triple<ReadingRendererPreference, String?, String?>>,
+    onLoadArticle: (String) -> Unit,
+    onShowOriginalContent: () -> Unit,
+): CitationNavigationTargetResolution {
+    val initialId = readerStateFlow.value.articleId?.trim()?.ifBlank { null }
+    if (pending.shouldInvalidateForArticle(initialId)) return CitationNavigationTargetResolution.Invalidated
+    if (!pending.isTargetArticle(initialId)) onLoadArticle(pending.articleId)
+    val loaded = readerStateFlow.first { state ->
+        val id = state.articleId?.trim()?.ifBlank { null }
+        pending.shouldInvalidateForArticle(id) || (pending.isTargetArticle(id) && state.content !is ReaderState.Loading)
+    }
+    if (!pending.isTargetArticle(loaded.articleId)) return CitationNavigationTargetResolution.Invalidated
+    if (loaded.content is ReaderState.Error) return CitationNavigationTargetResolution.Failed
+    if (translationUiStateFlow.value.showTranslation) {
+        onShowOriginalContent()
+        val (reader, _) = combine(readerStateFlow, translationUiStateFlow) { r, t -> r to t }
+            .first { (r, t) -> !pending.isTargetArticle(r.articleId) || r.content is ReaderState.Error || !t.showTranslation }
+        if (!pending.isTargetArticle(reader.articleId)) return CitationNavigationTargetResolution.Invalidated
+        if (reader.content is ReaderState.Error) return CitationNavigationTargetResolution.Failed
+    }
+    // 渲染器与文章同时订阅，切文和切渲染器都能结束旧等待，避免捕获局部快照。
+    val (ready, reader) = combine(rendererReadyFlow, readerStateFlow) { ready, reader -> ready to reader }
+        .first { (ready, reader) ->
+            !pending.isTargetArticle(reader.articleId) || reader.content is ReaderState.Error ||
+                (reader.content !is ReaderState.Loading && when (ready.first) {
+                    ReadingRendererPreference.NativeComponent -> ready.second == pending.articleId.trim()
+                    ReadingRendererPreference.WebView -> ready.third == pending.articleId.trim()
+                })
+        }
+    if (!pending.isTargetArticle(reader.articleId)) return CitationNavigationTargetResolution.Invalidated
+    if (reader.content is ReaderState.Error) return CitationNavigationTargetResolution.Failed
+    return CitationNavigationTargetResolution.Ready(ready.first)
 }

@@ -7,6 +7,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import me.ash.reader.infrastructure.json.optCleanString
 import me.ash.reader.infrastructure.translation.SecureSecretStore
 import org.json.JSONArray
 import org.json.JSONObject
@@ -26,9 +27,11 @@ class WebSearchRepository @Inject constructor(
     private val _settings = MutableStateFlow(readSettings())
     val settings: StateFlow<WebSearchSettings> = _settings.asStateFlow()
 
+    @Synchronized
     fun current(): WebSearchSettings = _settings.value
 
     /** 新增 Provider；同类型允许存在多份配置，便于以后接自定义网关或不同 Key。 */
+    @Synchronized
     fun addProvider(kind: WebSearchProviderKind): String {
         val profile = WebSearchProviderProfile(kind = kind)
         update { state ->
@@ -40,6 +43,7 @@ class WebSearchRepository @Inject constructor(
         return profile.id
     }
 
+    @Synchronized
     fun removeProvider(providerId: String) {
         val state = current()
         if (state.providers.none { it.id == providerId }) return
@@ -60,9 +64,11 @@ class WebSearchRepository @Inject constructor(
         }
     }
 
+    @Synchronized
     fun setProviderName(providerId: String, value: String) =
         updateProvider(providerId) { it.copy(name = value.trim().take(MAX_NAME_LENGTH)) }
 
+    @Synchronized
     fun setProviderEndpoint(providerId: String, value: String) =
         updateProvider(providerId) { it.copy(endpoint = value.trim()) }
 
@@ -70,6 +76,7 @@ class WebSearchRepository @Inject constructor(
      * 启停 Provider 时同步归一化默认项。
      * 禁用当前默认 Provider 后立即切到下一个启用项，避免设置页“默认”标记与 Runtime 实际 fallback 不一致。
      */
+    @Synchronized
     fun setProviderEnabled(providerId: String, value: Boolean) {
         update { state ->
             val providers =
@@ -83,11 +90,13 @@ class WebSearchRepository @Inject constructor(
         }
     }
 
+    @Synchronized
     fun setDefaultProvider(providerId: String) {
         val profile = current().providers.firstOrNull { it.id == providerId && it.enabled } ?: return
         update { it.copy(defaultProviderId = profile.id) }
     }
 
+    @Synchronized
     fun setMaxResults(value: Int) {
         update { it.copy(maxResults = normalizeWebSearchMaxResults(value)) }
     }
@@ -98,6 +107,7 @@ class WebSearchRepository @Inject constructor(
      * Secret 本体仍只进入 [SecureSecretStore]。长度用于设置页生成真实长度遮罩，避免为了画遮罩而在每次
      * Compose 重组时读取 Secret。
      */
+    @Synchronized
     fun setApiKey(providerId: String, value: String) {
         val normalized = value.trim()
         if (normalized.isBlank()) {
@@ -109,8 +119,10 @@ class WebSearchRepository @Inject constructor(
         preferences.edit().putInt(secretLengthKey(providerId), normalized.length).apply()
     }
 
+    @Synchronized
     fun getApiKey(providerId: String): String = secretStore.get(secretKey(providerId))
 
+    @Synchronized
     fun hasApiKey(providerId: String): Boolean = getApiKey(providerId).isNotBlank()
 
     /**
@@ -119,6 +131,7 @@ class WebSearchRepository @Inject constructor(
      * 旧版没有保存长度元数据，因此仅在首次迁移时读取一次旧 Secret 并回填长度；新保存的 Key 后续只读
      * SharedPreferences 中的长度，不会因为 UI 重组反复解密 Secret。
      */
+    @Synchronized
     fun apiKeyLength(providerId: String): Int {
         val metadataKey = secretLengthKey(providerId)
         if (preferences.contains(metadataKey)) {
@@ -131,6 +144,7 @@ class WebSearchRepository @Inject constructor(
     }
 
     /** Provider 完成配置条件由其鉴权能力决定；SearXNG 等自托管服务允许无 Key。 */
+    @Synchronized
     fun isConfigured(providerId: String): Boolean {
         val profile = current().providers.firstOrNull { it.id == providerId } ?: return false
         return profile.enabled &&
@@ -138,6 +152,7 @@ class WebSearchRepository @Inject constructor(
             (!profile.kind.requiresApiKey || hasApiKey(providerId))
     }
 
+    @Synchronized
     fun configuredProviders(): List<WebSearchProviderProfile> =
         current().providers.filter { isConfigured(it.id) }
 
@@ -145,6 +160,7 @@ class WebSearchRepository @Inject constructor(
      * 完整配置备份恢复入口。
      * 无凭据备份只替换 Provider 普通设置，并保留本机已有 Secret；只有成功解密凭据块才会精确替换 Key。
      */
+    @Synchronized
     fun restoreBackup(
         settings: WebSearchSettings,
         apiKeys: Map<String, String> = emptyMap(),
@@ -170,6 +186,7 @@ class WebSearchRepository @Inject constructor(
         _settings.value = normalized
     }
 
+    @Synchronized
     private fun updateProvider(
         providerId: String,
         transform: (WebSearchProviderProfile) -> WebSearchProviderProfile,
@@ -184,33 +201,32 @@ class WebSearchRepository @Inject constructor(
         }
     }
 
+    @Synchronized
     private fun update(transform: (WebSearchSettings) -> WebSearchSettings) {
         val next = normalize(transform(_settings.value))
         persist(next)
         _settings.value = next
     }
 
+    @Synchronized
     private fun readSettings(): WebSearchSettings =
-        runCatching {
+        try {
                 val raw = preferences.getString(KEY_PROVIDERS, null).orEmpty()
                 val providers =
-                    if (raw.isBlank()) {
+                    if (raw.isEmpty()) {
                         emptyList()
                     } else {
                         val array = JSONArray(raw)
                         buildList {
                             repeat(array.length()) { index ->
                                 val item = array.getJSONObject(index)
-                                val kind =
-                                    runCatching {
-                                            WebSearchProviderKind.valueOf(item.optString("kind"))
-                                        }.getOrNull() ?: return@repeat
+                                val kind = WebSearchProviderKind.valueOf(item.getString("kind"))
                                 add(
                                     WebSearchProviderProfile(
-                                        id = item.optString("id"),
+                                        id = item.optCleanString("id"),
                                         kind = kind,
-                                        name = item.optString("name", kind.defaultDisplayName),
-                                        endpoint = item.optString("endpoint", kind.defaultEndpoint),
+                                        name = item.optCleanString("name", kind.defaultDisplayName),
+                                        endpoint = item.optCleanString("endpoint", kind.defaultEndpoint),
                                         enabled = item.optBoolean("enabled", true),
                                     )
                                 )
@@ -228,14 +244,17 @@ class WebSearchRepository @Inject constructor(
                             ),
                     )
                 )
+            } catch (cause: Exception) {
+                throw IllegalStateException("Web Search providers 配置损坏，原始偏好已保留", cause)
             }
-            .getOrDefault(WebSearchSettings())
 
+    @Synchronized
     private fun normalize(settings: WebSearchSettings): WebSearchSettings {
-        val providers =
-            settings.providers
-                .filter { it.id.isNotBlank() }
-                .distinctBy(WebSearchProviderProfile::id)
+        require(settings.providers.all { it.id.isNotBlank() }) { "Web Search Provider ID 不能为空" }
+        require(settings.providers.map { it.id }.distinct().size == settings.providers.size) {
+            "Web Search 配置包含重复 Provider ID"
+        }
+        val providers = settings.providers.map { it.copy(name = it.name.trim().take(MAX_NAME_LENGTH), endpoint = it.endpoint.trim()) }
         val defaultId = normalizedDefaultProviderId(providers, settings.defaultProviderId)
         return WebSearchSettings(
             providers = providers,
@@ -244,6 +263,7 @@ class WebSearchRepository @Inject constructor(
         )
     }
 
+    @Synchronized
     private fun persist(settings: WebSearchSettings) {
         val providers =
             JSONArray().apply {
@@ -265,8 +285,10 @@ class WebSearchRepository @Inject constructor(
             .apply()
     }
 
+    @Synchronized
     private fun secretKey(providerId: String): String = "llm_web_search_api_key:$providerId"
 
+    @Synchronized
     private fun secretLengthKey(providerId: String): String = "llm_web_search_api_key_length:$providerId"
 
     companion object {

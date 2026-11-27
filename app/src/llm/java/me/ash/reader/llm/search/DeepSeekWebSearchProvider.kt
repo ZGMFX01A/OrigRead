@@ -39,7 +39,7 @@ class DeepSeekWebSearchProvider @Inject constructor(
             .build()
         // 使用用户保存的独立搜索端点；不依赖 DeepSeek 对话模型配置。
         httpClient.executeWebSearchCall(httpRequest, request) { response ->
-            val payload = response.body?.string().orEmpty()
+            val payload = response.readWebSearchPayload()
             request.perfTrace?.let { trace ->
                 AiPerfTracer.mark(
                     trace,

@@ -15,6 +15,7 @@ import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerSnapshot
 internal data class LlmAssistantCitationDisplay(
     val markdown: String,
     val groupsByDisplayOrder: Map<Int, LlmAssistantCitationGroup>,
+    val displayOrderByAnnotationId: Map<String, Int> = emptyMap(),
 ) {
     val validDisplayOrders: Set<Int> = groupsByDisplayOrder.keys
     val refsByDisplayOrder: Map<Int, LlmCitationRefEntity> =
@@ -300,7 +301,13 @@ private fun projectStructuredCitationDisplay(
         }
         append(content, cursor, content.length)
     }
-    return LlmAssistantCitationDisplay(markdown = projected, groupsByDisplayOrder = groups)
+    return LlmAssistantCitationDisplay(
+        markdown = projected,
+        groupsByDisplayOrder = groups,
+        displayOrderByAnnotationId = visible.mapIndexed { index, (occurrence, _) ->
+            occurrence.annotation.id to (index + 1)
+        }.toMap(),
+    )
 }
 
 /**
@@ -361,18 +368,7 @@ internal fun buildLlmReaderMarkerSnapshot(
             citationFeatureEnabled = true,
         )
     val structuredVisibleAnnotationIdsByDisplayOrder =
-        citationAnnotations
-            .filter { it.annotation.assistantMessageId == assistantMessageId }
-            .sortedWith(compareBy({ it.annotation.occurrenceOrdinal }, { it.annotation.id }))
-            .mapNotNull { occurrence ->
-                occurrence.refs
-                    .takeIf(List<LlmCitationRefEntity>::isNotEmpty)
-                    ?.distinctBy(LlmCitationRefEntity::id)
-                    ?.let { refs -> occurrence to refs }
-            }
-            .let(::selectVisibleStructuredOccurrences)
-            .mapIndexed { index, (occurrence, _) -> index + 1 to occurrence.annotation.id }
-            .toMap()
+        display.displayOrderByAnnotationId.entries.associate { (id, order) -> order to id }
     val markers =
         display.groupsByDisplayOrder.flatMap { (displayOrder, group) ->
             val annotationId = structuredVisibleAnnotationIdsByDisplayOrder[displayOrder]
@@ -412,3 +408,24 @@ internal fun buildLlmReaderMarkerSnapshot(
         )
     }
 }
+
+/** A loaded occurrence without a rendered destination cannot become navigable by waiting. */
+internal fun isCitationReturnExhausted(
+    targetExists: Boolean,
+    annotationId: String?,
+    blockIndex: Int?,
+    annotations: List<LlmCitationAnnotationWithRefs>,
+): Boolean = !targetExists ||
+    (annotationId == null && blockIndex == null) ||
+    (annotationId != null && annotations.any { it.annotation.id == annotationId })
+
+internal fun resolveCitationReturnGroup(
+    display: LlmAssistantCitationDisplay?,
+    annotationId: String?,
+    citationId: String,
+): LlmAssistantCitationGroup? =
+    if (annotationId != null) {
+        display?.displayOrderByAnnotationId?.get(annotationId)?.let { display.groupsByDisplayOrder[it] }
+    } else {
+        display?.groupsByDisplayOrder?.values?.firstOrNull { group -> group.refs.any { it.id == citationId } }
+    }

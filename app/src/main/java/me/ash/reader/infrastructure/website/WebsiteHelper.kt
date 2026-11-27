@@ -12,6 +12,7 @@ import me.ash.reader.infrastructure.di.IODispatcher
 import me.ash.reader.infrastructure.net.HttpTextDecoder
 import me.ash.reader.infrastructure.net.HttpTextKind
 import me.ash.reader.infrastructure.net.useCancellable
+import me.ash.reader.infrastructure.network.readBoundedBytes
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -19,6 +20,7 @@ import org.jsoup.Jsoup
 
 /** 无人工规则或可复用缓存时，沿用已有自动 DOM 识别的资源上限。 */
 private const val MAX_AUTOMATIC_HTML_CHARS = 750_000
+private const val MAX_WEBSITE_HTML_BYTES = 10L * 1024L * 1024L
 
 /** 页面超过自动识别资源上限。 */
 class WebsitePageTooComplexException : IllegalStateException()
@@ -147,7 +149,7 @@ class WebsiteHelper @Inject constructor(
 
     /** 静态网页按 HTTP charset、HTML meta 和 BOM 解码。 */
     private fun decodeHtmlResponse(response: Response): String = HttpTextDecoder.decode(
-        bytes = response.body.bytes(),
+        bytes = response.readBoundedBytes(MAX_WEBSITE_HTML_BYTES),
         contentType = response.header("Content-Type"),
         kind = HttpTextKind.HTML,
     )

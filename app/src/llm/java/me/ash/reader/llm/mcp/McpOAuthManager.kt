@@ -1,5 +1,9 @@
 package me.ash.reader.llm.mcp
 
+import me.ash.reader.infrastructure.json.optCleanString
+import me.ash.reader.infrastructure.json.optNullableString
+import me.ash.reader.infrastructure.network.EndpointPolicy
+import me.ash.reader.infrastructure.network.readBoundedUtf8
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
@@ -45,6 +49,7 @@ internal data class McpAuthorizationServerMetadata(
     val scopesSupported: Set<String>,
     val codeChallengeMethodsSupported: Set<String>,
     val authorizationResponseIssParameterSupported: Boolean,
+    val allowLoopbackHttp: Boolean = false,
 )
 
 internal data class McpOAuthCallback(
@@ -202,7 +207,7 @@ class McpOAuthManager @Inject constructor(
             )
         val issuer = protectedResource.authorizationServers.firstOrNull()
             ?: throw McpException("Protected Resource Metadata 未提供 authorization_servers")
-        val authorizationServer = discoverAuthorizationServerMetadata(issuer)
+        val authorizationServer = discoverAuthorizationServerMetadata(issuer, isLoopbackResource(profile.endpoint))
         val resource = canonicalResourceUri(profile.endpoint)
         return OAuthDiscovery(
             resource = resource,
@@ -212,30 +217,35 @@ class McpOAuthManager @Inject constructor(
         )
     }
 
-    private suspend fun discoverProtectedResourceMetadata(
+    internal suspend fun discoverProtectedResourceMetadata(
         resourceUrl: String,
         advertisedMetadataUrl: String?,
     ): McpProtectedResourceMetadata =
         withContext(ioDispatcher) {
+            val allowLoopbackHttp = isLoopbackResource(resourceUrl)
+            requireSecureOAuthEndpoint(resourceUrl, "resource", allowLoopbackHttp)
+            advertisedMetadataUrl?.let { validateAdvertisedMetadataUrl(resourceUrl, it) }
             val candidates =
                 buildList {
-                    advertisedMetadataUrl?.takeIf(String::isNotBlank)?.let(::add)
+                    advertisedMetadataUrl?.let(::add)
                     addAll(protectedResourceMetadataCandidates(resourceUrl))
                 }.distinct()
             candidates.forEach { candidate ->
-                fetchJson(candidate)?.let { json ->
+                fetchJson(candidate, allowLoopbackHttp)?.let { json ->
                     val parsed = parseProtectedResourceMetadata(json)
+                    validateProtectedResourceIdentity(resourceUrl, parsed.resource)
                     if (parsed.authorizationServers.isNotEmpty()) return@withContext parsed
                 }
             }
             throw McpException("无法发现 MCP Protected Resource Metadata")
         }
 
-    private suspend fun discoverAuthorizationServerMetadata(issuer: String): McpAuthorizationServerMetadata =
+    private suspend fun discoverAuthorizationServerMetadata(issuer: String, allowLoopbackHttp: Boolean): McpAuthorizationServerMetadata =
         withContext(ioDispatcher) {
+            requireSecureOAuthEndpoint(issuer, "issuer", allowLoopbackHttp)
             authorizationServerMetadataCandidates(issuer).forEach { candidate ->
-                fetchJson(candidate)?.let { json ->
-                    val parsed = parseAuthorizationServerMetadata(json)
+                fetchJson(candidate, allowLoopbackHttp)?.let { json ->
+                    val parsed = parseAuthorizationServerMetadata(json, allowLoopbackHttp)
                     if (parsed.issuer != issuer) {
                         throw McpException("OAuth metadata issuer 与发现地址不一致，拒绝继续授权")
                     }
@@ -274,19 +284,19 @@ class McpOAuthManager @Inject constructor(
     ): McpOAuthClientRegistration {
         val body = buildDynamicClientRegistrationPayload(redirectUri)
         val response =
-            httpClient.client.newCall(
+            oauthClient(registrationEndpoint, metadata.allowLoopbackHttp).newCall(
                 Request.Builder()
                     .url(registrationEndpoint)
                     .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
                     .build()
-            ).execute().use { it.code to it.body?.string().orEmpty() }
+            ).execute().use { it.code to it.readBoundedUtf8(MAX_OAUTH_RESPONSE_BYTES) }
         if (response.first !in 200..299) throw McpException("OAuth DCR 失败：HTTP ${response.first}")
         val root = runCatching { JSONObject(response.second) }
             .getOrElse { throw McpException("OAuth DCR 返回无效 JSON", it) }
-        val clientId = root.optString("client_id").takeIf(String::isNotBlank)
+        val clientId = root.optNullableString("client_id")
             ?: throw McpException("OAuth DCR 响应缺少 client_id")
         val authMethod =
-            when (root.optString("token_endpoint_auth_method", "none")) {
+            when (root.optCleanString("token_endpoint_auth_method", "none")) {
                 "client_secret_post" -> McpOAuthClientAuthMethod.CLIENT_SECRET_POST
                 "client_secret_basic" -> McpOAuthClientAuthMethod.CLIENT_SECRET_BASIC
                 else -> McpOAuthClientAuthMethod.NONE
@@ -294,7 +304,7 @@ class McpOAuthManager @Inject constructor(
         return McpOAuthClientRegistration(
             issuer = metadata.issuer,
             clientId = clientId,
-            clientSecret = root.optString("client_secret"),
+            clientSecret = root.optCleanString("client_secret"),
             authMethod = authMethod,
         )
     }
@@ -331,7 +341,7 @@ class McpOAuthManager @Inject constructor(
                 "resource" to resource,
             )
         previous.scope.takeIf(String::isNotBlank)?.let { fields["scope"] = it }
-        return tokenRequest(metadata, registration, fields, previous.refreshToken)
+        return tokenRequest(metadata, registration, fields, previous.refreshToken, previous.scope)
     }
 
     /** Token Endpoint 同时支持 public client、client_secret_post 与 client_secret_basic。 */
@@ -340,6 +350,7 @@ class McpOAuthManager @Inject constructor(
         registration: McpOAuthClientRegistration,
         fields: Map<String, String>,
         previousRefreshToken: String,
+        previousScope: String = "",
     ): McpOAuthTokenSet {
         val form = FormBody.Builder()
         fields.forEach { (key, value) -> form.add(key, value) }
@@ -359,13 +370,13 @@ class McpOAuthManager @Inject constructor(
                 }
                 .post(form.build())
                 .build()
-        val response = httpClient.client.newCall(request).execute().use { it.code to it.body?.string().orEmpty() }
+        val response = oauthClient(metadata.tokenEndpoint, metadata.allowLoopbackHttp).newCall(request).execute().use { it.code to it.readBoundedUtf8(MAX_OAUTH_RESPONSE_BYTES) }
         if (response.first !in 200..299) throw McpException("OAuth Token 请求失败：HTTP ${response.first}")
         val root = runCatching { JSONObject(response.second) }
             .getOrElse { throw McpException("OAuth Token 响应不是有效 JSON", it) }
-        val accessToken = root.optString("access_token").takeIf(String::isNotBlank)
+        val accessToken = root.optNullableString("access_token")
             ?: throw McpException("OAuth Token 响应缺少 access_token")
-        val tokenType = root.optString("token_type", "Bearer")
+        val tokenType = root.optCleanString("token_type", "Bearer")
         require(tokenType.equals("Bearer", ignoreCase = true)) { "MCP OAuth 只接受 Bearer access token" }
         val expiresInSeconds = root.optLong("expires_in", -1L)
         val expiresAt =
@@ -377,9 +388,9 @@ class McpOAuthManager @Inject constructor(
         return McpOAuthTokenSet(
             issuer = metadata.issuer,
             accessToken = accessToken,
-            refreshToken = root.optString("refresh_token").ifBlank { previousRefreshToken },
+            refreshToken = root.optNullableString("refresh_token") ?: previousRefreshToken,
             tokenType = tokenType,
-            scope = root.optString("scope"),
+            scope = root.optNullableString("scope") ?: previousScope,
             expiresAtEpochMs = expiresAt,
         )
     }
@@ -393,18 +404,23 @@ class McpOAuthManager @Inject constructor(
         return previous + pending + initial
     }
 
-    private fun fetchJson(url: String): JSONObject? {
-        val parsed = url.toHttpUrlOrNull() ?: return null
-        if (parsed.scheme != "https" && !parsed.isLoopbackHost()) return null
-        val response =
-            runCatching {
-                    httpClient.client.newCall(Request.Builder().url(parsed).get().build()).execute().use {
-                        if (!it.isSuccessful) return@use null
-                        it.body?.string()?.takeIf(String::isNotBlank)?.let(::JSONObject)
-                    }
-                }
-                .getOrNull()
-        return response
+    private fun oauthClient(url: String, allowLoopbackHttp: Boolean): okhttp3.OkHttpClient {
+        val parsed = requireSecureOAuthEndpoint(url, "request", allowLoopbackHttp).toHttpUrlOrNull()!!
+        return EndpointPolicy.client(httpClient.client, allowLoopbackHttp && EndpointPolicy.isLoopback(parsed))
+    }
+
+    private fun fetchJson(url: String, allowLoopbackHttp: Boolean): JSONObject? {
+        val response = oauthClient(url, allowLoopbackHttp)
+            .newCall(Request.Builder().url(url).get().build()).execute()
+        return response.use {
+            // 只有明确不存在的 discovery 候选可以继续 RFC fallback；网络、3xx 和格式错误必须失败。
+            if (it.code == 404) return@use null
+            if (!it.isSuccessful) throw McpException("OAuth metadata 请求失败：HTTP ${it.code}")
+            val body = it.readBoundedUtf8(MAX_OAUTH_RESPONSE_BYTES)
+            try { JSONObject(body) } catch (error: org.json.JSONException) {
+                throw McpException("OAuth metadata 返回无效 JSON", error)
+            }
+        }
     }
 
     private data class OAuthDiscovery(
@@ -448,23 +464,29 @@ internal fun authorizationServerMetadataCandidates(issuer: String): List<String>
 internal fun parseProtectedResourceMetadata(root: JSONObject): McpProtectedResourceMetadata {
     val servers = root.optJSONArray("authorization_servers").toStringSet().toList()
     return McpProtectedResourceMetadata(
-        resource = root.optString("resource"),
+        resource = root.optCleanString("resource"),
         authorizationServers = servers,
         scopesSupported = root.optJSONArray("scopes_supported").toStringSet(),
     )
 }
 
-internal fun parseAuthorizationServerMetadata(root: JSONObject): McpAuthorizationServerMetadata {
+internal fun parseAuthorizationServerMetadata(root: JSONObject, allowLoopbackHttp: Boolean = false): McpAuthorizationServerMetadata {
+    val rawAuthEndpoint = root.optNullableString("authorization_endpoint")
+        ?: throw McpException("OAuth metadata 缺少 authorization_endpoint")
     val authorizationEndpoint =
-        requireSecureOAuthEndpoint(root.getString("authorization_endpoint"), "authorization_endpoint")
+        requireSecureOAuthEndpoint(rawAuthEndpoint, "authorization_endpoint", allowLoopbackHttp)
+    val rawTokenEndpoint = root.optNullableString("token_endpoint")
+        ?: throw McpException("OAuth metadata 缺少 token_endpoint")
     val tokenEndpoint =
-        requireSecureOAuthEndpoint(root.getString("token_endpoint"), "token_endpoint")
+        requireSecureOAuthEndpoint(rawTokenEndpoint, "token_endpoint", allowLoopbackHttp)
     val registrationEndpoint =
-        root.optString("registration_endpoint")
-            .takeIf(String::isNotBlank)
-            ?.let { requireSecureOAuthEndpoint(it, "registration_endpoint") }
+        root.optNullableString("registration_endpoint")
+            ?.let { requireSecureOAuthEndpoint(it, "registration_endpoint", allowLoopbackHttp) }
+    val issuer = root.optNullableString("issuer") ?: throw McpException("OAuth metadata 缺少 issuer")
+    requireSecureOAuthEndpoint(issuer, "issuer", allowLoopbackHttp)
     return McpAuthorizationServerMetadata(
-        issuer = root.getString("issuer"),
+        issuer = issuer,
+        allowLoopbackHttp = allowLoopbackHttp,
         authorizationEndpoint = authorizationEndpoint,
         tokenEndpoint = tokenEndpoint,
         registrationEndpoint = registrationEndpoint,
@@ -476,12 +498,31 @@ internal fun parseAuthorizationServerMetadata(root: JSONObject): McpAuthorizatio
 }
 
 /** OAuth Authorization Server 的敏感端点必须走 TLS；仅保留 loopback 作为本地开发/测试例外。 */
-private fun requireSecureOAuthEndpoint(raw: String, fieldName: String): String {
-    val url = raw.toHttpUrlOrNull() ?: throw McpException("OAuth $fieldName 不是有效 URL")
-    if (url.scheme != "https" && !url.isLoopbackHost()) {
-        throw McpException("OAuth $fieldName 必须使用 HTTPS")
+internal fun requireSecureOAuthEndpoint(raw: String, fieldName: String, allowLoopbackHttp: Boolean): String {
+    try {
+        val parsed = raw.toHttpUrlOrNull() ?: throw IllegalArgumentException("无效 URL")
+        return EndpointPolicy.requireUrl(raw, allowLocal = allowLoopbackHttp && EndpointPolicy.isLoopback(parsed)).toString()
+    } catch (error: IllegalArgumentException) {
+        throw McpException("OAuth $fieldName 地址不安全：${error.message}", error)
     }
-    return url.toString()
+}
+
+internal fun isLoopbackResource(resourceUrl: String): Boolean =
+    resourceUrl.toHttpUrlOrNull()?.let(EndpointPolicy::isLoopback) == true
+
+internal fun validateAdvertisedMetadataUrl(resourceUrl: String, advertisedUrl: String) {
+    val resource = resourceUrl.toHttpUrlOrNull() ?: throw McpException("MCP resource URL 无效")
+    val advertised = requireSecureOAuthEndpoint(advertisedUrl, "resource_metadata", EndpointPolicy.isLoopback(resource))
+        .toHttpUrlOrNull()!!
+    if (!EndpointPolicy.sameOrigin(resource, advertised)) {
+        throw McpException("resource_metadata 必须与 MCP resource 同源")
+    }
+}
+
+internal fun validateProtectedResourceIdentity(resourceUrl: String, metadataResource: String) {
+    if (metadataResource.isNotBlank() && canonicalResourceUri(metadataResource) != canonicalResourceUri(resourceUrl)) {
+        throw McpException("Protected Resource Metadata resource 与 MCP resource 不匹配")
+    }
 }
 
 /**
@@ -690,13 +731,12 @@ private fun String.splitScopes(): Set<String> =
 private fun JSONArray?.toStringSet(): Set<String> =
     if (this == null) emptySet()
     else buildSet {
-        repeat(length()) { index -> optString(index).takeIf(String::isNotBlank)?.let(::add) }
+        repeat(length()) { index -> optNullableString(index)?.let(::add) }
     }
-
-private fun HttpUrl.isLoopbackHost(): Boolean =
-    host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]"
 
 private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 private const val OAUTH_CALLBACK_TIMEOUT_MS = 5 * 60 * 1000
 private const val OAUTH_CALLBACK_CLIENT_READ_TIMEOUT_MS = 2_000
 private const val MAX_TOKEN_LIFETIME_SECONDS = 365L * 24L * 60L * 60L
+
+private const val MAX_OAUTH_RESPONSE_BYTES = 1024L * 1024L

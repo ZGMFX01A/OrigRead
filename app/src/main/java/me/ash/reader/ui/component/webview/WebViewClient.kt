@@ -9,9 +9,12 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import me.ash.reader.ui.ext.isUrl
-import java.io.DataInputStream
-import java.net.HttpURLConnection
+import me.ash.reader.R
+import me.ash.reader.ui.ext.ExternalFonts
+import java.io.File
+import java.io.IOException
+import java.io.ByteArrayInputStream
+import java.net.URISyntaxException
 import java.net.URI
 
 const val INJECTION_TOKEN = "/android_asset_font/"
@@ -28,32 +31,28 @@ class WebViewClient(
         request: WebResourceRequest?,
     ): WebResourceResponse? {
         val url = request?.url?.toString()
-        if (url != null && url.contains(INJECTION_TOKEN)) {
-            try {
-                val assetPath = url.substring(
-                    url.indexOf(INJECTION_TOKEN) + INJECTION_TOKEN.length,
-                    url.length
-                )
-                return WebResourceResponse(
-                    "text/HTML",
-                    "UTF-8",
-                    context.assets.open(assetPath)
-                )
-            } catch (e: Exception) {
-                Log.e("RLog", "WebView shouldInterceptRequest: $e")
-            }
-        } else if (url != null && url.isUrl()) {
-            try {
-                var connection = URI.create(url).toURL().openConnection() as HttpURLConnection
-                if (connection.responseCode == 403) {
-                    connection.disconnect()
-                    connection = URI.create(url).toURL().openConnection() as HttpURLConnection
-                    connection.setRequestProperty("Referer", refererDomain)
-                    val inputStream = DataInputStream(connection.inputStream)
-                    return WebResourceResponse(connection.contentType, "UTF-8", inputStream)
+        if (url != null && isAppAssetsRequest(url)) {
+            val target = resolveAppAssetFontTarget(url) ?: return missingFontResponse()
+            return try {
+                val stream = when (target) {
+                    AppAssetFontTarget.External -> {
+                        val root = context.filesDir.canonicalFile
+                        val font = File(root, ExternalFonts.FontType.ReadingFont.value).canonicalFile
+                        if (!font.toPath().startsWith(root.toPath()) || !font.isFile || !font.canRead())
+                            return missingFontResponse()
+                        font.inputStream()
+                    }
+                    AppAssetFontTarget.GoogleSans -> context.resources.openRawResource(R.font.google_sans_flex)
+                    is AppAssetFontTarget.Asset -> context.assets.open(target.path)
                 }
-            } catch (e: Exception) {
-                Log.e("RLog", "shouldInterceptRequest url: $e")
+                WebResourceResponse(target.mimeType, null, 200, "OK",
+                    mapOf("Access-Control-Allow-Origin" to "*"), stream)
+            } catch (error: IOException) {
+                Log.w("RLog", "Failed to load reader font", error)
+                missingFontResponse()
+            } catch (error: android.content.res.Resources.NotFoundException) {
+                Log.w("RLog", "Reader font resource not found", error)
+                missingFontResponse()
             }
         }
         return super.shouldInterceptRequest(view, request)
@@ -101,3 +100,48 @@ class WebViewClient(
             """
     }
 }
+
+const val APP_ASSETS_HOST = "appassets.androidplatform.net"
+const val EXTERNAL_READING_FONT_URL = "https://appassets.androidplatform.net/origread-fonts/external/reading_font.ttf"
+const val GOOGLE_SANS_FONT_URL = "https://appassets.androidplatform.net/origread-fonts/res/google_sans_flex.ttf"
+
+internal sealed class AppAssetFontTarget(val mimeType: String) {
+    data object External : AppAssetFontTarget("font/ttf")
+    data object GoogleSans : AppAssetFontTarget("font/ttf")
+    data class Asset(val path: String, val mime: String) : AppAssetFontTarget(mime)
+}
+
+internal fun isAppAssetsRequest(url: String): Boolean = try {
+    val uri = URI(url)
+    uri.host.equals(APP_ASSETS_HOST, ignoreCase = true) && uri.scheme?.lowercase() in setOf("http", "https")
+} catch (_: URISyntaxException) { false }
+
+internal fun resolveAppAssetFontTarget(url: String): AppAssetFontTarget? {
+    val uri = try { URI(url) } catch (_: URISyntaxException) { return null }
+    if (uri.scheme != "https" || uri.host != APP_ASSETS_HOST || uri.rawUserInfo != null ||
+        uri.port != -1 || uri.rawQuery != null || uri.rawFragment != null) return null
+    return when (val path = uri.rawPath) {
+        "/origread-fonts/external/reading_font.ttf" -> AppAssetFontTarget.External
+        "/origread-fonts/res/google_sans_flex.ttf" -> AppAssetFontTarget.GoogleSans
+        else -> {
+            if (!path.startsWith(INJECTION_TOKEN)) return null
+            val relative = path.removePrefix(INJECTION_TOKEN)
+            // 只接收未编码的相对字体路径，拒绝所有空段、点段和路径混淆。
+            if (!Regex("[A-Za-z0-9_/-]+(?:[.][A-Za-z0-9_-]+)*").matches(relative) ||
+                relative.split('/').any { it.isEmpty() || it == "." || it == ".." }) return null
+            val mime = when (relative.substringAfterLast('.').lowercase()) {
+                "ttf" -> "font/ttf"
+                "otf" -> "font/otf"
+                "woff" -> "font/woff"
+                "woff2" -> "font/woff2"
+                else -> return null
+            }
+            AppAssetFontTarget.Asset(relative, mime)
+        }
+    }
+}
+
+private fun missingFontResponse() = WebResourceResponse(
+    "font/ttf", null, 404, "Not Found", mapOf("Access-Control-Allow-Origin" to "*"),
+    ByteArrayInputStream(ByteArray(0)),
+)

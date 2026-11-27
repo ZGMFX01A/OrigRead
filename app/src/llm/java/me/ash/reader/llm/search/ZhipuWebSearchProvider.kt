@@ -7,6 +7,8 @@ import kotlinx.coroutines.withContext
 import me.ash.reader.infrastructure.ai.AiHttpClient
 import me.ash.reader.infrastructure.ai.AiPerfTracer
 import me.ash.reader.infrastructure.di.IODispatcher
+import me.ash.reader.infrastructure.json.optCleanString
+import me.ash.reader.infrastructure.json.optNullableString
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -45,7 +47,7 @@ class ZhipuWebSearchProvider @Inject constructor(
                     .post(body.toString().toRequestBody(ZHIPU_JSON_MEDIA_TYPE))
                     .build()
             httpClient.executeWebSearchCall(httpRequest, request) { response ->
-                val payload = response.body?.string().orEmpty()
+                val payload = response.readWebSearchPayload()
                 request.perfTrace?.let { trace ->
                     AiPerfTracer.mark(
                         trace,
@@ -79,18 +81,16 @@ internal fun parseZhipuSearchResponse(
             if (array != null) {
                 repeat(array.length()) { index ->
                     val item = array.optJSONObject(index) ?: return@repeat
-                    val url = item.optString("link").trim()
-                    if (url.isBlank()) return@repeat
-                    val content = item.optString("content").trim()
+                    val url = item.optNullableString("link") ?: return@repeat
+                    val content = item.optCleanString("content").trim()
                     add(
                         WebSearchResult(
-                            title = item.optString("title").trim().ifBlank { url },
+                            title = item.optNullableString("title") ?: url,
                             url = url,
                             snippet = content,
-                            publishedAt =
-                                item.optString("publish_date").trim().takeIf(String::isNotBlank),
+                            publishedAt = item.optNullableString("publish_date"),
                             source =
-                                item.optString("media").trim().takeIf(String::isNotBlank)
+                                item.optNullableString("media")
                                     ?: runCatching { java.net.URI(url).host }.getOrNull(),
                             content = content.takeIf { includeContent && it.isNotBlank() },
                         )
@@ -110,9 +110,10 @@ private fun zhipuErrorSuffix(payload: String): String {
     val message =
         runCatching {
                 val root = JSONObject(payload)
-                root.optString("message")
-                    .ifBlank { root.optString("error") }
-                    .ifBlank { root.optJSONObject("error")?.optString("message").orEmpty() }
+                root.optNullableString("message")
+                    ?: root.optNullableString("error")
+                    ?: root.optJSONObject("error")?.optNullableString("message")
+                    ?: ""
             }
             .getOrDefault("")
             .trim()

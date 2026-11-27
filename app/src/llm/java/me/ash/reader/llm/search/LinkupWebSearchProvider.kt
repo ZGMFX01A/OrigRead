@@ -6,6 +6,8 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import me.ash.reader.infrastructure.ai.AiHttpClient
 import me.ash.reader.infrastructure.di.IODispatcher
+import me.ash.reader.infrastructure.json.optCleanString
+import me.ash.reader.infrastructure.json.optNullableString
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
@@ -41,7 +43,7 @@ class LinkupWebSearchProvider @Inject constructor(
                     .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
                     .build()
             httpClient.executeWebSearchCall(httpRequest, request) { response ->
-                val payload = response.body?.string().orEmpty()
+                val payload = response.readWebSearchPayload()
                 if (!response.isSuccessful) {
                     throw WebSearchException("Linkup 搜索失败：HTTP ${response.code}")
                 }
@@ -64,13 +66,12 @@ internal fun parseLinkupSearchResponse(
             if (array != null) {
                 repeat(minOf(array.length(), maxResults)) { index ->
                     val item = array.optJSONObject(index) ?: return@repeat
-                    val url = item.optString("url").trim()
-                    if (url.isBlank()) return@repeat
+                    val url = item.optNullableString("url") ?: return@repeat
                     add(
                         WebSearchResult(
-                            title = item.optString("name").ifBlank { url },
+                            title = item.optNullableString("name") ?: url,
                             url = url,
-                            snippet = item.optString("content"),
+                            snippet = item.optCleanString("content"),
                             source = runCatching { url.toHttpUrl().host }.getOrNull(),
                         )
                     )

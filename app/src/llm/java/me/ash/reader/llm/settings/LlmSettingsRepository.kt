@@ -1,5 +1,6 @@
 package me.ash.reader.llm.settings
 
+import me.ash.reader.infrastructure.storage.storedEnum
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -42,44 +43,59 @@ class LlmSettingsRepository @Inject constructor(
     private val _settings = MutableStateFlow(readSettings())
     val settings: StateFlow<LlmAdvancedSettings> = _settings.asStateFlow()
 
+    @Synchronized
     fun current(): LlmAdvancedSettings = _settings.value
 
+    @Synchronized
     fun setAssistantEnabled(value: Boolean) = update { it.copy(assistantEnabled = value) }
 
+    @Synchronized
     fun setContinueGenerationInBackground(value: Boolean) =
         update { it.copy(continueGenerationInBackground = value) }
 
+    @Synchronized
     fun setDefaultGenerateSummary(value: Boolean) =
         update { it.copy(defaultGenerateSummary = value) }
 
+    @Synchronized
     fun setAdvancedAiConfigEnabled(value: Boolean) =
         update { it.copy(advancedAiConfigEnabled = value) }
 
+    @Synchronized
     fun setReasoningEffort(value: LlmReasoningEffort) =
         update { it.copy(reasoningEffort = value) }
 
+    @Synchronized
     fun setStreamResponses(value: Boolean) = update { it.copy(streamResponses = value) }
 
+    @Synchronized
     fun setShowReasoning(value: Boolean) = update { it.copy(showReasoning = value) }
 
+    @Synchronized
     fun setContextMaxTokens(value: Int) =
         update { it.copy(contextMaxTokens = normalizeContextTokens(value)) }
 
+    @Synchronized
     fun setCustomInstructions(value: String) =
         update { it.copy(customInstructions = normalizeCustomInstructions(value)) }
 
+    @Synchronized
     fun setSkillsEnabled(value: Boolean) = update { it.copy(skillsEnabled = value) }
 
+    @Synchronized
     fun setWebSearchEnabled(value: Boolean) = update { it.copy(webSearchEnabled = value) }
 
     /** FORCE 是 Chat 的一次性动作，不允许写成全局持久状态。 */
+    @Synchronized
     fun setWebSearchMode(value: WebSearchMode) =
         update { it.copy(webSearchMode = value.takeUnless { it == WebSearchMode.FORCE } ?: WebSearchMode.AUTO) }
 
+    @Synchronized
     fun setMcpEnabled(value: Boolean) = update { it.copy(mcpEnabled = value) }
 
 
     /** 完整配置备份恢复入口；沿用与设置页相同的边界归一化，不保留旧实验字段。 */
+    @Synchronized
     fun restoreBackup(settings: LlmAdvancedSettings) {
         val normalized =
             settings.copy(
@@ -87,11 +103,11 @@ class LlmSettingsRepository @Inject constructor(
                 customInstructions = normalizeCustomInstructions(settings.customInstructions),
                 webSearchMode = settings.webSearchMode.takeUnless { it == WebSearchMode.FORCE } ?: WebSearchMode.AUTO,
             )
-        preferences.edit().clear().apply()
-        persist(normalized)
+        persist(normalized, clear = true)
         _settings.value = normalized
     }
 
+    @Synchronized
     private fun update(transform: (LlmAdvancedSettings) -> LlmAdvancedSettings) {
         val transformed = transform(_settings.value)
         val next =
@@ -103,6 +119,7 @@ class LlmSettingsRepository @Inject constructor(
         _settings.value = next
     }
 
+    @Synchronized
     private fun readSettings(): LlmAdvancedSettings =
         LlmAdvancedSettings(
             assistantEnabled =
@@ -114,11 +131,7 @@ class LlmSettingsRepository @Inject constructor(
             advancedAiConfigEnabled =
                 preferences.getBoolean(KEY_ADVANCED_AI_CONFIG_ENABLED, false),
             reasoningEffort =
-                runCatching {
-                    LlmReasoningEffort.valueOf(
-                        preferences.getString(KEY_REASONING_EFFORT, null).orEmpty()
-                    )
-                }.getOrDefault(LlmReasoningEffort.AUTO),
+                storedEnum(preferences.getString(KEY_REASONING_EFFORT, null), LlmReasoningEffort.AUTO),
             streamResponses = preferences.getBoolean(KEY_STREAM_RESPONSES, true),
             showReasoning = preferences.getBoolean(KEY_SHOW_REASONING, true),
             contextMaxTokens =
@@ -132,19 +145,15 @@ class LlmSettingsRepository @Inject constructor(
             skillsEnabled = preferences.getBoolean(KEY_SKILLS_ENABLED, false),
             webSearchEnabled = preferences.getBoolean(KEY_WEB_SEARCH_ENABLED, false),
             webSearchMode =
-                runCatching {
-                        WebSearchMode.valueOf(
-                            preferences.getString(KEY_WEB_SEARCH_MODE, null).orEmpty()
-                        )
-                    }
-                    .getOrDefault(WebSearchMode.AUTO)
+                storedEnum(preferences.getString(KEY_WEB_SEARCH_MODE, null), WebSearchMode.AUTO)
                     .takeUnless { it == WebSearchMode.FORCE }
                     ?: WebSearchMode.AUTO,
             mcpEnabled = preferences.getBoolean(KEY_MCP_ENABLED, false),
         )
 
-    private fun persist(settings: LlmAdvancedSettings) {
-        preferences.edit()
+    @Synchronized
+    private fun persist(settings: LlmAdvancedSettings, clear: Boolean = false) {
+        preferences.edit().apply { if (clear) clear() }
             .putBoolean(KEY_ASSISTANT_ENABLED, settings.assistantEnabled)
             .putBoolean(
                 KEY_CONTINUE_GENERATION_IN_BACKGROUND,
@@ -170,13 +179,16 @@ class LlmSettingsRepository @Inject constructor(
     }
 
     /** 已安装旧版本没有该 key：OrigRead 默认关闭，OrigRead X 默认开启。 */
+    @Synchronized
     private fun defaultAssistantEnabled(): Boolean = defaultLlmAssistantEnabledForEdition(BuildConfig.EDITION)
 
     /** 只做防止异常值/Int 溢出的安全夹取，不再把用户输入吸附到固定档位。 */
+    @Synchronized
     private fun normalizeContextTokens(value: Int): Int =
         value.coerceIn(MIN_CONTEXT_TOKENS, MAX_CONTEXT_TOKENS)
 
     /** 去掉首尾空白并限制持久化体积；不解析用户文本，也不允许它决定 Prompt 位置。 */
+    @Synchronized
     private fun normalizeCustomInstructions(value: String): String =
         value.trim().take(MAX_CUSTOM_INSTRUCTIONS_LENGTH)
 

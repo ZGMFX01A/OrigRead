@@ -52,9 +52,11 @@ class ConfigurationBackupService @Inject constructor(
     }
 
     /** 账户与订阅在入口捕获，凭据仅按用户选择进入加密字段。 */
-    suspend fun exportBackup(includeSecrets: Boolean, password: String = ""): String {
+    suspend fun exportBackup(includeSecrets: Boolean, password: String = ""): String =
+        exportAccountBackup(includeSecrets, password, accountService.getCurrentAccountId())
+
+    private suspend fun exportAccountBackup(includeSecrets: Boolean, password: String, accountId: Int): String {
         if (includeSecrets) require(password.length >= 6) { "备份密码至少需要 6 个字符" }
-        val accountId = accountService.getCurrentAccountId()
         val account = requireNotNull(accountDao.queryById(accountId)) { "当前账户不存在" }
         val snapshot = ConfigurationExportSnapshot(account, groupDao.queryAll(accountId), feedDao.queryAll(accountId))
         val secrets = if (includeSecrets) exportEncryptedSecrets(password) else null
@@ -80,23 +82,52 @@ class ConfigurationBackupService @Inject constructor(
      * 所有输入会先完整校验，再创建只驻留内存的回滚点；任一仓库写入失败都会尽力恢复 Secret、偏好、规则及
      * 恢复前精确的 Group/Feed，避免跨 Room/SharedPreferences/Keystore 的“半恢复”状态。
      */
-    suspend fun restoreBackup(content: String, password: String = ""): ConfigurationRestoreResult {
+    suspend fun restoreBackup(content: String, password: String = "", targetAccountId: Int? = null): ConfigurationRestoreResult {
         val prepared = prepareRestore(content, password)
-        val rollback = createRestoreRollbackSnapshot()
+        val accountId = targetAccountId ?: accountService.getCurrentAccountId()
+        val rollbackPassword = java.util.UUID.randomUUID().toString()
+        val rollback = ConfigurationRestoreRollbackSnapshot(
+            accountId = accountId,
+            groups = groupDao.queryAll(accountId),
+            feeds = feedDao.queryAll(accountId),
+            configurationBackupJson = exportAccountBackup(true, rollbackPassword, accountId),
+            jsonRulesSnapshot = jsonRuleRepository.exportBackup(),
+            password = rollbackPassword,
+        )
         return try {
-            applyPreparedRestore(prepared)
+            applyPreparedRestore(prepared, targetAccountId = accountId)
         } catch (restoreError: Throwable) {
             // 原恢复可能由取消触发；补偿必须脱离已取消上下文完整跑完，再把原异常（含 CancellationException）交还上层。
             withContext(NonCancellable) {
                 runCatching {
                     val rollbackPrepared = prepareRestore(rollback.configurationBackupJson, rollback.password)
-                applyPreparedRestore(rollbackPrepared, rollback.jsonRulesSnapshot)
-                    restoreRoomRollbackSnapshot(rollback)
+                    applyPreparedRestore(rollbackPrepared, rollback.jsonRulesSnapshot, accountId)
+                    restoreTargetRoomRollbackSnapshot(rollback)
                 }.exceptionOrNull()?.let(restoreError::addSuppressed)
             }
             throw restoreError
         }
     }
 
+    private suspend fun restoreTargetRoomRollbackSnapshot(snapshot: ConfigurationRestoreRollbackSnapshot) {
+        val currentGroups = groupDao.queryAll(snapshot.accountId)
+        val currentGroupIds = currentGroups.mapTo(hashSetOf(), Group::id)
+        val (missingGroups, existingGroups) = snapshot.groups.partition { it.id !in currentGroupIds }
+        if (missingGroups.isNotEmpty()) groupDao.insertAll(missingGroups)
+        if (existingGroups.isNotEmpty()) groupDao.updateAll(existingGroups)
 
+        val currentFeeds = feedDao.queryAll(snapshot.accountId)
+        val currentFeedIds = currentFeeds.mapTo(hashSetOf(), Feed::id)
+        val (missingFeeds, existingFeeds) = snapshot.feeds.partition { it.id !in currentFeedIds }
+        if (missingFeeds.isNotEmpty()) feedDao.insertAll(missingFeeds)
+        if (existingFeeds.isNotEmpty()) feedDao.updateAll(existingFeeds)
+
+        val snapshotFeedIds = snapshot.feeds.mapTo(hashSetOf(), Feed::id)
+        val extraFeeds = feedDao.queryAll(snapshot.accountId).filter { it.id !in snapshotFeedIds }
+        if (extraFeeds.isNotEmpty()) feedDao.delete(*extraFeeds.toTypedArray())
+
+        val snapshotGroupIds = snapshot.groups.mapTo(hashSetOf(), Group::id)
+        val extraGroups = groupDao.queryAll(snapshot.accountId).filter { it.id !in snapshotGroupIds }
+        if (extraGroups.isNotEmpty()) groupDao.delete(*extraGroups.toTypedArray())
+    }
 }

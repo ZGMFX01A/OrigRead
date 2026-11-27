@@ -1,11 +1,10 @@
 package me.ash.reader.infrastructure.json
 
+import me.ash.reader.infrastructure.storage.AtomicJsonFileStore
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.net.URI
 import java.time.ZoneId
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.encodeToString
@@ -23,6 +22,7 @@ class JsonRuleRepository @Inject constructor(
     }
 
     /** 旧订阅按真实请求语义匹配：内嵌规则请求原页面，API 才解析 endpoint。 */
+    @Synchronized
     fun findRuleForEndpoint(endpointUrl: String): JsonRule? {
         val matches = findRulesForEndpoint(endpointUrl)
         require(matches.size <= 1) { "JSON 来源匹配多条规则，请重新探测并选择：$endpointUrl" }
@@ -30,6 +30,7 @@ class JsonRuleRepository @Inject constructor(
     }
 
     /** 旧数据恢复先按请求目标筛选，再由抓取入口用真实响应消除规则歧义。 */
+    @Synchronized
     fun findRulesForEndpoint(endpointUrl: String): List<JsonRule> =
         findRules(endpointUrl).filter { requestEndpoint(endpointUrl, it) == endpointUrl }
 
@@ -65,18 +66,22 @@ class JsonRuleRepository @Inject constructor(
         return rule
     }
 
+    @Synchronized
     fun resolveEndpoint(inputUrl: String, endpoint: String): String =
         URI(inputUrl).resolve(endpoint).toString()
 
     /** 探测、旧来源恢复和绑定校验共用请求地址计算，内嵌 JSON 的占位 endpoint 不参与解析。 */
+    @Synchronized
     fun requestEndpoint(inputUrl: String, rule: JsonRule): String =
         rule.requestEndpoint(inputUrl, ::resolveEndpoint)
 
     /** 原地修复优先使用原始页面；无旧绑定的来源使用当前保存地址。 */
+    @Synchronized
     fun subscriptionPageUrl(feedId: String, savedUrl: String): String =
         loadBundle().subscriptions[feedId]?.sourcePageUrl ?: savedUrl
 
     /** 原地修复只保存和恢复目标来源的绑定，不回滚其他来源的规则修改。 */
+    @Synchronized
     fun subscriptionBinding(feedId: String): JsonSourceBinding? = loadBundle().subscriptions[feedId]
 
     /** 数据库地址写入失败时恢复原绑定，保留其他账户和来源的最新配置。 */
@@ -91,13 +96,16 @@ class JsonRuleRepository @Inject constructor(
     private val ruleFile
         get() = context.filesDir.resolve("json-source-rules.json")
 
+    @Synchronized
     fun listRules(): List<JsonRule> = loadRules().sortedBy(JsonRule::name)
 
+    @Synchronized
     fun findRules(url: String): List<JsonRule> {
         return findConfiguredRules(url).filter(JsonRule::enabled)
     }
 
     /** 返回与地址匹配的全部 JSON 规则，供来源设置展示启用/停用状态。 */
+    @Synchronized
     fun findConfiguredRules(url: String): List<JsonRule> {
         val host = runCatching { URI(url).host.orEmpty().lowercase() }.getOrDefault("")
         return loadRules().filter { rule ->
@@ -127,6 +135,7 @@ class JsonRuleRepository @Inject constructor(
     }
 
     /** 仅校验完整备份中的 JSON/API 规则，不写入本地。 */
+    @Synchronized
     fun validateBackup(content: String) {
         val incoming = json.decodeFromString<JsonRuleBundle>(content)
         require(incoming.schemaVersion == 1) { "不支持的 JSON 规则版本：${incoming.schemaVersion}" }
@@ -140,6 +149,7 @@ class JsonRuleRepository @Inject constructor(
         val incoming = json.decodeFromString<JsonRuleBundle>(content)
         require(incoming.schemaVersion == 1) { "不支持的 JSON 规则版本：${incoming.schemaVersion}" }
         incoming.rules.forEach(::validateRule)
+        incoming.subscriptions.values.forEach { validateRule(it.rule) }
         // 未提供映射表示精确恢复规则文件；配置合并恢复则保留未参与本次迁移的现有来源绑定。
         val subscriptions = if (feedIdMap == null) incoming.subscriptions else {
             loadBundle().subscriptions +
@@ -152,6 +162,7 @@ class JsonRuleRepository @Inject constructor(
     }
 
     /** 供 AI 候选生成等入口复用与手工导入完全相同的规则校验，不执行持久化。 */
+    @Synchronized
     fun validateCandidate(rule: JsonRule) = validateRule(rule)
 
     /** 用户确认 AI 候选后保存单条 JSON 规则；保存前再次校验 schema 与受限 JSONPath。 */
@@ -168,9 +179,11 @@ class JsonRuleRepository @Inject constructor(
         writeRules(merged)
     }
 
+    @Synchronized
     fun exportRules(): String = json.encodeToString(JsonRuleBundle(rules = listRules()))
 
     /** 完整配置备份额外携带来源绑定；手动规则导出仍只包含规则。 */
+    @Synchronized
     fun exportBackup(feedIds: Set<String>? = null): String {
         val bundle = loadBundle()
         return json.encodeToString(if (feedIds == null) bundle else {
@@ -190,6 +203,7 @@ class JsonRuleRepository @Inject constructor(
         writeRules(loadRules().filterNot { it.id == ruleId })
     }
 
+    @Synchronized
     fun exportTemplate(): String =
         json.encodeToString(
             JsonRuleBundle(
@@ -213,6 +227,7 @@ class JsonRuleRepository @Inject constructor(
             )
         )
 
+    @Synchronized
     private fun validateRule(rule: JsonRule) {
         require(rule.id.isNotBlank()) { "规则 id 不能为空" }
         require(rule.name.isNotBlank()) { "规则名称不能为空" }
@@ -235,23 +250,36 @@ class JsonRuleRepository @Inject constructor(
         ).forEach { path -> SimpleJsonPath.query(kotlinx.serialization.json.JsonNull, path) }
     }
 
+    @Synchronized
     private fun loadRules(): List<JsonRule> = loadBundle().rules
 
     /** 空文件夹代表尚未配置；已有文件损坏直接报错，不清空规则及来源绑定。 */
-    private fun loadBundle(): JsonRuleBundle = if (!ruleFile.exists()) JsonRuleBundle(rules = emptyList())
-        else json.decodeFromString(ruleFile.readText())
+    @Synchronized
+    private fun loadBundle(): JsonRuleBundle {
+        if (!ruleFile.exists()) return JsonRuleBundle(rules = emptyList())
+        try {
+            val bundle = json.decodeFromString<JsonRuleBundle>(ruleFile.readText())
+            require(bundle.schemaVersion == 1) { "不支持的 JSON 规则版本" }
+            bundle.rules.forEach(::validateRule)
+            bundle.subscriptions.values.forEach { validateRule(it.rule) }
+            return bundle
+        } catch (cause: Exception) {
+            AtomicJsonFileStore.preserveCorruptAndThrow(ruleFile, "JSON 来源规则", cause)
+        }
+    }
 
+    @Synchronized
     private fun writeRules(rules: List<JsonRule>) {
         writeBundle(loadBundle().copy(rules = rules))
     }
 
     /** 规则和绑定写入同一个原子文件，避免中断留下截断 JSON。 */
+    @Synchronized
     private fun writeBundle(bundle: JsonRuleBundle) {
-        val staging = ruleFile.resolveSibling("${ruleFile.name}.new")
-        staging.writeText(json.encodeToString(bundle))
-        Files.move(staging.toPath(), ruleFile.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+        AtomicJsonFileStore.writeAtomicText(ruleFile, json.encodeToString(bundle))
     }
 
+    @Synchronized
     private fun hostsOverlap(left: List<String>, right: List<String>): Boolean =
         left.any { leftHost ->
             right.any { rightHost ->

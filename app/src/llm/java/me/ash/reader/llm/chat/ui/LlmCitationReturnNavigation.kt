@@ -9,6 +9,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.geometry.Rect
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import me.ash.reader.ui.component.reader.animateCitationScrollToItem
 import me.ash.reader.ui.page.home.reading.AiMarkdownBlock
 import me.ash.reader.ui.page.home.reading.parseAiMarkdown
@@ -66,10 +67,10 @@ internal suspend fun LazyListState.scrollToCitationParagraph(
     messageId: String,
     placement: LlmCitationReturnPlacement,
 ) {
-    snapshotFlow { layoutInfo.totalItemsCount }.first { it > messageIndex }
+    if (awaitCitationReturnPlacement { snapshotFlow { layoutInfo.totalItemsCount }.first { it > messageIndex } } == null) return
     if (layoutInfo.visibleItemsInfo.none { it.key == messageId }) animateScrollToItem(messageIndex)
-    snapshotFlow { layoutInfo.visibleItemsInfo.any { it.key == messageId } }.first { it }
-    snapshotFlow { placement.paragraphBounds != null && placement.viewportBounds != null }.first { it }
+    if (awaitCitationReturnPlacement { snapshotFlow { layoutInfo.visibleItemsInfo.any { it.key == messageId } }.first { it } } == null) return
+    if (awaitCitationReturnPlacement { snapshotFlow { placement.paragraphBounds != null && placement.viewportBounds != null }.first { it } } == null) return
     // Global placement callbacks run after measurement. Use the same frame for both rectangles.
     withFrameNanos { }
     var item = layoutInfo.visibleItemsInfo.firstOrNull { it.key == messageId }
@@ -77,7 +78,7 @@ internal suspend fun LazyListState.scrollToCitationParagraph(
         // A user scroll/re-layout can evict the row between the visibility check and this frame.
         // Re-anchor once with the same smooth LazyList primitive instead of snapping the whole Chat.
         animateScrollToItem(messageIndex)
-        snapshotFlow { layoutInfo.visibleItemsInfo.any { it.key == messageId } }.first { it }
+        if (awaitCitationReturnPlacement { snapshotFlow { layoutInfo.visibleItemsInfo.any { it.key == messageId } }.first { it } } == null) return
         withFrameNanos { }
         item = layoutInfo.visibleItemsInfo.firstOrNull { it.key == messageId } ?: return
     }
@@ -90,3 +91,7 @@ internal suspend fun LazyListState.scrollToCitationParagraph(
         (paragraphOffset - (height - readableParagraphHeight) / 2f).roundToInt()
     }
 }
+
+/** The timeout only owns its own cancellation; caller cancellation still propagates. */
+internal suspend fun <T> awaitCitationReturnPlacement(block: suspend () -> T): T? =
+    withTimeoutOrNull(1_500L) { block() }

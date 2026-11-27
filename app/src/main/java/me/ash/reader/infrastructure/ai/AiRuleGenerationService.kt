@@ -20,6 +20,7 @@ import me.ash.reader.infrastructure.content.ArticleWebSessionManager
 import me.ash.reader.domain.model.feed.Feed
 import me.ash.reader.domain.model.feed.SourceType
 import me.ash.reader.infrastructure.di.IODispatcher
+import me.ash.reader.infrastructure.network.readBoundedUtf8
 import me.ash.reader.infrastructure.content.selectBestWebsiteContentElement
 import me.ash.reader.infrastructure.content.isBroadWebsiteContentSelector
 import me.ash.reader.infrastructure.json.EmbeddedJsonExtractor
@@ -886,7 +887,7 @@ class AiRuleGenerationService @Inject constructor(
                 .build(),
         ).execute().use { response ->
             check(response.isSuccessful) { "目标地址请求失败：HTTP ${response.code}" }
-            FetchedPage(response.request.url.toString(), response.body.string())
+            FetchedPage(response.request.url.toString(), response.readBoundedUtf8(10L * 1024L * 1024L))
         }
 
     private suspend fun fetchWebsitePage(

@@ -1362,4 +1362,5 @@
     <string name="article_list_style">文章列表样式</string>
     <string name="article_list_style_divider">分隔线列表</string>
     <string name="article_list_style_segmented">按日分组卡片</string>
+    <string name="image_save_failed">图片保存失败</string>
 </resources>

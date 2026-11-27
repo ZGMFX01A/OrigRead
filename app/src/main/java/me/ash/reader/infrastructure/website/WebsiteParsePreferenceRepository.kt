@@ -1,5 +1,6 @@
 package me.ash.reader.infrastructure.website
 
+import me.ash.reader.infrastructure.storage.AtomicJsonFileStore
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -70,6 +71,7 @@ class WebsiteParsePreferenceRepository @Inject constructor(
         )
 
     /** 校验完整配置备份中的来源解析偏好格式。 */
+    @Synchronized
     fun validateBackup(content: String) {
         json.decodeFromString<WebsiteParsePreferenceBundle>(content)
     }
@@ -89,7 +91,7 @@ class WebsiteParsePreferenceRepository @Inject constructor(
             (load().filterNot { it.feedId in affectedFeedIds } + restored)
                 .distinctBy(WebsiteParsePreference::feedId)
                 .sortedBy(WebsiteParsePreference::feedId)
-        preferenceFile.writeText(json.encodeToString(WebsiteParsePreferenceBundle(merged)))
+        AtomicJsonFileStore.writeAtomicText(preferenceFile, json.encodeToString(WebsiteParsePreferenceBundle(merged)))
     }
 
     private val json = Json {
@@ -253,14 +255,19 @@ class WebsiteParsePreferenceRepository @Inject constructor(
     @Synchronized
     private fun save(item: WebsiteParsePreference) {
         val merged = (load().filterNot { it.feedId == item.feedId } + item).sortedBy { it.feedId }
-        preferenceFile.writeText(json.encodeToString(WebsiteParsePreferenceBundle(merged)))
+        AtomicJsonFileStore.writeAtomicText(preferenceFile, json.encodeToString(WebsiteParsePreferenceBundle(merged)))
     }
 
-    private fun load(): List<WebsiteParsePreference> =
-        runCatching {
-            if (!preferenceFile.exists()) emptyList()
-            else json.decodeFromString<WebsiteParsePreferenceBundle>(preferenceFile.readText()).items
-        }.getOrDefault(emptyList())
+    @Synchronized
+    private fun load(): List<WebsiteParsePreference> {
+        if (!preferenceFile.exists()) return emptyList()
+        try {
+            return json.decodeFromString<WebsiteParsePreferenceBundle>(preferenceFile.readText()).items
+        } catch (cause: Exception) {
+            AtomicJsonFileStore.preserveCorruptAndThrow(preferenceFile, "网站解析偏好", cause)
+        }
+    }
 
+    @Synchronized
     private fun Int.incrementHistoryCounter(): Int = (this + 1).coerceAtMost(MAX_HISTORY_COUNTER)
 }

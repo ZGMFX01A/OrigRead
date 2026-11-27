@@ -893,4 +893,5 @@
     <string name="article_list_style">文章列表樣式</string>
     <string name="article_list_style_divider">分隔線列表</string>
     <string name="article_list_style_segmented">依日期分組的卡片</string>
+    <string name="image_save_failed">儲存圖片失敗</string>
 </resources>

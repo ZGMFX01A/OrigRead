@@ -106,6 +106,7 @@ class EditionSyncReadingSnapshotService @Inject constructor(
                     EditionSyncArchivedArticleSnapshot(
                         feedKey = portableKey(feed.id),
                         link = archivedArticle.link,
+                        articleKey = archivedArticle.articleId?.let(::portableKey),
                     )
                 }
             }
@@ -172,23 +173,23 @@ class EditionSyncReadingSnapshotService @Inject constructor(
      * 同步采用“源数据覆盖同一业务项、目标独有数据保留”的非破坏合并：Feed 优先按可移植 ID，其次按 URL；Article
      * 优先按可移植 ID，其次按同 Feed 内 link。这样两边独立添加过相同来源/文章时不会简单制造重复，也不会删除目标额外数据。
      */
-    suspend fun restoreCurrentAccount(snapshot: EditionSyncReadingSnapshot): EditionSyncReadingRestoreResult =
-        restoreCurrentAccount(snapshot = snapshot, replaceExisting = false)
+    suspend fun restoreCurrentAccount(snapshot: EditionSyncReadingSnapshot, targetAccountId: Int? = null): EditionSyncReadingRestoreResult =
+        restoreCurrentAccount(snapshot, replaceExisting = false, targetAccountId = targetAccountId ?: accountService.getCurrentAccountId())
 
     /**
      * 精确恢复当前账户快照，只用于 Edition Sync 失败补偿。
      *
      * 与正常同步的非破坏 merge 不同，回滚必须删掉本次失败同步新增的数据，再还原同步前快照，否则“回滚成功”仍会残留 Feed/Article。
      */
-    suspend fun replaceCurrentAccount(snapshot: EditionSyncReadingSnapshot): EditionSyncReadingRestoreResult =
-        restoreCurrentAccount(snapshot = snapshot, replaceExisting = true)
+    suspend fun replaceCurrentAccount(snapshot: EditionSyncReadingSnapshot, targetAccountId: Int? = null): EditionSyncReadingRestoreResult =
+        restoreCurrentAccount(snapshot, replaceExisting = true, targetAccountId = targetAccountId ?: accountService.getCurrentAccountId())
 
     private suspend fun restoreCurrentAccount(
         snapshot: EditionSyncReadingSnapshot,
         replaceExisting: Boolean,
+        targetAccountId: Int,
     ): EditionSyncReadingRestoreResult {
         validate(snapshot)
-        val targetAccountId = accountService.getCurrentAccountId()
         val targetAccount = requireNotNull(accountDao.queryById(targetAccountId)) { "目标当前账户不存在" }
         require(targetAccount.type.id == snapshot.sourceAccount.typeId) {
             "源账户类型与目标当前账户类型不同，不能直接合并阅读主库"
@@ -309,15 +310,33 @@ class EditionSyncReadingSnapshotService @Inject constructor(
 
             snapshot.archivedArticles.groupBy(EditionSyncArchivedArticleSnapshot::feedKey).forEach { (feedKey, entries) ->
                 val targetFeedId = feedIdByKey[feedKey] ?: return@forEach
-                val existingLinks = feedDao.queryArchivedArticles(targetFeedId).mapTo(hashSetOf(), ArchivedArticle::link)
-                val missing =
-                    entries.asSequence()
-                        .map(EditionSyncArchivedArticleSnapshot::link)
-                        .filter(String::isNotBlank)
-                        .distinct()
-                        .filterNot(existingLinks::contains)
-                        .map { link -> ArchivedArticle(feedId = targetFeedId, link = link) }
-                        .toList()
+                val existing = feedDao.queryArchivedArticles(targetFeedId).toMutableList()
+                val missing = mutableListOf<ArchivedArticle>()
+                entries.forEach { entry ->
+                    val targetArticleId = entry.articleKey?.takeIf(String::isNotBlank)
+                        ?.let { targetAccountId.spacerDollar(it) }
+                    val duplicate = existing.firstOrNull {
+                        it.link == entry.link || (targetArticleId != null && it.articleId == targetArticleId)
+                    }
+                    if (duplicate == null) {
+                        val archived = ArchivedArticle(feedId = targetFeedId, link = entry.link, articleId = targetArticleId)
+                        missing += archived
+                        existing += archived
+                    } else if (duplicate.articleId == null && targetArticleId != null) {
+                        // DAO 无归档更新接口；仅补齐已有行，保留主键和旧链接，不新增墓碑。
+                        val updated = duplicate.copy(articleId = targetArticleId)
+                        val pendingIndex = missing.indexOf(duplicate)
+                        if (pendingIndex >= 0) {
+                            missing[pendingIndex] = updated
+                        } else {
+                            database.openHelper.writableDatabase.execSQL(
+                                "UPDATE archived_article SET articleId = ? WHERE id = ? AND feedId = ? AND articleId IS NULL",
+                                arrayOf(targetArticleId, duplicate.id, targetFeedId),
+                            )
+                        }
+                        existing[existing.indexOf(duplicate)] = updated
+                    }
+                }
                 if (missing.isNotEmpty()) feedDao.insertArchivedArticles(missing)
                 restoredArchivedArticles += missing.size
             }

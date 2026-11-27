@@ -1,5 +1,6 @@
 package me.ash.reader.infrastructure.ai
 
+import me.ash.reader.infrastructure.storage.storedEnum
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.UUID
@@ -32,8 +33,10 @@ class AiSettingsRepository @Inject constructor(
         migrateLegacySecretIfNeeded(initialSettings)
     }
 
+    @Synchronized
     fun current(): AiSettings = _settings.value
 
+    @Synchronized
     fun provider(providerId: String?): AiProviderProfile? {
         val settings = current()
         return if (providerId == null) {
@@ -43,14 +46,18 @@ class AiSettingsRepository @Inject constructor(
         }
     }
 
+    @Synchronized
     fun setEnabled(value: Boolean) = updateSettings { it.copy(enabled = value) }
 
+    @Synchronized
     fun setOutputLanguage(value: String) =
         updateSettings { it.copy(outputLanguage = value) }
 
+    @Synchronized
     fun setSummaryLength(value: AiSummaryLength) =
         updateSettings { it.copy(summaryLength = value) }
 
+    @Synchronized
     fun setDefaultProvider(providerId: String) {
         val target = current().providers.firstOrNull { it.id == providerId } ?: return
         if (!target.enabled) return
@@ -58,6 +65,7 @@ class AiSettingsRepository @Inject constructor(
     }
 
     /** 新增一个独立服务并返回其 ID；默认不自动替换当前默认服务。 */
+    @Synchronized
     fun addProvider(): String {
         val id = UUID.randomUUID().toString()
         val index = current().providers.size + 1
@@ -72,6 +80,7 @@ class AiSettingsRepository @Inject constructor(
     }
 
     /** 至少保留一个服务配置，避免设置页进入没有可编辑项的状态。 */
+    @Synchronized
     fun removeProvider(providerId: String) {
         val settings = current()
         if (settings.providers.size <= 1) return
@@ -89,9 +98,11 @@ class AiSettingsRepository @Inject constructor(
         }
     }
 
+    @Synchronized
     fun setProviderName(providerId: String, value: String) =
         updateProvider(providerId) { it.copy(name = value.take(MAX_PROVIDER_NAME_LENGTH)) }
 
+    @Synchronized
     fun setProviderEnabled(providerId: String, value: Boolean) {
         updateSettings { settings ->
             val providers =
@@ -108,6 +119,7 @@ class AiSettingsRepository @Inject constructor(
         }
     }
 
+    @Synchronized
     fun setProviderEndpoint(providerId: String, value: String) =
         updateProvider(providerId) {
             // 地址改变后旧模型列表和手动能力覆盖都不再可信；保留当前手填模型作为兜底。
@@ -121,9 +133,11 @@ class AiSettingsRepository @Inject constructor(
             )
         }
 
+    @Synchronized
     fun setProviderDefaultModel(providerId: String, value: String) =
         updateProvider(providerId) { it.copy(defaultModel = normalizeAiModelName(value)) }
 
+    @Synchronized
     fun setProviderModels(providerId: String, models: List<String>) =
         updateProvider(providerId) {
             val normalizedModels =
@@ -141,42 +155,54 @@ class AiSettingsRepository @Inject constructor(
             )
         }
 
+    @Synchronized
     fun setProviderStreamingCapability(providerId: String, value: AiCapabilityOverrideMode) =
         updateProvider(providerId) { it.copy(streamingCapabilityOverride = value) }
 
+    @Synchronized
     fun setProviderToolCallingCapability(providerId: String, value: AiCapabilityOverrideMode) =
         updateProvider(providerId) { it.copy(toolCallingCapabilityOverride = value) }
 
+    @Synchronized
     fun setProviderReasoningCapability(providerId: String, value: AiCapabilityOverrideMode) =
         updateProvider(providerId) { it.copy(reasoningCapabilityOverride = value) }
 
     /** 持久化 Provider 输出 token 字段策略，供 Chat 与 Summary 共用。 */
+    @Synchronized
     fun setProviderOutputTokenLimitStyle(providerId: String, value: AiOutputTokenLimitStyle) =
         updateProvider(providerId) { it.copy(outputTokenLimitStyle = value) }
 
+    @Synchronized
     fun setProviderContextWindowTokens(providerId: String, value: Int) =
         updateProvider(providerId) { it.copy(contextWindowTokens = normalizeContextWindowTokens(value)) }
 
+    @Synchronized
     fun setProviderStrictStreamTermination(providerId: String, value: Boolean) =
         updateProvider(providerId) { it.copy(strictStreamTermination = value) }
 
+    @Synchronized
     fun setApiKey(providerId: String, value: String) {
         secretStore.put(secretKey(providerId), value.trim())
     }
 
+    @Synchronized
     fun getApiKey(providerId: String): String = secretStore.get(secretKey(providerId))
 
+    @Synchronized
     fun hasApiKey(providerId: String): Boolean = getApiKey(providerId).isNotBlank()
 
     /** 自建兼容服务允许无 Key，因此只强制要求启用、地址和模型。 */
+    @Synchronized
     fun isConfigured(providerId: String): Boolean {
         val profile = current().providers.firstOrNull { it.id == providerId } ?: return false
         return profile.enabled && profile.endpoint.isNotBlank() && profile.defaultModel.isNotBlank()
     }
 
+    @Synchronized
     fun configuredProviders(): List<AiProviderProfile> =
         current().providers.filter { isConfigured(it.id) }
 
+    @Synchronized
     fun runtimeConfig(): AiRuntimeConfig {
         val profile = current().defaultProvider()
             ?: throw AiException(AiErrorCode.NOT_CONFIGURED, "没有可用的 AI 服务")
@@ -187,6 +213,7 @@ class AiSettingsRepository @Inject constructor(
      * 构建指定服务的运行时配置。
      * 模型与 Key 都允许临时覆盖，用于阅读页“换一个模型重新生成”而不修改全局默认配置。
      */
+    @Synchronized
     fun runtimeConfig(
         providerId: String,
         modelOverride: String? = null,
@@ -201,12 +228,12 @@ class AiSettingsRepository @Inject constructor(
         )
     }
 
+    @Synchronized
     fun restoreDefaults() {
         current().providers.forEach { secretStore.remove(secretKey(it.id)) }
         secretStore.remove(LEGACY_SECRET_API_KEY)
-        preferences.edit().clear().apply()
         val defaults = AiSettings()
-        persistSettings(defaults)
+        persistSettings(defaults, clear = true)
         _settings.value = defaults
     }
 
@@ -214,6 +241,7 @@ class AiSettingsRepository @Inject constructor(
      * 从完整配置备份恢复 AI 服务。
      * 无凭据备份只恢复 Provider/模型等普通设置，不会清除本机已有 Key。
      */
+    @Synchronized
     fun restoreBackup(
         settings: AiSettings,
         apiKeys: Map<String, String> = emptyMap(),
@@ -247,11 +275,11 @@ class AiSettingsRepository @Inject constructor(
                 }
             }
         }
-        preferences.edit().clear().apply()
-        persistSettings(normalized)
+        persistSettings(normalized, clear = true)
         _settings.value = normalized
     }
 
+    @Synchronized
     private fun updateProvider(
         providerId: String,
         transform: (AiProviderProfile) -> AiProviderProfile,
@@ -266,12 +294,14 @@ class AiSettingsRepository @Inject constructor(
         }
     }
 
+    @Synchronized
     private fun updateSettings(transform: (AiSettings) -> AiSettings) {
         val next = normalizeSettings(transform(_settings.value))
         persistSettings(next)
         _settings.value = next
     }
 
+    @Synchronized
     private fun normalizeSettings(settings: AiSettings): AiSettings {
         val providers =
             settings.providers
@@ -280,7 +310,7 @@ class AiSettingsRepository @Inject constructor(
                         name = profile.name.take(MAX_PROVIDER_NAME_LENGTH),
                         defaultModel = normalizeAiModelName(profile.defaultModel),
                         models =
-                            profile.models
+                            (profile.models + profile.defaultModel)
                                 .map(::normalizeAiModelName)
                                 .filter(String::isNotBlank)
                                 .distinct()
@@ -298,6 +328,7 @@ class AiSettingsRepository @Inject constructor(
         return settings.copy(providers = providers, defaultProviderId = defaultProviderId)
     }
 
+    @Synchronized
     private fun requireUniqueProviderIds(providers: List<AiProviderProfile>) {
         require(providers.all { it.id.isNotBlank() }) { "AI 服务 Provider ID 不能为空" }
         require(providers.map(AiProviderProfile::id).distinct().size == providers.size) {
@@ -305,7 +336,8 @@ class AiSettingsRepository @Inject constructor(
         }
     }
 
-    private fun persistSettings(settings: AiSettings) {
+    @Synchronized
+    private fun persistSettings(settings: AiSettings, clear: Boolean = false) {
         val providersJson =
             JSONArray().apply {
                 settings.providers.forEach { profile ->
@@ -327,7 +359,7 @@ class AiSettingsRepository @Inject constructor(
                 }
             }
         preferences
-            .edit()
+            .edit().apply { if (clear) clear() }
             .putBoolean(KEY_ENABLED, settings.enabled)
             .putString(KEY_PROVIDERS, providersJson.toString())
             .putString(KEY_DEFAULT_PROVIDER_ID, settings.defaultProviderId)
@@ -336,6 +368,7 @@ class AiSettingsRepository @Inject constructor(
             .apply()
     }
 
+    @Synchronized
     private fun readSettings(): AiSettings {
         val providers = readProviders()
         val defaultProviderId =
@@ -350,72 +383,78 @@ class AiSettingsRepository @Inject constructor(
                 preferences.getString(KEY_OUTPUT_LANGUAGE, AiSettings.defaultOutputLanguage())
                     ?: AiSettings.defaultOutputLanguage(),
             summaryLength =
-                runCatching {
-                        AiSummaryLength.valueOf(
-                            preferences.getString(KEY_SUMMARY_LENGTH, null).orEmpty()
-                        )
-                    }
-                    .getOrDefault(AiSummaryLength.STANDARD),
+                storedEnum(preferences.getString(KEY_SUMMARY_LENGTH, null), AiSummaryLength.STANDARD),
         )
     }
 
-    /** 读取新结构失败或尚未迁移时，从旧 endpoint/model 字段构造默认供应商。 */
+    /** 仅在新结构缺失时迁移旧配置；损坏新结构直接报错且不回写。 */
+    @Synchronized
     private fun readProviders(): List<AiProviderProfile> {
-        preferences.getString(KEY_PROVIDERS, null)?.takeIf(String::isNotBlank)?.let { raw ->
-            runCatching {
-                    val array = JSONArray(raw)
-                    buildList {
-                        for (index in 0 until array.length()) {
-                            val json = array.optJSONObject(index) ?: continue
-                            val id = json.optString("id").ifBlank { UUID.randomUUID().toString() }
-                            // 兼容上一版 model / availableModels 字段，读取后统一落盘为新结构。
-                            val defaultModel =
-                                json.optString("defaultModel")
-                                    .ifBlank { json.optString("model") }
-                            val models =
-                                (json.optJSONArray("models") ?: json.optJSONArray("availableModels"))
-                                    ?.let { values ->
-                                    buildList {
-                                        for (modelIndex in 0 until values.length()) {
-                                            values.optString(modelIndex)
-                                                .takeIf(String::isNotBlank)
-                                                ?.let(::add)
-                                        }
-                                    }
-                                } ?: emptyList()
-                            add(
-                                AiProviderProfile(
-                                    id = id,
-                                    name = json.optString("name").ifBlank { "AI 服务" },
-                                    enabled = json.optBoolean("enabled", true),
-                                    endpoint = json.optString("endpoint"),
-                                    defaultModel = defaultModel,
-                                    models =
-                                        (models + defaultModel)
-                                            .filter(String::isNotBlank)
-                                            .distinct(),
-                                    streamingCapabilityOverride =
-                                        json.optCapabilityOverride("streamingCapabilityOverride"),
-                                    toolCallingCapabilityOverride =
-                                        json.optCapabilityOverride("toolCallingCapabilityOverride"),
-                                    reasoningCapabilityOverride =
-                                        json.optCapabilityOverride("reasoningCapabilityOverride"),
-                                    outputTokenLimitStyle = json.optOutputTokenLimitStyle("outputTokenLimitStyle"),
-                                    contextWindowTokens =
-                                        normalizeContextWindowTokens(
-                                            json.optInt("contextWindowTokens", DEFAULT_PROVIDER_CONTEXT_WINDOW_TOKENS)
-                                        ),
-                                    strictStreamTermination = json.optBoolean("strictStreamTermination", true),
-                                )
-                            )
-                        }
-                    }
-                }
-                .getOrNull()
-                ?.takeIf { it.isNotEmpty() }
-                ?.let { return it }
+        preferences.getString(KEY_PROVIDERS, null)?.takeIf(String::isNotEmpty)?.let { raw ->
+            try {
+                val providers = buildProviders(JSONArray(raw))
+                requireUniqueProviderIds(providers)
+                return providers
+            } catch (cause: Exception) {
+                throw IllegalStateException("AI providers_v2 配置损坏，原始偏好已保留", cause)
+            }
         }
 
+        return readLegacyProviders()
+    }
+
+    @Synchronized
+    private fun buildProviders(array: JSONArray): List<AiProviderProfile> {
+        return buildList {
+            for (index in 0 until array.length()) {
+                val json = array.getJSONObject(index)
+                val id = json.optString("id").ifBlank { UUID.randomUUID().toString() }
+                // 兼容上一版 model / availableModels 字段，读取后统一落盘为新结构。
+                val defaultModel =
+                    json.optString("defaultModel")
+                        .ifBlank { json.optString("model") }
+                val models =
+                    (json.optJSONArray("models") ?: json.optJSONArray("availableModels"))
+                        ?.let { values ->
+                        buildList {
+                            for (modelIndex in 0 until values.length()) {
+                                values.optString(modelIndex)
+                                    .takeIf(String::isNotBlank)
+                                    ?.let(::add)
+                            }
+                        }
+                    } ?: emptyList()
+                add(
+                    AiProviderProfile(
+                        id = id,
+                        name = json.optString("name").ifBlank { "AI 服务" },
+                        enabled = json.optBoolean("enabled", true),
+                        endpoint = json.optString("endpoint"),
+                        defaultModel = defaultModel,
+                        models =
+                            (models + defaultModel)
+                                .filter(String::isNotBlank)
+                                .distinct(),
+                        streamingCapabilityOverride =
+                            json.optCapabilityOverride("streamingCapabilityOverride"),
+                        toolCallingCapabilityOverride =
+                            json.optCapabilityOverride("toolCallingCapabilityOverride"),
+                        reasoningCapabilityOverride =
+                            json.optCapabilityOverride("reasoningCapabilityOverride"),
+                        outputTokenLimitStyle = json.optOutputTokenLimitStyle("outputTokenLimitStyle"),
+                        contextWindowTokens =
+                            normalizeContextWindowTokens(
+                                json.optInt("contextWindowTokens", DEFAULT_PROVIDER_CONTEXT_WINDOW_TOKENS)
+                            ),
+                        strictStreamTermination = json.optBoolean("strictStreamTermination", true),
+                    )
+                )
+            }
+        }
+    }
+
+    @Synchronized
+    private fun readLegacyProviders(): List<AiProviderProfile> {
         val endpoint =
             preferences.getString(KEY_LEGACY_ENDPOINT, AiProviderProfile().endpoint)
                 ?: AiProviderProfile().endpoint
@@ -431,6 +470,7 @@ class AiSettingsRepository @Inject constructor(
         )
     }
 
+    @Synchronized
     private fun migrateLegacySecretIfNeeded(settings: AiSettings) {
         val default = settings.providers.firstOrNull { it.id == DEFAULT_AI_PROVIDER_ID } ?: return
         val legacy = secretStore.get(LEGACY_SECRET_API_KEY)
@@ -442,14 +482,16 @@ class AiSettingsRepository @Inject constructor(
         secretStore.remove(LEGACY_SECRET_API_KEY)
     }
 
+    @Synchronized
     private fun JSONObject.optCapabilityOverride(key: String): AiCapabilityOverrideMode =
-        runCatching { AiCapabilityOverrideMode.valueOf(optString(key)) }
-            .getOrDefault(AiCapabilityOverrideMode.AUTO)
+        storedEnum(optString(key), AiCapabilityOverrideMode.AUTO)
 
     /** 旧设置没有该字段时保持 AUTO，由真实 Endpoint/Model resolver 决定请求字段。 */
+    @Synchronized
     private fun JSONObject.optOutputTokenLimitStyle(key: String): AiOutputTokenLimitStyle =
-        parseAiOutputTokenLimitStyle(optString(key).takeIf(String::isNotBlank))
+        storedEnum(optString(key), AiOutputTokenLimitStyle.AUTO)
 
+    @Synchronized
     private fun normalizeEndpoint(value: String): String {
         val trimmed = value.trim().trimEnd('/')
         if (trimmed.isBlank()) return ""
@@ -461,11 +503,14 @@ class AiSettingsRepository @Inject constructor(
     }
 
     /** 只夹取异常值，不吸附模型档位；Provider 可按官方文档填写真实窗口。 */
+    @Synchronized
     private fun normalizeContextWindowTokens(value: Int): Int =
         value.coerceIn(MIN_PROVIDER_CONTEXT_WINDOW_TOKENS, MAX_PROVIDER_CONTEXT_WINDOW_TOKENS)
 
+    @Synchronized
     private fun secretKey(providerId: String): String = "$SECRET_API_KEY_PREFIX$providerId"
 
+    @Synchronized
     private fun inferProviderName(endpoint: String): String {
         val lower = endpoint.lowercase()
         return when {

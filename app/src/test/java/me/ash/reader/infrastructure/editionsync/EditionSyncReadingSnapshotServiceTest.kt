@@ -1,6 +1,13 @@
 package me.ash.reader.infrastructure.editionsync
 
 import java.util.Date
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.decodeFromString
+import me.ash.reader.domain.model.article.ArchivedArticle
+import org.mockito.Mockito.mockStatic
+import org.mockito.kotlin.argumentCaptor
+import org.mockito.kotlin.never
+import org.mockito.kotlin.verifyNoInteractions
 import kotlinx.coroutines.runBlocking
 import me.ash.reader.domain.model.account.Account
 import me.ash.reader.domain.model.account.AccountType
@@ -103,11 +110,16 @@ class EditionSyncReadingSnapshotServiceTest {
             whenever(groupDao.queryAll(accountId)).thenReturn(listOf(defaultGroup))
             whenever(feedDao.queryAll(accountId)).thenReturn(listOf(orphanFeed))
             whenever(articleDao.queryAllByAccountId(accountId)).thenReturn(listOf(article))
-            whenever(feedDao.queryArchivedArticles(any())).thenReturn(emptyList())
+            whenever(feedDao.queryArchivedArticles(any())).thenReturn(listOf(
+                ArchivedArticle(feedId = feedId, link = "https://example.com/archived", articleId = "$accountId\$removed"),
+                ArchivedArticle(feedId = feedId, link = "https://example.com/legacy"),
+            ))
 
             val snapshot = service.exportCurrentAccount()
             service.validate(snapshot)
 
+            assertEquals("removed", snapshot.archivedArticles.first().articleKey)
+            assertEquals(null, snapshot.archivedArticles.last().articleKey)
             assertEquals(1, snapshot.feeds.size)
             assertEquals("origread_app_default_group", snapshot.feeds.single().groupKey)
             assertTrue(snapshot.feeds.single().groupIsDefault)
@@ -149,6 +161,120 @@ class EditionSyncReadingSnapshotServiceTest {
             assertTrue(snapshot.groups.single().isDefault)
             verify(groupDao).insert(defaultGroup)
         }
+
+    @Test fun `old archived JSON defaults articleKey to null`() {
+        val archived = Json.decodeFromString<EditionSyncArchivedArticleSnapshot>(
+            """{"feedKey":"feed","link":"https://example.com/old"}"""
+        )
+        assertEquals(null, archived.articleKey)
+    }
+
+    @Test fun `restore preserves archived ids and legacy links using explicit target`() = runBlocking {
+        withArchiveFixture { service, accountService, _, feedDao ->
+            val snapshot = archiveSnapshot(listOf(
+                EditionSyncArchivedArticleSnapshot("feed", "https://example.com/removed", "removed"),
+                EditionSyncArchivedArticleSnapshot("feed", "https://example.com/legacy"),
+                EditionSyncArchivedArticleSnapshot("feed", "https://example.com/removed", "removed"),
+                EditionSyncArchivedArticleSnapshot("feed", "https://example.com/changed-link", "removed"),
+            ))
+            whenever(feedDao.queryArchivedArticles(any())).thenReturn(emptyList())
+            val result = service.restoreCurrentAccount(snapshot, targetAccountId = 7)
+            assertEquals(7, result.targetAccountId)
+            assertEquals(2, result.restoredArchivedArticles)
+            val captor = argumentCaptor<List<ArchivedArticle>>()
+            verify(feedDao).insertArchivedArticles(captor.capture())
+            assertEquals(listOf("7\$removed", null), captor.allValues.flatten().map { it.articleId })
+            verifyNoInteractions(accountService)
+        }
+    }
+
+    @Test fun `pending legacy tombstone gains id before insertion`() = runBlocking {
+        withArchiveFixture { service, _, _, feedDao ->
+            whenever(feedDao.queryArchivedArticles(any())).thenReturn(emptyList())
+            val result = service.restoreCurrentAccount(archiveSnapshot(listOf(
+                EditionSyncArchivedArticleSnapshot("feed", "https://example.com/legacy", " "),
+                EditionSyncArchivedArticleSnapshot("feed", "https://example.com/legacy", "stable"),
+                EditionSyncArchivedArticleSnapshot("feed", "https://example.com/changed-link", "stable"),
+            )), 7)
+            assertEquals(1, result.restoredArchivedArticles)
+            verify(feedDao).insertArchivedArticles(listOf(ArchivedArticle(
+                feedId = "7\$feed", link = "https://example.com/legacy", articleId = "7\$stable",
+            )))
+        }
+    }
+
+    @Test fun `archive deduplicates by link or stable id and safely fills legacy id`() = runBlocking {
+        withArchiveFixture { service, _, database, feedDao ->
+            val legacy = ArchivedArticle(11, "7\$feed", "https://example.com/legacy")
+            val stable = ArchivedArticle(12, "7\$feed", "https://example.com/old-link", "7\$stable")
+            whenever(feedDao.queryArchivedArticles(any())).thenReturn(listOf(legacy, stable))
+            val helper = mock<androidx.sqlite.db.SupportSQLiteOpenHelper>()
+            val sqlite = mock<androidx.sqlite.db.SupportSQLiteDatabase>()
+            whenever(database.openHelper).thenReturn(helper)
+            whenever(helper.writableDatabase).thenReturn(sqlite)
+            val result = service.restoreCurrentAccount(archiveSnapshot(listOf(
+                EditionSyncArchivedArticleSnapshot("feed", legacy.link, "legacy-id"),
+                EditionSyncArchivedArticleSnapshot("feed", "https://example.com/new-link", "stable"),
+                EditionSyncArchivedArticleSnapshot("feed", "https://example.com/duplicate", "legacy-id"),
+            )), 7)
+            assertEquals(0, result.restoredArchivedArticles)
+            verify(feedDao, never()).insertArchivedArticles(any())
+            verify(sqlite).execSQL(
+                eq("UPDATE archived_article SET articleId = ? WHERE id = ? AND feedId = ? AND articleId IS NULL"),
+                org.mockito.kotlin.argThat<Array<Any>> { contentEquals(arrayOf<Any>("7\$legacy-id", 11, "7\$feed")) },
+            )
+        }
+    }
+
+    @Test fun `replace uses explicit target and clears only that account`() = runBlocking {
+        withArchiveFixture { service, accountService, _, feedDao ->
+            whenever(feedDao.queryArchivedArticles(any())).thenReturn(emptyList())
+            assertEquals(7, service.replaceCurrentAccount(archiveSnapshot(emptyList()), 7).targetAccountId)
+            verify(feedDao).deleteByAccountId(7)
+            verifyNoInteractions(accountService)
+        }
+    }
+
+    @Test fun `restore without explicit target uses current account`() = runBlocking {
+        withArchiveFixture { service, accountService, _, feedDao ->
+            whenever(accountService.getCurrentAccountId()).thenReturn(7)
+            whenever(feedDao.queryArchivedArticles(any())).thenReturn(emptyList())
+            assertEquals(7, service.restoreCurrentAccount(archiveSnapshot(emptyList())).targetAccountId)
+            verify(accountService).getCurrentAccountId()
+        }
+    }
+
+    private fun archiveSnapshot(entries: List<EditionSyncArchivedArticleSnapshot>) = EditionSyncReadingSnapshot(
+        EditionSyncAccountSnapshot("Local", 1, null, null, null),
+        listOf(EditionSyncGroupSnapshot("default", "Default", true)),
+        listOf(EditionSyncFeedSnapshot("feed", "Feed", null, "https://example.com/feed", "default", true, false, false, false, "RSS")),
+        emptyList(), entries,
+    )
+
+    // Run the real restore body while replacing only Room's transaction scheduling boundary.
+    // DAO calls and archived-row SQL remain visible for precise behavioral assertions.
+    private suspend fun withArchiveFixture(
+        block: suspend (EditionSyncReadingSnapshotService, AccountService, AndroidDatabase, FeedDao) -> Unit,
+    ) {
+        val database = mock<AndroidDatabase>()
+        val accountService = mock<AccountService>()
+        val accountDao = mock<AccountDao>()
+        val groupDao = mock<GroupDao>()
+        val feedDao = mock<FeedDao>()
+        val articleDao = mock<ArticleDao>()
+        whenever(accountDao.queryById(7)).thenReturn(Account(7, "Target", AccountType.Local))
+        whenever(groupDao.queryAll(7)).thenReturn(emptyList())
+        whenever(feedDao.queryAll(7)).thenReturn(emptyList())
+        whenever(articleDao.queryAllByFeedId(eq(7), any())).thenReturn(emptyList())
+        mockStatic(Class.forName("androidx.room.RoomDatabaseKt")) { invocation ->
+            check(invocation.method.name == "withTransaction")
+            @Suppress("UNCHECKED_CAST")
+            val transaction = invocation.arguments[1] as suspend () -> Any?
+            runBlocking { transaction() }
+        }.use {
+            block(EditionSyncReadingSnapshotService(database, accountService, accountDao, groupDao, feedDao, articleDao), accountService, database, feedDao)
+        }
+    }
 
     @Test
     fun `接收端外部 Bundle 缺失 Group 引用仍被拒绝`() {

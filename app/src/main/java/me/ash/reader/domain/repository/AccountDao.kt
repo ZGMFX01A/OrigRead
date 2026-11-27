@@ -51,6 +51,10 @@ interface AccountDao {
     @Query("UPDATE account SET updateAt = :updatedAt WHERE id = :accountId")
     suspend fun updateSyncTime(accountId: Int, updatedAt: Date)
 
+    /** Fever 同步成功只推进同步时间与增量游标，避免整行回写覆盖同步期间的用户设置修改。 */
+    @Query("UPDATE account SET updateAt = :updatedAt, lastArticleId = COALESCE(:lastArticleId, lastArticleId) WHERE id = :accountId")
+    suspend fun updateSyncMetadata(accountId: Int, updatedAt: Date, lastArticleId: String?)
+
     @Delete
     suspend fun delete(vararg account: Account)
 }

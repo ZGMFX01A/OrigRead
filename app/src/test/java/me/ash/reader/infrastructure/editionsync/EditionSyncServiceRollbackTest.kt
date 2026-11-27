@@ -2,6 +2,8 @@ package me.ash.reader.infrastructure.editionsync
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import me.ash.reader.BuildConfig
@@ -20,6 +22,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.eq
+import org.mockito.kotlin.inOrder
+import org.mockito.kotlin.never
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
@@ -53,7 +57,7 @@ class EditionSyncServiceRollbackTest {
     }
 
     @Test
-    fun `restore failure after configuration mutation restores previous account snapshot`() {
+    fun `reading failure restores previous account snapshot before configuration`() {
         runBlocking {
             val configurationBackupService = mock<ConfigurationBackupService>()
             val readingSnapshotService = mock<EditionSyncReadingSnapshotService>()
@@ -95,10 +99,10 @@ class EditionSyncServiceRollbackTest {
             whenever(configurationBackupService.exportBackup(eq(true), any())).thenReturn(rollbackConfig)
             whenever(readingSnapshotService.exportCurrentAccount()).thenReturn(rollbackReading)
             whenever(accountResolver.resolveOrCreate(sourceReading.sourceAccount)).thenReturn(resolution)
-            whenever(configurationBackupService.restoreBackup(sourceConfig, sourcePassword)).thenReturn(mock())
-            whenever(readingSnapshotService.restoreCurrentAccount(sourceReading)).thenThrow(forcedFailure)
-            whenever(configurationBackupService.restoreBackup(eq(rollbackConfig), any())).thenReturn(mock())
-            whenever(readingSnapshotService.replaceCurrentAccount(rollbackReading)).thenReturn(
+            whenever(configurationBackupService.restoreBackup(sourceConfig, sourcePassword, 1)).thenReturn(mock())
+            whenever(readingSnapshotService.restoreCurrentAccount(sourceReading, 1)).thenThrow(forcedFailure)
+            whenever(configurationBackupService.restoreBackup(eq(rollbackConfig), any(), eq(1))).thenReturn(mock())
+            whenever(readingSnapshotService.replaceCurrentAccount(rollbackReading, 1)).thenReturn(
                 EditionSyncReadingRestoreResult(
                     targetAccountId = 1,
                     restoredGroups = 1,
@@ -129,12 +133,17 @@ class EditionSyncServiceRollbackTest {
 
             assertNotNull(thrown)
             assertEquals(forcedFailure.message, thrown?.message)
-            verify(configurationBackupService).restoreBackup(sourceConfig, sourcePassword)
+            verify(configurationBackupService, never()).restoreBackup(sourceConfig, sourcePassword, 1)
             verify(configurationBackupService, times(2)).exportBackup(eq(true), any())
-            verify(configurationBackupService).restoreBackup(eq(rollbackConfig), any())
-            verify(readingSnapshotService).replaceCurrentAccount(rollbackReading)
+            verify(configurationBackupService).restoreBackup(eq(rollbackConfig), any(), eq(1))
+            verify(readingSnapshotService).replaceCurrentAccount(rollbackReading, 1)
             verify(accountResolver).restoreOriginalAccount(resolution)
             verify(accountResolver).switchTo(1)
+            inOrder(readingSnapshotService, configurationBackupService).apply {
+                verify(readingSnapshotService).restoreCurrentAccount(sourceReading, 1)
+                verify(readingSnapshotService).replaceCurrentAccount(rollbackReading, 1)
+                verify(configurationBackupService).restoreBackup(eq(rollbackConfig), any(), eq(1))
+            }
         }
     }
 
@@ -165,10 +174,10 @@ class EditionSyncServiceRollbackTest {
             whenever(configurationBackupService.exportBackup(eq(true), any())).thenReturn(rollbackConfig)
             whenever(readingSnapshotService.exportCurrentAccount()).thenReturn(rollbackReading)
             whenever(accountResolver.resolveOrCreate(sourceReading.sourceAccount)).thenReturn(resolution)
-            whenever(configurationBackupService.restoreBackup(sourceConfig, sourcePassword)).thenReturn(mock())
-            whenever(readingSnapshotService.restoreCurrentAccount(sourceReading)).thenThrow(cancellation)
-            whenever(configurationBackupService.restoreBackup(eq(rollbackConfig), any())).thenReturn(mock())
-            whenever(readingSnapshotService.replaceCurrentAccount(rollbackReading)).thenAnswer {
+            whenever(configurationBackupService.restoreBackup(sourceConfig, sourcePassword, 1)).thenReturn(mock())
+            whenever(readingSnapshotService.restoreCurrentAccount(sourceReading, 1)).thenThrow(cancellation)
+            whenever(configurationBackupService.restoreBackup(eq(rollbackConfig), any(), eq(1))).thenReturn(mock())
+            whenever(readingSnapshotService.replaceCurrentAccount(rollbackReading, 1)).thenAnswer {
                 rollbackCompleted = true
                 EditionSyncReadingRestoreResult(1, 1, 0, 0, 0)
             }
@@ -193,8 +202,79 @@ class EditionSyncServiceRollbackTest {
 
             assertEquals(cancellation, thrown)
             assertTrue("取消后仍必须完整执行 rollback", rollbackCompleted)
-            verify(configurationBackupService).restoreBackup(eq(rollbackConfig), any())
-            verify(readingSnapshotService).replaceCurrentAccount(rollbackReading)
+            verify(configurationBackupService).restoreBackup(eq(rollbackConfig), any(), eq(1))
+            verify(readingSnapshotService).replaceCurrentAccount(rollbackReading, 1)
+        }
+    }
+
+    @Test fun `configuration failure rolls back reading and configuration`() = verifyConfigurationFailure(false, false)
+
+    @Test fun `configuration cancellation rolls back reading and configuration`() = verifyConfigurationFailure(true, false)
+
+    @Test fun `configuration failure deletes newly created account after restoring previous snapshot`() = verifyConfigurationFailure(false, true)
+
+    @Test fun `configuration cancellation deletes newly created account after restoring previous snapshot`() = verifyConfigurationFailure(true, true)
+
+    @Test fun `reading failure rolls back a different existing target`() = verifyConfigurationFailure(false, false, true)
+
+    @Test fun `reading cancellation rolls back a different existing target`() = verifyConfigurationFailure(true, false, true)
+
+    @Test fun `reading failure deletes newly created account after full rollback`() = verifyConfigurationFailure(false, true, true)
+
+    @Test fun `reading cancellation deletes newly created account after full rollback`() = verifyConfigurationFailure(true, true, true)
+
+    private fun verifyConfigurationFailure(cancel: Boolean, created: Boolean, failReading: Boolean = false): Unit = runBlocking {
+        val configuration = mock<ConfigurationBackupService>()
+        val reading = mock<EditionSyncReadingSnapshotService>()
+        val resolver = mock<EditionSyncAccountResolver>()
+        val service = EditionSyncService(configuration, reading, resolver)
+        val source = readingSnapshot("Source")
+        val rollback = readingSnapshot("Before")
+        val targetId = 7
+        val previousId = 3
+        val original = Account(targetId, "Before", AccountType.Local)
+        val resolution = EditionSyncAccountResolution(original.copy(name = "Source"), previousId, if (created) null else original, created)
+        val failure = if (cancel) CancellationException("cancel configuration") else IllegalStateException("fail configuration")
+        val callerJob = Job()
+        val result = EditionSyncReadingRestoreResult(targetId, 1, 0, 0, 0)
+        whenever(configuration.exportBackup(eq(true), any())).thenReturn("rollback-config")
+        whenever(reading.exportCurrentAccount()).thenReturn(rollback)
+        whenever(resolver.resolveOrCreate(source.sourceAccount)).thenReturn(resolution)
+        if (failReading) {
+            whenever(reading.restoreCurrentAccount(source, targetId)).thenAnswer {
+                if (cancel) callerJob.cancel(failure as CancellationException)
+                throw failure
+            }
+        } else {
+            whenever(reading.restoreCurrentAccount(source, targetId)).thenReturn(result)
+            whenever(configuration.restoreBackup("source-config", "password", targetId)).thenAnswer {
+                if (cancel) callerJob.cancel(failure as CancellationException)
+                throw failure
+            }
+        }
+        whenever(configuration.restoreBackup(eq("rollback-config"), any(), any())).thenReturn(mock())
+        whenever(reading.replaceCurrentAccount(eq(rollback), any())).thenReturn(result)
+        val bundle = EditionSyncBundle(
+            sourceEdition = EditionSyncEdition.fromBuildConfig(BuildConfig.EDITION).opposite().buildConfigValue,
+            sourcePackageName = EditionSyncContract.peerPackageName(), sourceVersion = "test", createdAtEpochMillis = 1,
+            configurationBackupJson = "source-config", configurationBackupPassword = "password", reading = source,
+        )
+        var thrown: Throwable? = null
+        try { withContext(callerJob) { service.restoreBundle(Json.encodeToString(bundle)) } } catch (error: Throwable) { thrown = error }
+        finally { callerJob.complete() }
+        assertEquals(failure::class.java, thrown?.javaClass)
+        assertEquals(failure.message, thrown?.message)
+        if (failReading) verify(configuration, never()).restoreBackup("source-config", "password", targetId)
+        val rollbackId = if (created) previousId else targetId
+        inOrder(reading, configuration, resolver).apply {
+            verify(reading).restoreCurrentAccount(source, targetId)
+            if (!failReading) verify(configuration).restoreBackup("source-config", "password", targetId)
+            if (created) verify(resolver).switchTo(previousId)
+            verify(reading).replaceCurrentAccount(rollback, rollbackId)
+            verify(configuration).restoreBackup(eq("rollback-config"), any(), eq(rollbackId))
+            if (created) verify(resolver).deleteCreatedAccount(resolution)
+            else verify(resolver).restoreOriginalAccount(resolution)
+            verify(resolver).switchTo(previousId)
         }
     }
 

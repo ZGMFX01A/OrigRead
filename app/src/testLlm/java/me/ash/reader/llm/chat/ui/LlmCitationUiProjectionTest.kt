@@ -506,6 +506,16 @@ class LlmCitationUiProjectionTest {
                 .toSet()
         assertTrue(coveredArticles.containsAll(listOf("article-a", "article-b", "article-c", "article-d", "article-e")))
 
+        assertEquals((1..16).associate { "annotation-$it" to it } +
+            (22..25).associate { "annotation-$it" to (it - 5) }, projected.displayOrderByAnnotationId)
+        assertEquals(17, resolveCitationReturnGroup(projected, "annotation-22", "ignored")?.displayOrder)
+        assertEquals(null, resolveCitationReturnGroup(projected, "annotation-21", "ignored"))
+        assertTrue(isCitationReturnExhausted(true, "annotation-21", 0, annotations))
+        assertFalse(isCitationReturnExhausted(true, "not-yet-loaded", null, annotations))
+        assertTrue(isCitationReturnExhausted(false, "not-found", null, annotations))
+        assertTrue(isCitationReturnExhausted(true, null, null, annotations))
+        assertFalse(isCitationReturnExhausted(true, null, 0, annotations))
+
         val markerSnapshot =
             buildLlmReaderMarkerSnapshot(
                 ownerArticleId = "article-owner",

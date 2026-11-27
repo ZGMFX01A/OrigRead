@@ -42,25 +42,24 @@ class SecureSecretStore @Inject constructor(
     @Synchronized
     fun get(key: String): String {
         val payload = preferences.getString(key, null).orEmpty()
-        if (payload.isBlank()) return ""
-        return runCatching {
-                val parts = payload.split(':', limit = 2)
-                require(parts.size == 2)
-                val iv = Base64.decode(parts[0], Base64.NO_WRAP)
-                val encrypted = Base64.decode(parts[1], Base64.NO_WRAP)
-                val cipher = Cipher.getInstance(TRANSFORMATION)
-                cipher.init(
-                    Cipher.DECRYPT_MODE,
-                    getOrCreateSecretKey(),
-                    GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv),
-                )
-                cipher.doFinal(encrypted).toString(Charsets.UTF_8)
-            }
-            .getOrDefault("")
+        if (payload.isEmpty()) return ""
+        val parts = payload.split(':', limit = 2)
+        require(parts.size == 2) { "Invalid saved secret envelope: $key" }
+        val iv = Base64.decode(parts[0], Base64.NO_WRAP)
+        val encrypted = Base64.decode(parts[1], Base64.NO_WRAP)
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(
+            Cipher.DECRYPT_MODE,
+            getOrCreateSecretKey(),
+            GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv),
+        )
+        return cipher.doFinal(encrypted).toString(Charsets.UTF_8)
     }
 
+    @Synchronized
     fun contains(key: String): Boolean = get(key).isNotBlank()
 
+    @Synchronized
     fun remove(key: String) {
         preferences.edit().remove(key).apply()
     }

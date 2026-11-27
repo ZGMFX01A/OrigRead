@@ -10,6 +10,11 @@ import me.ash.reader.infrastructure.ai.awaitResponseAndUse
 import me.ash.reader.BuildConfig
 import me.ash.reader.infrastructure.ai.AiHttpClient
 import me.ash.reader.infrastructure.di.IODispatcher
+import me.ash.reader.infrastructure.json.optCleanString
+import me.ash.reader.infrastructure.json.optNullableString
+import me.ash.reader.infrastructure.network.EndpointPolicy
+import me.ash.reader.infrastructure.network.readBoundedUtf8
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -156,11 +161,11 @@ class McpRemoteClient @Inject constructor(
         if (response.statusCode >= 500) throw McpException("MCP Server 暂不可用：HTTP ${response.statusCode}")
         val result = requireResult(response, "server/discover")
         val versions = result.optJSONArray("supportedVersions")
-        if (versions != null && (0 until versions.length()).none { versions.optString(it) == MODERN_PROTOCOL_VERSION }) {
+        if (versions != null && (0 until versions.length()).none { versions.optNullableString(it) == MODERN_PROTOCOL_VERSION }) {
             return null
         }
         val serverInfo = result.optJSONObject("_meta")?.optJSONObject(SERVER_INFO_META_KEY)
-        return ModernDiscovery(serverName = serverInfo?.optString("name")?.takeIf(String::isNotBlank))
+        return ModernDiscovery(serverName = serverInfo?.optNullableString("name"))
     }
 
     private suspend fun initializeLegacy(
@@ -189,9 +194,9 @@ class McpRemoteClient @Inject constructor(
             throw McpAuthorizationException(response.statusCode, response.wwwAuthenticate)
         }
         val result = requireResult(response, "initialize")
-        val protocolVersion = result.optString("protocolVersion").ifBlank { LEGACY_PREFERRED_VERSION }
+        val protocolVersion = result.optNullableString("protocolVersion") ?: LEGACY_PREFERRED_VERSION
         val sessionId = response.sessionId
-        val serverName = result.optJSONObject("serverInfo")?.optString("name")?.takeIf(String::isNotBlank)
+        val serverName = result.optJSONObject("serverInfo")?.optNullableString("name")
         val connection =
             McpConnection(
                 era = McpProtocolEra.HANDSHAKE,
@@ -235,9 +240,9 @@ class McpRemoteClient @Inject constructor(
                 )
             val result = requireResult(response, "tools/list")
             ttlMs = result.optLong("ttlMs", ttlMs)
-            cacheScope = result.optString("cacheScope", cacheScope)
+            cacheScope = result.optNullableString("cacheScope") ?: cacheScope
             parseTools(result.optJSONArray("tools"))?.let(tools::addAll)
-            cursor = result.optString("nextCursor").takeIf(String::isNotBlank)
+            cursor = result.optNullableString("nextCursor")
             if (cursor == null) {
                 return McpToolCatalog(
                     serverId = profile.id,
@@ -315,9 +320,22 @@ class McpRemoteClient @Inject constructor(
         sessionId: String? = null,
         expectedId: Any? = null,
     ): McpHttpResponse {
+        val parsedUrl = profile.endpoint.toHttpUrlOrNull()
+            ?: throw McpException("MCP Endpoint 不是有效 HTTP(S) URL")
+        val allowLocal = EndpointPolicy.isExplicitLocal(parsedUrl)
+        val validatedUrl =
+            try {
+                EndpointPolicy.requireUrl(
+                    profile.endpoint,
+                    allowLocal = allowLocal,
+                    requireHttps = !allowLocal,
+                )
+            } catch (error: IllegalArgumentException) {
+                throw McpException("MCP Endpoint 不安全：${error.message}", error)
+            }
         val request =
             Request.Builder()
-                .url(profile.endpoint)
+                .url(validatedUrl)
                 .header("Accept", "application/json, text/event-stream")
                 .header("Content-Type", "application/json")
                 .apply {
@@ -340,13 +358,16 @@ class McpRemoteClient @Inject constructor(
                 .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
                 .build()
         // MCP 写操作取消只承诺停止等待并取消 Call；远端已执行的副作用无法由客户端撤销。
-        return httpClient.client.newCall(request).awaitResponseAndUse { response ->
-            parseHttpResponse(response, expectedId)
-        }
+        // 禁止自动重定向并校验建连 DNS，避免携带 Bearer/自定义头时因 30x 或 rebinding 泄露凭据。
+        return EndpointPolicy.client(httpClient.client, allowLocal = allowLocal)
+            .newCall(request)
+            .awaitResponseAndUse { response ->
+                parseHttpResponse(response, expectedId)
+            }
     }
 
     private fun parseHttpResponse(response: Response, expectedId: Any?): McpHttpResponse {
-        val raw = response.body?.string().orEmpty()
+        val raw = response.readBoundedUtf8(MAX_MCP_RESPONSE_BYTES)
         val payload =
             when {
                 raw.isBlank() -> null
@@ -374,7 +395,7 @@ class McpRemoteClient @Inject constructor(
         val payload = response.payload ?: throw McpException("MCP $operation 返回空响应")
         payload.optJSONObject("error")?.let { error ->
             throw McpException(
-                "MCP $operation 失败：${error.optString("message").ifBlank { "JSON-RPC error ${error.optInt("code")}" }}"
+                "MCP $operation 失败：${error.optNullableString("message") ?: "JSON-RPC error ${error.optInt("code")}"}"
             )
         }
         return payload.optJSONObject("result") ?: throw McpException("MCP $operation 缺少 result")
@@ -422,15 +443,14 @@ private fun parseTools(array: JSONArray?): List<McpToolDefinition>? {
     return buildList {
         repeat(array.length()) { index ->
             val item = array.optJSONObject(index) ?: return@repeat
-            val name = item.optString("name").trim()
-            if (name.isBlank()) return@repeat
+            val name = item.optNullableString("name") ?: return@repeat
             val inputSchema = item.optJSONObject("inputSchema") ?: JSONObject().put("type", "object")
             val outputSchema = item.optJSONObject("outputSchema")
             add(
                 McpToolDefinition(
                     name = name,
-                    title = item.optString("title").takeIf(String::isNotBlank),
-                    description = item.optString("description"),
+                    title = item.optNullableString("title"),
+                    description = item.optCleanString("description"),
                     inputSchemaJson = inputSchema.toString(),
                     outputSchemaJson = outputSchema?.toString(),
                     risk = inferMcpToolRisk(item.optJSONObject("annotations")),
@@ -441,7 +461,7 @@ private fun parseTools(array: JSONArray?): List<McpToolDefinition>? {
 }
 
 private fun normalizeCallToolResult(result: JSONObject): McpCallToolResult {
-    val resultType = result.optString("resultType").takeIf(String::isNotBlank)
+    val resultType = result.optNullableString("resultType")
     if (resultType == "input_required" || resultType == "task") {
         return McpCallToolResult(
             content = "MCP 返回 $resultType；当前 Android 首期尚未完成该多轮交互扩展。",
@@ -454,15 +474,15 @@ private fun normalizeCallToolResult(result: JSONObject): McpCallToolResult {
     if (content != null) {
         repeat(content.length()) { index ->
             val item = content.optJSONObject(index) ?: return@repeat
-            when (item.optString("type")) {
-                "text" -> item.optString("text").takeIf(String::isNotBlank)?.let(parts::add)
+            when (item.optCleanString("type")) {
+                "text" -> item.optNullableString("text")?.let(parts::add)
                 "resource_link" -> {
-                    val uri = item.optString("uri")
-                    val name = item.optString("name").ifBlank { "Resource" }
+                    val uri = item.optCleanString("uri").trim()
+                    val name = item.optNullableString("name") ?: "Resource"
                     if (uri.isNotBlank()) parts += "$name: $uri"
                 }
-                "image" -> parts += "[MCP image: ${item.optString("mimeType").ifBlank { "unknown" }}]"
-                "audio" -> parts += "[MCP audio: ${item.optString("mimeType").ifBlank { "unknown" }}]"
+                "image" -> parts += "[MCP image: ${item.optNullableString("mimeType") ?: "unknown"}]"
+                "audio" -> parts += "[MCP audio: ${item.optNullableString("mimeType") ?: "unknown"}]"
             }
         }
     }
@@ -502,6 +522,7 @@ private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 internal const val MODERN_PROTOCOL_VERSION = "2026-07-28"
 internal const val LEGACY_PREFERRED_VERSION = "2025-11-25"
 private const val MAX_LIST_PAGES = 20
+private const val MAX_MCP_RESPONSE_BYTES = 4L * 1024L * 1024L
 private const val JSON_RPC_METHOD_NOT_FOUND = -32601
 private const val MCP_UNSUPPORTED_VERSION = -32022
 private const val MCP_HEADER_MISMATCH = -32020

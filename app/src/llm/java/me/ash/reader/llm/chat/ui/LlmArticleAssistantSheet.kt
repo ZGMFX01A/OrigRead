@@ -242,17 +242,7 @@ fun LlmArticleAssistantSheet(
         }
     }
     val citationReturnGroup = citationReturnTarget?.let { target ->
-        if (target.annotationId != null) {
-            val annotationOrder =
-                uiState.citationAnnotations
-                    .filter { it.annotation.assistantMessageId == target.assistantMessageId }
-                    .sortedBy { it.annotation.occurrenceOrdinal }
-                    .indexOfFirst { it.annotation.id == target.annotationId }
-            citationReturnDisplay?.groupsByDisplayOrder?.get(annotationOrder + 1)
-        } else {
-            citationReturnDisplay?.groupsByDisplayOrder?.values
-                ?.firstOrNull { group -> group.refs.any { it.id == target.citationId } }
-        }
+        resolveCitationReturnGroup(citationReturnDisplay, target.annotationId, target.citationId)
     }
     val citationReturnDisplayOrder = citationReturnGroup?.displayOrder
     val citationReturnBlockIndex =
@@ -423,7 +413,7 @@ fun LlmArticleAssistantSheet(
                     target.citationId,
                     target.annotationId,
                 )
-            if (!targetExists || (target.annotationId == null && blockIndex == null)) {
+            if (isCitationReturnExhausted(targetExists, target.annotationId, blockIndex, uiState.citationAnnotations)) {
                 // legacy malformed Citation 宁可失效也不猜位置；同时必须结束 pending return，
                 // 否则 Reader→Chat 会永远停在一个“目标存在但不可定位”的半完成状态。
                 onCitationReturnConsumed()

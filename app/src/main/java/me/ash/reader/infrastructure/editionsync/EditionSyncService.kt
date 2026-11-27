@@ -96,12 +96,14 @@ class EditionSyncService @Inject constructor(
                 createRollbackSnapshot()
             }
 
+        val targetAccountId = requireNotNull(resolution.account.id)
         return try {
+            val readingResult = readingSnapshotService.restoreCurrentAccount(bundle.reading, targetAccountId = targetAccountId)
             configurationBackupService.restoreBackup(
                 content = bundle.configurationBackupJson,
                 password = bundle.configurationBackupPassword,
+                targetAccountId = targetAccountId,
             )
-            val readingResult = readingSnapshotService.restoreCurrentAccount(bundle.reading)
             EditionSyncRestoreResult(
                 reading = readingResult,
                 restoredConfiguration = true,
@@ -147,24 +149,25 @@ class EditionSyncService @Inject constructor(
     ) {
         if (resolution.created) {
             accountResolver.switchTo(resolution.previousAccountId)
-            restoreRollbackSnapshot(previousAccountRollback)
+            restoreRollbackSnapshot(previousAccountRollback, resolution.previousAccountId)
             accountResolver.deleteCreatedAccount(resolution)
             accountResolver.switchTo(resolution.previousAccountId)
             return
         }
 
-        restoreRollbackSnapshot(requireNotNull(targetAccountRollback) { "Edition sync 缺少目标账户回滚快照" })
+        restoreRollbackSnapshot(requireNotNull(targetAccountRollback) { "Edition sync 缺少目标账户回滚快照" }, requireNotNull(resolution.account.id))
         accountResolver.restoreOriginalAccount(resolution)
         accountResolver.switchTo(resolution.previousAccountId)
     }
 
-    /** 配置先恢复，再用精确阅读快照清掉失败 merge 可能新增的 Group/Feed/Article。 */
-    private suspend fun restoreRollbackSnapshot(snapshot: EditionSyncRollbackSnapshot) {
+    /** 先精确还原阅读主键，再恢复配置，避免配置导入生成替代订阅。 */
+    private suspend fun restoreRollbackSnapshot(snapshot: EditionSyncRollbackSnapshot, targetAccountId: Int) {
+        readingSnapshotService.replaceCurrentAccount(snapshot.reading, targetAccountId = targetAccountId)
         configurationBackupService.restoreBackup(
             content = snapshot.configurationBackupJson,
             password = snapshot.configurationBackupPassword,
+            targetAccountId = targetAccountId,
         )
-        readingSnapshotService.replaceCurrentAccount(snapshot.reading)
     }
 
     private fun randomTransferPassword(): String {

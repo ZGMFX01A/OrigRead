@@ -50,7 +50,7 @@ class EditionSyncImportActivity : AppCompatActivity() {
                         contentResolver.openInputStream(uri)?.use { it.readBytes() }
                             ?: error("无法读取 Edition sync 数据")
                     val plaintext =
-                        EditionSyncCrypto.decrypt(ciphertext, key, iv).toString(Charsets.UTF_8)
+                        EditionSyncCredentialTransfer.decryptBundle(ciphertext, key, iv)
                     val bundle = editionSyncService.inspectBundle(plaintext)
                     plaintext to bundle
                 }
@@ -66,14 +66,17 @@ class EditionSyncImportActivity : AppCompatActivity() {
     }
 
     private fun validateSource(sourcePackage: String, intent: Intent) {
-        require(sourcePackage == EditionSyncContract.peerPackageName()) { "来源不是当前 Edition 对应的 OrigRead 包" }
-        val uri = requireNotNull(intent.data) { "同步请求缺少 URI" }
-        require(uri.authority == "$sourcePackage.fileprovider") { "同步 URI authority 与来源包不匹配" }
-        require(
-            packageManager.checkSignatures(packageName, sourcePackage) == PackageManager.SIGNATURE_MATCH
-        ) {
-            "来源 OrigRead Edition 与当前 App 签名不一致"
-        }
+        val actualCaller = callingPackage
+        // 系统提供的 callingPackage 必须先通过检查，再查询 URI 或签名。
+        validateEditionSyncCaller(
+            actualCaller = actualCaller,
+            expectedPeer = EditionSyncContract.peerPackageName(),
+            sourcePackage = sourcePackage,
+            authority = intent.data?.authority,
+            signaturesMatch = {
+                packageManager.checkSignatures(packageName, sourcePackage) == PackageManager.SIGNATURE_MATCH
+            },
+        )
     }
 
     private fun showConfirmation(bundle: EditionSyncBundle) {

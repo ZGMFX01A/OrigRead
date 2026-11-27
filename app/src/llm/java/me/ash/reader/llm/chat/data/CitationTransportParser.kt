@@ -38,7 +38,7 @@ internal object CitationTransportParser {
  * Streaming Citation 累积器。
  *
  * 已确认的 transport 前缀只扫描一次。跨 delta 的 `[[E...`、Markdown fence/backtick run 会保留为
- * 未完成尾部，等后续字符到齐后再继续；Streaming 与 terminal 因而仍然共享同一套 grammar。
+ * 未完成尾部，等后续字符到齐后再继续；terminal 会从原始 transport 重新规范化，收敛分片歧义。
  */
 internal class CitationTransportAccumulator(
     allowedProtocolIds: Set<String>,
@@ -57,8 +57,8 @@ internal class CitationTransportAccumulator(
 /**
  * 单 writer 的增量 Citation scanner。
  *
- * `normalized` 只保存已经确定不会再被后续字符改写的 canonical 前缀；尾部空白单独缓存，因为下一个
- * 字符若是标点，需要沿用旧 parser 的“删除标点前空格”规则。这样 snapshot 只复制最终正文，不会重新
+ * `normalized` 保存当前流式 canonical 前缀；终态会重扫已按字面释放的片段。尾部空白单独缓存，因为下一个
+ * 字符若是紧随 Citation 的标点，需要删除 Citation 前的空格。这样 snapshot 只复制最终正文，不会重新
  * 扫描此前所有 Provider delta。
  */
 private class CitationTransportScanner(
@@ -75,6 +75,7 @@ private class CitationTransportScanner(
     private var invalidFragmentCount = 0
     private var activeFence: MarkdownFence? = null
     private var inlineDelimiterLength = 0
+    private var justStrippedCitation = false
     private var stalledOnIncompleteTransport = false
     private var finished = false
 
@@ -93,6 +94,18 @@ private class CitationTransportScanner(
 
     fun finish(): CitationTransportParseResult {
         if (!finished) {
+            // A malformed fragment released as prose may close in a later delta. Rebuild the
+            // terminal projection from raw transport so its grammar is independent of chunking.
+            normalized.clear()
+            pendingWhitespace.clear()
+            annotations.clear()
+            pendingAnnotations.clear()
+            invalidIds.clear()
+            processedIndex = 0
+            invalidFragmentCount = 0
+            activeFence = null
+            inlineDelimiterLength = 0
+            justStrippedCitation = false
             processAvailable(final = true)
             finished = true
         }
@@ -122,7 +135,7 @@ private class CitationTransportScanner(
                         }
                         if (canOpenFence(transport, index, fence)) {
                             activeFence = fence
-                            appendCanonicalRange(index, index + fence.length)
+                            appendProtectedRange(index, index + fence.length)
                             processedIndex += fence.length
                             continue
                         }
@@ -134,7 +147,7 @@ private class CitationTransportScanner(
                         }
                         if (isClosingFenceLine(transport, index + fence.length)) {
                             activeFence = null
-                            appendCanonicalRange(index, index + fence.length)
+                            appendProtectedRange(index, index + fence.length)
                             processedIndex += fence.length
                             continue
                         }
@@ -144,52 +157,66 @@ private class CitationTransportScanner(
 
             if (activeFence == null && transport[index] == '`') {
                 val delimiterLength = repeatedCharLength(transport, index, '`')
+                if (inlineDelimiterLength == 0 && !hasInlineCloser(transport, index, delimiterLength, final)) {
+                    if (!final && paragraphEnd(transport, index) == transport.length &&
+                        transport.length - index <= MAX_INLINE_LOOKAHEAD
+                    ) {
+                        stalledOnIncompleteTransport = true
+                        return
+                    }
+                    appendCanonicalRange(index, index + delimiterLength)
+                    processedIndex += delimiterLength
+                    continue
+                }
                 inlineDelimiterLength =
                     when {
                         inlineDelimiterLength == 0 -> delimiterLength
                         delimiterLength == inlineDelimiterLength -> 0
                         else -> inlineDelimiterLength
                     }
-                appendCanonicalRange(index, index + delimiterLength)
+                appendProtectedRange(index, index + delimiterLength)
                 processedIndex += delimiterLength
                 continue
             }
 
-            if (activeFence == null && inlineDelimiterLength == 0) {
-                val citationStart = isCitationStart(transport, index)
-                if (!citationStart && !final && isCitationPrefixAtEnd(transport, index)) {
-                    stalledOnIncompleteTransport = true
-                    return
-                }
-                if (citationStart) {
-                    val token = parseTokenAt(transport, index, final)
-                    when (token.state) {
-                        CitationTokenState.COMPLETE -> {
-                            val validIds = token.protocolIds.filter { it in allowedProtocolIds }.distinct()
-                            token.protocolIds.filterNot { it in allowedProtocolIds }.forEach(invalidIds::add)
-                            if (validIds.isNotEmpty()) {
-                                addAnnotation(validIds)
-                            } else {
-                                invalidFragmentCount += 1
-                            }
-                            processedIndex = token.endExclusive
-                            continue
-                        }
-                        CitationTokenState.INCOMPLETE -> {
-                            if (final) {
-                                invalidFragmentCount += 1
-                                processedIndex = transport.length
-                            } else {
-                                stalledOnIncompleteTransport = true
-                            }
-                            return
-                        }
-                        CitationTokenState.INVALID -> {
+            if (activeFence != null || inlineDelimiterLength > 0) {
+                appendProtectedRange(index, index + 1)
+                processedIndex += 1
+                continue
+            }
+
+            if (transport[index] == '[') {
+                val token = parseTokenAt(transport, index, final)
+                when (token?.state) {
+                    CitationTokenState.COMPLETE -> {
+                        val validIds = token.protocolIds.filter { it in allowedProtocolIds }.distinct()
+                        token.protocolIds.filterNot { it in allowedProtocolIds }.forEach(invalidIds::add)
+                        if (validIds.isNotEmpty()) {
+                            addAnnotation(validIds)
+                        } else {
                             invalidFragmentCount += 1
-                            processedIndex = token.endExclusive.coerceAtLeast(index + 2)
-                            continue
                         }
+                        justStrippedCitation = true
+                        processedIndex = token.endExclusive
+                        continue
                     }
+                    CitationTokenState.INCOMPLETE -> {
+                        if (final) {
+                            invalidFragmentCount += 1
+                            justStrippedCitation = true
+                            processedIndex = transport.length
+                        } else {
+                            stalledOnIncompleteTransport = true
+                        }
+                        return
+                    }
+                    CitationTokenState.INVALID -> {
+                        invalidFragmentCount += 1
+                        justStrippedCitation = true
+                        processedIndex = token.endExclusive.coerceAtLeast(index + 2)
+                        continue
+                    }
+                    null -> Unit
                 }
             }
 
@@ -202,6 +229,14 @@ private class CitationTransportScanner(
         for (index in start until endExclusive) appendCanonicalChar(transport[index])
     }
 
+    private fun appendProtectedRange(start: Int, endExclusive: Int) {
+        resolvePendingAnnotations(pendingWhitespace.length)
+        normalized.append(pendingWhitespace)
+        pendingWhitespace.clear()
+        normalized.append(transport, start, endExclusive)
+        justStrippedCitation = false
+    }
+
     private fun appendCanonicalChar(character: Char) {
         if (character.isWhitespace()) {
             pendingWhitespace.append(character)
@@ -209,7 +244,7 @@ private class CitationTransportScanner(
         }
 
         val preservedWhitespace =
-            if (character in CITATION_PUNCTUATION) {
+            if (justStrippedCitation && character in CITATION_PUNCTUATION) {
                 var length = pendingWhitespace.length
                 while (length > 0 && pendingWhitespace[length - 1] in SPACE_OR_TAB) length -= 1
                 length
@@ -222,6 +257,7 @@ private class CitationTransportScanner(
         }
         pendingWhitespace.clear()
         normalized.append(character)
+        justStrippedCitation = false
     }
 
     private fun addAnnotation(protocolIds: List<String>) {
@@ -259,9 +295,9 @@ private class CitationTransportScanner(
     }
 
     private fun buildResult(hasIncompleteTransport: Boolean): CitationTransportParseResult {
-        // Snapshot semantics intentionally trim all trailing whitespace, exactly like the old
-        // terminal normalizer. Any annotation still inside that whitespace therefore collapses to
-        // the current canonical end until a later non-whitespace delta decides otherwise.
+        // Unprotected trailing whitespace stays pending and is trimmed from snapshots. An annotation
+        // inside it collapses to the canonical end until a later character decides its final offset.
+        // Protected code whitespace is already committed verbatim by appendProtectedRange.
         val snapshotAnnotations =
             buildList(annotations.size + pendingAnnotations.size) {
                 addAll(annotations)
@@ -308,64 +344,98 @@ private fun parseTokenAt(
     text: CharSequence,
     start: Int,
     final: Boolean,
-): ParsedCitationToken {
+): ParsedCitationToken? {
+    if (!text.startsWithAt("[[E", start)) {
+        return if (!final && isLegalTokenPrefix(text, start)) {
+            ParsedCitationToken(CitationTokenState.INCOMPLETE, emptyList(), text.length)
+        } else null
+    }
+    parseCompleteTokenAt(text, start)?.let { return it }
+    malformedTokenEnd(text, start)?.let { end ->
+        return ParsedCitationToken(CitationTokenState.INVALID, emptyList(), end)
+    }
+    if (isLegalTokenPrefix(text, start)) {
+        return ParsedCitationToken(CitationTokenState.INCOMPLETE, emptyList(), text.length)
+    }
+    return null
+}
+
+private fun parseCompleteTokenAt(text: CharSequence, start: Int): ParsedCitationToken? {
     var cursor = start + 2
     val ids = mutableListOf<String>()
     while (cursor < text.length) {
-        if (text.startsWithAt("]]", cursor)) {
-            return ParsedCitationToken(
-                state = if (ids.isNotEmpty()) CitationTokenState.COMPLETE else CitationTokenState.INVALID,
-                protocolIds = ids,
-                endExclusive = cursor + 2,
-            )
-        }
         if (text[cursor] != 'E') {
-            return invalidTokenEnd(text, cursor, final)?.let { end ->
-                ParsedCitationToken(CitationTokenState.INVALID, ids, end)
-            } ?: ParsedCitationToken(CitationTokenState.INCOMPLETE, ids, text.length)
+            return null
         }
         val digitsStart = cursor + 1
         var digitsEnd = digitsStart
         while (digitsEnd < text.length && text[digitsEnd].isDigit()) digitsEnd += 1
         if (digitsEnd == digitsStart) {
-            return if (digitsEnd == text.length) {
-                ParsedCitationToken(CitationTokenState.INCOMPLETE, ids, text.length)
-            } else {
-                invalidTokenEnd(text, digitsEnd, final)?.let { end ->
-                    ParsedCitationToken(CitationTokenState.INVALID, ids, end)
-                } ?: ParsedCitationToken(CitationTokenState.INCOMPLETE, ids, text.length)
-            }
+            return null
         }
         ids += text.subSequence(cursor, digitsEnd).toString()
         if (digitsEnd >= text.length) {
-            return ParsedCitationToken(CitationTokenState.INCOMPLETE, ids, text.length)
+            return null
         }
         when {
             text.startsWithAt("]]", digitsEnd) ->
                 return ParsedCitationToken(CitationTokenState.COMPLETE, ids, digitsEnd + 2)
             text.startsWithAt("][", digitsEnd) -> cursor = digitsEnd + 2
-            else ->
-                return invalidTokenEnd(text, digitsEnd, final)?.let { end ->
-                    ParsedCitationToken(CitationTokenState.INVALID, ids, end)
-                } ?: ParsedCitationToken(CitationTokenState.INCOMPLETE, ids, text.length)
+            else -> return null
         }
     }
-    return ParsedCitationToken(CitationTokenState.INCOMPLETE, ids, text.length)
+    return null
 }
 
-/** malformed token 优先吞到闭合 `]]`，否则吞到行尾，避免内部协议残片泄漏。 */
-private fun invalidTokenEnd(
-    text: CharSequence,
-    from: Int,
-    final: Boolean,
-): Int? {
-    var cursor = from
-    while (cursor < text.length) {
-        if (text.startsWithAt("]]", cursor)) return cursor + 2
-        if (text[cursor] == '\n') return cursor
-        cursor += 1
+/** 只拥有短、同行、闭合的协议形状；普通单词和多词正文必须按字面释放。 */
+private fun malformedTokenEnd(text: CharSequence, start: Int): Int? {
+    val limit = minOf(text.length, start + MAX_TOKEN_FRAGMENT_LENGTH)
+    for (cursor in start + 3 until limit) {
+        if (text[cursor] == '\r' || text[cursor] == '\n') return null
+        if (text.startsWithAt("]]", cursor) && cursor + 2 <= limit) {
+            val body = text.subSequence(start + 2, cursor).toString()
+            return (cursor + 2).takeIf { isMalformedBody(body) }
+        }
     }
-    return text.length.takeIf { final }
+    return null
+}
+
+private fun isMalformedBody(body: String): Boolean {
+    if (body == "E") return true
+    if (body.firstOrNull() != 'E' ||
+        (body.getOrNull(1)?.isDigit() != true && body.getOrNull(1) != ']')
+    ) return false
+    if (body.contains("[[") || body.any { it == '\r' || it == '\n' }) return false
+    // A single malformed member or comma suffix is recoverable; sentences are ordinary prose.
+    return body.trim().split(Regex("[ \\t]+")).size <= 2
+}
+
+private fun isLegalTokenPrefix(text: CharSequence, start: Int): Boolean {
+    if (text.length - start !in 1..MAX_TOKEN_FRAGMENT_LENGTH) return false
+    val tail = text.subSequence(start, text.length).toString()
+    return tail == "[" || LEGAL_TOKEN_PREFIX.matches(tail)
+}
+
+private fun paragraphEnd(text: CharSequence, start: Int): Int {
+    for (index in start until text.length) {
+        if (text.startsWithAt("\n\n", index) || text.startsWithAt("\r\n\r\n", index)) return index
+    }
+    return text.length
+}
+
+private fun hasInlineCloser(text: CharSequence, start: Int, length: Int, final: Boolean): Boolean {
+    val end = paragraphEnd(text, start)
+    var cursor = start + length
+    while (cursor < end) {
+        if (text[cursor] == '`') {
+            val run = repeatedCharLength(text, cursor, '`')
+            if (run == length && (final || cursor + run < text.length)) return true
+            cursor += run
+        } else {
+            cursor += 1
+        }
+    }
+    return false
 }
 
 private data class MarkdownFence(
@@ -424,20 +494,6 @@ private fun repeatedCharLength(text: CharSequence, start: Int, character: Char):
     return cursor - start
 }
 
-private fun isCitationStart(text: CharSequence, index: Int): Boolean =
-    text.startsWithAt("[[E", index) && text.getOrNull(index + 3)?.isDigit() == true
-
-/** Streaming 末尾只要仍可能长成 `[[E...` 就先不提交，避免 delta 边界把协议前缀显示给用户。 */
-private fun isCitationPrefixAtEnd(text: CharSequence, index: Int): Boolean {
-    val remaining = text.length - index
-    if (remaining !in 1..3) return false
-    val prefix = "[[E"
-    for (offset in 0 until remaining) {
-        if (text[index + offset] != prefix[offset]) return false
-    }
-    return true
-}
-
 /** Backtick run 任意位置都可能成为 inline delimiter；行首 tilde run 还可能成为 fenced code。 */
 private fun delimiterRunNeedsMoreInput(
     text: CharSequence,
@@ -449,6 +505,9 @@ private fun delimiterRunNeedsMoreInput(
     val relevant = marker == '`' || activeFence?.marker == marker || hasValidFenceIndent(text, index)
     if (!relevant) return false
     val run = repeatedCharLength(text, index, marker)
+    if (marker == '`' && activeFence == null && !hasValidFenceIndent(text, index) &&
+        run > MAX_INLINE_LOOKAHEAD
+    ) return false
     return index + run == text.length
 }
 
@@ -489,5 +548,8 @@ private fun CharSequence.indexOfChar(character: Char, start: Int): Int {
 
 private const val MIN_FENCE_LENGTH = 3
 private const val MAX_FENCE_INDENT_SPACES = 3
+private const val MAX_TOKEN_FRAGMENT_LENGTH = 32
+private const val MAX_INLINE_LOOKAHEAD = 256
+private val LEGAL_TOKEN_PREFIX = Regex("\\[\\[(?:E\\d+\\]\\[)*(?:E(?:\\d+\\]?)?|)")
 private val SPACE_OR_TAB = setOf(' ', '\t')
 private val CITATION_PUNCTUATION = setOf(',', '.', ';', ':', '!', '?', '，', '。', '；', '：', '！', '？')

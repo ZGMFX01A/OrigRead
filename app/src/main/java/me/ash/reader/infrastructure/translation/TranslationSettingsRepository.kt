@@ -1,5 +1,6 @@
 package me.ash.reader.infrastructure.translation
 
+import me.ash.reader.infrastructure.storage.storedEnum
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -20,18 +21,20 @@ class TranslationSettingsRepository @Inject constructor(
     private val _settings = MutableStateFlow(readSettings())
     val settings: StateFlow<TranslationSettings> = _settings.asStateFlow()
 
+    @Synchronized
     fun current(): TranslationSettings = _settings.value
 
+    @Synchronized
     fun setDefaultProvider(type: TranslationProviderType) {
         if (!current().provider(type).enabled) return
-        preferences.edit().putString(KEY_DEFAULT_PROVIDER, type.name).apply()
         setDefaultTarget(TranslationTarget.Traditional(type))
     }
 
     /** 将完整设置模型写入 SharedPreferences，供恢复流程复用。 */
-    private fun persistSettings(settings: TranslationSettings) {
+    @Synchronized
+    private fun persistSettings(settings: TranslationSettings, clear: Boolean = false) {
         val editor =
-            preferences.edit()
+            preferences.edit().apply { if (clear) clear() }
                 .putString(KEY_DEFAULT_PROVIDER, settings.defaultProvider.name)
                 .putString(KEY_DEFAULT_TARGET, encodeTarget(settings.defaultTarget))
                 .putString(KEY_TARGET_LANGUAGE, settings.targetLanguage)
@@ -49,7 +52,9 @@ class TranslationSettingsRepository @Inject constructor(
     }
 
     /** 默认翻译方式可以是传统 Provider，也可以是某个 AI Provider + Model。 */
+    @Synchronized
     fun setDefaultTarget(target: TranslationTarget) {
+        validateTarget(target)
         val current = _settings.value
         val nextProvider =
             (target as? TranslationTarget.Traditional)?.provider ?: current.defaultProvider
@@ -60,16 +65,19 @@ class TranslationSettingsRepository @Inject constructor(
         _settings.value = current.copy(defaultProvider = nextProvider, defaultTarget = target)
     }
 
+    @Synchronized
     fun setTargetLanguage(value: String) {
         preferences.edit().putString(KEY_TARGET_LANGUAGE, value).apply()
         _settings.value = _settings.value.copy(targetLanguage = value)
     }
 
+    @Synchronized
     fun setDisplayMode(mode: TranslationDisplayMode) {
         preferences.edit().putString(KEY_DISPLAY_MODE, mode.name).apply()
         _settings.value = _settings.value.copy(displayMode = mode)
     }
 
+    @Synchronized
     fun setProviderEnabled(type: TranslationProviderType, enabled: Boolean) {
         val current = _settings.value
         if (current.provider(type).enabled == enabled) return
@@ -81,7 +89,6 @@ class TranslationSettingsRepository @Inject constructor(
         // 始终保留至少一个可用 Provider，避免默认翻译入口进入无服务状态。
         if (!enabled && enabledOthers.isEmpty()) return
 
-        preferences.edit().putBoolean(enabledKey(type), enabled).apply()
         val providers =
             current.providers +
                 (type to current.provider(type).copy(enabled = enabled))
@@ -91,9 +98,6 @@ class TranslationSettingsRepository @Inject constructor(
                 !enabled && current.defaultProvider == type -> enabledOthers.first()
                 else -> current.defaultProvider
             }
-        if (nextDefault != current.defaultProvider) {
-            preferences.edit().putString(KEY_DEFAULT_PROVIDER, nextDefault.name).apply()
-        }
         val nextTarget =
             if (!enabled &&
                 (current.defaultTarget as? TranslationTarget.Traditional)?.provider == type
@@ -102,36 +106,38 @@ class TranslationSettingsRepository @Inject constructor(
             } else {
                 current.defaultTarget
             }
-        if (nextTarget != current.defaultTarget) {
-            preferences.edit().putString(KEY_DEFAULT_TARGET, encodeTarget(nextTarget)).apply()
-        }
-        _settings.value =
-            current.copy(
+        val next = current.copy(
                 defaultProvider = nextDefault,
                 defaultTarget = nextTarget,
                 providers = providers,
             )
+        persistSettings(next)
+        _settings.value = next
     }
 
+    @Synchronized
     fun setProviderEndpoint(type: TranslationProviderType, endpoint: String) {
-        preferences.edit().putString(endpointKey(type), endpoint).apply()
         updateProvider(type) { it.copy(endpoint = endpoint) }
     }
 
+    @Synchronized
     fun setMicrosoftRegion(region: String) {
         val value = region.trim()
-        preferences.edit().putString(KEY_MICROSOFT_REGION, value).apply()
         updateProvider(TranslationProviderType.MICROSOFT) { it.copy(region = value) }
     }
 
+    @Synchronized
     fun setApiKey(type: TranslationProviderType, value: String) {
         secretStore.put(secretKey(type), value.trim())
     }
 
+    @Synchronized
     fun getApiKey(type: TranslationProviderType): String = secretStore.get(secretKey(type))
 
+    @Synchronized
     fun hasApiKey(type: TranslationProviderType): Boolean = secretStore.contains(secretKey(type))
 
+    @Synchronized
     fun isConfigured(type: TranslationProviderType): Boolean {
         val provider = current().provider(type)
         return when (type) {
@@ -141,6 +147,7 @@ class TranslationSettingsRepository @Inject constructor(
         }
     }
 
+    @Synchronized
     fun runtimeConfig(type: TranslationProviderType): TranslationRuntimeConfig {
         val provider = current().provider(type)
         return TranslationRuntimeConfig(
@@ -150,21 +157,25 @@ class TranslationSettingsRepository @Inject constructor(
         )
     }
 
+    @Synchronized
     fun restoreDefaults() {
-        preferences.edit().clear().apply()
         TranslationProviderType.entries.forEach { secretStore.remove(secretKey(it)) }
-        _settings.value = TranslationSettings()
+        val defaults = TranslationSettings()
+        persistSettings(defaults, clear = true)
+        _settings.value = defaults
     }
 
     /**
      * 从完整配置备份恢复翻译设置。
      * 仅当备份确实携带并成功解密了凭据时才替换现有 API Key，避免无密钥备份清空当前设备凭据。
      */
+    @Synchronized
     fun restoreBackup(
         settings: TranslationSettings,
         apiKeys: Map<TranslationProviderType, String> = emptyMap(),
         replaceSecrets: Boolean = false,
     ) {
+        validateTarget(settings.defaultTarget)
         var providers = settings.providers
         if (providers.values.none(TranslationProviderSettings::enabled)) {
             providers =
@@ -192,26 +203,37 @@ class TranslationSettingsRepository @Inject constructor(
                     },
             )
 
-        preferences.edit().clear().apply()
-        persistSettings(normalized)
+        // 全部模型规范化完成后才允许修改凭据和偏好。
         if (replaceSecrets) {
             TranslationProviderType.entries.forEach { type ->
                 val value = apiKeys[type].orEmpty()
                 if (value.isBlank()) secretStore.remove(secretKey(type)) else secretStore.put(secretKey(type), value)
             }
         }
+        persistSettings(normalized, clear = true)
         _settings.value = normalized
     }
 
+    private fun validateTarget(target: TranslationTarget) {
+        if (target is TranslationTarget.Ai) {
+            require(target.providerId.isNotBlank() && target.model.isNotBlank()) {
+                "AI 翻译目标必须包含 Provider ID 和模型"
+            }
+        }
+    }
+
+    @Synchronized
     private fun updateProvider(
         type: TranslationProviderType,
         transform: (TranslationProviderSettings) -> TranslationProviderSettings,
     ) {
         val current = _settings.value
-        _settings.value =
-            current.copy(providers = current.providers + (type to transform(current.provider(type))))
+        val next = current.copy(providers = current.providers + (type to transform(current.provider(type))))
+        persistSettings(next)
+        _settings.value = next
     }
 
+    @Synchronized
     private fun readSettings(): TranslationSettings {
         val defaults = TranslationSettings.defaultProviderSettings()
         var providers =
@@ -278,6 +300,7 @@ class TranslationSettingsRepository @Inject constructor(
         )
     }
 
+    @Synchronized
     private fun normalizeEndpoint(value: String): String {
         val trimmed = value.trim().trimEnd('/')
         if (trimmed.isBlank()) return ""
@@ -289,8 +312,9 @@ class TranslationSettingsRepository @Inject constructor(
     }
 
     private inline fun <reified T : Enum<T>> enumValueOrDefault(value: String?, fallback: T): T =
-        runCatching { enumValueOf<T>(value.orEmpty()) }.getOrDefault(fallback)
+        storedEnum(value, fallback)
 
+    @Synchronized
     private fun encodeTarget(target: TranslationTarget): String =
         when (target) {
             is TranslationTarget.Traditional ->
@@ -307,25 +331,21 @@ class TranslationSettingsRepository @Inject constructor(
                     .toString()
         }
 
+    @Synchronized
     private fun decodeTarget(value: String?): TranslationTarget? =
-        value?.takeIf(String::isNotBlank)?.let { raw ->
-            runCatching {
-                    val json = JSONObject(raw)
-                    when (json.getString("type")) {
-                        "traditional" ->
-                            TranslationTarget.Traditional(
-                                TranslationProviderType.valueOf(json.getString("provider"))
-                            )
-                        "ai" ->
-                            TranslationTarget.Ai(
-                                providerId = json.getString("providerId"),
-                                providerName = json.optString("providerName").ifBlank { "AI" },
-                                model = json.getString("model"),
-                            )
-                        else -> null
-                    }
-                }
-                .getOrNull()
+        value?.takeIf(String::isNotEmpty)?.let { raw ->
+            val json = JSONObject(raw)
+            when (json.getString("type")) {
+                "traditional" -> TranslationTarget.Traditional(
+                    TranslationProviderType.valueOf(json.getString("provider"))
+                )
+                "ai" -> TranslationTarget.Ai(
+                    providerId = json.getString("providerId"),
+                    providerName = json.optString("providerName").ifBlank { "AI" },
+                    model = json.getString("model"),
+                )
+                else -> error("Invalid stored translation target type")
+            }
         }
 
     companion object {

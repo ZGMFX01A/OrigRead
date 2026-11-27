@@ -1,5 +1,11 @@
 package me.ash.reader.llm.chat.runtime
 
+import java.io.InterruptedIOException
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.SendChannel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.channels.trySendBlocking
 import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
@@ -18,6 +24,9 @@ import me.ash.reader.infrastructure.ai.AiPerfRequestTag
 import me.ash.reader.infrastructure.ai.AiPerfTrace
 import me.ash.reader.infrastructure.ai.AiPerfTracer
 import me.ash.reader.infrastructure.ai.resolveChatCompletionsEndpoint
+import me.ash.reader.infrastructure.network.checkResponseByteLimit
+import me.ash.reader.infrastructure.network.readBoundedUtf8
+import me.ash.reader.infrastructure.network.readBoundedUtf8Line
 import me.ash.reader.llm.chat.data.LlmChatRole
 import me.ash.reader.llm.chat.data.LLM_EVIDENCE_CITATION_ENABLED
 import me.ash.reader.llm.runtime.LlmExecutionPlan
@@ -71,14 +80,29 @@ class LlmChatTransport @Inject constructor(
         callbackFlow {
             val activePerfTrace = perfTrace ?: AiPerfTracer.start("llm-chat")
             val request = buildRequest(plan, messages, activePerfTrace)
-            val call = httpClient.client.newCall(request)
+            val cancelledByCollector = AtomicBoolean(false)
+            val client = if (plan.capability.supportsStreaming) httpClient.streamingClient else httpClient.client
+            val call = client.newCall(request)
+            // 独立的零容量通道保留背压，并允许取消直接唤醒外部阻塞发送者。
+            // 不能只关闭生产协程的通道：已挂起的 send 仍可能等待下游排空。
+            val deltas = Channel<LlmChatDelta>(Channel.RENDEZVOUS)
+            launch {
+                try {
+                    for (delta in deltas) send(delta)
+                    close()
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    close(error)
+                }
+            }
             call.enqueue(
                 object : Callback {
                     override fun onFailure(call: Call, e: java.io.IOException) {
-                        if (call.isCanceled()) {
-                            close(CancellationException("LLM 请求已取消", e))
+                        if (cancelledByCollector.get()) {
+                            deltas.close(CancellationException("LLM 请求已取消", e))
                         } else {
-                            close(classifyNetworkError(e))
+                            deltas.close(classifyNetworkError(e))
                         }
                     }
 
@@ -99,8 +123,8 @@ class LlmChatTransport @Inject constructor(
                                 var sawContent = false
                                 var sawToolCalls = false
 
-                                while (!call.isCanceled()) {
-                                    val line = source.readUtf8Line() ?: break
+                                while (!cancelledByCollector.get()) {
+                                    val line = source.readBoundedUtf8Line(MAX_CHAT_SSE_LINE_BYTES) ?: break
                                     val ssePayload = extractSseDataPayload(line)
                                     if (ssePayload != null) {
                                         if (!sawSseData) {
@@ -133,17 +157,19 @@ class LlmChatTransport @Inject constructor(
                                                     delta.completionTokens != null ||
                                                     delta.finishReason != null
                                             ) {
-                                                if (trySend(delta).isFailure) return
+                                                if (!deltas.sendDeltaBlocking(delta, call, cancelledByCollector)) return
                                             }
                                         }
                                     } else if (!sawSseData && line.isNotBlank()) {
+                                        val separator = if (fallbackBody.isNotEmpty()) 1L else 0L
+                                        checkResponseByteLimit(fallbackBody.length.toLong() + separator + line.length, MAX_CHAT_RESPONSE_BYTES)
                                         if (fallbackBody.isNotEmpty()) fallbackBody.append('\n')
                                         fallbackBody.append(line)
                                     }
                                 }
 
                                 if (
-                                    !call.isCanceled() &&
+                                    !cancelledByCollector.get() &&
                                         sawSseData &&
                                         !sawTerminalEvent &&
                                         (
@@ -158,7 +184,7 @@ class LlmChatTransport @Inject constructor(
                                     )
                                 }
 
-                                if (!call.isCanceled() && !sawSseData && fallbackBody.isNotBlank()) {
+                                if (!cancelledByCollector.get() && !sawSseData && fallbackBody.isNotBlank()) {
                                     AiPerfTracer.mark(
                                         activePerfTrace,
                                         "non_streaming_fallback",
@@ -173,20 +199,24 @@ class LlmChatTransport @Inject constructor(
                                             result.completionTokens != null ||
                                             result.finishReason != null
                                     ) {
-                                        if (trySend(result).isFailure) return
+                                        if (!deltas.sendDeltaBlocking(result, call, cancelledByCollector)) return
                                     }
                                 }
-                                if (!call.isCanceled()) {
+                                if (!cancelledByCollector.get()) {
                                     AiPerfTracer.mark(activePerfTrace, "stream_complete")
-                                    close()
+                                    deltas.close()
                                 }
-                            } catch (error: AiException) {
-                                close(error)
-                            } catch (error: Throwable) {
-                                if (call.isCanceled()) {
-                                    close(CancellationException("LLM 请求已取消", error))
+                            } catch (error: CancellationException) {
+                                if (cancelledByCollector.get()) {
+                                    deltas.close(CancellationException("LLM 请求已取消", error))
                                 } else {
-                                    close(classifyNetworkError(error))
+                                    deltas.close(classifyNetworkError(error))
+                                }
+                            } catch (error: Exception) {
+                                if (cancelledByCollector.get()) {
+                                    deltas.close(CancellationException("LLM 请求已取消", error))
+                                } else {
+                                    deltas.close(if (error is AiException) error else classifyNetworkError(error))
                                 }
                             }
                         }
@@ -196,8 +226,32 @@ class LlmChatTransport @Inject constructor(
 
             // callbackFlow 收集器被取消或正常关闭时都会执行这里；取消底层 Call 可立即打断
             // 正在等待响应头或 SSE 下一行的 OkHttp 阻塞读取，保证“停止生成”是真取消。
-            awaitClose { call.cancel() }
+            awaitClose {
+                cancelledByCollector.set(true)
+                deltas.cancel(CancellationException("LLM 请求已取消"))
+                call.cancel()
+            }
         }
+
+    private fun SendChannel<LlmChatDelta>.sendDeltaBlocking(
+        delta: LlmChatDelta,
+        call: Call,
+        cancelledByCollector: AtomicBoolean,
+    ): Boolean {
+        val result = try {
+            trySendBlocking(delta)
+        } catch (error: InterruptedException) {
+            Thread.currentThread().interrupt()
+            call.cancel()
+            close(if (cancelledByCollector.get()) CancellationException("LLM 请求已取消", error)
+                else classifyNetworkError(error))
+            return false
+        }
+        if (result.isSuccess) return true
+        call.cancel()
+        if (cancelledByCollector.get()) close(CancellationException("LLM 请求已取消")) else close()
+        return false
+    }
 
     /** Provider 未返回 usage 时，按实际 system/context/history 内容给出稳定的近似请求 token 数。 */
     internal fun estimateRequestTokens(
@@ -350,7 +404,7 @@ class LlmChatTransport @Inject constructor(
 
     private fun ensureSuccessful(response: Response) {
         if (response.isSuccessful) return
-        val body = response.body?.string().orEmpty()
+        val body = response.readBoundedUtf8(MAX_CHAT_RESPONSE_BYTES)
         val detail = extractErrorDetail(body)
         val message =
             "HTTP ${response.code}" +
@@ -623,6 +677,8 @@ private fun classifyNetworkError(error: Throwable): AiException =
         is UnknownHostException -> AiException(AiErrorCode.NETWORK, "无法解析 AI 服务域名", error)
         is ConnectException -> AiException(AiErrorCode.NETWORK, "无法连接 AI 服务", error)
         is SocketTimeoutException -> AiException(AiErrorCode.NETWORK, "AI 请求超时", error)
+        is InterruptedIOException -> AiException(AiErrorCode.NETWORK,
+            if (error.message.orEmpty().contains("timeout", ignoreCase = true)) "AI 请求超时" else "AI 网络请求中断", error)
         is SSLHandshakeException -> AiException(AiErrorCode.NETWORK, "AI 服务 TLS 握手失败", error)
         is SSLPeerUnverifiedException -> AiException(AiErrorCode.NETWORK, "AI 服务证书校验失败", error)
         else ->
@@ -650,3 +706,5 @@ private fun extractErrorDetail(body: String): String {
 }
 
 private const val MAX_FINISH_REASON_LENGTH = 64
+private const val MAX_CHAT_RESPONSE_BYTES = 8L * 1024L * 1024L
+private const val MAX_CHAT_SSE_LINE_BYTES = 1024L * 1024L

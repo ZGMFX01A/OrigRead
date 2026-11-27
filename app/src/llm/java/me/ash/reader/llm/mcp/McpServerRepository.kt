@@ -1,5 +1,6 @@
 package me.ash.reader.llm.mcp
 
+import me.ash.reader.infrastructure.storage.storedEnum
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -7,6 +8,8 @@ import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import me.ash.reader.infrastructure.json.optCleanString
+import me.ash.reader.infrastructure.json.optNullableString
 import me.ash.reader.infrastructure.translation.SecureSecretStore
 import me.ash.reader.llm.runtime.LlmToolRisk
 import org.json.JSONArray
@@ -32,8 +35,10 @@ class McpServerRepository @Inject constructor(
     private val _servers = MutableStateFlow(readServers())
     val servers: StateFlow<List<McpServerProfile>> = _servers.asStateFlow()
 
+    @Synchronized
     fun currentServers(): List<McpServerProfile> = _servers.value
 
+    @Synchronized
     fun addServer(
         name: String,
         endpoint: String,
@@ -49,6 +54,7 @@ class McpServerRepository @Inject constructor(
         return profile.id
     }
 
+    @Synchronized
     fun updateServer(profile: McpServerProfile) {
         val normalized =
             profile.copy(
@@ -60,12 +66,14 @@ class McpServerRepository @Inject constructor(
         }
     }
 
+    @Synchronized
     fun setEnabled(serverId: String, enabled: Boolean) {
         updateServers { servers ->
             servers.map { if (it.id == serverId) it.copy(enabled = enabled) else it }
         }
     }
 
+    @Synchronized
     fun removeServer(serverId: String) {
         secretStore.remove(secretKey(serverId))
         secretStore.remove(customHeadersKey(serverId))
@@ -77,42 +85,48 @@ class McpServerRepository @Inject constructor(
         updateServers { servers -> servers.filterNot { it.id == serverId } }
     }
 
+    @Synchronized
     fun setBearerToken(serverId: String, token: String) {
         secretStore.put(secretKey(serverId), token.trim())
     }
 
+    @Synchronized
     fun bearerToken(serverId: String): String = secretStore.get(secretKey(serverId))
 
+    @Synchronized
     fun hasBearerToken(serverId: String): Boolean = bearerToken(serverId).isNotBlank()
 
     /** 自定义 Header 可能包含 API Key 等敏感值，因此整体进入 Keystore 加密存储。 */
+    @Synchronized
     fun setCustomHeaders(serverId: String, headers: Map<String, String>) {
+        validateHeaders(headers)
         val payload = JSONObject()
         headers.forEach { (name, value) -> payload.put(name, value) }
         secretStore.put(customHeadersKey(serverId), payload.toString())
     }
 
+    @Synchronized
     fun customHeaders(serverId: String): Map<String, String> =
         secretStore.get(customHeadersKey(serverId))
-            .takeIf(String::isNotBlank)
+            .takeIf(String::isNotEmpty)
             ?.let { raw ->
-                runCatching {
-                        val root = JSONObject(raw)
-                        buildMap {
-                            root.keys().forEach { name ->
-                                val value = root.optString(name)
-                                if (name.isNotBlank() && value.isNotBlank()) put(name, value)
-                            }
+                val root = JSONObject(raw)
+                    buildMap {
+                        root.keys().forEach { name ->
+                            val value = root.optCleanString(name)
+                            if (name.isNotBlank() && value.isNotBlank()) put(name, value)
                         }
                     }
-                    .getOrDefault(emptyMap())
             }
             ?: emptyMap()
 
+    @Synchronized
     fun hasCustomHeaders(serverId: String): Boolean = customHeaders(serverId).isNotEmpty()
 
     /** 预注册 OAuth Client 可能包含 client_secret，因此整份配置使用 Keystore 加密。 */
+    @Synchronized
     fun setOAuthClientConfig(serverId: String, config: McpOAuthClientConfig) {
+        require(config.clientSecret.isBlank() || config.clientId.isNotBlank()) { "OAuth client ID is required" }
         if (config.clientId.isBlank() && config.clientSecret.isBlank()) {
             secretStore.remove(oauthClientConfigKey(serverId))
             return
@@ -127,28 +141,25 @@ class McpServerRepository @Inject constructor(
         )
     }
 
+    @Synchronized
     fun oauthClientConfig(serverId: String): McpOAuthClientConfig =
         secretStore.get(oauthClientConfigKey(serverId))
-            .takeIf(String::isNotBlank)
+            .takeIf(String::isNotEmpty)
             ?.let { raw ->
-                runCatching {
-                        val root = JSONObject(raw)
-                        McpOAuthClientConfig(
-                            clientId = root.optString("clientId"),
-                            clientSecret = root.optString("clientSecret"),
-                            authMethod =
-                                runCatching {
-                                        McpOAuthClientAuthMethod.valueOf(root.optString("authMethod"))
-                                    }
-                                    .getOrDefault(McpOAuthClientAuthMethod.NONE),
-                        )
-                    }
-                    .getOrDefault(McpOAuthClientConfig())
+                val root = JSONObject(raw)
+                McpOAuthClientConfig(
+                    clientId = root.optCleanString("clientId"),
+                    clientSecret = root.optCleanString("clientSecret"),
+                    authMethod =
+                        storedEnum(root.optCleanString("authMethod"), McpOAuthClientAuthMethod.NONE),
+                )
             }
             ?: McpOAuthClientConfig()
 
     /** DCR / 预注册最终使用的 Client 必须与发现出的 issuer 绑定，禁止跨 AS 复用。 */
+    @Synchronized
     fun setOAuthRegistration(serverId: String, registration: McpOAuthClientRegistration) {
+        require(registration.issuer.isNotBlank() && registration.clientId.isNotBlank()) { "Invalid OAuth registration" }
         secretStore.put(
             oauthRegistrationKey(serverId),
             JSONObject()
@@ -160,27 +171,24 @@ class McpServerRepository @Inject constructor(
         )
     }
 
+    @Synchronized
     fun oauthRegistration(serverId: String): McpOAuthClientRegistration? =
         secretStore.get(oauthRegistrationKey(serverId))
-            .takeIf(String::isNotBlank)
+            .takeIf(String::isNotEmpty)
             ?.let { raw ->
-                runCatching {
-                        val root = JSONObject(raw)
-                        McpOAuthClientRegistration(
-                            issuer = root.getString("issuer"),
-                            clientId = root.getString("clientId"),
-                            clientSecret = root.optString("clientSecret"),
-                            authMethod =
-                                runCatching {
-                                        McpOAuthClientAuthMethod.valueOf(root.optString("authMethod"))
-                                    }
-                                    .getOrDefault(McpOAuthClientAuthMethod.NONE),
-                        )
-                    }
-                    .getOrNull()
+                val root = JSONObject(raw)
+                McpOAuthClientRegistration(
+                    issuer = root.getString("issuer"),
+                    clientId = root.getString("clientId"),
+                    clientSecret = root.optCleanString("clientSecret"),
+                    authMethod =
+                        storedEnum(root.optCleanString("authMethod"), McpOAuthClientAuthMethod.NONE),
+                )
             }
 
+    @Synchronized
     fun setOAuthTokenSet(serverId: String, tokenSet: McpOAuthTokenSet) {
+        require(tokenSet.issuer.isNotBlank() && tokenSet.accessToken.isNotBlank()) { "Invalid OAuth token set" }
         secretStore.put(
             oauthTokenKey(serverId),
             JSONObject()
@@ -194,26 +202,26 @@ class McpServerRepository @Inject constructor(
         )
     }
 
+    @Synchronized
     fun oauthTokenSet(serverId: String): McpOAuthTokenSet? =
         secretStore.get(oauthTokenKey(serverId))
-            .takeIf(String::isNotBlank)
+            .takeIf(String::isNotEmpty)
             ?.let { raw ->
-                runCatching {
-                        val root = JSONObject(raw)
-                        McpOAuthTokenSet(
-                            issuer = root.getString("issuer"),
-                            accessToken = root.getString("accessToken"),
-                            refreshToken = root.optString("refreshToken"),
-                            tokenType = root.optString("tokenType", "Bearer"),
-                            scope = root.optString("scope"),
-                            expiresAtEpochMs = root.optLong("expiresAt", Long.MAX_VALUE),
-                        )
-                    }
-                    .getOrNull()
+                val root = JSONObject(raw)
+                McpOAuthTokenSet(
+                    issuer = root.getString("issuer"),
+                    accessToken = root.getString("accessToken"),
+                    refreshToken = root.optCleanString("refreshToken"),
+                    tokenType = root.optNullableString("tokenType") ?: "Bearer",
+                    scope = root.optCleanString("scope"),
+                    expiresAtEpochMs = root.optLong("expiresAt", Long.MAX_VALUE),
+                )
             }
 
+    @Synchronized
     fun hasOAuthAuthorization(serverId: String): Boolean = oauthTokenSet(serverId)?.accessToken?.isNotBlank() == true
 
+    @Synchronized
     fun clearOAuthAuthorization(serverId: String, keepClientConfig: Boolean = true) {
         if (!keepClientConfig) secretStore.remove(oauthClientConfigKey(serverId))
         secretStore.remove(oauthRegistrationKey(serverId))
@@ -222,6 +230,7 @@ class McpServerRepository @Inject constructor(
     }
 
     /** 403 insufficient_scope 后记录下一次人工重新授权需要并集申请的 scope。 */
+    @Synchronized
     fun setOAuthPendingScopes(serverId: String, scopes: Set<String>) {
         val normalized = scopes.map(String::trim).filter(String::isNotBlank).distinct().sorted()
         preferences.edit()
@@ -229,6 +238,7 @@ class McpServerRepository @Inject constructor(
             .apply()
     }
 
+    @Synchronized
     fun oauthPendingScopes(serverId: String): Set<String> =
         preferences.getString(oauthPendingScopesKey(serverId), "").orEmpty()
             .split(' ')
@@ -236,8 +246,10 @@ class McpServerRepository @Inject constructor(
             .filter(String::isNotBlank)
             .toSet()
 
+    @Synchronized
     fun server(serverId: String): McpServerProfile? = _servers.value.firstOrNull { it.id == serverId }
 
+    @Synchronized
     fun isConfigured(profile: McpServerProfile): Boolean =
         profile.enabled &&
             profile.endpoint.isNotBlank() &&
@@ -249,19 +261,23 @@ class McpServerRepository @Inject constructor(
             }
 
     /** Tool discovery 结果写入应用私有缓存；协议 TTL 决定是否可跳过下一次刷新。 */
+    @Synchronized
     fun saveCatalog(catalog: McpToolCatalog) {
         preferences.edit().putString(catalogKey(catalog.serverId), catalog.toJson().toString()).apply()
     }
 
+    @Synchronized
     fun cachedCatalog(serverId: String): McpToolCatalog? =
         preferences.getString(catalogKey(serverId), null)
-            ?.let { raw -> runCatching { catalogFromJson(JSONObject(raw)) }.getOrNull() }
+            ?.let { raw -> catalogFromJson(JSONObject(raw)) }
 
+    @Synchronized
     fun clearCatalog(serverId: String) {
         preferences.edit().remove(catalogKey(serverId)).apply()
     }
 
     /** 读取一台 Server 的可迁移凭据；返回值只能进入 ConfigurationBackup 的加密 secret 块。 */
+    @Synchronized
     fun backupSecrets(serverId: String): McpServerBackupSecrets {
         val clientConfig = oauthClientConfig(serverId).takeUnless {
             it.clientId.isBlank() && it.clientSecret.isBlank()
@@ -280,6 +296,7 @@ class McpServerRepository @Inject constructor(
      * 完整配置恢复入口。Server 列表使用备份内容替换；Secret 只有在 [replaceSecrets] 为 true 时才精确替换。
      * discovery catalog 与远端 session 都是运行时缓存，恢复时统一丢弃，下一次使用会重新发现。
      */
+    @Synchronized
     fun restoreBackup(
         servers: List<McpServerProfile>,
         secrets: Map<String, McpServerBackupSecrets> = emptyMap(),
@@ -295,6 +312,10 @@ class McpServerRepository @Inject constructor(
                 )
             }.distinctBy(McpServerProfile::id)
         require(normalized.size == servers.size) { "MCP 备份包含重复 Server ID" }
+
+        if (replaceSecrets) {
+            normalized.forEach { profile -> secrets[profile.id]?.let(::validateSecrets) }
+        }
 
         val allIds = (currentServers().map(McpServerProfile::id) + normalized.map(McpServerProfile::id)).distinct()
         allIds.forEach(::clearCatalog)
@@ -326,39 +347,62 @@ class McpServerRepository @Inject constructor(
         }
     }
 
+    private fun validateSecrets(snapshot: McpServerBackupSecrets) {
+        validateHeaders(snapshot.customHeaders)
+        snapshot.oauthRegistration?.let {
+            require(it.issuer.isNotBlank() && it.clientId.isNotBlank()) { "Invalid OAuth registration" }
+        }
+        snapshot.oauthTokenSet?.let {
+            require(it.issuer.isNotBlank() && it.accessToken.isNotBlank()) { "Invalid OAuth token set" }
+        }
+        snapshot.oauthClientConfig?.let {
+            require(it.clientSecret.isBlank() || it.clientId.isNotBlank()) { "OAuth client ID is required" }
+        }
+    }
+
+    private fun validateHeaders(headers: Map<String, String>) {
+        headers.forEach { (name, value) ->
+            require(name.isNotBlank() && name.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it in "!#$%&'*+-.^_`|~" }) { "Invalid MCP header name" }
+            require(value.none { it == '\r' || it == '\n' }) { "Invalid MCP header value" }
+        }
+    }
+
+    @Synchronized
     private fun updateServers(transform: (List<McpServerProfile>) -> List<McpServerProfile>) {
         val next = transform(_servers.value).distinctBy(McpServerProfile::id)
         persistServers(next)
         _servers.value = next
     }
 
-    private fun readServers(): List<McpServerProfile> =
-        runCatching {
-                val raw = preferences.getString(KEY_SERVERS, null).orEmpty()
-                if (raw.isBlank()) return@runCatching emptyList()
-                val array = JSONArray(raw)
-                buildList {
-                    repeat(array.length()) { index ->
-                        val item = array.optJSONObject(index) ?: return@repeat
-                        val id = item.optString("id").trim()
-                        val endpoint = item.optString("endpoint").trim()
-                        if (id.isBlank() || endpoint.isBlank()) return@repeat
-                        add(
-                            McpServerProfile(
-                                id = id,
-                                name = item.optString("name").ifBlank { "MCP Server" },
-                                endpoint = endpoint,
-                                enabled = item.optBoolean("enabled", true),
-                                authType =
-                                    runCatching { McpAuthType.valueOf(item.optString("authType")) }
-                                        .getOrDefault(McpAuthType.NONE),
-                            )
-                        )
-                    }
+    @Synchronized
+    private fun readServers(): List<McpServerProfile> {
+        val raw = preferences.getString(KEY_SERVERS, null)
+        if (raw.isNullOrEmpty()) return emptyList()
+        try {
+            val array = JSONArray(raw)
+            val servers = buildList {
+                repeat(array.length()) { index ->
+                    val item = array.getJSONObject(index)
+                    val id = item.getString("id").trim()
+                    val endpoint = item.getString("endpoint").trim()
+                    require(id.isNotBlank() && endpoint.isNotBlank()) { "Invalid MCP server ID/endpoint" }
+                    add(McpServerProfile(
+                        id = id,
+                        name = item.optNullableString("name") ?: "MCP Server",
+                        endpoint = endpoint,
+                        enabled = item.optBoolean("enabled", true),
+                        authType = storedEnum(item.optCleanString("authType"), McpAuthType.NONE),
+                    ))
                 }
             }
-            .getOrDefault(emptyList())
+            require(servers.map { it.id }.distinct().size == servers.size) { "Duplicate MCP server ID" }
+            return servers
+        } catch (cause: Exception) {
+            throw IllegalStateException("MCP servers 配置损坏，原始偏好已保留", cause)
+        }
+    }
 
+    @Synchronized
     private fun persistServers(servers: List<McpServerProfile>) {
         val array = JSONArray()
         servers.forEach { profile ->
@@ -374,22 +418,31 @@ class McpServerRepository @Inject constructor(
         preferences.edit().putString(KEY_SERVERS, array.toString()).apply()
     }
 
+    @Synchronized
     private fun normalizeName(value: String): String = value.trim().take(MAX_NAME_LENGTH).ifBlank { "MCP Server" }
 
+    @Synchronized
     private fun normalizeEndpoint(value: String): String = value.trim()
 
+    @Synchronized
     private fun secretKey(serverId: String): String = "llm_mcp_bearer:$serverId"
 
+    @Synchronized
     private fun customHeadersKey(serverId: String): String = "llm_mcp_headers:$serverId"
 
+    @Synchronized
     private fun oauthClientConfigKey(serverId: String): String = "llm_mcp_oauth_client_config:$serverId"
 
+    @Synchronized
     private fun oauthRegistrationKey(serverId: String): String = "llm_mcp_oauth_registration:$serverId"
 
+    @Synchronized
     private fun oauthTokenKey(serverId: String): String = "llm_mcp_oauth_tokens:$serverId"
 
+    @Synchronized
     private fun oauthPendingScopesKey(serverId: String): String = "oauth_pending_scopes:$serverId"
 
+    @Synchronized
     private fun catalogKey(serverId: String): String = "catalog:$serverId"
 
     companion object {
@@ -415,10 +468,10 @@ private fun McpToolCatalog.toJson(): JSONObject =
                     put(
                         JSONObject()
                             .put("name", tool.name)
-                            .put("title", tool.title)
+                            .put("title", tool.title ?: JSONObject.NULL)
                             .put("description", tool.description)
                             .put("inputSchema", tool.inputSchemaJson)
-                            .put("outputSchema", tool.outputSchemaJson)
+                            .put("outputSchema", tool.outputSchemaJson ?: JSONObject.NULL)
                             .put("risk", tool.risk.name)
                     )
                 }
@@ -431,10 +484,10 @@ private fun catalogFromJson(root: JSONObject): McpToolCatalog {
         serverId = root.getString("serverId"),
         protocolVersion = root.getString("protocolVersion"),
         era = McpProtocolEra.valueOf(root.getString("era")),
-        serverName = root.optString("serverName").takeIf(String::isNotBlank),
+        serverName = root.optNullableString("serverName"),
         fetchedAtEpochMs = root.optLong("fetchedAt"),
         ttlMs = root.optLong("ttlMs"),
-        cacheScope = root.optString("cacheScope", "private"),
+        cacheScope = root.optNullableString("cacheScope") ?: "private",
         tools =
             buildList {
                 if (tools != null) {
@@ -443,13 +496,12 @@ private fun catalogFromJson(root: JSONObject): McpToolCatalog {
                         add(
                             McpToolDefinition(
                                 name = item.getString("name"),
-                                title = item.optString("title").takeIf(String::isNotBlank),
-                                description = item.optString("description"),
-                                inputSchemaJson = item.optString("inputSchema", "{\"type\":\"object\"}"),
-                                outputSchemaJson = item.optString("outputSchema").takeIf(String::isNotBlank),
+                                title = item.optNullableString("title"),
+                                description = item.optCleanString("description"),
+                                inputSchemaJson = item.optNullableString("inputSchema") ?: "{\"type\":\"object\"}",
+                                outputSchemaJson = item.optNullableString("outputSchema"),
                                 risk =
-                                    runCatching { LlmToolRisk.valueOf(item.optString("risk")) }
-                                        .getOrDefault(LlmToolRisk.SENSITIVE),
+                                    storedEnum(item.optCleanString("risk"), LlmToolRisk.SENSITIVE),
                             )
                         )
                     }

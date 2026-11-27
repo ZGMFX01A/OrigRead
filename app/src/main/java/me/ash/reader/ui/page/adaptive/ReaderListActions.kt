@@ -3,6 +3,7 @@ package me.ash.reader.ui.page.adaptive
 import android.net.Uri
 import androidx.lifecycle.viewModelScope
 import java.util.Date
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
@@ -167,6 +168,17 @@ internal fun ArticleListReaderViewModel.performDownloadImage(
     onFailure: (Throwable) -> Unit = {},
 ) {
     viewModelScope.launch {
-        imageDownloader.downloadImage(url).onSuccess(onSuccess).onFailure(onFailure)
+        executeDownloadImage({ imageDownloader.downloadImage(url) }, onSuccess, onFailure)
     }
+}
+
+internal suspend fun executeDownloadImage(
+    download: suspend () -> Result<Uri>,
+    onSuccess: (Uri) -> Unit,
+    onFailure: (Throwable) -> Unit,
+) {
+    val result = download()
+    val error = result.exceptionOrNull()
+    if (error is CancellationException) throw error
+    result.onSuccess(onSuccess).onFailure(onFailure)
 }

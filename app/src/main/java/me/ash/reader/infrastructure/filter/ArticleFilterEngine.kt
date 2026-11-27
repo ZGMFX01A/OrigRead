@@ -4,6 +4,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.StateFlow
 import me.ash.reader.domain.model.article.Article
+import me.ash.reader.infrastructure.security.SafeRegexGuard
 
 data class ArticleFilterMatch(
     val rule: ArticleFilterRule,
@@ -68,7 +69,7 @@ internal object ArticleFilterMatcher {
                 rule = rule,
                 regex =
                     if (rule.type == ArticleFilterRuleType.REGEX) {
-                        runCatching { Regex(rule.keyword, RegexOption.IGNORE_CASE) }.getOrNull()
+                        SafeRegexGuard.compile(rule.keyword, setOf(RegexOption.IGNORE_CASE))
                     } else {
                         null
                     },

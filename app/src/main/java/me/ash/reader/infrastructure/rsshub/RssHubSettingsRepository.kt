@@ -37,14 +37,17 @@ class RssHubSettingsRepository @Inject constructor(
     private val _settings = MutableStateFlow(readSettings())
     val settings: StateFlow<RssHubSettings> = _settings.asStateFlow()
 
+    @Synchronized
     fun current(): RssHubSettings = _settings.value
 
+    @Synchronized
     fun setEnabled(enabled: Boolean) {
         preferences.edit().putBoolean(KEY_ENABLED, enabled).apply()
         _settings.value = _settings.value.copy(enabled = enabled)
     }
 
     /** 添加自定义实例；已存在的地址会直接重新启用，避免产生重复项。 */
+    @Synchronized
     fun addInstance(value: String) {
         val normalized = normalizeInstanceUrl(value)
         val currentInstances = _settings.value.instances
@@ -68,6 +71,7 @@ class RssHubSettingsRepository @Inject constructor(
         saveInstances(updated)
     }
 
+    @Synchronized
     fun setInstanceEnabled(id: String, enabled: Boolean) {
         saveInstances(
             _settings.value.instances.map { instance ->
@@ -76,11 +80,13 @@ class RssHubSettingsRepository @Inject constructor(
         )
     }
 
+    @Synchronized
     fun deleteInstance(id: String) {
         saveInstances(_settings.value.instances.filterNot { it.id == id })
     }
 
     /** 记录最近成功提供有效 Feed 的实例，后续探测时优先复用。 */
+    @Synchronized
     fun recordSuccess(instanceBaseUrl: String) {
         val normalized = normalizeInstanceUrl(instanceBaseUrl)
         preferences.edit()
@@ -90,12 +96,14 @@ class RssHubSettingsRepository @Inject constructor(
     }
 
     /** 实例网络失败后进入短暂冷却，避免连续添加来源时反复等待同一不可用实例。 */
+    @Synchronized
     fun recordFailure(instanceBaseUrl: String, nowMillis: Long = System.currentTimeMillis()) {
         val normalized = normalizeInstanceUrl(instanceBaseUrl)
         updateCooldown(cooldownKey(normalized), nowMillis)
     }
 
     /** route family 级成功记录，避免“实例 healthz 正常”被误当成所有反爬 route 都可用。 */
+    @Synchronized
     fun recordRouteSuccess(instanceBaseUrl: String, routeFamily: String) {
         val normalized = normalizeInstanceUrl(instanceBaseUrl)
         preferences.edit()
@@ -105,6 +113,7 @@ class RssHubSettingsRepository @Inject constructor(
     }
 
     /** route family 级失败冷却；不会把该实例对其它 RSSHub route 一并判死。 */
+    @Synchronized
     fun recordRouteFailure(
         instanceBaseUrl: String,
         routeFamily: String,
@@ -131,6 +140,7 @@ class RssHubSettingsRepository @Inject constructor(
      * 最近成功实例优先，其余启用实例保持设置页顺序。
      * 冷却实例只降到列表末尾，不再彻底排除；手动来源探测仍有机会从瞬时失败中恢复。
      */
+    @Synchronized
     fun candidateInstances(nowMillis: Long = System.currentTimeMillis()): List<String> {
         val enabledInstances = current().instances.filter { it.enabled }.map { it.url }
         val lastSuccess = preferences.getString(KEY_LAST_SUCCESS_INSTANCE, null)
@@ -141,6 +151,7 @@ class RssHubSettingsRepository @Inject constructor(
         return ready + cooling
     }
 
+    @Synchronized
     fun candidateInstancesForRoute(
         routeFamily: String,
         nowMillis: Long = System.currentTimeMillis(),
@@ -159,6 +170,7 @@ class RssHubSettingsRepository @Inject constructor(
         return ready + cooling
     }
 
+    @Synchronized
     fun restoreDefault() {
         val editor = preferences.edit()
             .putBoolean(KEY_ENABLED, true)
@@ -177,6 +189,7 @@ class RssHubSettingsRepository @Inject constructor(
     }
 
     /** 完整配置恢复入口；网络成功记录和失败冷却属于临时状态，不随备份迁移。 */
+    @Synchronized
     fun restoreBackup(settings: RssHubSettings) {
         val normalizedInstances =
             settings.instances
@@ -196,18 +209,20 @@ class RssHubSettingsRepository @Inject constructor(
         _settings.value = settings.copy(instances = normalizedInstances)
     }
 
+    @Synchronized
     private fun saveInstances(instances: List<RssHubInstance>) {
         preferences.edit().putString(KEY_INSTANCES, encodeInstances(instances)).apply()
         _settings.value = _settings.value.copy(instances = instances)
     }
 
+    @Synchronized
     private fun readSettings(): RssHubSettings {
         val stored = preferences.getString(KEY_INSTANCES, null)
         val instances =
-            if (stored.isNullOrBlank()) {
+            if (stored.isNullOrEmpty()) {
                 migrateLegacyInstances()
             } else {
-                decodeInstances(stored).ifEmpty { bundledInstances }
+                decodeInstances(stored)
             }
         return RssHubSettings(
             enabled = preferences.getBoolean(KEY_ENABLED, true),
@@ -216,6 +231,7 @@ class RssHubSettingsRepository @Inject constructor(
     }
 
     /** 兼容此前只保存一个实例地址的版本，并补齐新的公共实例列表。 */
+    @Synchronized
     private fun migrateLegacyInstances(): List<RssHubInstance> {
         val legacy = preferences.getString(KEY_LEGACY_INSTANCE_URL, null)
         if (legacy.isNullOrBlank()) return bundledInstances
@@ -236,6 +252,7 @@ class RssHubSettingsRepository @Inject constructor(
         }
     }
 
+    @Synchronized
     private fun loadBundledInstances(context: Context): List<RssHubInstance> =
         runCatching {
             val raw =
@@ -265,7 +282,10 @@ class RssHubSettingsRepository @Inject constructor(
                     )
                 }
             }.distinctBy(RssHubInstance::url)
-        }.getOrDefault(emptyList())
+        }.getOrElse { cause ->
+            timber.log.Timber.w(cause, "Unable to load bundled RSSHub catalog; using built-in catalog")
+            emptyList()
+        }
 
     companion object {
         private const val PREFERENCES_NAME = "rsshub_settings"
@@ -349,7 +369,7 @@ class RssHubSettingsRepository @Inject constructor(
         }
 
         private fun decodeInstances(value: String): List<RssHubInstance> =
-            runCatching {
+            try {
                 val array = JSONArray(value)
                 buildList {
                     repeat(array.length()) { index ->
@@ -371,7 +391,9 @@ class RssHubSettingsRepository @Inject constructor(
                         )
                     }
                 }.distinctBy { it.url }
-            }.getOrDefault(emptyList())
+            } catch (cause: Exception) {
+                throw IllegalStateException("RSSHub instances 配置损坏，原始偏好已保留", cause)
+            }
 
         private fun cooldownKey(instanceBaseUrl: String): String =
             KEY_COOLDOWN_PREFIX + instanceBaseUrl.hashCode()

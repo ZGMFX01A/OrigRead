@@ -37,7 +37,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
-import java.util.concurrent.Executors
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.parcelize.Parcelize
@@ -103,6 +104,7 @@ fun ArticleListReaderPage(
 ) {
 
     val scope = rememberCoroutineScope()
+    val textMeasurementExecutor = remember { Dispatchers.Default.asExecutor() }
     val motionScheme = MaterialTheme.motionScheme
     val adaptiveLayoutProfile = LocalOrigReadAdaptiveLayoutProfile.current
     val foldManagedListRegion = foldPrimaryInteractiveRegion(adaptiveLayoutProfile)
@@ -219,8 +221,7 @@ fun ArticleListReaderPage(
                     else origReadPushExit(motionScheme),
             ) {
                 CompositionLocalProvider(
-                    LocalBackgroundTextMeasurementExecutor provides
-                        Executors.newSingleThreadExecutor()
+                    LocalBackgroundTextMeasurementExecutor provides textMeasurementExecutor
                 ) {
                     OrigReadWindowRegionBox(targetRegion = foldManagedListRegion) {
                         Box(modifier = Modifier.alpha(animatedListAlpha)) {

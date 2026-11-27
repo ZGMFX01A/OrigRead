@@ -2,9 +2,16 @@ package me.ash.reader.domain.service
 
 import android.content.Context
 import android.widget.Toast
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.emptyPreferences
 import java.nio.file.Files
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,6 +51,8 @@ class AccountServiceDeleteTest {
     @get:Rule val timeout: Timeout = Timeout.seconds(TEST_TIMEOUT_SECONDS)
     private val dispatcher = StandardTestDispatcher()
     private val directory = Files.createTempDirectory("origread-account-delete").toFile()
+    private val dataStoreScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private lateinit var dataStoreAccessor: org.mockito.MockedStatic<*>
     private val context = mock<Context>()
     private val accountDao = mock<AccountDao>()
     private val articleDao = mock<ArticleDao>()
@@ -58,13 +67,21 @@ class AccountServiceDeleteTest {
         Dispatchers.setMain(dispatcher)
         whenever(context.applicationContext).thenReturn(context)
         whenever(context.filesDir).thenReturn(directory)
+        val testStore = PreferenceDataStoreFactory.create(scope = dataStoreScope) {
+            directory.resolve("settings.preferences_pb")
+        }
+        // Keep a real DataStore per test; the top-level production delegate caches one instance.
+        dataStoreAccessor = mockStatic(Class.forName("me.ash.reader.ui.ext.DataStoreExtKt"), org.mockito.Mockito.CALLS_REAL_METHODS)
+        dataStoreAccessor.`when`<DataStore<Preferences>> { context.dataStore }.thenReturn(testStore)
         whenever(settingsProvider.preferencesFlow).thenReturn(MutableStateFlow(emptyPreferences()))
         whenever(accountDao.queryAllAsFlow()).thenReturn(flowOf(emptyList()))
     }
 
     @After fun tearDown() {
+        if (::dataStoreAccessor.isInitialized) dataStoreAccessor.close()
+        runBlocking { dataStoreScope.coroutineContext[Job]!!.cancelAndJoin() }
         Dispatchers.resetMain()
-        directory.deleteRecursively()
+        check(directory.deleteRecursively()) { "Could not remove test DataStore directory" }
     }
 
     @Test fun `last account is refused without entering a loop or deleting rows`() = runTest(dispatcher) {
@@ -107,6 +124,47 @@ class AccountServiceDeleteTest {
         val preferences = context.dataStore.data.first()
         assertEquals(second.id, preferences[DataStoreKey.keys.getValue(DataStoreKey.currentAccountId).key])
         assertEquals(second.type.id, preferences[DataStoreKey.keys.getValue(DataStoreKey.currentAccountType).key])
+    }
+
+    @Test fun `switch commits id and matching account before returning with static preferences flow`() = runTest(dispatcher) {
+        whenever(accountDao.queryById(second.id!!)).thenReturn(second)
+        val service = service(backgroundScope)
+        service.switch(first)
+        service.switch(second)
+        assertEquals(second.id, service.getCurrentAccountId())
+        assertEquals(second, service.getCurrentAccount())
+        val preferences = context.dataStore.data.first()
+        assertEquals(second.id, preferences[DataStoreKey.keys.getValue(DataStoreKey.currentAccountId).key])
+        assertEquals(second.type.id, preferences[DataStoreKey.keys.getValue(DataStoreKey.currentAccountType).key])
+    }
+
+    @Test fun `addAccount commits new id before returning`() = runTest(dispatcher) {
+        whenever(accountDao.insert(any())).thenReturn(2L)
+        whenever(context.getString(R.string.defaults)).thenReturn("Default")
+        val service = service(backgroundScope)
+        service.switch(first)
+        val added = service.addAccount(second.copy(id = null))
+        assertEquals(added.id, service.getCurrentAccountId())
+    }
+
+    @Test fun `deleting noncurrent account preserves active account`() = runTest(dispatcher) {
+        val third = first.copy(id = 3, name = "Third")
+        whenever(accountDao.queryAll()).thenReturn(listOf(first, second, third), listOf(first, third))
+        whenever(accountDao.queryById(second.id!!)).thenReturn(second)
+        val service = service(backgroundScope)
+        service.switch(third)
+        assertEquals(true, service.delete(second.id!!))
+        assertEquals(third.id, service.getCurrentAccountId())
+        assertEquals(third.id, context.dataStore.data.first()[DataStoreKey.keys.getValue(DataStoreKey.currentAccountId).key])
+    }
+
+    @Test fun `deleting current account commits remaining account before returning`() = runTest(dispatcher) {
+        whenever(accountDao.queryAll()).thenReturn(listOf(first, second), listOf(first))
+        whenever(accountDao.queryById(second.id!!)).thenReturn(second)
+        val service = service(backgroundScope)
+        service.switch(second)
+        assertEquals(true, service.delete(second.id!!))
+        assertEquals(first.id, service.getCurrentAccountId())
     }
 
     // 使用真实 AccountService；仅替换存储边界，拒绝分支中的 Looper 不做模拟。

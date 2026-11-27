@@ -18,8 +18,9 @@ internal suspend fun GoogleReaderRssService.saveGoogleReaderSubscription(request
         val account = requireNotNull(accountService.getAccountById(request.accountId)) { "订阅账户不存在" }
         val api = getGoogleReaderAPI(account)
         val key = SourceUrlNormalizer.comparisonKey(request.feedLink)
-        val subscriptions = requireNotNull(api.getSubscriptionList()) { "无法读取远端订阅列表" }
-        val existingRemote = subscriptions.subscriptions.firstOrNull {
+        val subscriptions = api.getSubscriptionList()
+        val subscriptionItems = requireNotNull(subscriptions.subscriptions) { "Google Reader subscriptions 缺失" }
+        val existingRemote = subscriptionItems.firstOrNull {
             (it.url ?: it.htmlUrl)?.let(SourceUrlNormalizer::comparisonKey) == key
         }
         val remoteId = existingRemote?.id?.ofFeedStreamIdToId()

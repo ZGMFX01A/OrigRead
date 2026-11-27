@@ -6,6 +6,7 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import me.ash.reader.infrastructure.exception.GoogleReaderAPIException
 import me.ash.reader.R
 import me.ash.reader.domain.model.article.Article
 import me.ash.reader.infrastructure.html.Readability
@@ -17,6 +18,8 @@ import me.ash.reader.ui.ext.decodeHTML
 import me.ash.reader.ui.ext.isFuture
 import me.ash.reader.ui.ext.spacerDollar
 
+/** 防止远端不断返回新游标而无限分页。 */
+private const val MAX_CONTINUATION_PAGES = 1000
 /** 沿用远端每批文章数与并行请求数。 */
 private const val READER_CONTENT_BATCH_SIZE = 100
 private const val READER_CONTENT_CONCURRENCY = 8
@@ -35,7 +38,8 @@ internal fun GoogleReaderRssService.fetchGoogleReaderContents(
         scope.async(ioDispatcher) {
             semaphore.withPermit {
                 val result = request.api.getItemsContents(ids)
-                result.items.orEmpty().filter { it.id?.isValidItemId() == true }.map {
+                val items = requireNotNull(result.items) { "Google Reader items 缺失" }
+                items.filter { it.id?.isValidItemId() == true }.map {
                     mapGoogleReaderArticle(it, request, GoogleReaderArticleTime(fetchedAt, result.updated))
                 }
             }
@@ -66,15 +70,24 @@ private fun GoogleReaderRssService.mapGoogleReaderArticle(
     )
 }
 
-/** 沿用远端 continuation 分页读取，不改变本轮要求之外的远端兼容策略。 */
+/** 字段缺失和游标异常必须中止同步，不能把不完整快照用作状态差集。 */
 internal suspend fun fetchReaderItemIds(
-    fetch: suspend (String?) -> GoogleReaderDTO.ItemIds?,
+    fetch: suspend (String?) -> GoogleReaderDTO.ItemIds,
 ): List<String> {
-    var result = fetch(null)
-    val ids = result?.itemRefs?.mapNotNull { it.id }?.toMutableList() ?: return emptyList()
-    while (result?.continuation != null) {
-        result = fetch(result.continuation)
-        result?.itemRefs?.mapNotNull { it.id }?.let(ids::addAll)
+    val ids = mutableListOf<String>()
+    val seenContinuations = hashSetOf<String>()
+    var continuation: String? = null
+    var pageCount = 0
+    while (true) {
+        val result = fetch(continuation)
+        val refs = requireNotNull(result.itemRefs) { "Google Reader itemRefs 缺失" }
+        ids.addAll(refs.mapNotNull { it.id })
+        pageCount++
+        val nextContinuation = result.continuation ?: break
+        if (!seenContinuations.add(nextContinuation) || pageCount >= MAX_CONTINUATION_PAGES) {
+            throw GoogleReaderAPIException("Google Reader 分页游标异常，已中止同步")
+        }
+        continuation = nextContinuation
     }
     return ids
 }

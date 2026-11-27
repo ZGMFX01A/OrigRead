@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.Color
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
+import me.ash.reader.infrastructure.content.ContentHtmlSanitizer
 import me.ash.reader.infrastructure.preference.ReadingFontsPreference
 
 object WebViewLayout {
@@ -33,19 +34,24 @@ object WebViewLayout {
                             "sans-serif"
                         }
                         ReadingFontsPreference.External -> {
-                            allowFileAccess = true
                             "sans-serif"
                         }
 
                         else -> "sans-serif"
                     }
-                domStorageEnabled = true
+                allowFileAccess = false
+                allowContentAccess = false
+                @Suppress("DEPRECATION")
+                allowFileAccessFromFileURLs = false
+                @Suppress("DEPRECATION")
+                allowUniversalAccessFromFileURLs = false
+                domStorageEnabled = false
                 javaScriptEnabled = true
                 addJavascriptInterface(
                     object : JavaScriptInterface {
                         @JavascriptInterface
                         override fun onImgTagClick(imgUrl: String?, alt: String?) {
-                            if (onImageClick != null && imgUrl != null) {
+                            if (onImageClick != null && imgUrl != null && ContentHtmlSanitizer.safeImageUrl(imgUrl)) {
                                 onImageClick.invoke(imgUrl, alt ?: "")
                             }
                         }

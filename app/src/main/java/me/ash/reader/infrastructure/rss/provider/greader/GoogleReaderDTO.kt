@@ -61,7 +61,7 @@ object GoogleReaderDTO {
      * }
      */
     data class SubscriptionList(
-        val subscriptions: List<Feed>,
+        val subscriptions: List<Feed>? = null,
     )
 
     data class Feed(

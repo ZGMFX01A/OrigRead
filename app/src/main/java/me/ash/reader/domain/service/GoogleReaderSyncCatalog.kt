@@ -18,9 +18,10 @@ import me.ash.reader.ui.ext.spacerDollar
 
 /** 远端目录映射到任务账户；没有分类的来源使用该账户的默认分组。 */
 internal suspend fun GoogleReaderRssService.fetchGoogleReaderCatalog(state: GoogleReaderSyncState): Map<Group, List<Feed>> {
-    val subscriptions = requireNotNull(state.api.getSubscriptionList()) { "subscriptionList is null" }
+    val subscriptions = state.api.getSubscriptionList()
+    val subscriptionItems = requireNotNull(subscriptions.subscriptions) { "Google Reader subscriptions 缺失" }
     val accountId = state.accountId
-    return subscriptions.subscriptions.groupBy { it.categories?.firstOrNull() }.mapKeys { (category, _) ->
+    return subscriptionItems.groupBy { it.categories?.firstOrNull() }.mapKeys { (category, _) ->
         category?.id?.let { id ->
             Group(accountId spacerDollar id.ofCategoryStreamIdToId(), category.label.toString(), accountId)
         } ?: accountService.getDefaultGroup(accountId)

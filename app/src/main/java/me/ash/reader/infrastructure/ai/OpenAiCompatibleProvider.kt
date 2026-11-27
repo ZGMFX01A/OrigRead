@@ -8,6 +8,9 @@ import javax.inject.Singleton
 import javax.net.ssl.SSLHandshakeException
 import javax.net.ssl.SSLPeerUnverifiedException
 import kotlinx.coroutines.suspendCancellableCoroutine
+import me.ash.reader.infrastructure.network.checkResponseByteLimit
+import me.ash.reader.infrastructure.network.readBoundedUtf8
+import me.ash.reader.infrastructure.network.readBoundedUtf8Line
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -20,6 +23,8 @@ import org.json.JSONObject
 
 private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 private const val DEFAULT_COMPLETION_TEMPERATURE = 0.2
+private const val MAX_AI_RESPONSE_BYTES = 8L * 1024L * 1024L
+private const val MAX_SSE_LINE_BYTES = 1024L * 1024L
 
 /** OpenAI Compatible 一次文本生成的结构化结果。reasoning 只保存供应商明确返回给客户端的内容。 */
 data class AiCompletionResult(
@@ -504,7 +509,7 @@ class OpenAiCompatibleProvider @Inject constructor(
             var sawContent = false
 
             while (!call.isCanceled()) {
-                val line = source.readUtf8Line() ?: break
+                val line = source.readBoundedUtf8Line(MAX_SSE_LINE_BYTES) ?: break
                 if (line.startsWith("data:")) {
                     if (!sawSseData) {
                         sawSseData = true
@@ -550,6 +555,8 @@ class OpenAiCompatibleProvider @Inject constructor(
                         )
                     }
                 } else if (!sawSseData && line.isNotBlank()) {
+                    val separator = if (fallbackBody.isNotEmpty()) 1L else 0L
+                    checkResponseByteLimit(fallbackBody.length.toLong() + separator + line.length, MAX_AI_RESPONSE_BYTES)
                     if (fallbackBody.isNotEmpty()) fallbackBody.append('\n')
                     fallbackBody.append(line)
                 }
@@ -642,7 +649,7 @@ class OpenAiCompatibleProvider @Inject constructor(
     /** Streaming 请求非 2xx 时沿用现有错误分类，并保留服务端错误正文中的 message。 */
     private fun ensureStreamingResponseSuccessful(response: Response) {
         if (response.isSuccessful) return
-        val body = response.body?.string().orEmpty()
+        val body = response.readBoundedUtf8(MAX_AI_RESPONSE_BYTES)
         val detail = extractErrorDetail(body)
         val message =
             "HTTP ${response.code}" +
@@ -662,7 +669,7 @@ class OpenAiCompatibleProvider @Inject constructor(
         response.use {
             val perfTrace = it.request.tag(AiPerfRequestTag::class.java)?.trace
             perfTrace?.let { trace -> AiPerfTracer.mark(trace, "response_read_start") }
-            val body = it.body?.string().orEmpty()
+            val body = it.readBoundedUtf8(MAX_AI_RESPONSE_BYTES)
             perfTrace?.let { trace ->
                 AiPerfTracer.mark(
                     trace,

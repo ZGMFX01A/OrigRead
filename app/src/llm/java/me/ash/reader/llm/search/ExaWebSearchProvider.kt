@@ -7,6 +7,8 @@ import kotlinx.coroutines.withContext
 import me.ash.reader.infrastructure.ai.AiHttpClient
 import me.ash.reader.infrastructure.ai.AiPerfTracer
 import me.ash.reader.infrastructure.di.IODispatcher
+import me.ash.reader.infrastructure.json.optCleanString
+import me.ash.reader.infrastructure.json.optNullableString
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -48,7 +50,7 @@ class ExaWebSearchProvider @Inject constructor(
                     .post(body.toString().toRequestBody(EXA_JSON_MEDIA_TYPE))
                     .build()
             httpClient.executeWebSearchCall(httpRequest, request) { response ->
-                val payload = response.body?.string().orEmpty()
+                val payload = response.readWebSearchPayload()
                 request.perfTrace?.let { trace ->
                     AiPerfTracer.mark(
                         trace,
@@ -80,24 +82,23 @@ internal fun parseExaSearchResponse(
             if (array != null) {
                 repeat(array.length()) { index ->
                     val item = array.optJSONObject(index) ?: return@repeat
-                    val url = item.optString("url").trim()
-                    if (url.isBlank()) return@repeat
+                    val url = item.optNullableString("url") ?: return@repeat
                     val highlights = item.optJSONArray("highlights")
                     val highlight =
                         buildList {
                             if (highlights != null) {
                                 repeat(highlights.length()) { i ->
-                                    highlights.optString(i).trim().takeIf(String::isNotBlank)?.let(::add)
+                                    highlights.optNullableString(i)?.let(::add)
                                 }
                             }
                         }.joinToString(" … ")
-                    val text = item.optString("text").trim()
+                    val text = item.optCleanString("text").trim()
                     add(
                         WebSearchResult(
-                            title = item.optString("title").trim().ifBlank { url },
+                            title = item.optNullableString("title") ?: url,
                             url = url,
                             snippet = highlight.ifBlank { text.take(MAX_EXA_SNIPPET_LENGTH) },
-                            publishedAt = item.optString("publishedDate").trim().takeIf(String::isNotBlank),
+                            publishedAt = item.optNullableString("publishedDate"),
                             source = runCatching { java.net.URI(url).host }.getOrNull(),
                             content = text.takeIf(String::isNotBlank),
                         )
@@ -117,7 +118,7 @@ private fun exaErrorSuffix(payload: String): String {
     val message =
         runCatching {
                 val root = JSONObject(payload)
-                root.optString("error").ifBlank { root.optString("message") }
+                root.optNullableString("error") ?: root.optNullableString("message") ?: ""
             }
             .getOrDefault("")
             .trim()

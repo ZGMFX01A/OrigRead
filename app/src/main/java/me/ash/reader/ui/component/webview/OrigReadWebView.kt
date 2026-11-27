@@ -43,7 +43,6 @@ import me.ash.reader.infrastructure.preference.ReadingFontsPreference
 import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerSnapshot
 import me.ash.reader.ui.component.reader.ReaderEvidenceMarkerNavigationTarget
 import me.ash.reader.ui.component.reader.readerEvidenceMarkerDisplayOrder
-import me.ash.reader.ui.ext.ExternalFonts
 import me.ash.reader.ui.ext.openURL
 import me.ash.reader.ui.ext.surfaceColorAtElevation
 import me.ash.reader.ui.theme.palette.alwaysLight
@@ -106,9 +105,9 @@ fun OrigReadWebView(
 
     val fontPath =
         if (readingFonts is ReadingFontsPreference.External)
-            ExternalFonts.FontType.ReadingFont.toPath(context)
+            EXTERNAL_READING_FONT_URL
         else if (readingFonts is ReadingFontsPreference.GoogleSans) {
-            "/android_res/font/google_sans_flex.ttf"
+            GOOGLE_SANS_FONT_URL
         } else null
 
     val preparedContent =
@@ -264,7 +263,7 @@ fun OrigReadWebView(
                     Log.i("RLog", "readingFont: ${context.filesDir.absolutePath}")
                     loadDataWithBaseURL(
                         webViewReaderBaseUrl(sourceUrl, renderGeneration),
-                        WebViewHtml.HTML.format(
+                        WebViewHtml.render(
                             WebViewStyle.get(
                                 fontSize = fontSize,
                                 fontPath = fontPath,
@@ -286,7 +285,7 @@ fun OrigReadWebView(
                                 selectionTextColor = selectionTextColor,
                                 selectionBgColor = selectionBgColor,
                             ) + readerViewportStyle(viewportInsets, density),
-                            webViewHtmlAttributeEscape(sourceUrl.orEmpty()),
+                            sourceUrl,
                             preparedContent.html,
                             WebViewScript.get(boldCharacters.value),
                         ),

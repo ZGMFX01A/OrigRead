@@ -20,7 +20,6 @@
 
 package me.ash.reader.infrastructure.di
 
-import android.annotation.SuppressLint
 import android.content.Context
 import android.security.KeyChain
 import dagger.Module
@@ -45,7 +44,6 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
 import javax.net.ssl.SSLContext
 import javax.net.ssl.X509KeyManager
-import javax.net.ssl.X509TrustManager
 
 /**
  * Provides singleton [OkHttpClient] for the application.
@@ -70,11 +68,12 @@ fun cachingHttpClient(
     context: Context,
     cacheDirectory: File? = null,
     cacheSize: Long = 10L * 1024L * 1024L,
-    trustAllCerts: Boolean = true,
+    trustAllCerts: Boolean = false,
     connectTimeoutSecs: Long = 30L,
     readTimeoutSecs: Long = 30L,
     clientCertificateAlias: String? = null,
 ): OkHttpClient {
+    require(!trustAllCerts) { "Disabling TLS certificate verification is not allowed" }
     val builder: OkHttpClient.Builder = OkHttpClient.Builder()
 
     if (cacheDirectory != null) {
@@ -86,8 +85,8 @@ fun cachingHttpClient(
         .readTimeout(readTimeoutSecs, TimeUnit.SECONDS)
         .followRedirects(true)
 
-    if (!clientCertificateAlias.isNullOrBlank() || trustAllCerts) {
-        builder.setupSsl(context, clientCertificateAlias, trustAllCerts)
+    if (!clientCertificateAlias.isNullOrBlank()) {
+        builder.setupSsl(context, clientCertificateAlias)
     }
 
     return builder.build()
@@ -95,8 +94,7 @@ fun cachingHttpClient(
 
 fun OkHttpClient.Builder.setupSsl(
     context: Context,
-    clientCertificateAlias: String?,
-    trustAllCerts: Boolean
+    clientCertificateAlias: String?
 ) {
     try {
         val clientKeyManager = clientCertificateAlias?.let { clientAlias ->
@@ -129,26 +127,7 @@ fun OkHttpClient.Builder.setupSsl(
             }
         }
 
-        val trustManager = if (trustAllCerts) {
-            hostnameVerifier { _, _ -> true }
-
-            @SuppressLint("CustomX509TrustManager")
-            object : X509TrustManager {
-                override fun checkClientTrusted(
-                    chain: Array<out X509Certificate>?,
-                    authType: String?
-                ) = Unit
-
-                override fun checkServerTrusted(
-                    chain: Array<out X509Certificate>?,
-                    authType: String?
-                ) = Unit
-
-                override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
-            }
-        } else {
-            Platform.get().platformTrustManager()
-        }
+        val trustManager = Platform.get().platformTrustManager()
 
         val sslContext = SSLContext.getInstance("TLS")
         sslContext.init(arrayOf(clientKeyManager), arrayOf(trustManager), null)
@@ -156,9 +135,9 @@ fun OkHttpClient.Builder.setupSsl(
 
         sslSocketFactory(sslSocketFactory, trustManager)
     } catch (e: NoSuchAlgorithmException) {
-        // ignore
+        throw IllegalStateException("Failed to initialize TLS context", e)
     } catch (e: KeyManagementException) {
-        // ignore
+        throw IllegalStateException("Failed to initialize TLS context", e)
     }
 }
 

@@ -89,6 +89,7 @@ data class EditionSyncArticleSnapshot(
 data class EditionSyncArchivedArticleSnapshot(
     val feedKey: String,
     val link: String,
+    val articleKey: String? = null,
 )
 
 data class EditionSyncReadingRestoreResult(

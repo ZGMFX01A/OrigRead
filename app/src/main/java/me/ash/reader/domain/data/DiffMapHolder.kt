@@ -36,6 +36,11 @@ import me.ash.reader.infrastructure.di.IODispatcher
 import java.io.File
 import javax.inject.Inject
 
+internal fun isSameDiffAccountSession(previous: Account, current: Account): Boolean =
+    previous.id == current.id &&
+        previous.type.id == current.type.id &&
+        previous.securityKey == current.securityKey
+
 @OptIn(FlowPreview::class)
 class DiffMapHolder @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -99,7 +104,11 @@ class DiffMapHolder @Inject constructor(
         applicationScope.launch {
             accountService.currentAccountFlow.mapNotNull { it }.collect { account ->
                 val previousAccount = synchronized(stateLock) { currentAccount }
-                if (previousAccount != null && previousAccount != account) {
+                if (previousAccount != null && isSameDiffAccountSession(previousAccount, account)) {
+                    synchronized(stateLock) { currentAccount = account }
+                    return@collect
+                }
+                if (previousAccount != null) {
                     cleanup()
                 }
                 synchronized(stateLock) {
@@ -195,7 +204,7 @@ class DiffMapHolder @Inject constructor(
             pendingSyncDiffsSnapshotFlow.debounce(2_000).collect {
                 if (isCurrentSession(context)) {
                     withContext(ioDispatcher) {
-                        syncDiffsWithRemote(it, account, context)
+                        syncDiffsWithRemote(it, synchronized(stateLock) { currentAccount } ?: account, context)
                     }
                 }
             }
@@ -529,7 +538,7 @@ class DiffMapHolder @Inject constructor(
                         val pending = synchronized(stateLock) {
                             syncState.pending.toMap()
                         }
-                        syncDiffsWithRemote(pending, account, context)
+                        syncDiffsWithRemote(pending, synchronized(stateLock) { currentAccount } ?: account, context)
                     }
                 } finally {
                     val retryAgain = synchronized(stateLock) {

@@ -6,6 +6,8 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import me.ash.reader.infrastructure.ai.AiHttpClient
 import me.ash.reader.infrastructure.di.IODispatcher
+import me.ash.reader.infrastructure.json.optCleanString
+import me.ash.reader.infrastructure.json.optNullableString
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
@@ -50,7 +52,7 @@ class FirecrawlWebSearchProvider @Inject constructor(
                     .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
                     .build()
             httpClient.executeWebSearchCall(httpRequest, request) { response ->
-                val payload = response.body?.string().orEmpty()
+                val payload = response.readWebSearchPayload()
                 if (!response.isSuccessful) {
                     throw WebSearchException("Firecrawl 搜索失败：HTTP ${response.code}")
                 }
@@ -72,14 +74,13 @@ internal fun parseFirecrawlSearchResponse(
             if (array != null) {
                 repeat(array.length()) { index ->
                     val item = array.optJSONObject(index) ?: return@repeat
-                    val url = item.optString("url").trim()
-                    if (url.isBlank()) return@repeat
+                    val url = item.optNullableString("url") ?: return@repeat
                     add(
                         WebSearchResult(
-                            title = item.optString("title").ifBlank { url },
+                            title = item.optNullableString("title") ?: url,
                             url = url,
-                            snippet = item.optString("description"),
-                            content = item.optString("markdown").takeIf(String::isNotBlank),
+                            snippet = item.optCleanString("description"),
+                            content = item.optNullableString("markdown"),
                             source = runCatching { url.toHttpUrl().host }.getOrNull(),
                         )
                     )

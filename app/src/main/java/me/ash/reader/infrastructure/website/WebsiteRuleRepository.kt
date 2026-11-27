@@ -1,5 +1,7 @@
 package me.ash.reader.infrastructure.website
 
+import me.ash.reader.infrastructure.security.SafeRegexGuard
+import me.ash.reader.infrastructure.storage.AtomicJsonFileStore
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.net.URI
@@ -20,6 +22,7 @@ class WebsiteRuleRepository @Inject constructor(
     }
 
     /** 返回当前实际生效的全部规则。 */
+    @Synchronized
     fun listRules(): List<WebsiteRule> =
         (BUILT_IN_RULES + loadCustomRules())
             .associateBy { it.id }
@@ -27,6 +30,7 @@ class WebsiteRuleRepository @Inject constructor(
             .sortedBy { it.name }
 
     /** 通过写入同 id 的用户规则覆盖内置或既有规则。 */
+    @Synchronized
     fun setEnabled(ruleId: String, enabled: Boolean) {
         val rule = listRules().firstOrNull { it.id == ruleId }
             ?: error("未找到规则：$ruleId")
@@ -34,6 +38,7 @@ class WebsiteRuleRepository @Inject constructor(
     }
 
     /** 删除用户规则；内置规则会通过禁用覆盖实现“删除”效果。 */
+    @Synchronized
     fun deleteRule(ruleId: String) {
         val customRules = loadCustomRules().toMutableList()
         val removed = customRules.removeAll { it.id == ruleId }
@@ -49,6 +54,7 @@ class WebsiteRuleRepository @Inject constructor(
     }
 
     /** 导出用户规则；内置规则只属于当前应用，不进入分享或备份文件。 */
+    @Synchronized
     fun exportRules(): String =
         json.encodeToString(
             WebsiteRuleBundle(
@@ -57,6 +63,7 @@ class WebsiteRuleRepository @Inject constructor(
         )
 
     /** 导出可直接修改后导入的固定规则模板。 */
+    @Synchronized
     fun exportTemplate(): String =
         json.encodeToString(
             WebsiteRuleBundle(
@@ -93,6 +100,7 @@ class WebsiteRuleRepository @Inject constructor(
         get() = context.filesDir.resolve("website-rules.json")
 
     /** 按域名查找全部已配置规则，包含已停用规则，供设置界面展示状态。 */
+    @Synchronized
     fun findConfiguredRules(url: String): List<WebsiteRule> {
         val host = runCatching { URI(url).host.orEmpty().lowercase() }.getOrDefault("")
         return (BUILT_IN_RULES + loadCustomRules())
@@ -106,16 +114,20 @@ class WebsiteRuleRepository @Inject constructor(
     }
 
     /** 按域名查找当前同步实际可执行的启用规则。 */
+    @Synchronized
     fun findRules(url: String): List<WebsiteRule> =
         findConfiguredRules(url).filter(WebsiteRule::enabled)
 
     /** 兼容原有单规则调用，返回匹配列表中的第一条。 */
+    @Synchronized
     fun findRule(url: String): WebsiteRule? = findRules(url).firstOrNull()
 
     /** 按规则 id 读取当前实际生效的规则。 */
+    @Synchronized
     fun findRuleById(ruleId: String): WebsiteRule? = listRules().firstOrNull { it.id == ruleId && it.enabled }
 
     /** 校验并导入规则，同 id 规则由新版本覆盖。 */
+    @Synchronized
     fun importRules(content: String): Int {
         val incoming = json.decodeFromString<WebsiteRuleBundle>(content)
         require(incoming.schemaVersion == 1) { "不支持的规则版本：${incoming.schemaVersion}" }
@@ -141,6 +153,7 @@ class WebsiteRuleRepository @Inject constructor(
     }
 
     /** 仅校验完整备份中的网站规则，不修改本地状态。 */
+    @Synchronized
     fun validateBackup(content: String) {
         val incoming = json.decodeFromString<WebsiteRuleBundle>(content)
         require(incoming.schemaVersion == 1) { "不支持的网站规则版本：${incoming.schemaVersion}" }
@@ -148,6 +161,7 @@ class WebsiteRuleRepository @Inject constructor(
     }
 
     /** 完整配置恢复时以备份中的有效规则集为准，而不是与现有规则继续叠加。 */
+    @Synchronized
     fun restoreBackup(content: String): Int {
         val incoming = json.decodeFromString<WebsiteRuleBundle>(content)
         require(incoming.schemaVersion == 1) { "不支持的网站规则版本：${incoming.schemaVersion}" }
@@ -158,9 +172,11 @@ class WebsiteRuleRepository @Inject constructor(
     }
 
     /** 供 AI 候选生成等入口复用与手工导入完全相同的规则校验，不执行持久化。 */
+    @Synchronized
     fun validateCandidate(rule: WebsiteRule) = validateRule(rule)
 
     /** 用户确认 AI 候选后保存单条规则；保存前再次执行完整本地校验。 */
+    @Synchronized
     fun saveRule(rule: WebsiteRule) {
         require(rule.id !in BUILT_IN_RULE_IDS) { "内置规则不能作为用户规则保存：${rule.id}" }
         validateRule(rule)
@@ -173,21 +189,31 @@ class WebsiteRuleRepository @Inject constructor(
         writeCustomRules((existing + rule).associateBy { it.id }.values.toList())
     }
 
+    @Synchronized
     private fun saveCustomRule(rule: WebsiteRule) {
         val merged = (loadCustomRules() + rule).associateBy { it.id }.values.toList()
         writeCustomRules(merged)
     }
 
+    @Synchronized
     private fun writeCustomRules(rules: List<WebsiteRule>) {
-        ruleFile.writeText(json.encodeToString(WebsiteRuleBundle(rules = rules)))
+        AtomicJsonFileStore.writeAtomicText(ruleFile, json.encodeToString(WebsiteRuleBundle(rules = rules)))
     }
 
-    private fun loadCustomRules(): List<WebsiteRule> =
-        runCatching {
-            if (!ruleFile.exists()) emptyList()
-            else json.decodeFromString<WebsiteRuleBundle>(ruleFile.readText()).rules
-        }.getOrDefault(emptyList())
+    @Synchronized
+    private fun loadCustomRules(): List<WebsiteRule> {
+        if (!ruleFile.exists()) return emptyList()
+        try {
+            val bundle = json.decodeFromString<WebsiteRuleBundle>(ruleFile.readText())
+            require(bundle.schemaVersion == 1) { "不支持的网站规则版本" }
+            bundle.rules.forEach(::validateRule)
+            return bundle.rules
+        } catch (cause: Exception) {
+            AtomicJsonFileStore.preserveCorruptAndThrow(ruleFile, "网站规则", cause)
+        }
+    }
 
+    @Synchronized
     private fun hostsOverlap(left: List<String>, right: List<String>): Boolean =
         left.any { leftHost ->
             right.any { rightHost ->
@@ -198,6 +224,7 @@ class WebsiteRuleRepository @Inject constructor(
         }
 
     /** 防止无效规则在同步阶段才暴露问题。 */
+    @Synchronized
     private fun validateRule(rule: WebsiteRule) {
         require(rule.id.isNotBlank()) { "规则 id 不能为空" }
         require(rule.name.isNotBlank()) { "规则名称不能为空" }
@@ -212,9 +239,9 @@ class WebsiteRuleRepository @Inject constructor(
         require(rule.linkSelector.isNotBlank()) { "linkSelector 不能为空" }
         require(rule.contentSelectors.none { it.isBlank() }) { "contentSelectors 不能包含空选择器" }
         require(rule.maxItems in 1..200) { "maxItems 必须在 1 到 200 之间" }
-        rule.includeUrlRegex?.let(::Regex)
-        rule.excludeTitleRegexes.forEach(::Regex)
-        rule.urlIdRegex?.let(::Regex)
+        rule.includeUrlRegex?.let(SafeRegexGuard::validate)
+        rule.excludeTitleRegexes.forEach(SafeRegexGuard::validate)
+        rule.urlIdRegex?.let(SafeRegexGuard::validate)
     }
 
     private companion object {

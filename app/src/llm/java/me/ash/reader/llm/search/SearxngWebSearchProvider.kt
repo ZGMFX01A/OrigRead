@@ -6,6 +6,8 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import me.ash.reader.infrastructure.ai.AiHttpClient
 import me.ash.reader.infrastructure.di.IODispatcher
+import me.ash.reader.infrastructure.json.optCleanString
+import me.ash.reader.infrastructure.json.optNullableString
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import org.json.JSONObject
@@ -32,7 +34,7 @@ class SearxngWebSearchProvider @Inject constructor(
                     .build()
             val httpRequest = Request.Builder().url(url).header("Accept", "application/json").get().build()
             httpClient.executeWebSearchCall(httpRequest, request) { response ->
-                val payload = response.body?.string().orEmpty()
+                val payload = response.readWebSearchPayload()
                 if (!response.isSuccessful) {
                     throw WebSearchException("SearXNG 搜索失败：HTTP ${response.code}")
                 }
@@ -55,14 +57,13 @@ internal fun parseSearxngSearchResponse(
             if (array != null) {
                 repeat(minOf(array.length(), maxResults)) { index ->
                     val item = array.optJSONObject(index) ?: return@repeat
-                    val url = item.optString("url").trim()
-                    if (url.isBlank()) return@repeat
+                    val url = item.optNullableString("url") ?: return@repeat
                     add(
                         WebSearchResult(
-                            title = item.optString("title").ifBlank { url },
+                            title = item.optNullableString("title") ?: url,
                             url = url,
-                            snippet = item.optString("content"),
-                            publishedAt = item.optString("publishedDate").takeIf(String::isNotBlank),
+                            snippet = item.optCleanString("content"),
+                            publishedAt = item.optNullableString("publishedDate"),
                             source = runCatching { url.toHttpUrl().host }.getOrNull(),
                         )
                     )

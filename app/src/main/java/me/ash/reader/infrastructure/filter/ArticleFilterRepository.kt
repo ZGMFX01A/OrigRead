@@ -1,5 +1,7 @@
 package me.ash.reader.infrastructure.filter
 
+import me.ash.reader.infrastructure.security.SafeRegexGuard
+import me.ash.reader.infrastructure.storage.AtomicJsonFileStore
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.Collections
@@ -99,15 +101,20 @@ class ArticleFilterRepository @Inject constructor(
     private val mutableRulesFlow = MutableStateFlow(cachedBundle.rules)
     val rulesFlow: StateFlow<List<ArticleFilterRule>> = mutableRulesFlow.asStateFlow()
 
+    @Synchronized
     fun getAll(): List<ArticleFilterRule> = cachedBundle.rules
 
+    @Synchronized
     internal fun getCompiledRules(): List<CompiledFilterRule> = cachedCompiledRules
 
+    @Synchronized
     fun getByFeed(feedId: String): List<ArticleFilterRule> =
         cachedBundle.rules.filter { it.feedId == feedId }
 
+    @Synchronized
     fun getStats(): ArticleFilterStats = cachedBundle.stats
 
+    @Synchronized
     fun getFilteredArticles(): List<FilteredArticleRecord> = cachedHistory.entries
 
     /** 新增规则；普通关键词按忽略大小写去重，正则按原表达式去重。 */
@@ -166,8 +173,9 @@ class ArticleFilterRepository @Inject constructor(
                 .distinctBy { it.feedId to it.articleId }
                 .sortedByDescending { it.filteredAt }
                 .take(ARTICLE_FILTER_HISTORY_LIMIT)
-        cachedHistory = ArticleFilterHistoryBundle(entries = merged)
-        writeHistory(cachedHistory)
+        val history = ArticleFilterHistoryBundle(entries = merged)
+        writeHistory(history)
+        cachedHistory = history
     }
 
     @Synchronized
@@ -221,11 +229,13 @@ class ArticleFilterRepository @Inject constructor(
         return restoredRules.size
     }
 
+    @Synchronized
     private fun validatePattern(keyword: String, type: ArticleFilterRuleType) {
         require(keyword.isNotBlank()) { "Filter pattern cannot be empty" }
-        if (type == ArticleFilterRuleType.REGEX) Regex(keyword)
+        if (type == ArticleFilterRuleType.REGEX) SafeRegexGuard.validate(keyword)
     }
 
+    @Synchronized
     private fun normalize(rules: List<ArticleFilterRule>): List<ArticleFilterRule> =
         rules
             .mapNotNull { rule ->
@@ -237,6 +247,7 @@ class ArticleFilterRepository @Inject constructor(
                 Triple(rule.feedId, rule.type, pattern)
             }
 
+    @Synchronized
     private fun update(bundle: ArticleFilterRuleBundle) {
         val snapshot = bundle.copy(rules = immutableRules(bundle.rules))
         val rulesChanged = cachedBundle.rules != snapshot.rules
@@ -248,31 +259,43 @@ class ArticleFilterRepository @Inject constructor(
         }
     }
 
+    @Synchronized
     private fun write(bundle: ArticleFilterRuleBundle) {
-        ruleFile.writeText(json.encodeToString(bundle))
+        AtomicJsonFileStore.writeAtomicText(ruleFile, json.encodeToString(bundle))
     }
 
+    @Synchronized
     private fun writeHistory(bundle: ArticleFilterHistoryBundle) {
-        historyFile.writeText(json.encodeToString(bundle))
+        AtomicJsonFileStore.writeAtomicText(historyFile, json.encodeToString(bundle))
     }
 
-    /** 兼容旧版仅包含 keyword/feedId/enabled 的规则文件。 */
-    private fun load(): ArticleFilterRuleBundle =
-        runCatching {
-            if (!ruleFile.exists()) ArticleFilterRuleBundle()
-            else json.decodeFromString<ArticleFilterRuleBundle>(ruleFile.readText())
-        }.getOrDefault(ArticleFilterRuleBundle()).let { bundle ->
-            bundle.copy(rules = immutableRules(bundle.rules))
+    /** 兼容旧版规则；损坏文件保留现场并阻止后续空配置覆盖。 */
+    @Synchronized
+    private fun load(): ArticleFilterRuleBundle {
+        if (!ruleFile.exists()) return ArticleFilterRuleBundle()
+        try {
+            val bundle = json.decodeFromString<ArticleFilterRuleBundle>(ruleFile.readText())
+            require(bundle.schemaVersion == 1) { "Unsupported filter rule version" }
+            bundle.rules.forEach { validatePattern(it.keyword, it.type) }
+            return bundle.copy(rules = immutableRules(bundle.rules))
+        } catch (cause: Exception) {
+            AtomicJsonFileStore.preserveCorruptAndThrow(ruleFile, "文章过滤规则", cause)
         }
+    }
 
-    private fun loadHistory(): ArticleFilterHistoryBundle =
-        runCatching {
-            if (!historyFile.exists()) ArticleFilterHistoryBundle()
-            else json.decodeFromString<ArticleFilterHistoryBundle>(historyFile.readText())
-        }.getOrDefault(ArticleFilterHistoryBundle()).let { bundle ->
-            bundle.copy(entries = bundle.entries.take(ARTICLE_FILTER_HISTORY_LIMIT))
+    @Synchronized
+    private fun loadHistory(): ArticleFilterHistoryBundle {
+        if (!historyFile.exists()) return ArticleFilterHistoryBundle()
+        try {
+            val bundle = json.decodeFromString<ArticleFilterHistoryBundle>(historyFile.readText())
+            require(bundle.schemaVersion == 1) { "Unsupported filter history version" }
+            return bundle.copy(entries = bundle.entries.take(ARTICLE_FILTER_HISTORY_LIMIT))
+        } catch (cause: Exception) {
+            AtomicJsonFileStore.preserveCorruptAndThrow(historyFile, "文章过滤历史", cause)
         }
+    }
 
+    @Synchronized
     private fun immutableRules(rules: List<ArticleFilterRule>): List<ArticleFilterRule> =
         Collections.unmodifiableList(rules.toList())
 }

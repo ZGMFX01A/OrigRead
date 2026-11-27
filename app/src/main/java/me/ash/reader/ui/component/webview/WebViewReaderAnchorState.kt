@@ -27,6 +27,7 @@ import me.ash.reader.ui.component.reader.ReaderEvidenceResolveStrategy
 import me.ash.reader.ui.component.reader.READER_EVIDENCE_MARKER_URL_PREFIX
 import me.ash.reader.ui.component.reader.buildReaderEvidenceDocument
 import me.ash.reader.ui.component.reader.resolveReaderEvidenceAnchor
+import me.ash.reader.infrastructure.content.ContentHtmlSanitizer
 import org.jsoup.Jsoup
 
 enum class WebViewReaderAnchorUnavailableReason {
@@ -510,11 +511,12 @@ internal fun prepareWebViewReaderContent(
     sourceUrl: String?,
     originalContent: Boolean,
 ): WebViewPreparedReaderContent {
-    val body = Jsoup.parse(content, sourceUrl.orEmpty()).body()
-    val imageUrlsChanged = upgradeReaderImageUrls(body)
+    val sanitized = ContentHtmlSanitizer.sanitizeForWebView(content, sourceUrl.orEmpty())
+    val body = Jsoup.parse(sanitized, sourceUrl.orEmpty()).body()
+    upgradeReaderImageUrls(body)
     if (!originalContent) {
         return WebViewPreparedReaderContent(
-            if (imageUrlsChanged) body.html() else content,
+            body.html(),
             ReaderEvidenceDocument(emptyList()),
         )
     }

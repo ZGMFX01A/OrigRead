@@ -13,7 +13,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.runBlocking
 import me.ash.reader.R
@@ -32,7 +34,6 @@ import me.ash.reader.infrastructure.preference.SettingsProvider
 import me.ash.reader.ui.ext.DataStoreKey
 import me.ash.reader.ui.ext.dataStore
 import me.ash.reader.ui.ext.getDefaultGroupId
-import me.ash.reader.ui.ext.put
 import me.ash.reader.ui.ext.showToastSuspend
 import me.ash.reader.ui.ext.spacerDollar
 
@@ -52,9 +53,15 @@ constructor(
     private val rssReadingModeMigrationKey = booleanPreferencesKey("migration_rss_reading_mode_v1")
     private val origReadBrandMigrationKey = booleanPreferencesKey("migration_origread_brand_v1")
 
+    private val accountTypeKey = intPreferencesKey(DataStoreKey.currentAccountType)
+    private val accountSwitchMutex = Mutex()
+    private val committedAccountId = MutableStateFlow<Int?>(null)
+    @Volatile private var committedAccountIdValue: Int? = null
+
     val currentAccountIdFlow =
-        settingsProvider.preferencesFlow
-            .map { it[accountIdKey] }
+        combine(settingsProvider.preferencesFlow, committedAccountId) { prefs, override ->
+            override ?: prefs[accountIdKey]
+        }
             .stateIn(scope = coroutineScope, started = SharingStarted.Eagerly, initialValue = null)
 
     val currentAccountFlow =
@@ -70,15 +77,30 @@ constructor(
 
     suspend fun getAccountById(accountId: Int): Account? = accountDao.queryById(accountId)
 
-    fun getCurrentAccount(): Account =
-        currentAccountFlow.value ?: runBlocking {
-            currentAccountFlow.first { it != null } as Account
-        }
+    fun getCurrentAccount(): Account {
+        val id = getCurrentAccountId()
+        return currentAccountFlow.value?.takeIf { it.id == id }
+            ?: runBlocking { requireNotNull(accountDao.queryById(id)) { "当前账户不存在" } }
+    }
 
     fun getCurrentAccountId(): Int =
-        currentAccountIdFlow.value ?: runBlocking {
+        committedAccountIdValue ?: currentAccountIdFlow.value ?: runBlocking {
             currentAccountIdFlow.first { it != null } as Int
         }
+
+    private suspend fun persistCurrentAccount(accountId: Int, accountTypeId: Int) {
+        accountSwitchMutex.withLock {
+            context.dataStore.edit { preferences ->
+                preferences[accountIdKey] = accountId
+                preferences[accountTypeKey] = accountTypeId
+            }
+            committedAccountIdValue = accountId
+            committedAccountId.value = accountId
+            context.dataStore.data.first {
+                it[accountIdKey] == accountId && it[accountTypeKey] == accountTypeId
+            }
+        }
+    }
 
     suspend fun isNoAccount(): Boolean = accountDao.queryAll().isEmpty()
 
@@ -96,8 +118,7 @@ constructor(
                     )
                 }
             }
-            context.dataStore.put(DataStoreKey.currentAccountId, it.id!!)
-            context.dataStore.put(DataStoreKey.currentAccountType, it.type.id)
+            persistCurrentAccount(it.id!!, it.type.id)
         }
     }
 
@@ -197,6 +218,10 @@ constructor(
 
     suspend fun update(account: Account) = accountDao.update(account)
 
+    /** 同步完成只推进时间与游标列，不把抓取开始时的账户配置整行写回。 */
+    suspend fun updateSyncMetadata(accountId: Int, updatedAt: Date, lastArticleId: String?) =
+        accountDao.updateSyncMetadata(accountId, updatedAt, lastArticleId)
+
     /** 同步完成使用列更新，不把抓取开始时的账户配置整行写回。 */
     suspend fun updateSyncTime(accountId: Int, updatedAt: Date) =
         accountDao.updateSyncTime(accountId, updatedAt)
@@ -212,15 +237,17 @@ constructor(
         feedDao.deleteByAccountId(accountId)
         groupDao.deleteByAccountId(accountId)
         accountDao.delete(account)
-        accountDao.queryAll().getOrNull(0)?.let {
-            context.dataStore.put(DataStoreKey.currentAccountId, it.id!!)
-            context.dataStore.put(DataStoreKey.currentAccountType, it.type.id)
+        val currentId = committedAccountIdValue ?: currentAccountIdFlow.value
+            ?: context.dataStore.data.first()[accountIdKey]
+        if (currentId == null || currentId == accountId) {
+            accountDao.queryAll().firstOrNull()?.let {
+                persistCurrentAccount(it.id!!, it.type.id)
+            }
         }
         return true
     }
 
     suspend fun switch(account: Account) {
-        context.dataStore.put(DataStoreKey.currentAccountId, account.id!!)
-        context.dataStore.put(DataStoreKey.currentAccountType, account.type.id)
+        persistCurrentAccount(account.id!!, account.type.id)
     }
 }

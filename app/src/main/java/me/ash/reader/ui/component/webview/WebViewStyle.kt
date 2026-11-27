@@ -4,18 +4,22 @@ object WebViewStyle {
 
     private fun argbToCssColor(argb: Int): String = String.format("#%06X", 0xFFFFFF and argb)
 
-    private fun applyFontFace(
-        fontPath: String? = null
-    ): String = if (fontPath != null) """
-        @font-face {
-            font-family: external;
-            src: url("file://$fontPath")
-        }
-    """.trimIndent() else ""
+    private fun isTrustedFontUrl(fontPath: String?): Boolean =
+        fontPath == EXTERNAL_READING_FONT_URL || fontPath == GOOGLE_SANS_FONT_URL
+
+    internal fun applyFontFace(fontPath: String? = null): String {
+        if (!isTrustedFontUrl(fontPath)) return ""
+        return """
+            @font-face {
+                font-family: external;
+                src: url("$fontPath");
+            }
+        """.trimIndent()
+    }
 
     private fun applyFontFamily(
         fontPath: String? = null
-    ): String = if (fontPath != null) """
+    ): String = if (isTrustedFontUrl(fontPath)) """
         --font-family: external;
     """.trimIndent() else ""
 

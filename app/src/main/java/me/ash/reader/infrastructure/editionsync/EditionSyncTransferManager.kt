@@ -28,9 +28,7 @@ class EditionSyncTransferManager @Inject constructor(
         cleanupOldTransfers()
 
         val encrypted =
-            EditionSyncCrypto.encrypt(
-                editionSyncService.exportBundle().toByteArray(Charsets.UTF_8)
-            )
+            EditionSyncCredentialTransfer.encryptBundle(editionSyncService.exportBundle())
         val directory = File(context.cacheDir, EditionSyncContract.TEMP_DIRECTORY).apply { mkdirs() }
         val file = File(directory, "${UUID.randomUUID()}${EditionSyncContract.TEMP_FILE_SUFFIX}")
         file.writeBytes(encrypted.ciphertext)
@@ -65,6 +63,10 @@ class EditionSyncTransferManager @Inject constructor(
         ) {
             "两个 OrigRead Edition 的签名不同，不能直接同步；请使用加密配置备份手动迁移"
         }
+        val targetActivity = context.packageManager.getActivityInfo(
+            ComponentName(peerPackage, EditionSyncContract.IMPORT_ACTIVITY_CLASS), 0,
+        )
+        validateEditionSyncTargetPermission(targetActivity.permission)
     }
 
     private fun cleanupOldTransfers() {

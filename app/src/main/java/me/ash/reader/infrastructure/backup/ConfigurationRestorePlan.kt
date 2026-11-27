@@ -49,13 +49,13 @@ internal fun ConfigurationBackupService.prepareRestore(content: String, password
 
 /** 已通过完整预校验后才进入的实际写入阶段。 */
 internal suspend fun ConfigurationBackupService.applyPreparedRestore(
-    prepared: PreparedConfigurationRestore, jsonRulesSnapshot: String? = null,
+    prepared: PreparedConfigurationRestore, jsonRulesSnapshot: String? = null, targetAccountId: Int? = null,
 ): ConfigurationRestoreResult {
     val backup = prepared.backup
     val secrets = prepared.secrets
 
-    val feedIdMap = restoreSubscriptions(backup.subscriptions)
-    restoreAccountSettings(prepared.accountSettings)
+    val feedIdMap = restoreSubscriptions(backup.subscriptions, targetAccountId)
+    restoreAccountSettings(prepared.accountSettings, targetAccountId)
 
     val websiteRuleCount = websiteRuleRepository.restoreBackup(prepared.websiteRulesJson)
     // 正常导入合并来源映射；失败补偿恢复完整快照，删除本次失败写入的新绑定。

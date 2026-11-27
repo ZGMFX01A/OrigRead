@@ -22,7 +22,7 @@ class EditionSyncAccountResolver @Inject constructor(
     private val accountDao: AccountDao,
 ) {
     /**
-     * Local 账户优先复用目标已有 Local；远端账户用 type + securityKey 识别同一登录。
+     * Local 账户优先复用目标已有 Local；远端账户用 type + 解密后的凭据 JSON 识别同一登录。
      * 找不到时创建新账户并切换，使 FreshRSS / Google Reader 等可以从一个 Edition 直接迁到另一个 Edition。
      */
     suspend fun resolveOrCreate(source: EditionSyncAccountSnapshot): EditionSyncAccountResolution {
@@ -34,8 +34,13 @@ class EditionSyncAccountResolver @Inject constructor(
                 current?.takeIf { it.type.id == AccountType.Local.id }
                     ?: accounts.firstOrNull { it.type.id == AccountType.Local.id }
             } else {
-                current?.takeIf { it.type.id == source.typeId && it.securityKey == source.securityKey }
-                    ?: accounts.firstOrNull { it.type.id == source.typeId && it.securityKey == source.securityKey }
+                current?.takeIf {
+                    it.type.id == source.typeId &&
+                        EditionSyncCredentialTransfer.credentialsEqual(it.securityKey, source.securityKey)
+                } ?: accounts.firstOrNull {
+                    it.type.id == source.typeId &&
+                        EditionSyncCredentialTransfer.credentialsEqual(it.securityKey, source.securityKey)
+                }
             }
 
         if (existing != null) {

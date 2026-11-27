@@ -12,10 +12,11 @@ abstract class SecurityKey {
     }
 
     override fun equals(other: Any?): Boolean {
-        return this.toString() == other.toString()
+        return other != null && javaClass == other.javaClass &&
+            Gson().toJson(this) == Gson().toJson(other)
     }
 
     override fun hashCode(): Int {
-        return javaClass.hashCode()
+        return 31 * javaClass.hashCode() + Gson().toJson(this).hashCode()
     }
 }

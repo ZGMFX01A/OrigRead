@@ -1,6 +1,7 @@
 package me.ash.reader.domain.service
 
 import android.util.Log
+import me.ash.reader.infrastructure.exception.FeverAPIException
 import java.util.Date
 import androidx.work.ListenableWorker
 import kotlinx.coroutines.CancellationException
@@ -27,11 +28,9 @@ internal suspend fun FeverRssService.syncFeverAccount(accountId: Int): Listenabl
         saveFeverArticles(accountId, articles.articles)
         syncFeverArticleStates(api, accountId)
         removeOrphanedSubscriptions(accountId, catalog.groups, catalog.feeds)
-        accountService.update(account.copy(
-            updateAt = Date(),
-            lastArticleId = articles.lastSeenId.takeIf { it.isNotEmpty() }
-                ?.let { accountId.spacerDollar(it) } ?: account.lastArticleId,
-        ))
+        accountService.updateSyncMetadata(
+            accountId, Date(), articles.lastSeenId.takeIf { it.isNotEmpty() }?.let { accountId.spacerDollar(it) },
+        )
         ListenableWorker.Result.success()
     } catch (cancelled: CancellationException) {
         // 任务取消不转为普通同步失败。
@@ -49,19 +48,29 @@ private suspend fun FeverRssService.refreshFeverIcons(accountId: Int) {
     feedDao.update(*feeds.map { it.copy(icon = rssHelper.queryRssIconLink(it.url)) }.toTypedArray())
 }
 
-/** 远端已读/收藏状态沿用现有 Fever 兼容语义，逐篇更新任务账户。 */
+/** 为账户和状态两个 SQL 参数保留空间。 */
+private const val FEVER_STATUS_QUERY_CHUNK = 997
+
+/** 先校验完整远端状态，再用哈希集合计算差集并批量更新。 */
 private suspend fun FeverRssService.syncFeverArticleStates(api: FeverAPI, accountId: Int) {
-    val unread = api.getUnreadItems().unread_item_ids?.split(",")
-    val starred = api.getSavedItems().saved_item_ids?.split(",")
-    for (meta in articleDao.queryMetadataAll(accountId)) {
+    val unreadRaw = api.getUnreadItems().unread_item_ids ?: throw FeverAPIException("Fever unread_item_ids 缺失")
+    val savedRaw = api.getSavedItems().saved_item_ids ?: throw FeverAPIException("Fever saved_item_ids 缺失")
+    val remoteUnread = unreadRaw.split(",").map { it.trim() }.filterTo(hashSetOf()) { it.isNotEmpty() }
+    val remoteStarred = savedRaw.split(",").map { it.trim() }.filterTo(hashSetOf()) { it.isNotEmpty() }
+    val metadata = articleDao.queryMetadataAll(accountId)
+    val toBeRead = mutableListOf<String>()
+    val toBeUnread = mutableListOf<String>()
+    val toBeStarred = mutableListOf<String>()
+    val toBeUnstarred = mutableListOf<String>()
+    metadata.forEach { meta ->
         val id = meta.id.dollarLast()
-        val shouldBeUnread = unread?.contains(id)
-        val shouldBeStarred = starred?.contains(id)
-        if (meta.isUnread != shouldBeUnread) {
-            articleDao.markAsReadByArticleId(accountId, meta.id, shouldBeUnread ?: true)
-        }
-        if (meta.isStarred != shouldBeStarred) {
-            articleDao.markAsStarredByArticleId(accountId, meta.id, shouldBeStarred ?: false)
-        }
+        if (meta.isUnread && id !in remoteUnread) toBeRead += meta.id
+        if (!meta.isUnread && id in remoteUnread) toBeUnread += meta.id
+        if (!meta.isStarred && id in remoteStarred) toBeStarred += meta.id
+        if (meta.isStarred && id !in remoteStarred) toBeUnstarred += meta.id
     }
+    toBeRead.chunked(FEVER_STATUS_QUERY_CHUNK).forEach { articleDao.markAsReadByIdSet(accountId, it.toSet(), false) }
+    toBeUnread.chunked(FEVER_STATUS_QUERY_CHUNK).forEach { articleDao.markAsReadByIdSet(accountId, it.toSet(), true) }
+    toBeStarred.chunked(FEVER_STATUS_QUERY_CHUNK).forEach { articleDao.markAsStarredByIdSet(accountId, it.toSet(), true) }
+    toBeUnstarred.chunked(FEVER_STATUS_QUERY_CHUNK).forEach { articleDao.markAsStarredByIdSet(accountId, it.toSet(), false) }
 }

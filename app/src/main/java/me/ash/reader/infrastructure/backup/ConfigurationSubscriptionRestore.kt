@@ -1,6 +1,7 @@
 package me.ash.reader.infrastructure.backup
 
 import java.util.UUID
+import me.ash.reader.domain.model.account.AccountType
 import me.ash.reader.domain.model.feed.Feed
 import me.ash.reader.domain.model.feed.SourceType
 import me.ash.reader.domain.model.feed.normalizeRssReadingMode
@@ -35,8 +36,25 @@ internal fun validateSubscriptions(subscriptions: SubscriptionBackup) {
 }
 
 /** 合并订阅并返回旧 feedId 到当前 feedId 的映射，文章及额外订阅保留。 */
-internal suspend fun ConfigurationBackupService.restoreSubscriptions(subscriptions: SubscriptionBackup): Map<String, String> {
-    val accountId = accountService.getCurrentAccountId()
+internal suspend fun ConfigurationBackupService.restoreSubscriptions(subscriptions: SubscriptionBackup, targetAccountId: Int? = null): Map<String, String> {
+    val accountId = targetAccountId ?: accountService.getCurrentAccountId()
+    val account = requireNotNull(accountDao.queryById(accountId)) { "目标账户不存在" }
+    if (account.type != AccountType.Local) {
+        val existingFeeds = feedDao.queryAll(accountId).toMutableList()
+        return buildMap {
+            subscriptions.feeds.forEach { backup ->
+                val existing = findFeedByComparisonUrl(existingFeeds, backup.url) ?: return@forEach
+                val target = existing.copy(
+                    isNotification = backup.isNotification,
+                    isFullContent = backup.isFullContent,
+                    isBrowser = backup.isBrowser,
+                ).normalizeRssReadingMode()
+                feedDao.update(target)
+                existingFeeds[existingFeeds.indexOf(existing)] = target
+                put(backup.id, existing.id)
+            }
+        }
+    }
     val groups = restoreBackupGroups(subscriptions, accountId)
     val existingFeeds = feedDao.queryAll(accountId).toMutableList()
     return subscriptions.feeds.associate { backup ->
@@ -98,8 +116,8 @@ private fun BackupFeed.toRestoredFeed(existing: Feed?, target: BackupFeedTarget)
 }
 
 /** 只恢复同步偏好，不覆盖账户名称、类型、远端登录凭据和安全密钥。 */
-internal suspend fun ConfigurationBackupService.restoreAccountSettings(settings: ValidatedAccountSettings) {
-    val accountId = accountService.getCurrentAccountId()
+internal suspend fun ConfigurationBackupService.restoreAccountSettings(settings: ValidatedAccountSettings, targetAccountId: Int? = null) {
+    val accountId = targetAccountId ?: accountService.getCurrentAccountId()
     val current = requireNotNull(accountDao.queryById(accountId)) { "当前账户不存在" }
     accountDao.update(
         current.copy(

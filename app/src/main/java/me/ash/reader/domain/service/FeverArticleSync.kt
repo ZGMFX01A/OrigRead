@@ -1,6 +1,7 @@
 package me.ash.reader.domain.service
 
 import java.util.Date
+import me.ash.reader.infrastructure.exception.FeverAPIException
 import me.ash.reader.R
 import me.ash.reader.domain.model.article.Article
 import me.ash.reader.infrastructure.html.Readability
@@ -12,6 +13,7 @@ import me.ash.reader.ui.ext.spacerDollar
 
 /** Fever 既有单页数量，不足一页时结束增量获取。 */
 private const val FEVER_PAGE_SIZE = 50
+private const val MAX_FEVER_PAGES = 1000
 /** 远端秒级时间与文章摘要显示长度。 */
 private const val MILLIS_PER_SECOND = 1_000L
 private const val ARTICLE_PREVIEW_LENGTH = 280
@@ -21,15 +23,24 @@ internal data class FeverArticleRequest(
 )
 internal data class FeverArticles(val articles: List<Article>, val lastSeenId: String)
 
-/** 增量分页保持既有起始 ID 与结束条件，不引入新的历史数量限制。 */
+/** 沿用增量起点与短页结束条件，字段缺失或异常分页必须中止同步。 */
 internal suspend fun FeverRssService.fetchFeverArticles(request: FeverArticleRequest): FeverArticles {
     val articles = mutableListOf<Article>()
     var lastSeen = request.lastArticleId
+    val seenCursors = hashSetOf(lastSeen)
+    var pageCount = 0
     while (true) {
         val items = request.api.getItemsSince(lastSeen).items
-        if (items.isNullOrEmpty()) break
+            ?: throw FeverAPIException("Fever items 缺失")
+        if (items.isEmpty()) break
+        val nextId = items.lastOrNull()?.id?.takeIf { it.isNotBlank() }
+        if (items.size >= FEVER_PAGE_SIZE &&
+            (nextId == null || !seenCursors.add(nextId) || ++pageCount >= MAX_FEVER_PAGES)
+        ) {
+            throw FeverAPIException("Fever 分页游标异常，已中止同步")
+        }
         articles.addAll(items.map { mapFeverArticle(it, request) })
-        lastSeen = items.lastOrNull()?.id ?: break
+        lastSeen = requireNotNull(nextId) { "Fever item id 缺失" }
         if (items.size < FEVER_PAGE_SIZE) break
     }
     return FeverArticles(articles, lastSeen)

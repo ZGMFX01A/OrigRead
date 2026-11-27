@@ -29,7 +29,7 @@ class WebViewReaderImageTest {
     @Test
     fun `picture srcset and lazy image attributes are upgraded without changing descriptors`() {
         val body = body("""<picture><source srcset="http://i0.hdslb.com/a.jpg 1x,http://i2.hdslb.com/b.jpg 2x"><img src="https://i0.hdslb.com/a.jpg" data-src="http://i2.hdslb.com/b.jpg" data-original="http://i0.hdslb.com/a.jpg"></picture>""")
-        assertEquals("https://i0.hdslb.com/a.jpg 1x,https://i2.hdslb.com/b.jpg 2x", body.selectFirst("source")!!.attr("srcset"))
+        assertEquals("https://i0.hdslb.com/a.jpg 1x, https://i2.hdslb.com/b.jpg 2x", body.selectFirst("source")!!.attr("srcset"))
         assertEquals("https://i2.hdslb.com/b.jpg", body.selectFirst("img")!!.attr("data-src"))
         assertEquals("https://i0.hdslb.com/a.jpg", body.selectFirst("img")!!.attr("data-original"))
     }
@@ -42,21 +42,37 @@ class WebViewReaderImageTest {
     }
 
     @Test
-    fun `translated content upgrades images and retains exact HTML if nothing needs changing`() {
+    fun `translated content is sanitized and relative image paths are preserved`() {
         val translated = "<p>Translated</p><img src=\"http://i2.hdslb.com/a.jpg\">"
         val prepared = prepareWebViewReaderContent(translated, "https://t.bilibili.com/1", false)
         assertEquals("https://i2.hdslb.com/a.jpg", Jsoup.parse(prepared.html).selectFirst("img")!!.attr("src"))
         assertTrue(prepared.evidenceDocument.blocks.isEmpty())
         val unchanged = "<p>Translated  text.</p><img src='/relative.jpg'>"
-        assertEquals(unchanged, prepareWebViewReaderContent(unchanged, "https://example.com", false).html)
+        val sanitized = Jsoup.parse(prepareWebViewReaderContent(unchanged + "<script>evil()</script>", "https://example.com", false).html)
+        assertEquals("/relative.jpg", sanitized.selectFirst("img")!!.attr("src"))
+        assertEquals("Translated text.", sanitized.selectFirst("p")!!.text())
+        assertTrue(sanitized.select("script").isEmpty())
     }
 
     @Test
-    fun `links scripts video and audio URLs are not rewritten by the image fix`() {
+    fun `preparation removes scripts and leaves non image media URLs unchanged`() {
         val url = "http://i0.hdslb.com/a"
         val body = body("<a href=\"$url\">Link</a><script src=\"$url\"></script><video src=\"$url\"><source srcset=\"$url\"></video><audio src=\"$url\"></audio>")
         assertEquals(url, body.selectFirst("a")!!.attr("href"))
+        assertTrue(body.select("script").isEmpty())
+        assertEquals(url, body.selectFirst("video")!!.attr("src"))
+        assertEquals(url, body.selectFirst("source")!!.attr("srcset"))
+        assertEquals(url, body.selectFirst("audio")!!.attr("src"))
+    }
+
+    @Test
+    fun `image upgrade alone does not modify scripts links or media`() {
+        val url = "http://i0.hdslb.com/a"
+        val body = Jsoup.parseBodyFragment("<a href=\"$url\">Link</a><script src=\"$url\"></script><video src=\"$url\"><source srcset=\"$url\"></video><audio src=\"$url\"></audio><img src=\"$url\">").body()
+        upgradeReaderImageUrls(body)
+        assertEquals("https://i0.hdslb.com/a", body.selectFirst("img")!!.attr("src"))
         assertEquals(url, body.selectFirst("script")!!.attr("src"))
+        assertEquals(url, body.selectFirst("a")!!.attr("href"))
         assertEquals(url, body.selectFirst("video")!!.attr("src"))
         assertEquals(url, body.selectFirst("source")!!.attr("srcset"))
         assertEquals(url, body.selectFirst("audio")!!.attr("src"))
